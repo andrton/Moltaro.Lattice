@@ -484,6 +484,8 @@ internal sealed class ReceivedChanges
 
         ArenaAddress root;
 
+        // The root entry of an insert is not in the list of the prepared changes yet, which the caller gives
+        // back, so it is released here.
         try
         {
             root = _import.Place(received, handle, out _);

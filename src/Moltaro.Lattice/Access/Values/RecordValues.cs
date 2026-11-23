@@ -43,16 +43,16 @@ internal static class RecordValues
         return FieldValues.Normalize(field, value, nameof(value));
     }
 
-    // The values of a record as a write takes them: copied and checked again at every depth. The
-    // value of every field of the entity is checked against the bound of one value first, so that a
-    // value above it is refused before it is copied. A String or Binary value inside a collection or
-    // an owned value is not: whether the bound holds for it is the planner's, with the contracts of
-    // S18 and S19 (Q35, point 7, of Epic 1), and no entity type with such a field is stored yet.
+    // The values of a record as a write takes them: copied and checked again at every depth. The value
+    // of every field of the entity is checked against the bound of one value first, so that a value
+    // above it is refused before it is copied. A String or Binary value inside a collection or an owned
+    // value is not: no entity type with such a field is stored yet, and whether the bound holds for it
+    // is not decided.
     //
-    // A Binary value of a field of the entity is taken as the record holds it, after the same check that
-    // it is a byte[] and nothing else: the engine copies it once, into its own memory, while the write
-    // runs, or a write batch while the operation is added, and the caller keeps it unchanged until then
-    // (the planner's answer to Q43, from the accepted decision "Stable write inputs until completion"). A
+    // A Binary value of a field of the entity is taken as the record holds it, after the same check
+    // that it is a byte[] and nothing else: the engine copies it once, into its own memory, while the
+    // write runs, or a write batch while the operation is added, and the caller keeps it unchanged
+    // until then (docs/decisions/mutation-commands.md, "Stable write inputs until completion"). A
     // Binary value inside a collection or an owned value is copied with it; the engine stores no such
     // field yet.
     public static object?[] Submit(LatticeEntityType entityType, object?[] values)
@@ -182,8 +182,8 @@ internal static class RecordValues
     }
 
     // Text is held as it is given. A write refuses text that is not well-formed, a surrogate without
-    // its pair, at any depth (the planner's answer to Q41); a value set into a record is not checked
-    // for it.
+    // its pair, at any depth (docs/decisions/strings.md, "Input validity and preservation"); a value
+    // set into a record is not checked for it.
     private static object CopyText(LatticeValueDeclaration declaration, object value, Place place)
     {
         if (value is not string text)

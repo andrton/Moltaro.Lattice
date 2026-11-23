@@ -7,11 +7,10 @@ using Moltaro.Lattice.Measurements.Fixture;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
-// The scenario reads-beside-batches: how long ordinary reads are held by the publication of a write batch
-// (Epic 1, sprint S17, "Measured"), on a master and on a child that follows it in the same process, for the
-// 100,000 users of UserDatabase, MemoryOnly. A read by key of an entity that a publication has stored but
-// whose position is not published yet waits until it is (EntityTable.TakeEntry); a read of another entity
-// does not wait.
+// The scenario reads-beside-batches: how long ordinary reads are held by the publication of a write batch, on
+// a master and on a child that follows it in the same process, for the 100,000 users of UserDatabase,
+// MemoryOnly. A read by key of an entity that a publication has stored but whose position is not published
+// yet waits until it is (EntityTable.TakeEntry); a read of another entity does not wait.
 //
 // The writer, one thread, commits batches on the master that replace the users 1 to n with the values they
 // have, every batch the same n users, at a steady rate of 50,000 members a second: a batch of 1 every 20 µs,

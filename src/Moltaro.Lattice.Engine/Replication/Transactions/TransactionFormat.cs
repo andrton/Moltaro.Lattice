@@ -11,9 +11,10 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // A transaction is its sequence (UInt64), the length of its effects (UInt64), and its effects, one after
 // another until that length:
 // - Write: its kind (EffectKindEnum, one byte), the length of its root (UInt64) and the root as a load
-//   sends it — type id (UInt32), last mutation sequence (UInt64), then what Load.BlockExport writes:
-//   layout version, root payload, values out of line, in the byte order the Hello has checked. The last
-//   mutation of the root is the sequence of its transaction.
+//   sends it — type id (UInt32), last mutation sequence (UInt64), the number of its member of a write
+//   batch, 0 for a single write (UInt32) (Load.RootEnvelope), then what Load.BlockExport writes: layout
+//   version, root payload, values out of line, in the byte order the Hello has checked. The last mutation
+//   of the root is the sequence of its transaction.
 // - Delete: its kind, the type id of the entity (UInt32), then the key, in the form of the entity type
 //   of the key (Engine.Entities.PrimaryKeys.WriteKey).
 // - Unchanged: its kind and nothing more.

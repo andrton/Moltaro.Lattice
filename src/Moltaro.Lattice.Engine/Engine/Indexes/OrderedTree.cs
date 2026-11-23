@@ -8,7 +8,7 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Engine.Indexes;
 
 // The ordered tree of one secondary index: a B+tree of nodes of the arena whose published nodes never
-// change (decision on index structures, the note of 19 November 2026). Modelled on, not adapted from,
+// change (docs/decisions/index-structures.md, "Secondary index"). Modelled on, not adapted from,
 // LMDB, the principle of ROWEX and the walk of LeanStore; docs/design/ordered-index.md names them with
 // their licences and commits and tells how a descent, a split, a merge and a growth go. No code is ported.
 //

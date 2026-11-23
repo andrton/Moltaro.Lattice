@@ -2,13 +2,12 @@ using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
-// The edges of a write batch (the brief of Epic 1, sprint S17; decision O18 and the remarks of
-// ILatticeWriteBatch): a batch has no limit of its own and is executed as one write at one position
-// whatever it holds. A batch of one member takes a position and gives a revision as a single write does.
-// A batch takes one operation per entity, whatever the kinds of the two operations. A batch larger than
-// the group the commit stage forms, 32 writes or 8 MiB (docs/design/write-path.md), and one of 10,000
-// small entities with indexes under the default options, are each executed as one, at one position. An
-// empty batch is refused (WriteBatchTests).
+// The edges of a write batch (the remarks of ILatticeWriteBatch, "Executing"): a batch has no limit of its
+// own and is executed as one write at one position whatever it holds. A batch of one member takes a position
+// and gives a revision as a single write does. A batch takes one operation per entity, whatever the kinds of
+// the two operations. A batch larger than the group the commit stage forms, 32 writes or 8 MiB
+// (docs/design/write-path.md), and one of 10,000 small entities with indexes under the default options, are
+// each executed as one, at one position. An empty batch is refused (WriteBatchTests).
 public sealed class BatchEdgeTests
 {
     private const int Mebibyte = 1024 * 1024;
