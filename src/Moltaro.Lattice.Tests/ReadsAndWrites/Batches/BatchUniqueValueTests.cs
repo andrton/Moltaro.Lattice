@@ -3,18 +3,18 @@ using Moltaro.Lattice.Tests.Indexes.Unique;
 
 namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
-// A write batch is checked against the unique indexes on the state it leaves (decision on unique indexes,
-// "A conflict inside an explicit WriteBatch"; the remarks of ILatticeWriteBatch, "Executing"): entities may
-// exchange or rotate their values, and a delete frees a value another member of the same batch takes.
-// The unique values are judged only when every member passes its own condition on the state before the
-// batch; otherwise the first member that fails one is named, with its own error (Q58 of the open questions).
-// When the final state would give a value two owners the whole batch is refused with
-// UniqueConstraintViolation, the index named and the failing member numbered:
-// the member with the lowest number among those that violate; of two members that claim one value, the later;
-// against a published owner no member frees, the member that claims; and for one member that violates
-// several indexes, the index declared first in its entity type. A key with a null in any part is no value. Nothing of a refused batch is written.
-// Schemas of UniqueSchemas: Accounts (ByLogin; ByTenantAndEmail), Profiles (ByNick declared before
-// ByLogin) and Slots (ByABC, three parts that can each be null).
+// A write batch is checked against the unique indexes on the state it leaves
+// (docs/decisions/unique-indexes.md, "Observable contract"; the remarks of ILatticeWriteBatch, "Executing"):
+// entities may exchange or rotate their values, and a delete frees a value another member of the same batch
+// takes. The unique values are judged only when every member passes its own condition on the state before the
+// batch; otherwise the first member that fails one is named, with its own error
+// (ILatticeWriteBatch.CommitAsync). When the final state would give a value two owners the whole batch is
+// refused with UniqueConstraintViolation, the index named and the failing member numbered: the member with
+// the lowest number among those that violate; of two members that claim one value, the later; against a
+// published owner no member frees, the member that claims; and for one member that violates several indexes,
+// the index declared first in its entity type. A key with a null in any part is no value. Nothing of a
+// refused batch is written. Schemas of UniqueSchemas: Accounts (ByLogin; ByTenantAndEmail), Profiles (ByNick
+// declared before ByLogin) and Slots (ByABC, three parts that can each be null).
 public sealed class BatchUniqueValueTests
 {
     [Fact]

@@ -11,21 +11,20 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Batches;
 
 // A child shows no effect of a transaction of several effects before its position while it applies it, and
-// all of it to a read that begins at or after that position (the brief of Epic 1, sprint S17, Acceptance: "A
-// child never acknowledges a part. A transaction with several effects is exposed whole or not at all ... on a
-// child that applies it", as the owner read it; the finding of the breaker of S15, part 1, whose probe this
-// is). A relay (FrameRelay) sends, in the place of the transactions of 300 inserts of the master, one
-// transaction at the sequence s of the first, whose Writes all carry s as their last mutation, as a master
-// writes the members of a batch. Member 1 is A and member 300 is B, both of the tag "k"; the members between
-// are fillers. While the child applies it, readers on the child look, again and again:
+// all of it to a read that begins at or after that position (the remarks of ILatticeWriteBatch: a child
+// applies a batch as a whole). A relay (FrameRelay) sends, in the place of the transactions of 300 inserts of
+// the master, one transaction at the sequence s of the first, whose Writes all carry s as their last
+// mutation, as a master writes the members of a batch. Member 1 is A and member 300 is B, both of the tag
+// "k"; the members between are fillers. While the child applies it, readers on the child look, again and
+// again:
 // - by key: A, then B at once, and B, then A: a read that finds one finds the other;
 // - a search of the tag "k": an answer that holds A or B is at s or later, and a search that begins once the
 //   child is at s holds both; one that runs across the publication may hold one of them, as separate reads
 //   may combine states from before and after it (decision on the document model, "Atomic WriteBatch within
 //   one database");
 // - an enumeration with a session: a member is returned only once the session is at s or later.
-// The probe of the breaker found an answer that held A and not B in 10 of 10 runs of 300 members, while
-// every effect was exposed as it was installed, before the position.
+// A child that exposes every effect as it is installed, before the position, gives an answer that holds A
+// and not B in 10 of 10 runs of 300 members.
 public sealed class MergedTransactionPrefixTests
 {
     private const int Members = 300;

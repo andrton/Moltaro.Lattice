@@ -8,13 +8,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
 
 // No member of a write batch is visible in its new state before its position, by key, by a search and by an
 // enumeration, on the master that publishes it and on a child that applies it, and a read that begins at or
-// after the position sees every member (the brief of Epic 1, sprint S17, Acceptance and point 2, as the owner
-// read them; decision on the document model, "Atomic WriteBatch within one database", as the owner's answer
-// to Q57 has it). The publication of the batch of BatchSchema is held at each place between its steps
-// (HeldPublication): on the master the publication of its commit, on a child the application of its
-// transaction. While it is held, readers start, each on a thread of its own and each provably inside the
-// engine before the publication goes on (the read switch); then the publication goes on, and every answer is
-// held against s, the position of the batch:
+// after the position sees every member (docs/decisions/document-model.md, "Atomic WriteBatch within one
+// database"; the remarks of ILatticeWriteBatch). The publication of the batch of BatchSchema is held at each
+// place between its steps (HeldPublication): on the master the publication of its commit, on a child the
+// application of its transaction. While it is held, readers start, each on a thread of its own and each
+// provably inside the engine before the publication goes on (the read switch); then the publication goes on,
+// and every answer is held against s, the position of the batch:
 // - a read by key returns the state after the batch with a position at s or later, and the state before it
 //   with a position before s, an absent key included: an item the batch inserts is absent only before s,
 //   one it deletes only at s or later;

@@ -232,65 +232,71 @@ internal sealed class ChangePublisher
     }
 
     // Under the lock of the writes, for changes decided (Decide): whether a value of a unique index, a key
-    // with no null part, would have two owners on the state the changes leave, and which (decision on unique
-    // indexes, "A conflict inside an explicit WriteBatch"; Q58 of docs/work/open-questions.md). In an index a
-    // change that sets or moves a value conflicts with the published root of another entity that holds it,
-    // unless a change frees that value, by a delete or a move of its own key; and of two changes that set one
-    // value, the later conflicts, since the earlier alone would have been accepted. Of all the conflicts, in
-    // whatever entity types and indexes, the change that comes first among the changes is found, and for a
-    // change that conflicts in several indexes the index declared first in its entity type, so that what is
-    // reported depends neither on the order of the entity types nor on the order in which the check meets
-    // the conflicts. Every unique index is checked whether or not a conflict was found before it, so a check
-    // that finds none does no more than one that stops at the first. What the earliest conflict found so far
-    // cuts, for every change at or after it, is the lookup of the published owner of its value and the
-    // comparison with the value next to it in the order of the index; every value the changes set is still
-    // gathered and sorted. Neither value is in
-    // the published tree yet, so the prepared and unpublished changes of other publications are not the
-    // publisher's to know: that one of them claims or frees a value is the caller's to find
-    // (Writes.WriteCoordinator; ClaimsSameKey, Frees). One change, a single write, takes a path of its own:
-    // one descent for each index in which it sets a value and nothing else, since it frees no value it claims
-    // and cannot claim one twice, so that it needs no scratch and no sort. Inlined, so that a single change
-    // that can set no value of a unique index, a delete or one of an entity type without a unique index,
-    // makes no call for the check (JIT listing at full optimization).
+    // with no null part, would have two owners on the state the changes leave
+    // (docs/decisions/unique-indexes.md, "Observable contract"), and which. The prepared and unpublished
+    // changes of other publications are not in the published tree, so they are not the publisher's to know:
+    // that one of them claims or frees a value is the caller's to find (Writes.WriteCoordinator;
+    // ClaimsSameKey, Frees).
+    // One change, a single write, takes a path of its own (FindTakenOfOne): one descent for each index in
+    // which it sets a value and nothing else, since it frees no value it claims and cannot claim one twice,
+    // so that it needs no scratch and no sort; several changes take FindTakenOfSeveral. Inlined, so that a
+    // single change that can set no value of a unique index, a delete or one of an entity type without a
+    // unique index, makes no call for the check (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool FindTaken(Span<PreparedChange> changes, out TakenValue taken)
     {
-        if (changes.Length == 1 && (!changes[0].Table.HasUniqueIndex || changes[0].Kind == ChangeKindEnum.Delete))
+        if (changes.Length != 1)
+        {
+            return FindTakenOfSeveral(changes, out taken);
+        }
+
+        if (!changes[0].Table.HasUniqueIndex || changes[0].Kind == ChangeKindEnum.Delete)
         {
             taken = default;
 
             return false;
         }
 
-        return FindTakenChecked(changes, out taken);
+        return FindTakenOfOne(changes[0], out taken);
     }
 
-    // Reached only for one change that may set a value of a unique index, or for several changes: the check
-    // of FindTaken, for one change by its own descents, for several by each unique index of their entity
-    // types (the FindTaken of one index).
-    private bool FindTakenChecked(Span<PreparedChange> changes, out TakenValue taken)
+    // The check of FindTaken for one change that may set a value of a unique index: one descent for each
+    // unique index in which it sets a value.
+    private bool FindTakenOfOne(in PreparedChange change, out TakenValue taken)
     {
-        if (changes.Length == 1)
+        var indexes = change.Table.Indexes;
+        var current = new RootReader(_arena, change.Table.Layout!, change.Root);
+
+        for (var index = 0; index < indexes.Length; index++)
         {
-            ref var change = ref changes[0];
-            var indexes = change.Table.Indexes;
-            var current = new RootReader(_arena, change.Table.Layout!, change.Root);
-
-            for (var index = 0; index < indexes.Length; index++)
+            if (indexes[index].IsUnique && SetsValue(change, index) && indexes[index].TryFindOwner(current, out var owner))
             {
-                if (indexes[index].IsUnique && SetsValue(change, index) && indexes[index].TryFindOwner(current, out var owner))
-                {
-                    taken = new TakenValue(0, index, owner);
+                taken = new TakenValue(0, index, owner);
 
-                    return true;
-                }
+                return true;
             }
-
-            taken = default;
-
-            return false;
         }
 
+        taken = default;
+
+        return false;
+    }
+
+    // The check of FindTaken for several changes, by each unique index of their entity types
+    // (FindTakenInIndex). In an index a change that sets or moves a value conflicts with the published root
+    // of another entity that holds it, unless a change frees that value, by a delete or a move of its own key;
+    // and of two changes that set one value, the later conflicts, since the earlier alone would have been
+    // accepted. Of all the conflicts, in whatever entity types and indexes, the change that comes first among
+    // the changes is found, and for a change that conflicts in several indexes the index declared first in
+    // its entity type (docs/decisions/mutation-commands.md, "Atomic batch save with Upsert semantics"), so
+    // that what is reported depends neither on the order of the entity types nor on the order in which the
+    // check meets the conflicts. Every unique index is checked whether or not a conflict
+    // was found before it, so a check that finds none does no more than one that stops at the first. What
+    // the earliest conflict found so far cuts, for every change at or after it, is the lookup of the
+    // published owner of its value and the comparison with the value next to it in the order of the index;
+    // every value the changes set is still gathered and sorted.
+    private bool FindTakenOfSeveral(Span<PreparedChange> changes, out TakenValue taken)
+    {
         var found = new TakenValue(int.MaxValue, 0, default);
 
         foreach (var table in TablesOf(changes))
@@ -304,7 +310,7 @@ internal sealed class ChangePublisher
             {
                 if (table.Indexes[index].IsUnique)
                 {
-                    FindTaken(changes, table, index, ref found);
+                    FindTakenInIndex(changes, table, index, ref found);
                 }
             }
         }
@@ -319,7 +325,7 @@ internal sealed class ChangePublisher
     // against each other, sorted by the order of the index, equal values next to each other. A conflict of a
     // change before the one found replaces it; one of the same change does not, so that of the indexes of one
     // change the one declared first stays.
-    private void FindTaken(Span<PreparedChange> changes, EntityTable table, int index, ref TakenValue found)
+    private void FindTakenInIndex(Span<PreparedChange> changes, EntityTable table, int index, ref TakenValue found)
     {
         var unique = table.Indexes[index];
         var layout = table.Layout!;
@@ -639,6 +645,27 @@ internal sealed class ChangePublisher
         }
     }
 
+    // Under the lock of the writes: gives back what the changes took before their reservation, none of which
+    // is reserved, in the reverse of their order: the new root of an insert or a replace and the root entry of
+    // an insert, to which no index maps a key, so that no read has reached any of it.
+    public void GiveBack(ReadOnlySpan<PreparedChange> changes)
+    {
+        for (var index = changes.Length - 1; index >= 0; index--)
+        {
+            ref readonly var change = ref changes[index];
+
+            if (!change.Root.IsNull)
+            {
+                RootStorage.Free(_arena, change.Table.Layout!, change.Root);
+            }
+
+            if (change.Kind == ChangeKindEnum.Insert)
+            {
+                _roots.Release(change.Handle);
+            }
+        }
+    }
+
     // Under the lock of the writes: the first step of the publication of the changes of one publication, with
     // the stamp given (see the class): the stores before the position, the new entries of the secondary
     // indexes of every change first, then, in the order of the changes, the stores of each entity with the
@@ -722,8 +749,8 @@ internal sealed class ChangePublisher
         }
 
         // A scratch grown past KeptRoom, by this publication or by a reservation refused since the last one, is
-        // let go, so that the next publication starts with new scratch; every publication pays two loads and a
-        // test for it.
+        // let go, so that the next publication starts with new scratch; what every publication pays for it is
+        // the test of the lengths of the two arrays.
         if (_claims.Length > KeptRoom || _freed.Length > KeptRoom)
         {
             LetGoOfScratch();
