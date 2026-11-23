@@ -6,9 +6,8 @@ namespace Moltaro.Lattice.Tests.Indexes.Unique;
 //   Account.ByTenantAndEmail (Tenant, Email)  unique; Email may have no value
 //   Account.ByTenant         (Tenant)         not unique
 //
-// The master keeps the rule for every write, whichever node submits it. The two tests that
-// commit a write batch need the commit of a batch, which is not implemented yet, and are
-// skipped with its reason: remove their Skip when batches execute, and they have to pass.
+// The master keeps the rule for every write, whichever node submits it, a write batch
+// included: its unique values are judged on the state it leaves.
 public sealed class UniqueIndexTests
 {
     private const string SchemaJson = """
