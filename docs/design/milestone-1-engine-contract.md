@@ -160,8 +160,11 @@ does not change logical revisions or write a durable relocation record.
 
 ## Reader protection, publication and compaction
 
-Use the proven [arena protocol](arena-protocol.md), extended with the database
-publication barrier. Reads are protected by epochs and retired memory is freed later, as
+Use the proven [arena protocol](arena-protocol.md), with no publication barrier of the
+database: a publication of several entities publishes its position only after every one of
+them is stored, and a read does not take a stamp above the position
+([the write batch extension](arena-protocol.md#bounded-writebatch-extension)). Reads are
+protected by epochs and retired memory is freed later, as
 the [arena protocol](arena-protocol.md#deferred-reclamation-16-november-2026) says (the
 owner's decision of 16 November 2026): a read by key writes to no memory another reader
 writes to on its ordinary path, a write being published does not wait for readers, and a lookup
@@ -171,8 +174,8 @@ stated by the sprint that builds each. One logical root
 protection still covers all its owned blocks. No separate heap lock per object.
 
 Since 16 November 2026 a read takes no gate: it enters the epoch, looks up, copies and
-leaves. A write is published under the barrier of the database and the lock of the
-writes, and takes nothing after them; the dictionary and the allocator state their
+leaves. A write is published under the lock of the writes, and takes nothing after
+it; the dictionary and the allocator state their
 place in the order when they are built. There are no root stripes, no catalog gate and
 no claims. A deleted entry becomes reusable only after the reads that could see it have
 left, and a read never follows an old entry to a recreated key.
