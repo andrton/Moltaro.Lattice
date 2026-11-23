@@ -1,5 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -171,6 +173,36 @@ public sealed class ForwardedBatchTests
 
         Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+    }
+
+    // The master faults after it has taken the batch and before it has replied: the publication of the batch
+    // fails at its fault point (EngineDatabase.ArmFault), after the stores of its members and before its
+    // position. A forwarded batch then ends as a forwarded write does whose master faults while it publishes it
+    // (MasterFaultTests), in IndeterminateOutcome, and the master is Faulted; its transaction was never
+    // appended, so no member is on the child, which acknowledges no sequence of it.
+    [Fact]
+    public async Task Batch_through_a_child_whose_publication_faults_on_the_master_ends_in_IndeterminateOutcome_and_nothing_of_it_reaches_the_child()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(UniqueSchema.Schema);
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var s = PositionSequence.Of(master.Position) + 1;
+
+        master.ArmFault(EngineFaultPointEnum.DuringPublication);
+
+        var batch = child.CreateWriteBatch();
+        batch.Insert(UniqueSchema.Of(2, "grace"));
+        batch.Insert(UniqueSchema.Of(3, "alan"));
+
+        var faulted = await Assert.ThrowsAsync<LatticeException>(async () => await batch.CommitAsync().AsTask().WaitAsync(Bound));
+
+        Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, faulted.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Faulted, master.State);
+        Assert.Null(child.Set<UniqueSchema.Account>().Get(2L));
+        Assert.Null(child.Set<UniqueSchema.Account>().Get(3L));
+        Assert.All(
+            relay.FromChild.Where(frame => frame.Kind == FrameKindEnum.Applied).Select(TransactionPayload.AppliedOf),
+            sequence => Assert.True(sequence < s, $"The child acknowledged {sequence}, and the batch was to be published at {s}."));
     }
 
     // Three accounts of 4 MiB each, above the memory limit of a master of two segments of 4 MiB.
