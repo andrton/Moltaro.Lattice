@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -112,20 +111,16 @@ internal sealed class ChangePublisher
             return ReservationEnum.Reserved;
         }
 
-        return TryReserveWithIndexes(ref MemoryMarshal.GetReference(changes), changes.Length, checksUnique, out taken);
+        return TryReserveWithIndexes(changes, checksUnique, out taken);
     }
 
     // The decision, the check and the reservation of the changes of one publication, in three steps in one
     // hold (TryReserve): every change decided first, so that each is decided once and a value is checked on
     // the state they all leave; then the check, before any index reserves a node, so that changes refused
     // for a value take nothing from a pool and cost their encoded roots and the free of them; then the
-    // reservation of each index, once, and of each entity. The changes come as their first and their count,
-    // in registers, so that the call from TryReserve, inlined into the preparation, copies no span to the
-    // stack (JIT listing at full optimization).
-    private ReservationEnum TryReserveWithIndexes(ref PreparedChange first, int count, bool checksUnique, out TakenValue taken)
+    // reservation of each index, once, and of each entity.
+    private ReservationEnum TryReserveWithIndexes(Span<PreparedChange> changes, bool checksUnique, out TakenValue taken)
     {
-        var changes = MemoryMarshal.CreateSpan(ref first, count);
-
         foreach (ref var change in changes)
         {
             Decide(ref change);
