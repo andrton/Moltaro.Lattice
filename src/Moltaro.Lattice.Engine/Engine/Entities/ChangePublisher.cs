@@ -255,8 +255,9 @@ internal sealed class ChangePublisher
         return FindTakenChecked(changes, out taken);
     }
 
-    // The check of FindTaken for changes that may set a value of a unique index: several, or one that is not a
-    // delete, of an entity type with a unique index.
+    // Reached only for one change that may set a value of a unique index, or for several changes: the check
+    // of FindTaken, for one change by its own descents, for several by each unique index of their entity
+    // types (the FindTaken of one index).
     private bool FindTakenChecked(Span<PreparedChange> changes, out TakenValue taken)
     {
         if (changes.Length == 1)
@@ -479,8 +480,8 @@ internal sealed class ChangePublisher
 
     // Records with the change what it does to the index at the place given, as the change is decided and
     // before any index reserves for it, so that the check and the reservation read it (PreparedChange.BitOf).
-    // Inlined, so that the decision of an insert and of a delete makes no call for it: the ahead-of-time
-    // compiler for ARM64 leaves it a call otherwise (listing at full optimization).
+    // Inlined, so that the decision of an insert and of a delete makes no call for it: the evidence is the
+    // ARM64 listing of the NativeAOT cross-compiler, which leaves it a call otherwise; x64 inlines it anyway.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void Record(ref PreparedChange change, int index, IndexChangeEnum decided)
     {
@@ -724,8 +725,9 @@ internal sealed class ChangePublisher
 
     // The switch of the tests at a place of a publication, on the publishing thread under the lock of the
     // writes; an exception of the action fails the publication there. The test of the field is inlined, so
-    // that a publication no test armed makes no call for the switch at any of its places: the ahead-of-time
-    // compiler for ARM64 leaves the whole a call at each place otherwise (listing at full optimization).
+    // that a publication no test armed makes no call for the switch at any of its places: the evidence is the
+    // ARM64 listing of the NativeAOT cross-compiler, which leaves the whole a call at each place otherwise;
+    // x64 inlined the test already.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void OfferPublicationSwitch(PublicationPointEnum point)
     {
@@ -736,7 +738,7 @@ internal sealed class ChangePublisher
     }
 
     // The switch a test armed (OfferPublicationSwitch), run once, at the place it was armed for. Never
-    // inlined: only a test reaches it, and inlined at the four places it grows the publication.
+    // inlined: only a test reaches it, and inlined at each place it grows the publication.
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void RunPublicationSwitch(PublicationPointEnum point)
     {

@@ -272,7 +272,8 @@ internal sealed class NodePool
 
     // The end of a publication, which retired the nodes counted: the places they took are used, and what is
     // above the larger of the bound of the changes still waiting and the standing reserve goes back. Inlined,
-    // so that the end of a publication of the tree calls the trim directly (JIT listing at full optimization).
+    // so that the end of a publication of the tree calls the trim directly: only the ARM64 listing of the
+    // NativeAOT cross-compiler gains, which left it a call; x64 inlined it already.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void AfterPublication(int retired, int height, int room)
     {
