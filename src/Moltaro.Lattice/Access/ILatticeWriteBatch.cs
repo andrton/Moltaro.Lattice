@@ -270,8 +270,8 @@ public interface ILatticeWriteBatch
     /// The batch is empty or has already been submitted.
     /// </exception>
     /// <exception cref="NotSupportedException">
-    /// The batch was created on a child, or an operation is of an entity type whose writes are refused
-    /// until a feature of its schema is implemented: neither is implemented yet.
+    /// An operation is of an entity type whose writes are refused until a feature of its schema is
+    /// implemented.
     /// </exception>
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
@@ -297,8 +297,8 @@ public interface ILatticeWriteBatch
     /// The batch is empty or has already been submitted.
     /// </exception>
     /// <exception cref="NotSupportedException">
-    /// The batch was created on a child, or an operation is of an entity type whose writes are refused
-    /// until a feature of its schema is implemented: neither is implemented yet.
+    /// An operation is of an entity type whose writes are refused until a feature of its schema is
+    /// implemented.
     /// </exception>
     /// <exception cref="LatticeException">
     /// As for <see cref="CommitAsync(CancellationToken)"/>, and

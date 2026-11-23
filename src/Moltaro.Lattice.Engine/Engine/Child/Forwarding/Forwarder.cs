@@ -1,8 +1,10 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
+using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
@@ -56,6 +58,12 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 //    the call returns. The reply comes before the transaction of the write (Children.ChildConnection), so
 //    the wait begins before the child can have applied it.
 //
+// A write batch is one call (WriteBatchAsync): its request carries its members in their order, each with the
+// root the batch of the core encoded when it was added, after the head that carries the position of the
+// session (Replication.Forwarding.ForwardEncoding); the rest of the call is that of one write. The child
+// applies the transaction of the batch at its one position (Loading.ReceivedChanges), so once its clock has
+// that position every member is visible, and it acknowledges no part of it.
+//
 // The wait for the application ends otherwise: at the timeout, or at once when the child lost its master
 // or faulted, in SynchronizationTimeout with the committed position, since the write is committed and must
 // not be repeated, and an application retries on Unavailable; at the close of the child, with the result,
@@ -101,8 +109,8 @@ internal sealed class Forwarder
     }
 
     // A write of the child (see the class). The values are those of a complete entity for an insert, a
-    // replace and an upsert, and null for a delete.
-    public async ValueTask<LatticeWriteResult> WriteAsync(
+    // replace and an upsert, and null for a delete. Every refusal comes through the task.
+    public ValueTask<LatticeWriteResult> WriteAsync(
         EntityTable table,
         WriteKindEnum kind,
         EntityKey key,
@@ -111,30 +119,87 @@ internal sealed class Forwarder
         LatticeSession? session,
         CancellationToken cancellationToken)
     {
+        ChildSender sender;
+        ForwardedCall call;
+
+        try
+        {
+            ThrowIfNotStored(table);
+            sender = Begin(session, cancellationToken);
+            call = new ForwardedCall(Request(table, kind, key, values, expectedRevision, session?.MinPosition), table.EntityType);
+        }
+        catch (Exception exception)
+        {
+            return Refused(exception, cancellationToken);
+        }
+
+        return ForwardAsync(sender, call, session, cancellationToken);
+    }
+
+    // A write batch of the child (see the class): its members, in their order, as one request, which its master
+    // executes as one write (Writes.WriteCoordinator, "A write batch"), with the roots the batch of the core
+    // encoded when they were added. The members are not kept once the request is written, so their roots are
+    // held only until then. Every refusal comes through the task.
+    public ValueTask<LatticeWriteResult> WriteBatchAsync(BatchMember[] members, LatticeSession? session, CancellationToken cancellationToken)
+    {
+        ChildSender sender;
+        ForwardedCall call;
+
+        try
+        {
+            foreach (var member in members)
+            {
+                ThrowIfNotStored(member.Table);
+            }
+
+            sender = Begin(session, cancellationToken);
+            call = new ForwardedCall(BatchRequest(members, session?.MinPosition), EntityTypesOf(members));
+        }
+        catch (Exception exception)
+        {
+            return Refused(exception, cancellationToken);
+        }
+
+        return ForwardAsync(sender, call, session, cancellationToken);
+    }
+
+    private static LatticeException NoMaster() =>
+        new(LatticeErrorEnum.Unavailable, "This child has no connection to its master: the write was not executed.");
+
+    private static void ThrowIfNotStored(EntityTable table)
+    {
         if (table.Layout is null)
         {
             throw new NotSupportedException(table.Refusal);
         }
+    }
 
+    // A refusal before anything is queued, as the task of the call: cancelled for its token, failed otherwise.
+    private static ValueTask<LatticeWriteResult> Refused(Exception exception, CancellationToken cancellationToken) =>
+        exception is OperationCanceledException && cancellationToken.IsCancellationRequested
+            ? ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken)
+            : ValueTask.FromException<LatticeWriteResult>(exception);
+
+    // The checks of step 1 of a call, after those of its entity types (see the class): the token, the close, the
+    // session bound before anything is queued, and the sender of the connection, which is looked for before the
+    // request is encoded.
+    private ChildSender Begin(LatticeSession? session, CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         _clock.ThrowIfClosed();
 
-        // Before anything is queued (see the class, step 1); the dependency is read once the session is
-        // bound.
         if (session is not null)
         {
             _clock.Bind(session);
         }
 
-        var minimumPosition = session?.MinPosition;
+        return _sender ?? throw NoMaster();
+    }
 
-        if (_sender is not { } sender)
-        {
-            throw NoMaster();
-        }
-
-        var call = new ForwardedCall(Request(table, kind, key, values, expectedRevision, minimumPosition), table.EntityType);
-
+    // Steps 3 and 4 of a call (see the class): the queue of the sender, the reply, and the wait until this child
+    // has applied the position of a write its master committed.
+    private async ValueTask<LatticeWriteResult> ForwardAsync(ChildSender sender, ForwardedCall call, LatticeSession? session, CancellationToken cancellationToken)
+    {
         call.WithdrawOn(cancellationToken);
 
         // The sender ended since it was read: the call ends here, and its registration with it.
@@ -167,9 +232,6 @@ internal sealed class Forwarder
         return result;
     }
 
-    private static LatticeException NoMaster() =>
-        new(LatticeErrorEnum.Unavailable, "This child has no connection to its master: the write was not executed.");
-
     // The request of the write (see the class, step 2).
     private static OutgoingMessage Request(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticePosition? minimumPosition)
     {
@@ -200,6 +262,55 @@ internal sealed class Forwarder
         request.Complete();
 
         return request;
+    }
+
+    // The request of a write batch (Replication.Forwarding.ForwardEncoding): its head, then each member as the
+    // part of a request before its minimum position, its key, and but for a delete the length of its root and
+    // the root after its envelope, the last mutation and the member 0.
+    private static OutgoingMessage BatchRequest(BatchMember[] members, LatticePosition? minimumPosition)
+    {
+        var request = new OutgoingMessage();
+
+        ForwardEncoding.WriteBatchHead(request, minimumPosition, members.Length);
+
+        foreach (ref readonly var member in members.AsSpan())
+        {
+            var table = member.Table;
+            var typeId = (uint)table.EntityType.Id;
+
+            ForwardEncoding.WriteMemberHead(request, member.Kind, typeId, member.ExpectedRevision);
+            table.Keys.WriteKey(member.Key, request);
+
+            if (member.Kind == WriteKindEnum.Delete)
+            {
+                continue;
+            }
+
+            ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + member.Root.Length);
+            RootEnvelope.Write(request, typeId, lastMutation: 0, member: 0);
+
+            foreach (var piece in member.Root)
+            {
+                request.Write(piece.Span);
+            }
+        }
+
+        request.Complete();
+
+        return request;
+    }
+
+    // The entity types of the members, in their order, in which a refusal of the batch names its unique index.
+    private static LatticeEntityType[] EntityTypesOf(BatchMember[] members)
+    {
+        var entityTypes = new LatticeEntityType[members.Length];
+
+        for (var place = 0; place < members.Length; place++)
+        {
+            entityTypes[place] = members[place].Table.EntityType;
+        }
+
+        return entityTypes;
     }
 
     // Waits until this child has applied the position of a write its master committed (see the class).

@@ -76,7 +76,7 @@ public sealed class ChildBatchTests
         Assert.Equal(result.Position, child.Position);
     }
 
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Child_that_forwarded_a_batch_acknowledges_no_sequence_of_it_and_completes_no_commit_before_it_has_applied_all_of_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);

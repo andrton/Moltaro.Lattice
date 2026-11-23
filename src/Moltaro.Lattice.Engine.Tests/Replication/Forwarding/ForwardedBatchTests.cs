@@ -124,7 +124,7 @@ public sealed class ForwardedBatchTests
         Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Theory(Skip = SkipReason.BatchThroughAChild)]
+    [Theory]
     [MemberData(nameof(NumbersOfAUniqueRefusal))]
     public async Task Reply_to_a_batch_refused_for_a_unique_index_without_a_number_of_its_members_ends_the_connection_of_the_child(string number)
     {
@@ -149,7 +149,7 @@ public sealed class ForwardedBatchTests
     }
 
     // Three accounts of 4 MiB each, above the memory limit of a master of two segments of 4 MiB.
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Batch_whose_body_is_above_the_memory_limit_of_the_master_is_refused_at_its_first_frame_and_the_connection_goes_on()
     {
         var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize };

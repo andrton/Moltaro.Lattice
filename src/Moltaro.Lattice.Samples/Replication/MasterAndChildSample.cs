@@ -35,6 +35,14 @@ internal static class MasterAndChildSample
         await child.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada", Department = "Research", Enabled = true });
         Console.WriteLine($"Child reads its own write: {child.Set<User>().Get(1)}");
 
+        // A write batch through the child is executed by the master as one write, at one position, and
+        // completes when this child has applied all of it.
+        var batch = child.CreateWriteBatch();
+        batch.Insert(new User { Id = 4, Name = "Alan", Department = "Research", Enabled = true });
+        batch.Insert(new User { Id = 5, Name = "Edsger", Department = "Compilers", Enabled = true });
+        await batch.CommitAsync();
+        Console.WriteLine($"Child reads its own batch: {child.Set<User>().Get(4)}; {child.Set<User>().Get(5)}");
+
         // A write somewhere else, here on the master, reaches the child a moment later.
         // A session carries "what I have already seen" from one operation to the next:
         // the read below waits until the child has caught up with the write above it.

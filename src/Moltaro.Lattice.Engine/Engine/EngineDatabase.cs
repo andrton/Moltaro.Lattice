@@ -317,10 +317,10 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         return values is not null && table.Layout is { } layout ? RootValues.Export(layout, entityType, values) : ReadOnlySequence<byte>.Empty;
     }
 
-    // The commit of a write batch of the core: on a master its members go to the write coordinator as one
-    // write (Writes.WriteCoordinator.SubmitBatchAsync), each key in the form of its entity type
-    // (Sets.KeyArgument); a batch through a child is not built yet. The close, and every refusal, come
-    // through the task.
+    // The commit of a write batch of the core: its members, each key in the form of its entity type
+    // (Sets.KeyArgument), go on a master to the write coordinator as one write
+    // (Writes.WriteCoordinator.SubmitBatchAsync), and on a child to its master as one request
+    // (Child.Forwarding.Forwarder.WriteBatchAsync). The close, and every refusal, come through the task.
     ValueTask<LatticeWriteResult> IWriteBatchExecutor.ExecuteAsync(IReadOnlyList<WriteBatchOperation> operations, LatticeSession? session, CancellationToken cancellationToken)
     {
         var parts = _parts;
@@ -328,11 +328,6 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         if (parts is null)
         {
             return ValueTask.FromException<LatticeWriteResult>(new ObjectDisposedException(GetType().FullName));
-        }
-
-        if (parts.Forwarder is not null)
-        {
-            return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException("Executing a write batch through a child is not implemented yet."));
         }
 
         var members = new BatchMember[operations.Count];
@@ -345,7 +340,9 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             members[place] = new BatchMember(operation.Kind, table, KeyArgument.Of(table, operation.Key), operation.ExpectedRevision, operation.Root);
         }
 
-        return parts.Coordinator.SubmitBatchAsync(members, session, cancellationToken);
+        return parts.Forwarder is { } forwarder
+            ? forwarder.WriteBatchAsync(members, session, cancellationToken)
+            : parts.Coordinator.SubmitBatchAsync(members, session, cancellationToken);
     }
 
     // Lets no operation start any more, ends the waits for a position, lets every write admitted before it

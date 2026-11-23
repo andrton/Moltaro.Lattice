@@ -27,7 +27,7 @@ public sealed class BatchThroughAChildTests
         }
         """);
 
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Batch_through_a_child_inserts_replaces_and_deletes_by_class_and_by_name_on_both_nodes()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
@@ -62,7 +62,7 @@ public sealed class BatchThroughAChildTests
         }
     }
 
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Refusals_of_a_batch_through_a_child_carry_the_number_of_the_failing_member_and_write_nothing()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
@@ -105,7 +105,7 @@ public sealed class BatchThroughAChildTests
 
     // Both entity types declare a unique index of the identity 1; the failing member is a Badge, so the
     // refusal names the index of Badge.
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Unique_refusal_of_a_batch_through_a_child_names_the_index_of_the_entity_type_of_the_failing_member()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, TwoUniqueTypes);
