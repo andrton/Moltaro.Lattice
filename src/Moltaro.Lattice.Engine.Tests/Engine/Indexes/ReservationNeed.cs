@@ -32,11 +32,8 @@ internal static class ReservationNeed
     // The standing reserve of an index at a tree: the need of one change of key, an insert and a remove.
     public static long OfOneChangeOfKey(int height, int room, int leastSeparators) => Of(height, room, leastSeparators, inserts: 1, removes: 1);
 
-    // The linear bound of the nodes the inserts and removes given take from a tree of the height given, published
-    // in any order: p (2 h + 3) + 2 q, which LinearBoundTests holds against what publications take and says why
-    // it holds.
-    public static long NodesBound(int height, int inserts, int removes) =>
-        (inserts * ((2L * height) + 3)) + (2L * removes);
+    // The credits of a leaf and of an inner node of the index (Rule).
+    public static (int Leaf, int Inner) CreditsOf(IndexLayout layout) => (Rule.ForLeaves(layout).Credit, Rule.ForInnerNodes(layout).Credit);
 
     // The bound by levels of the nodes the inserts and the removes given take from the tree whose nodes are
     // given, published in any order: p + 2 (s0 + s1 + ...) + 2 q, where sj is the most splits level j, from

@@ -33,6 +33,9 @@ internal sealed class IndexContents
     // what a node holds a reference to the text of when a part is shared.
     public IEnumerable<object?[]> KeysInNodes => _nodes.SelectMany(node => node.Items).Select(item => item.Key);
 
+    // Every node in the order of the walk, its level and the keys of its items.
+    public IEnumerable<(int Level, IEnumerable<object?[]> Keys)> NodeKeys => _nodes.Select(node => (node.Level, node.Items.Select(item => item.Key)));
+
     // The separators of the root when it is an inner node, empty otherwise.
     public List<object?[]> RootSeparators => _nodes.Count == 0 || _nodes[0].Level == 0 ? [] : [.. _nodes[0].Items.Select(item => item.Key)];
 

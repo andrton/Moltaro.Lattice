@@ -42,6 +42,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // append leaves; keys spread among the full leaves of ascending ones, which split leaves the most at first;
 // the widest entries put each into the fullest leaf, which keep splitting leaves; and removes that merge
 // leaves and empty the tree; through splits of the root and the growth of the height by several levels.
+//
+// Beside them: the bounds the pool counts, from the progress of the levels it keeps as the tree publishes and
+// replaces nodes, are those the test counts from the nodes; a reservation withdrawn with nothing else waiting
+// gives back what it took and the standing reserve with it; and a reservation, made or refused, takes no
+// managed room for its nodes, which are linked through their own payload: what a made one takes beside them is
+// the room of the path of the writer and of the progress of its levels and, the first time, that of the
+// places of the retired list and of the segments of the arena, which the case warms up.
 public sealed class LevelBoundTests
 {
     // An entity type of two texts, with an index of the first and one of both: the credits of their leaves
@@ -174,6 +181,181 @@ public sealed class LevelBoundTests
             case "falls":
                 Assert.True(lowest < height, $"The removes did not lower the tree of {height} levels.");
                 break;
+        }
+    }
+
+    // The pool counts the bounds from the progress of each level, which it keeps as the tree publishes and
+    // replaces nodes (NodePool.Bounds): at every tree that inserts and removes of random keys leave, through
+    // splits, merges, a tree emptied and one grown again, the credits of the pool are those of the test and
+    // its bounds those the test counts from the nodes, for every count of changes.
+    [Theory]
+    [InlineData("Counted", "ByNumber", 29, 19)]
+    [InlineData("Paired", "ByFirst", 5, 5)]
+    [InlineData("Paired", "ByPair", 2, 2)]
+    [InlineData("Tripled", "ByAll", 0, 1)]
+    public void Bounds_of_the_pool_are_the_bounds_by_levels_of_the_tree_it_keeps_through_inserts_and_removes(string entityType, string indexName, int leafCredit, int innerCredit)
+    {
+        var schema = entityType == "Paired" ? Schema : IndexSchema.Utf8;
+        using var item = new RootArena(schema, entityType);
+        using var roots = new RootArena(schema, entityType);
+        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+        Assert.True(item.EntityType.TryGetIndex(indexName, out var definition));
+        var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
+        var random = new Random(17);
+        var held = new List<byte[]>();
+        var identity = 1u;
+        var differ = new List<string>();
+
+        Assert.Equal((leafCredit, innerCredit), ReservationNeed.CreditsOf(index.Layout));
+        Assert.Equal((leafCredit, innerCredit), index.Tree.Credits);
+
+        // Grows with three inserts to a remove, empties the tree, and grows it again.
+        foreach (var (changes, removesOf4) in new[] { (2_500, 1), (int.MaxValue, 4), (1_500, 1) })
+        {
+            for (var change = 0; change < changes && (removesOf4 < 4 || held.Count > 0); change++)
+            {
+                if (held.Count == 0 || random.Next(4) >= removesOf4)
+                {
+                    var entry = EntryOf(roots, index, new RootHandle(1, identity++), KeyOf(random.Next(100_000), WidthOf("mixed", random)), random);
+
+                    Assert.True(index.Tree.TryReserve(inserts: 1, removes: 0));
+                    index.Tree.Insert(entry);
+                    held.Add(entry);
+                }
+                else
+                {
+                    var place = random.Next(held.Count);
+
+                    Assert.True(index.Tree.TryReserve(inserts: 0, removes: 1));
+                    index.Tree.Remove(held[place]);
+                    held.RemoveAt(place);
+                }
+
+                retired.Drain();
+
+                if (change % 61 == 0 || held.Count < 3)
+                {
+                    CompareBounds(index, differ);
+                }
+            }
+
+            CompareBounds(index, differ);
+        }
+
+        Assert.Empty(differ);
+    }
+
+    // With nothing else waiting, a withdrawal gives back what the reservation took and the standing reserve
+    // with it (docs/design/ordered-index.md, "The standing reserve"): the pool, topped up to the reserve, the
+    // need of one change of key at the tree, holds no node afterwards.
+    [Fact]
+    public void Reservation_withdrawn_gives_back_exactly_what_it_took()
+    {
+        using var item = new RootArena(IndexSchema.Utf8, "Counted");
+        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+        Assert.True(item.EntityType.TryGetIndex("ByNumber", out var definition));
+        var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
+
+        for (var number = 0L; number < 500; number++)
+        {
+            Assert.True(index.Tree.TryReserve(inserts: 1, removes: 0));
+            index.Tree.Insert(IndexEntries.EntryOf(item, index, new RootHandle(1, (uint)number + 1), number));
+            index.Tree.TopUp();
+            retired.Drain();
+        }
+
+        foreach (var (inserts, removes) in new[] { (1, 0), (0, 1), (1, 1), (2_000, 300) })
+        {
+            index.Tree.TopUp();
+
+            var before = item.Arena.Counters;
+            var least = index.Layout.LeastSeparators;
+            var room = Math.Max(0, least - index.Tree.Nodes()[0].Items.Count);
+            var reserve = ReservationNeed.OfOneChangeOfKey(index.Tree.Height, room, least) * index.Layout.NodeBytes;
+
+            Assert.Equal(reserve, before.PreparedBytes);
+
+            Assert.True(index.Tree.TryReserve(inserts, removes));
+            index.Tree.Release(inserts, removes);
+
+            var after = item.Arena.Counters;
+
+            Assert.Equal((before.LiveBytes, 0L, before.RetiredBytes), (after.LiveBytes, after.PreparedBytes, after.RetiredBytes));
+        }
+    }
+
+    // Made: the first reservation of 1,500 inserts of a fresh index, its bound by levels of 1,604 nodes, in
+    // an arena whose reserve keeps the segments a withdrawn reservation of the same size obtained, beside a
+    // retired list that had the room of its places then, allocates at most what the path of the writer and
+    // the progress of its levels take, a few small arrays, and holds exactly its nodes. Refused: a
+    // reservation of 10,000 inserts, 10,700 nodes, in an arena of two segments of 4 MiB is refused before it
+    // takes anything, so it allocates nothing and obtains no segment.
+    [Fact]
+    public void Reservation_made_or_refused_takes_no_managed_room_for_its_nodes()
+    {
+        const long Small = 4 * 1024;
+
+        Assert.True(IndexSchema.Utf8.TryGetEntityType("Counted", out var entityType));
+        Assert.True(entityType.TryGetIndex("ByNumber", out var definition));
+
+        var layout = RootLayout.Compile(entityType, IndexSchema.Utf8);
+
+        using (var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit, ReservedSegments = 2 }))
+        {
+            var retired = new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable());
+            var warm = SecondaryIndex.Open(definition, layout, arena, retired);
+
+            Assert.True(warm.Tree.TryReserve(inserts: 1_500, removes: 0));
+            warm.Tree.Release(inserts: 1_500, removes: 0);
+
+            var index = SecondaryIndex.Open(definition, layout, arena, retired);
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var made = index.Tree.TryReserve(inserts: 1_500, removes: 0);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.True(made, "A reservation of 1,500 inserts was refused in an arena that holds it.");
+            Assert.True(allocated <= Small, $"A reservation of 1,500 inserts that was made allocated {allocated} managed bytes.");
+            Assert.Equal(ReservationNeed.NodesBound(index.Layout, [], 1_500, 0) * index.Layout.NodeBytes, arena.Counters.PreparedBytes);
+        }
+
+        using (var item = new RootArena(IndexSchema.Utf8, "Counted", 2L * RootArena.SegmentSize))
+        {
+            var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+            var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
+
+            Assert.True(index.Tree.TryReserve(inserts: 1, removes: 0));
+            index.Tree.Release(inserts: 1, removes: 0);
+
+            var counters = item.Arena.Counters;
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var made = index.Tree.TryReserve(inserts: 10_000, removes: 0);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.True(ReservationNeed.NodesBound(index.Layout, [], 10_000, 0) * index.Layout.NodeBytes > 2L * RootArena.SegmentSize);
+            Assert.False(made, "A reservation of 10,000 inserts was made in an arena of two segments.");
+            Assert.Equal(0, allocated);
+            Assert.Equal(counters, item.Arena.Counters);
+        }
+    }
+
+    // The bounds of the pool at the tree as it is against those the test counts from its nodes, for counts of
+    // inserts and removes from none to many; each that differs is added to the list.
+    private static void CompareBounds(SecondaryIndex index, List<string> differ)
+    {
+        var nodes = ReservationNeed.NodesOf(index);
+
+        foreach (var inserts in new[] { 0, 1, 2, 7, 64, 1_000, 10_000 })
+        {
+            foreach (var removes in new[] { 0, 1, 3, 1_000 })
+            {
+                var pool = index.Tree.BoundsOf(inserts, removes);
+                var counted = (ReservationNeed.NodesBound(index.Layout, nodes, inserts, removes), ReservationNeed.PlacesBound(index.Layout, nodes, inserts, removes));
+
+                if (pool != counted)
+                {
+                    differ.Add($"height {index.Tree.Height}, {nodes.Count} nodes, {inserts} inserts, {removes} removes: the pool counts {pool}, the test {counted}");
+                }
+            }
         }
     }
 
