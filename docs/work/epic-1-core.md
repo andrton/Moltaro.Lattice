@@ -1048,7 +1048,10 @@ settles. They are approved with the plan, each by name.
   them into code as written. A later brief says what its contract must be able to do, and the
   planner writes its types and members before its stage begins: S13–S17, S18–S25,
   S26–S32, S33–S36, S37–S39. The owner approves the contract of each stage before its
-  first sprint, as the [development process](process.md#the-plan) says.
+  first sprint, as the [development process](process.md#the-plan) says. For stage 5 he
+  approves it in two parts (the owner, 23 November 2026): S18 and S19 together, which add
+  no type and no member, so that S18 does not wait; then S20, S21 and S22 together,
+  written and checked as one, before S20. S23 to S25 add none.
 - A feature is delivered for entity classes and for records by name in the same sprint.
 - From S12 on, a sprint that changes what is stored also delivers what a child needs:
   the transfer of the new structure in the initial load, its live application, and a
@@ -8372,8 +8375,20 @@ child stores received bytes through its own allocation.
 
 - **Goal.** An entity with nested owned values, ordered Lists and references is stored,
   copied out, replaced and followed by children.
-- **Contract.** The declarations of S03 take effect for owned types, `List` and
-  `Reference`.
+- **Contract.** Exists whole since S03, and this sprint adds no type and no member:
+  `LatticeFieldTypeEnum.Owned`, `List` and `Reference`, `LatticeValueDeclaration`,
+  `LatticeOwnedType`, `LatticeIndexPart.Path`, `LatticeOwnedValue`, the indexer of
+  `LatticeRecord` and the binding of `Set<TEntity>()`. The sprint makes it take effect and
+  corrects what its documentation says: every sentence of the contract, of the README and
+  of the samples that says such a type is refused or not implemented yet leaves or is
+  corrected, in the sprint that makes it false — for example "Not implemented yet" of
+  `LatticeOwnedValue`, `LatticeOwnedType` and the members `Owned`, `List` and `Reference`
+  of `LatticeFieldTypeEnum` (the reviewer's list of 23 November is the checklist of the
+  sprint); the remarks of the indexers of `LatticeRecord` and of `LatticeOwnedValue` state
+  the one rule of Q55 and point to `IndexKey`, and the remarks of
+  `LatticeValueDeclaration.ValueType` no longer say that it is also all a record accepts;
+  and the remarks that bound the size of a String or a Binary value say that the bound
+  holds for each such value at every depth, not only for a field of the entity.
 - **To read.** [Collections and strings](../design/milestone-1-engine-contract.md#collections-and-strings);
   [large payloads](../decisions/physical-storage.md); [Q02, Q02.1, Q02.2](../decisions/document-model.md);
   [collection input contract](../decisions/schema-and-types.md).
@@ -8423,9 +8438,26 @@ sprint also makes the time limit of a read testable without the clock of the mac
 a database, which holds the limit in ticks and the source of the timestamp, and which the
 tests replace through `EngineTestInputs` (X3 of the exceptions register).
 `ReadTimeInsideTheEngineTests` advances that clock instead of waiting, and loses its loop
-of attempts. Shown: the listing of `EntityTable.Step` with no call added for a read
-without a time limit, the 56 pinned bytes of a search, and `ReadLimits` at 24 bytes. If
-`Step` was not changed by S17, L4 of `refactoring.md` is done in the same commit.
+of attempts.
+`CancelledStepTests.Step_that_enters_a_round_with_its_token_cancelled_and_its_time_limit_passed_ends_in_OperationCanceledException`
+becomes deterministic by the same source: the token is cancelled at the source's first
+reading, in `EntityPass.StartStep`, its loop of twenty attempts goes and its assertion is
+unchanged. Both tests failed in S17 only by running past the one-minute bound of the tests
+on a loaded workstation; neither failure was the engine's. Shown: the listing of
+`EntityTable.Step` with no call added for a read without a time limit, the 56 pinned bytes
+of a search, and `ReadLimits` at 24 bytes. L4 of `refactoring.md` is done in the same
+commit, since S17 changed `Step` without it.
+
+**Decided by the planner on 23 November 2026, for the contract of this sprint.** "By the
+same code" of the note on Q55 means the allowlist of numbers: a record and an owned value
+take a number as `IndexValue` converts it (`Pairs`, `TryConvert`), not a second list. The
+two other checks of `IndexValue.Bind`, text that is not well-formed and an integer its
+enum type does not declare, stay checks of the write and are reported as they are today,
+so no assertion that exists changes. The bound of a String or a Binary value is the same
+number at every position. S18 checks and tests it for a field of an owned value and for an
+element of a List, at depth; S19 for a key, a value and a member of a Map and a Set. A
+value above it is refused as the write is refused today, and the refusal names the place
+of the value as the validation of a write names a place today.
 
 #### S19 · Maps and Sets
 
@@ -8436,7 +8468,20 @@ child stores received bytes through its own allocation.
 
 - **Goal.** Maps and Sets are stored compactly when small and hashed when large, with
   the accepted input rules, on every node.
-- **Contract.** The declarations of S03 take effect for `Map` and `Set`.
+- **Contract.** Exists whole since S03, and this sprint adds no type and no member:
+  `LatticeFieldTypeEnum.Map` and `Set`, `LatticeValueDeclaration.Key`, `Value` and
+  `Element`, and the input rules in the remarks of `ValueType` and of
+  `ILatticeSet<TEntity>`. After this sprint no entity type is refused for a feature of its
+  schema, so every sentence of the contract, of the README and of the samples that says
+  such a type is refused or not implemented yet leaves or is corrected, in the sprint that
+  makes it false — for example the last "Not implemented yet" paragraphs of
+  `LatticeFieldTypeEnum`, the "refused until a feature of its schema is implemented"
+  sentences of `ILatticeSet<TEntity>` and of `ILatticeWriteBatch.CommitAsync` with its
+  `NotSupportedException` clause, and the sentence of `LatticeIndex` that stays true until
+  this sprint (the reviewer's list of 23 November is the checklist of the sprint). The remarks say for a class what they say for a record:
+  of members of a Set that the comparison of the schema holds equal, the first in the
+  order the collection gives them is kept, whatever comparer the caller's own collection
+  has.
 - **To read.** [Collections and strings](../design/milestone-1-engine-contract.md#collections-and-strings);
   [Map and Set lookup layout](../decisions/physical-storage.md);
   [Q03.3, collection input contract](../decisions/schema-and-types.md);
@@ -8456,6 +8501,8 @@ child stores received bytes through its own allocation.
 **Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
 given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
 a box that the keys of an index use, and its `Bind`; it does not write a second holder.
+
+**Added by the planner on 23 November 2026:** the study of this sprint answers Q60.
 
 #### S20 · Partial updates
 
@@ -8608,6 +8655,12 @@ and only the length in the slot of the text table says which form an entry has. 
 referrers of an entry cannot be found from it, and from S14 an index may be among them.
 The slot array and the bucket table of the text table never shrink.
 
+**Added by the planner on 23 November 2026, from the architect's review after S17.** S17
+added holders of arena addresses and managed room that the budget does not count (the
+scratch of a publication, the claims of a batch, the key set of a child, the stream buffer
+of a connection, V1 and V2 of [the refactoring backlog](refactoring.md)); the brief names
+each before the sprint starts.
+
 #### S24 · The memory budget
 
 **Carried from the outside review, 18 November 2026:** a child sizes its primary index
@@ -8656,6 +8709,12 @@ entry is allocated live from the start, instead of prepared and then published, 
 decided here with the charge of the text table to the budget: it changes what
 `PreparedBytes` counts for a write that is later withdrawn, which is accounting and not
 structure, so the refactoring sprint after S13 did not take it.
+
+**Added by the planner on 23 November 2026, from the architect's review after S17.** S17
+added holders of arena addresses and managed room that the budget does not count (the
+scratch of a publication, the claims of a batch, the key set of a child, the stream buffer
+of a connection, V1 and V2 of [the refactoring backlog](refactoring.md)); the brief names
+each before the sprint starts.
 
 #### S25 · Reference fixture, managed reference and the memory gate
 
