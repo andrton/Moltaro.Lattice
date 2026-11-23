@@ -120,11 +120,11 @@ internal static class ForwardPayload
         return [.. body];
     }
 
-    // The body of a write batch, from the wire format 5 (the brief of Epic 1, sprint S17, point 7, in the
-    // shapes its internal contract gives): the kind Batch, the minimum position as a request carries it, none
-    // unless given, the count of the members (UInt32), the members' own unless given, and each member in its
-    // order — its kind, the type id of its entity type, the expected revision (0 here), its key and, but for a
-    // Delete, the length of its root (UInt64) and the root, so that a member ends where its length says.
+    // The body of a write batch, from the wire format 5, in the shapes of Replication.Forwarding.ForwardEncoding:
+    // the kind Batch, the minimum position as a request carries it, none unless given, the count of the members
+    // (UInt32), the members' own unless given, and each member in its order — its kind, the type id of its
+    // entity type, the expected revision (0 here), its key and, but for a Delete, the length of its root
+    // (UInt64) and the root, so that a member ends where its length says.
     public static byte[] BatchRequest(IReadOnlyList<(byte Kind, uint TypeId, byte[] Key, byte[] Root)> members, uint? count = null, ulong? rootLength = null, LatticePosition? minimumPosition = null)
     {
         var body = new List<byte> { Batch };

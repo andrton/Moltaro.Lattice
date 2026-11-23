@@ -6,10 +6,10 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
-// A write batch travels from a child to its master as one request (the brief of Epic 1, sprint S17, point 7;
-// the shape is ForwardPayload.BatchRequest): a head with the minimum position and the count of the members,
-// then each member as its kind, its type, its expected revision, its key and its root in the load format,
-// delimited by its length. The master checks every member and the batch as a whole before anything of it is
+// A write batch travels from a child to its master as one request (docs/design/milestone-1-engine-contract.md,
+// "Replication transport and initial loading"; the shape is ForwardPayload.BatchRequest): a head with the
+// minimum position and the count of the members, then each member as its kind, its type, its expected
+// revision, its key and its root in the load format, delimited by its length. The master checks every member and the batch as a whole before anything of it is
 // used, and submits it as one write, all or nothing; a request that is not valid is a defect of the peer,
 // and the master executes nothing of it and ends the connection without a reply, as for a single write
 // (MalformedRequestTests): a member that names an entity a member before it names, a count of no member, a
