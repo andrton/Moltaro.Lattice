@@ -28,7 +28,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Batches;
 // that sequence.
 public sealed class ChildBatchTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Child_applies_a_batch_that_inserts_replaces_and_deletes_whole_at_its_position_with_the_revisions_of_the_master()
     {
         await using var nodes = await BatchNodes.OpenAsync("child");
@@ -53,7 +53,7 @@ public sealed class ChildBatchTests
         }
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Child_acknowledges_no_sequence_of_a_batch_before_it_has_applied_all_of_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
@@ -75,7 +75,7 @@ public sealed class ChildBatchTests
         Assert.Equal(result.Position, child.Position);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Child_applies_a_batch_that_exchanges_unique_values_and_goes_on_following()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);

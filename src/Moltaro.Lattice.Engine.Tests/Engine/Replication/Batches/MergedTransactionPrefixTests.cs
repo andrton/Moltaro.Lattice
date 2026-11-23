@@ -10,26 +10,31 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Batches;
 
-// A child exposes a transaction of several effects whole while it applies it (the brief of Epic 1, sprint
-// S17, Acceptance: "A child never acknowledges a part. A transaction with several effects is exposed whole or
-// not at all ... on a child that applies it"; the finding of the breaker of S15, part 1, whose probe this is).
-// A relay (FrameRelay) sends, in the place of the transactions of 300 inserts of the master, one transaction
-// at the sequence s of the first, whose Writes all carry s as their last mutation, as a master writes the
-// members of a batch. Member 1 is A and member 300 is B, both of the tag "k"; the members between are
-// fillers. While the child applies it, readers on the child look, again and again:
+// A child shows no effect of a transaction of several effects before its position while it applies it, and
+// all of it to a read that begins at or after that position (the brief of Epic 1, sprint S17, Acceptance: "A
+// child never acknowledges a part. A transaction with several effects is exposed whole or not at all ... on a
+// child that applies it", as the owner read it; the finding of the breaker of S15, part 1, whose probe this
+// is). A relay (FrameRelay) sends, in the place of the transactions of 300 inserts of the master, one
+// transaction at the sequence s of the first, whose Writes all carry s as their last mutation, as a master
+// writes the members of a batch. Member 1 is A and member 300 is B, both of the tag "k"; the members between
+// are fillers. While the child applies it, readers on the child look, again and again:
 // - by key: A, then B at once, and B, then A: a read that finds one finds the other;
-// - a search of the tag "k": an answer holds both or neither;
+// - a search of the tag "k": an answer that holds A or B is at s or later, and a search that begins once the
+//   child is at s holds both; one that runs across the publication may hold one of them, as separate reads
+//   may combine states from before and after it (decision on the document model, "Atomic WriteBatch within
+//   one database");
 // - an enumeration with a session: a member is returned only once the session is at s or later.
-// The probe of the breaker found an answer that held A and not B in 10 of 10 runs of 300 members.
+// The probe of the breaker found an answer that held A and not B in 10 of 10 runs of 300 members, while
+// every effect was exposed as it was installed, before the position.
 public sealed class MergedTransactionPrefixTests
 {
     private const int Members = 300;
 
     public static IEnumerable<TheoryDataRow<int>> Runs => Enumerable.Range(0, 3).Select(run => new TheoryDataRow<int>(run));
 
-    [Theory(Skip = SkipReason.WriteBatchMechanisms)]
+    [Theory]
     [MemberData(nameof(Runs))]
-    public async Task Child_that_applies_a_transaction_of_many_effects_shows_none_of_it_or_all_of_it(int run)
+    public async Task Child_that_applies_a_transaction_of_many_effects_shows_none_of_it_before_its_position_and_all_of_it_once_a_read_begins_after(int run)
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(Schema);
         var held = new List<WireFrame>();
@@ -82,12 +87,19 @@ public sealed class MergedTransactionPrefixTests
         {
             while (!done.IsCancellationRequested)
             {
+                var began = PositionSequence.Of(child.Position);
                 var answer = OwnThread.Wait(items.Index("ByTag").FindAsync(IndexKey.Equal("k"), new LatticeFindOptions()));
                 var ids = answer.Items.Select(item => item.Get<long>("Id")).ToList();
+                var position = PositionSequence.Of(answer.Position);
 
-                if (ids.Contains(1L) != ids.Contains(Members))
+                if ((ids.Contains(1L) || ids.Contains(Members)) && position < s)
                 {
-                    seen.Enqueue($"search: [{string.Join(", ", ids)}] at {PositionSequence.Of(answer.Position)}");
+                    seen.Enqueue($"search: [{string.Join(", ", ids)}] at {position}");
+                }
+
+                if (began >= s && ids.Count != 2)
+                {
+                    seen.Enqueue($"search begun at {began}: [{string.Join(", ", ids)}] at {position}");
                 }
 
                 if (ids.Count == 2)

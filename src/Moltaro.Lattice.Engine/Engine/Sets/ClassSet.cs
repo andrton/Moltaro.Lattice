@@ -130,7 +130,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
         try
         {
-            values = _binding.ValuesForWrite(entity, copyBinary: false);
+            values = _binding.ValuesForWrite(entity);
         }
         catch (LatticeException exception)
         {

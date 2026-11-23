@@ -72,8 +72,9 @@
     animation is in <a href="write-path.md">write-path.md</a>; the rule is in the
     <a href="milestone-1-engine-contract.md#write-coordinator-and-revision-semantics">milestone contract</a>.
     How reads are protected meanwhile: <a href="epoch-protection.html">epochs</a>.</p>
-  <p class="status"><b>Status.</b> Decided on 17 November 2026 and being built in Epic 1, sprint S09, part 2.
-    This page describes the intended behavior; persistence in PostgreSQL is not built yet.</p>
+  <p class="status"><b>Status.</b> Decided on 17 November 2026 and built in Epic 1, sprint S09, part 2;
+    the write batch on a master in sprint S17, part 2. A batch through a child and persistence in
+    PostgreSQL are not built yet.</p>
 
   <h2>The idea</h2>
   <blockquote>A write is prepared and published under one lock, one write at a time. Writes are
@@ -153,7 +154,11 @@
   <table>
     <tr><th>Guarantee</th><th>What it means</th></tr>
     <tr><td>Order for one entity</td><td>Writes to one entity are executed in the order their calls were made. A write that first waits for the position of its session takes its place when that wait ends. Calls that race on different threads have no order between them.</td></tr>
-    <tr><td>A write is whole</td><td>Readers see the state before a write or after it, never a mixture.</td></tr>
+    <tr><td>A write is whole</td><td>Readers see the state before a write or after it, never a mixture. So do they
+      each member of a batch: no answer carries the position of the batch before all of it is visible, and a
+      read that begins once its node has reached that position sees all of it. A search or an enumeration
+      that runs while the batch is published may return some members as they were before it and others as
+      after, as separate reads may.</td></tr>
     <tr><td>Cancellation is honest</td><td>Before a write is handed to the persistence step, cancelling it withdraws it and leaves nothing behind. After that, the call returns what really happened.</td></tr>
     <tr><td>Nothing is refused for being busy</td><td>Writes that arrive faster than they complete wait their turn. A write is refused only when it does not fit into the memory of the database beside the stored data.</td></tr>
     <tr><td>Reads are not held up</td><td>A read takes no lock and goes on while writes run.</td></tr>

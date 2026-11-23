@@ -5,6 +5,7 @@ using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
@@ -279,7 +280,7 @@ public sealed class ReceivedRootTests
                 Assert.True(
                     BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(typeIdAt + 4)) == lastMutation,
                     "The last mutation sequence of the root does not follow its type id: the envelope of a root is not the one the test assumes (MarkedRoot).");
-                BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(typeIdAt + 12), 999);
+                BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(typeIdAt + RootEnvelope.Size), 999);
                 break;
 
             case "a descriptor whose kind does not match its length":

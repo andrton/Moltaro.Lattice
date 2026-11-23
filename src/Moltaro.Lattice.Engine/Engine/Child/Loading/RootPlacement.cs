@@ -47,7 +47,7 @@ internal sealed class RootPlacement
     {
         var reader = new SequenceReader<byte>(bytes);
 
-        if (!RootEnvelope.TryRead(ref reader, out var typeId, out var lastMutation))
+        if (!RootEnvelope.TryRead(ref reader, out var typeId, out var lastMutation, out var member))
         {
             throw Protocol.Invalid($"A root of {bytes.Length} bytes is shorter than its envelope.");
         }
@@ -62,7 +62,7 @@ internal sealed class RootPlacement
             throw Protocol.Invalid($"A root of {layout.EntityType.Name} has no last mutation.");
         }
 
-        _changes.Place(table, lastMutation, reader, _received);
+        _changes.Place(table, lastMutation, member, reader, _received);
 
         _received++;
         _latest = Math.Max(_latest, lastMutation);

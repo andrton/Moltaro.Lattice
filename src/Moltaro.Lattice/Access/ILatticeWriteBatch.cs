@@ -8,9 +8,13 @@ namespace Moltaro.Lattice.Access;
 /// <remarks>
 /// <para>
 /// <b>What a batch guarantees.</b> The master executes all operations of a batch as one
-/// change at one position, or none of them. No reader, on the master or on a child, ever
-/// sees a part of a batch: a child applies it as a whole. The operations may address
-/// different entity types of the same database.
+/// change at one position, or none of them, and a child applies it as a whole. No reader, on
+/// the master or on a child, sees an entity of the batch in its new state before that
+/// position on that node, and a read that begins once its node has reached that position, as
+/// a read with the session of the commit does, sees all of the batch. A search
+/// or an enumeration that runs while the batch is published is no snapshot: it may return
+/// some entities of the batch as they were before it and others as after, as separate reads
+/// may. The operations may address different entity types of the same database.
 /// </para>
 /// <para>
 /// <b>What a batch is not.</b> The batch is one transaction of the database, but not a
@@ -20,8 +24,13 @@ namespace Moltaro.Lattice.Access;
 /// that the entity has not changed since it was read.
 /// </para>
 /// <para>
-/// <b>Building.</b> Adding an operation contacts nothing. The entity or record is copied
-/// when it is added, so later edits of the object are not part of the batch. A batch
+/// <b>Building.</b> Adding an operation to a batch of an open database contacts nothing. The
+/// entity or record is copied when it is added, so later edits of the object are not part of
+/// the batch. Once the database is closed, every operation added is refused with
+/// <see cref="ObjectDisposedException"/>, whatever its kind; a mistake of the caller's own is
+/// reported first, as on an open database: a second operation for one entity with
+/// <see cref="ArgumentException"/>, an operation added to a batch already submitted with
+/// <see cref="InvalidOperationException"/>. A batch
 /// takes one operation per entity. Two operations address the same entity when they name the
 /// same entity type and their primary keys are equal as the schema compares them: an integer
 /// key by its value whatever the width it was given in, a String key under the comparison
@@ -72,6 +81,7 @@ public interface ILatticeWriteBatch
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the entity violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Insert<TEntity>(TEntity entity)
         where TEntity : class;
 
@@ -83,6 +93,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Insert(LatticeRecord record);
 
     /// <summary>Adds the replacement of an existing entity as a whole.</summary>
@@ -93,6 +104,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace<TEntity>(TEntity entity)
         where TEntity : class;
 
@@ -108,6 +120,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace<TEntity>(TEntity entity, LatticeRevision expectedRevision)
         where TEntity : class;
 
@@ -119,6 +132,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace(LatticeRecord record);
 
     /// <summary>
@@ -133,6 +147,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace(LatticeRecord record, LatticeRevision expectedRevision);
 
     /// <summary>
@@ -146,6 +161,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Upsert<TEntity>(TEntity entity)
         where TEntity : class;
 
@@ -159,6 +175,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Upsert(LatticeRecord record);
 
     /// <summary>
@@ -175,6 +192,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TEntity>(object key)
         where TEntity : class;
 
@@ -193,6 +211,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TEntity>(object key, LatticeRevision expectedRevision)
         where TEntity : class;
 
@@ -210,6 +229,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TKey>(string entityName, TKey key)
         where TKey : notnull;
 
@@ -228,6 +248,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TKey>(string entityName, TKey key, LatticeRevision expectedRevision)
         where TKey : notnull;
 
@@ -248,7 +269,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
     /// </exception>
-    /// <exception cref="NotSupportedException">Executing a batch is not implemented yet.</exception>
+    /// <exception cref="NotSupportedException">
+    /// The batch was created on a child, or an operation is of an entity type whose writes are refused
+    /// until a feature of its schema is implemented: neither is implemented yet.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
     /// <see cref="LatticeErrorEnum.DuplicateKey"/>, <see cref="LatticeErrorEnum.NotFound"/>,
@@ -272,7 +296,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
     /// </exception>
-    /// <exception cref="NotSupportedException">Executing a batch is not implemented yet.</exception>
+    /// <exception cref="NotSupportedException">
+    /// The batch was created on a child, or an operation is of an entity type whose writes are refused
+    /// until a feature of its schema is implemented: neither is implemented yet.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// As for <see cref="CommitAsync(CancellationToken)"/>, and
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/> when the session belongs to another

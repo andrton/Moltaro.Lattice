@@ -14,7 +14,7 @@ internal enum PreparationEnum
     RefusedForMemory = 2,
 
     // A value of a unique index decided it: it is refused with UniqueConstraintViolation, or it waits for
-    // the one write that holds the value (PendingWriteStateEnum.WaitingForValue). It holds nothing, its
+    // the one write that holds the value (PendingWriteStateEnum.WaitingForWrite). It holds nothing, its
     // outcome or its wait is decided, and the caller does nothing more for it.
     DecidedByValue = 3,
 }

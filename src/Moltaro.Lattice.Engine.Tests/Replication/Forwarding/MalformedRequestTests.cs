@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
 
@@ -120,8 +121,8 @@ public sealed class MalformedRequestTests
         switch (damage)
         {
             case "a root of an unknown layout version":
-                // After the type id and the last mutation sequence (MarkedRoot).
-                BinaryPrimitives.WriteUInt32LittleEndian(root.AsSpan(sizeof(uint) + sizeof(ulong)), 999);
+                // After the type id, the last mutation sequence and the member (MarkedRoot).
+                BinaryPrimitives.WriteUInt32LittleEndian(root.AsSpan(RootEnvelope.Size), 999);
                 break;
 
             case "a root with a descriptor that does not match its length":

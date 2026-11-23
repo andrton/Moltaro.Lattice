@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
@@ -64,7 +65,7 @@ namespace Moltaro.Lattice.Engine;
 // the close frees the arena only after the reads and the writes in progress have ended. No code of the
 // application runs, and nothing waits, while a read is inside.
 //
-internal sealed partial class EngineDatabase : ILatticeDatabase
+internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExecutor
 {
     private readonly LatticeDatabaseOptions _options;
 
@@ -297,13 +298,54 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
             : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
     }
 
-    // The batch of the core: building it works, and its commit is NotSupportedException, since the commit of
-    // a batch is not built yet.
+    // The batch of the core, whose members this database encodes as they are added (EncodeRoot) and executes
+    // when it is committed (ExecuteAsync).
     public ILatticeWriteBatch CreateWriteBatch()
     {
         ThrowIfNotReady();
 
-        return new WriteBatch(Part(_parts).Schema);
+        return new WriteBatch(Part(_parts).Schema, this);
+    }
+
+    // The root of a member of a write batch, encoded when it is added, on the thread of the caller and
+    // outside every lock (Entities.RootValues.Export); empty for a delete and for an entity type the engine
+    // does not store. ObjectDisposedException once the database is closed, for every kind of member.
+    ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values)
+    {
+        var table = Part(_parts).Operations[entityType].Table;
+
+        return values is not null && table.Layout is { } layout ? RootValues.Export(layout, entityType, values) : ReadOnlySequence<byte>.Empty;
+    }
+
+    // The commit of a write batch of the core: on a master its members go to the write coordinator as one
+    // write (Writes.WriteCoordinator.SubmitBatchAsync), each key in the form of its entity type
+    // (Sets.KeyArgument); a batch through a child is not built yet. The close, and every refusal, come
+    // through the task.
+    ValueTask<LatticeWriteResult> IWriteBatchExecutor.ExecuteAsync(IReadOnlyList<WriteBatchOperation> operations, LatticeSession? session, CancellationToken cancellationToken)
+    {
+        var parts = _parts;
+
+        if (parts is null)
+        {
+            return ValueTask.FromException<LatticeWriteResult>(new ObjectDisposedException(GetType().FullName));
+        }
+
+        if (parts.Forwarder is not null)
+        {
+            return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException("Executing a write batch through a child is not implemented yet."));
+        }
+
+        var members = new BatchMember[operations.Count];
+
+        for (var place = 0; place < members.Length; place++)
+        {
+            var operation = operations[place];
+            var table = parts.Operations[operation.EntityType].Table;
+
+            members[place] = new BatchMember(operation.Kind, table, KeyArgument.Of(table, operation.Key), operation.ExpectedRevision, operation.Root);
+        }
+
+        return parts.Coordinator.SubmitBatchAsync(members, session, cancellationToken);
     }
 
     // Lets no operation start any more, ends the waits for a position, lets every write admitted before it
@@ -632,7 +674,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
             var memoryLimit = MemoryLimitInForce();
             var (schema, counts) = await ChildLoad.ReceiveSchemaAsync(master, masterUri, memoryLimit, token).ConfigureAwait(false);
             var parts = Build(schema, master.Master.History, child: true);
-            var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, parts.Tables, parts.Writes, _barrier, Fault);
+            var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, parts.Tables, parts.Publisher, parts.Writes, _barrier, Fault);
             var end = await ChildLoad.ReceiveRootsAsync(master, changes, parts.Tables, parts.Writes, counts, memoryLimit, token).ConfigureAwait(false);
 
             // The load is complete; the transactions of (S, R] follow LoadEnd: the child is CatchingUp
@@ -754,6 +796,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
                 Clock = clock,
                 Writes = writes,
                 Coordinator = coordinator,
+                Publisher = changes,
                 Delivery = delivery,
                 Forwarder = forwarder,
                 Tables = tables,

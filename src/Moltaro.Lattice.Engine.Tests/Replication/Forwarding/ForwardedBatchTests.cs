@@ -41,7 +41,7 @@ public sealed class ForwardedBatchTests
         new("a number beyond the members"),
     ];
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact(Skip = SkipReason.BatchThroughAChild)]
     public async Task Batch_request_in_its_shape_is_executed_whole_with_one_reply()
     {
         await using var master = await LoadedPeer.OpenMasterAsync();
@@ -62,7 +62,7 @@ public sealed class ForwardedBatchTests
         Assert.NotEqual(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory(Skip = SkipReason.BatchThroughAChild)]
     [MemberData(nameof(Damages))]
     public async Task Batch_request_that_is_not_valid_ends_the_connection_and_nothing_of_it_is_executed(string damage)
     {
@@ -89,7 +89,7 @@ public sealed class ForwardedBatchTests
         Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory(Skip = SkipReason.BatchThroughAChild)]
     [MemberData(nameof(NumbersOfAUniqueRefusal))]
     public async Task Reply_to_a_batch_refused_for_a_unique_index_without_a_number_of_its_members_ends_the_connection_of_the_child(string number)
     {
@@ -114,7 +114,7 @@ public sealed class ForwardedBatchTests
     }
 
     // Three accounts of 4 MiB each, above the memory limit of a master of two segments of 4 MiB.
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact(Skip = SkipReason.BatchThroughAChild)]
     public async Task Batch_whose_body_is_above_the_memory_limit_of_the_master_is_refused_at_its_first_frame_and_the_connection_goes_on()
     {
         var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize };

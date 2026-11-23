@@ -9,7 +9,7 @@ public sealed class BatchMemoryTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_the_memory_budget_cannot_hold_is_refused_whole_and_changes_nothing()
     {
         await using var database = await TestDatabases.OpenAsync(new LatticeDatabaseOptions

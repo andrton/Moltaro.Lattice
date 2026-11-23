@@ -134,7 +134,7 @@ internal sealed class RequestReceiver
     {
         var reader = new SequenceReader<byte>(root);
 
-        if (!RootEnvelope.TryRead(ref reader, out var rootTypeId, out var lastMutation))
+        if (!RootEnvelope.TryRead(ref reader, out var rootTypeId, out var lastMutation, out _))
         {
             throw Protocol.Invalid("The root of a forwarded write ends before its type id and its last mutation.");
         }

@@ -187,7 +187,7 @@ internal sealed class Forwarder
             {
                 RootValues.Write(ref writer, table.EntityType, values!);
                 ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + writer.ExportLength);
-                RootEnvelope.Write(request, (uint)table.EntityType.Id, lastMutation: 0);
+                RootEnvelope.Write(request, (uint)table.EntityType.Id, lastMutation: 0, member: 0);
                 writer.Export(request);
             }
             catch

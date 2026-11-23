@@ -120,7 +120,7 @@ List stores its count and an ordered chunk directory. Fixed-width elements are
 packed by schema stride; complex elements contain owned descriptors. Indexing uses
 chunk arithmetic/directory lookup; insert/remove may prepare and shift the affected
 suffix. Never reorder elements to improve storage. Temporary work remains subject
-to the root/batch byte budget.
+to the memory budget of the instance.
 
 Map/Set use packed entries and linear lookup up to 8 elements initially. Larger
 values add a power-of-two open-addressed bucket directory, linear probing, cached
@@ -160,8 +160,11 @@ does not change logical revisions or write a durable relocation record.
 
 ## Reader protection, publication and compaction
 
-Use the proven [arena protocol](arena-protocol.md), extended with the database
-publication barrier. Reads are protected by epochs and retired memory is freed later, as
+Use the proven [arena protocol](arena-protocol.md), with no publication barrier of the
+database: a publication of several entities publishes its position only after every one of
+them is stored, and a read does not take a stamp above the position
+([the write batch extension](arena-protocol.md#bounded-writebatch-extension)). Reads are
+protected by epochs and retired memory is freed later, as
 the [arena protocol](arena-protocol.md#deferred-reclamation-16-november-2026) says (the
 owner's decision of 16 November 2026): a read by key writes to no memory another reader
 writes to on its ordinary path, a write being published does not wait for readers, and a lookup
@@ -171,8 +174,8 @@ stated by the sprint that builds each. One logical root
 protection still covers all its owned blocks. No separate heap lock per object.
 
 Since 16 November 2026 a read takes no gate: it enters the epoch, looks up, copies and
-leaves. A write is published under the barrier of the database and the lock of the
-writes, and takes nothing after them; the dictionary and the allocator state their
+leaves. A write is published under the lock of the writes, and takes nothing after
+it; the dictionary and the allocator state their
 place in the order when they are built. There are no root stripes, no catalog gate and
 no claims. A deleted entry becomes reusable only after the reads that could see it have
 left, and a read never follows an old entry to a recreated key.
@@ -194,12 +197,15 @@ not escapable Memory owners. Compiler/lifetime misuse tests and callback-excepti
 cleanup are mandatory. Unsafe caller code is outside the managed borrowing contract.
 
 Publication is one at a time under the lock of the writes and excludes no read. An
-explicit WriteBatch is published so that no operation observes it half published: a read
-by key reads one entity, the position of the batch is published after the last of its
-roots, and an operation that reads several entities in one step validates against the
-publication of batches. The mechanism is stated by the sprint that builds the batch
-(S17); a child never exposes a prefix of a batch nor advances its applied position past
-a part of one.
+explicit WriteBatch is published so that no read takes one of its entities in its new state
+before its position, and a read that begins at that position sees all of it: every entity of
+the batch is stored with the stamp of the batch before its position is published, and a read
+does not take a stamp above the position, so a read that meets an entity of the batch first
+waits for the position ([write path](write-path.md#how-a-publication-is-made)). A read by key
+reads one entity and is exact. A search or an enumeration that runs across the publication
+is no snapshot: a step goes on after a take that waited, and it may return some entities of
+the batch as they were before and others as after, as separate reads may. A child never
+exposes a prefix of a batch nor advances its applied position past a part of one.
 All read, index, scan and compaction entry points participate. Publication
 only installs reserved values/nodes/descriptors and advances the applied position;
 it does no I/O, validation, pool growth or user callbacks. Unexpected failure marks
@@ -331,7 +337,11 @@ proven source; the study of S09, part 2 names the sources). A call takes the loc
 and prepares its write in place: it looks the key up, checks its conditions against the
 published state, encodes its values into prepared blocks and reserves everything its
 publication needs. No other write runs meanwhile, so nothing has to be reserved against
-another writer. A WriteBatch is prepared the same way, all of its entities in one hold.
+another writer. A WriteBatch is prepared the same way, all of its entities in one hold,
+member by member in their order, each placed from the root it was encoded to when the
+application added it, and its changes are reserved and checked together on the state they
+leave; which member fails is judged in two phases
+([write path](write-path.md#a-write-batch)). A batch through a child is not built yet.
 
 The prepared write joins the open group. When no group is in the persistence step, the group
 is handed to it at once; when that step completes at once, as in MemoryOnly, the caller
@@ -341,7 +351,8 @@ a larger write alone, never waiting to fill — and whoever completes the persis
 publishes its group in order and hands over the next. A write to an entity that has an
 earlier write not yet completed — prepared and unpublished, or itself waiting — waits
 behind the latest such write, first in first out, and holds nothing while it waits; so
-does a batch one of whose entities has one. It is prepared when that write completes in
+does a batch one of whose entities has one, and a single write whose latest such write is
+a batch waits for that batch. It is prepared when that write completes in
 any way, published, refused or cancelled, and is checked against the state published
 then. In MemoryOnly this happens only while a write refused for memory is being
 resolved. A write whose token is cancelled before its dispatch is never dispatched.
@@ -359,7 +370,10 @@ The host process need not exit.
 
 Each logical root change receives the operation position as its new revision component.
 The opaque revision binds history, type/key and that position; a revision from another
-identity cannot match accidentally. For a caller it stays opaque: two revisions of one
+identity cannot match accidentally. The entities of one WriteBatch share its position, so
+the revision of each also holds the number of its member, from 1 in the order of the
+members for a batch of two or more, and 0 for a single write and for a batch of one, which
+travels to a child with the root. For a caller it stays opaque: two revisions of one
 entity can be compared for equality and nothing else — no order, no conversion to a
 position, no meaning across entities. Recreated roots receive a new position. Confirmed
 collection/absence no-ops retain root revisions but receive a durable result and stream

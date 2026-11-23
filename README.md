@@ -20,9 +20,9 @@ the whole database from its master over TCP while the master keeps writing, buil
 own indexes, then follows its changes, and forwards its own writes to the master. A
 unique index gives a value to one entity only, whichever node submits the write. A
 schema can already declare more than the engine stores: an entity type with an owned
-value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Write
-batches and PostgreSQL persistence are not implemented yet, and the contract may still
-change.
+value, a List, a Map, a Set or a reference compiles, but cannot be written yet. A write
+batch is executed on a master; a batch through a child and PostgreSQL persistence are not
+implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -210,10 +210,11 @@ which any field is missing is not compared, so any number of entities may have n
 Values are compared as the index orders them: a text by the comparison of its field. Of
 writes of one value made at the same time, through the master or through a child, at most
 one succeeds; a write of a value that another write still in progress takes or gives up
-waits for it. A batch that exchanges two values waits for the execution of a batch.
+waits for it. A batch is checked on the state it leaves, so it may exchange two values, or
+delete an entity and give its value to another.
 
-**Writing several entities together.** *The contract below is in place; executing a batch
-is not implemented yet, and `CommitAsync` throws `NotSupportedException`.* One write is
+**Writing several entities together.** *Executed on a master; a batch committed through a
+child is not implemented yet, and its `CommitAsync` fails with `NotSupportedException`.* One write is
 atomic for one entity. Writes that have to succeed or fail together are submitted as one
 write batch, which may address different entity types:
 
@@ -226,8 +227,12 @@ batch.Delete<User>(3);
 LatticeWriteResult result = await batch.CommitAsync();
 ```
 
-The master executes the whole batch at one position or refuses it as a whole; no reader,
-on any node, sees a part of it. A batch takes one operation per entity, and its size is
+The master executes the whole batch at one position or refuses it as a whole. No reader,
+on any node, sees an entity of the batch changed before that position on that node, and a
+read that begins once its node has reached that position, as a read with the session of the
+commit does, sees all of it; a search or an enumeration that runs while the batch is
+published is no snapshot and may return some of its entities as they were before and
+others as after. A batch takes one operation per entity, and its size is
 limited only by what the master can hold. It is not a transaction the application works inside: it cannot read, and it holds
 no lock while it is built.
 
@@ -401,7 +406,7 @@ path, from simple to complex.
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 In the contract but not implemented yet: executing a
-write batch, Durable persistence, a child that connects again after it lost its master,
+write batch through a child, Durable persistence, a child that connects again after it lost its master,
 and storing what a schema can declare beyond scalar and enum fields:
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and
 a class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
@@ -415,7 +420,7 @@ the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the public contract: the schema, and scenario tests of reads, writes, master and child, which run on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key in memory, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database.  |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities in memory, by primary key and through their secondary indexes, and commits a write batch on a master, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database.  |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |
@@ -435,8 +440,7 @@ Inside the core library:
 | --- | --- |
 | (root) | The database interface, its options, state and errors, positions, revisions and sessions |
 | `Schema` | Schema model, JSON compilation, binary save and load |
-| `Access` | Sets, records and the binding of .NET classes to entity types |
-| `Storage` | What the contract hands to the database behind it: the kind of a write |
+| `Access` | Sets, records, write batches, the kind of a write and the binding of .NET classes to entity types |
 
 ## Building
 

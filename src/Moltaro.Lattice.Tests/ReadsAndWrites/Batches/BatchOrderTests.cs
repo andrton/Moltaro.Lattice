@@ -13,7 +13,7 @@ public sealed class BatchOrderTests
 {
     private const int Rounds = 200;
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batches_of_the_same_entities_in_opposite_orders_never_wait_for_each_other_and_end_with_the_state_of_the_latest()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -53,7 +53,7 @@ public sealed class BatchOrderTests
         Assert.Equal(latest, users.Get(2L)!.Name);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Single_write_batch_and_single_write_of_one_entity_are_executed_in_the_order_of_their_calls()
     {
         await using var database = await TestData.OpenMasterAsync();

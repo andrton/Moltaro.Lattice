@@ -19,8 +19,11 @@ Three commits, the tests before any implementation:
   `Replication/{Forwarding,Handshakes,Transactions}` of `Moltaro.Lattice.Engine.Tests`. It is the
   last commit of step 1 with code; this document follows it.
 
-A test that needs the commit of a batch is skipped with `SkipReason.WriteBatch`; one that needs
-only a mechanism of the engine with `SkipReason.WriteBatchMechanisms`. Active now and passing: the
+At the end of step 1 a test that needed the commit of a batch was skipped with one shared reason,
+and one that needed only a mechanism of the engine with another. Both are gone: the second with the
+commit of a batch on a master (`ea67085`), and the first became `SkipReason.BatchThroughAChild`
+(`73596ac`), which skips only a batch committed through a child. Active and passing at the end of
+step 1: the
 linear bounds against today's tree, the two traces' load test, a child that refuses a value of a
 published owner no effect frees, a transaction of 200 effects that names its first key at its end,
 every pair of kinds of a repeated identity, an empty commit refused at the call, and the new
@@ -77,7 +80,9 @@ Point 2:
   insert: root, stamp, Live, primary entry; a replace: mark, root, stamp; a delete: mark, Deleted,
   stamp). `PublishPositionAndAfter`: the position, then removals, old entries and retirement.
 - The search: an entry whose root entry is Free or Prepared is passed over before its stamp is
-  taken; a Deleted one is taken by its stamp. See question 4 for a step that waited.
+  taken; a Deleted one is taken by its stamp. See question 4 for a step that waited. As built (B1, form
+  C): no entry is passed over before its stamp is taken; the root entry of an insert not stored yet holds
+  the mark, and the take waits through it.
 - The capture (`Capture.TryCopy`) passes its token to `TakeEntry`.
 
 Point 3:
@@ -186,8 +191,8 @@ it through the token. Held by `CaptureDuringABatchTests` (skipped: it needs the 
    entry cannot serve. Proposed: the number of the member in its batch, 0 for a single write, kept in
    the four reserved bytes of `RootEntry` beside `State` and loaded with it as one 8-byte word inside
    the window of the stamp (no added load), folded into the high word of the revision; it travels in
-   the root envelope of a load and of a Write effect (wire format 5), and a child checks it as it checks
-   the last mutation. A single write keeps the revision it has. The alternative, an unseeded hash of type
+   the root envelope of a load and of a Write effect (wire format 5); a child stores the member it
+   receives and checks nothing about it (the planner, 22 November 2026). A single write keeps the revision it has. The alternative, an unseeded hash of type
    and key, adds a hash to every read and lets a caller make two members collide. The envelope grows by
    four bytes, which moves offsets in test helpers (`MarkedRoot`, `TransactionPayload`): edits that state
    nothing new, in the commit of point 3. Held by `BatchRevisionTests`.
@@ -210,14 +215,19 @@ it through the token. Held by `CaptureDuringABatchTests` (skipped: it needs the 
    entry of an earlier member whose root is still old, then waits at a later stored member, and after
    the position returns the later and not the earlier, in one step. Proposed: a step whose take of an
    entry waited for the position walks again from where the step began; only steps that meet a member
-   pay. Held by `WholeOrNoneTests` at `AfterFirstChange` (the replace of 2 is the first change, the
-   replace of 1 lies before it in every index).
+   pay. Held by `BeforeAndAfterThePositionTests` at `AfterFirstChange` (the replace of 2 is the first
+   change, the replace of 1 lies before it in every index). *Decided by the owner on 23 November 2026* (form C, in
+   B1 below): one step is not promised to be of one position; a step whose take waited goes on, and the
+   walk again that B1 built is removed.
 5. **What an enumeration and a search of several steps owe.** Separate reads may combine states from
    before and after the position (decision on the document model). The tests hold, for an enumeration,
    each member in its state after the batch once its session is at s or later and in its state before
    while the session is before s; a pass that began before s may miss a member inserted into a slot it
    had passed. For a search of the deleted members they hold only what one step can see. Is that the
-   reading of "seen whole by an enumeration and a search" in the Acceptance?
+   reading of "seen whole by an enumeration and a search" in the Acceptance? *Decided by the owner on 23
+   November 2026* (form C, in B1 below): a search or an enumeration that runs across the publication may
+   return some members as they were before it and others as after; no member is visible in its new state
+   before the position, and a read that begins at or after it sees every member.
 6. **The barrier in two other decision records.** `mutation-commands.md` ("publishes the complete group
    under its database barrier"; "atomic publication barrier" in the table of repeated roots) and
    `unique-indexes.md`, step 4 ("the ordinary root/WriteBatch barrier") still name it. Corrected with
@@ -299,6 +309,143 @@ batch.
   (`ArenaSegment`). The case refused in two segments is not reached either: by the linear bound the
   reservation is 4,500 nodes, 4,608,000 bytes, which two segments hold; its comment counts the need, some fifty
   thousand nodes.
+
+## Part 2, B1: point 2
+
+Part 2 is split by the coordinator into B1, point 2 proven on a child, and B2, the commit of a batch on a
+master with points 3 and 4 and the revision of a member; both are reviewed on one branch and merged
+together after the one start of the machine. B1 is `c3dfeed`, point 2 with TEXT B, TEXT 3 and the
+barrier sentences, and `312506c`, its tests on a child. What B1 built for the wholeness of one step, a
+second walk after a take that waited, is gone in form C (below).
+
+- **Form C, on the owner's word** (23 November 2026, in the coordinator's session: "Утверждаю. И пункт 1,
+  и удаление старых папок."; the reading of the Acceptance he changed that day, which the document of the
+  epic records). The engine owes five points, and a test holds each:
+  1. no member of a batch is visible in its new state before its position on that node, by key, by a
+     search and by an enumeration, on a master and on a child: `BeforeAndAfterThePositionTests`,
+     `ChildPublicationTests`, `MergedTransactionPrefixTests`;
+  2. a read that begins at or after the position sees every member: `ReadAtThePositionTests`, which
+     reads while the old entries of the members are still in the indexes, and the searches the restated
+     tests add after the publication;
+  3. the position of an answer is never below a stamp it holds: the same tests, in which the only stamps
+     above the position before the batch are those of its members, so a member in its new state at a
+     position before the batch would fail them;
+  4. a read by key is exact: the reads by key of `BeforeAndAfterThePositionTests` and
+     `ChildPublicationTests`, whose state follows their position;
+  5. no read is left waiting after a fault, a close or a cancellation: `WaitingReadTests` and
+     `ChildPublicationTests`, the close added by form C.
+
+  A search or an enumeration that runs across the publication may return some members as they were
+  before it and others as after, as separate reads may.
+- **What form C builds.** The publication in its order and the take that does not accept a stamp above
+  the position, as B1 built them; nothing else. `EntityTable.Step` goes on after a take that waited, as
+  at `a326551`: the second walk, the start of the step it went back to, `waited` of `TakeEntry`, and
+  `WalkProgress.WalkFrom`, `DropStand` and the place of a round kept apart from the entry the walk
+  stands after are removed, and `WalkProgress` is as at `a326551`. The finding P1-2 of the review of B1,
+  on what the second walk dropped, goes with it.
+- **The root entry of an insert at the mark** is kept, because it is not built: it is the state
+  `RootTable.Add` leaves until the publication stores the entry, as at `a326551`, and the take waits
+  through the mark that the stores of a replace and a delete need for the stamp. None of the five points
+  needs the wait for an insert: a step that passed over such an entry would show the insert as it was
+  before, which form C permits. But passing it over needs a load of the state before every take of a
+  step, which the wait does not: with it `Step` was measured at 4,908 bytes against 4,897, the calls the
+  same. So the brief's pass over an entry whose root is not installed is not built either.
+- **Found against the brief, by B1.** A step that passed over such an entry could then meet a later member
+  after the position and return it while the insert it passed was visible at the same position:
+  `MergedTransactionPrefixTests` found it in Release ("search: [1] at 1"). Form C permits that answer, and
+  the wait at the mark gives the same one when the walk held a leaf from before the entry was installed.
+- **The listings** (a Release driver over the public API, tiered PGO off, the driver of B2 kept outside the
+  repository; `a326551`, then `10f8403`, then form C). `Step`: 67 calls each; 4,889, 5,017 and 4,897
+  bytes; a frame of 968, 1,016 and 984. At its take it passes the token and the place of the member, the
+  member being B2's, stores no stamp, and tests nothing more. `TakeEntry`: 2, 3 and 3 calls; 130, 237 and
+  215 bytes; the same five loads of shared memory as at `a326551` (the stamp, the position, the state
+  with the member as one word, the root, the stamp), one comparison of the stamp with the position, the
+  member taken from the word, and the call that throws for the token out of the path. `TryCopy`: 8 calls
+  each; 357, 395 and 371 bytes. `TryRead`: 16 calls each; 1,329, 1,343 and 1,344 bytes. `StepWithoutWalk`
+  (7 calls, 407 bytes) and `TrySearch` (2 calls, 214 bytes) are unchanged. The allocation tests of a read
+  and of a search pass with their assertions as they were.
+- **The tests restated on the owner's word**, in a commit of their own after form C, by the restatement list
+  of B1: `WholeOrNoneTests` (renamed `BeforeAndAfterThePositionTests` since), `ChildPublicationTests`
+  and `MergedTransactionPrefixTests`, each renamed to what it now states. A search that runs across the publication finds no member before s, and at s or
+  later some of the members in their order and in their state after it (`BatchSchema.ExpectNoMemberBeforeThePosition`),
+  in place of none or all; the same searches begun after the publication find every member. Before that
+  commit, form C fails them as expected: `WholeOrNoneTests` at `AfterNewEntries` ("[11, 12]") and at
+  `AfterFirstChange` ("[2, 11, 12]"), on the master and on a child; `ChildPublicationTests` at the same two
+  places; `MergedTransactionPrefixTests` in its three runs ("search: [1] at 1", a step that held a leaf from
+  before the entry of B was installed). `SearchStepAcrossAPublicationTests` and the probes of the list are
+  not on this branch.
+- **One publisher.** A child applies its transactions through the publisher of the instance
+  (`DatabaseParts.Publisher`), which holds the switch of the tests for a master and a child alike.
+
+## Part 2, B2: the commit of a batch, points 3 and 4
+
+Seven commits after `ee4ddd2`: `d6cf900` the row "the wire format 4" of `RefusedPeerTests` (the
+planner's answer (a)); `81b3229` the child stores the member and checks nothing (answer (b)); `cc1faaa`
+the encoding at `Add` (point 8); `ea67085` the commit of a batch on a master; `fb343eb` one way to wait
+for another write; `4e1d896` the sorted claims of a prepared batch; `8927259` the calls of a single write,
+after the JIT listings.
+
+What it does beyond the names above, or otherwise:
+
+- **The boundary (point 8).** The core's `WriteBatch` takes one argument from the engine,
+  `Access/Batches/IWriteBatchExecutor`, which `EngineDatabase` implements: `EncodeRoot(entityType,
+  values)` and `ExecuteAsync(operations, session, token)`. A member is encoded at its `Add` to its root in
+  the load format after its envelope (`Entities.RootValues.Export`), an array of its exact length up to a
+  piece of a transfer (64 KiB) and the pieces of a `TransferBuffer` above, so that a root of any size is
+  held and none lies in the large object heap. The last piece is used in part, so a root above 64 KiB takes
+  up to one piece more than its length: a root of 65,598 bytes takes two pieces, 131,072 bytes, about twice
+  its length, one of 200,062 bytes four, and one of 3,145,790 bytes 49, 2 % more (the reviewer's probe).
+  Trimming the last piece needs a segment of its own beside `TransferPiece`; it is not built, as the copy is
+  managed memory held only until the outcome of the batch. `WriteBatchOperation` holds the kind, the
+  entity type, the key, the expected revision and the root. The parameter `copyBinary` of the core went
+  with the copy it made. The commit lets go of the operations, so a batch kept after it holds no root,
+  and the record of the batch in the engine lets go of its members at its outcome
+  (`PendingWrite.LetGoOfInputs`), so a task of the commit kept after it holds none either. The cost: a
+  managed copy of every root from its `Add` to the outcome of its batch.
+- **The numbers of the members.** `Writes/BatchMember.NumberOf`: from 1 in the order of the members for
+  a batch of two or more, 0 for a single write and for a batch of one, whose revision is then that of a
+  single write (the planner, 22 November 2026; the rule of the read side that needed it was dropped
+  afterwards, and the numbering is kept). `PlaceOf` gives the place a refusal reports. Held by
+  `Engine/Batches/Revisions/MemberRevisionTests`, which also holds, for answer (b), that a child reports
+  for each member the revision its master reports after the transaction and after a load.
+- **One write.** `WriteCoordinator.SubmitBatchAsync(BatchMember[] members, session, token)`: the keys
+  in the form of their entity type (`Sets.KeyArgument`, by `EngineDatabase`), one `PendingWrite` with
+  `Members` and `Keys` (`Entities.PublicationKeys`), set by `BeginBatch` apart from `Begin`. A repeated
+  identity is `ArgumentException` at the call, which the core never submits; an entity type not stored is
+  `NotSupportedException` in the task, and so is a batch on a child until part 3.
+- **The preparation.** `WriteExecutor.TryPrepareBatch`: member by member, the lookup and the condition
+  (`CheckCondition`, shared with a single write and inlined), a new root entry for an insert, the root
+  placed by the path of a forwarded write (`Place`, which `PlaceForwarded` became), then one
+  `ChangePublisher.TryReserve` over the span. A failed condition carries the place of its member; a
+  refusal for memory names no member; `TakenValue.Change` is given to the coordinator as the place of the
+  member. `PreparedWrite.BatchChanges` and `SetBatch` hold the changes in an array of the record, and
+  `Changes` spans it.
+- **One way to wait (point 4).** `PendingWrite.SharesEntityWith` replaces `IsOfSameEntity`,
+  `FindLastSharing` replaces `FindLastOfEntity`; two single writes keep the chain, and every other pair
+  waits through the list of the writes that wait for another write (`WaitingForWrite`, `Holder`). The wait
+  came with the commit of a batch, since a batch is not correct without it; `fb343eb` gives it its name and
+  one description, with no change of behavior.
+- **Unique values (point 3).** The searches for a claimant and for a write that frees a value run over
+  the changes of every prepared write; a prepared batch answers through `Entities.UniqueClaims`, the
+  places of its claims sorted by the order of each unique index and its root entries sorted, made on the
+  first question (`PreparedWrite.ClaimsOf`), so a batch nobody asks about sorts nothing. Changed from the
+  study: `Claims(change)` and `Frees(owner, index)` answer yes or no, since the batch itself is the holder.
+- **The transaction.** `TransactionEncoder.Write(tail, sequence, changes, arena)` writes one effect for
+  each change, a single write's as well; the forms of one write and one delete went.
+- **Sizes.** `PreparedChange` 96 bytes; the record of a write grows by 32 bytes, `PendingWrite` from 344
+  to 360 and `PreparedWrite` from 136 to 152, for a write that waits only (a write published in the hold of
+  its call reuses its record).
+- **The listings** (Release driver over the public API, tiered PGO off, against `ee4ddd2`). A single write
+  makes no added call on its path: `Prepare` 5, `FormGroup` 12, `MarkCompleted` 7,
+  `WriteExecutor.TryPrepare` 37, `TryPrepareInsert` 21, `TryPrepareDelete` 14, `TryPrepareReplace` 21, as
+  before. The calls `Admit` (25 to 27), `Start` (13 to 17) and `TryPrepareTwice` (22 to 24) add lie in the
+  branches of a batch or of a write that waits for a batch; `PublishOne` (7 to 8) calls the transaction
+  encoder in place of `Deliver`, only while a child is registered. `ChangePublisher`, `EntityTable.Step`
+  (67 calls, 5,017 bytes), `TakeEntry` (3, 237), `TryRead` (16, 1,344) and `TrySearch` are unchanged.
+
+Found against step 1, reported and not changed: `RefusedBatchTests.Batch_withdrawn_before_its_dispatch_gives_back_exactly_what_it_took`
+inserts accounts 2 to 200, among them 10, which the held write inserts; by point 4 the batch waits for that
+write and prepares nothing, so its first assertion fails. It stays skipped. Proposed: members from 11.
 
 ## The parts
 

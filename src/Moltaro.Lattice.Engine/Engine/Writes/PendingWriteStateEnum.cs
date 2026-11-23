@@ -37,10 +37,11 @@ internal enum PendingWriteStateEnum
     // It has its outcome, or is about to be given it: it holds nothing of the coordinator any more.
     Completed = 8,
 
-    // Waits for the one prepared and unpublished write of another entity that claims a value of a unique
-    // index the write sets or moves, or that frees one a published root holds (PendingWrite.ValueHolder):
-    // it is in the list of the writes that wait for a value, first in first out, stays the head of the
-    // chain of its entity, and holds nothing in the engine. It is prepared again from the start once that
-    // write completes, whatever it completes as.
-    WaitingForValue = 9,
+    // Waits for one other write (PendingWrite.Holder): the latest earlier write that shares an entity with
+    // it, when either of the two is a write batch; or the one prepared and unpublished write of another entity
+    // that claims a value of a unique index the write sets or moves, or that frees one a published root
+    // holds. It is in the list of the writes that wait for another write, first in first out, stays the head
+    // of the chain of its entity, and holds nothing in the engine. It is started again from the beginning
+    // once that write completes, whatever it completes as.
+    WaitingForWrite = 9,
 }

@@ -5,7 +5,8 @@ PostgreSQL persistence. One engine instance opens one database, with no partitio
 layer. The [implementation contract](milestone-1-engine-contract.md) now fixes the
 mechanisms and starting settings described as open in the earlier overview below.
 Milestone and sprint planning is tracked in [Epic 1](../work/epic-1-core.md). The former [MemoryOnly experiment](first-prototype.md)
-is not the production release scope. No production engine exists yet.
+is not the production release scope. The engine is built in steps; the
+[repository README](../../README.md) says what works today.
 
 [Architecture](index.html) · [Decision register](questions.md) · [Database scope](../decisions/database-scope.md)
 
@@ -51,6 +52,10 @@ indexes, comparison rules, coherent publication or durability.
   no engine locks; readers continue through preparation/storage I/O, and a database
   barrier closes access for whole-batch publication. Replay and replicas preserve
   that boundary. Separate reads/scans do not gain a shared snapshot.
+  **Changed by the owner on 22 November 2026** (the decision on the document model, "Atomic
+  WriteBatch within one database"): no barrier is required. The engine publishes the
+  position of a batch after every one of its entities is stored, and a read that meets one
+  of them first waits for that position ([write path](write-path.md#how-a-publication-is-made)).
 - If committed publication fails, the affected Lattice instance stops serving new
   local reads/writes and recovers through controlled close/reopen using one arena.
   The embedding application process need not terminate.
@@ -302,6 +307,9 @@ batch in one database. Construct it without engine locks, prepare
 and validate the whole group, commit it together, then publish behind a database
 barrier. Readers continue during storage I/O and wait during publication; conflicting
 database writes are scheduled separately. The barrier must cover every access path.
+**Changed by the owner on 22 November 2026:** the engine publishes a batch without a
+barrier; only a read that meets one of its entities waits, for the position of the batch
+([write path](write-path.md#how-a-publication-is-made)).
 
 This requires logical transaction boundaries in journal recovery, saved-state/capture
 and replica application. Separate reads or a scan can still cross the publication

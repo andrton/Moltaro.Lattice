@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // Sequential layout keeps the declared order. In it every field sits on its natural boundary, so
 // natural alignment adds no padding and the entry keeps its 48 bytes.
 //
-// Reads inside the protection of reads read Root, LastMutationSequence and State while the writer
+// Reads inside the protection of reads read Root, LastMutationSequence, State and Member while the writer
 // changes them, through the members Acquire… and Release…, which read with acquire and write with
 // release semantics, each field as one aligned word; Engine.Entities.ChangePublisher says in which order
 // the writer writes them and Engine.Entities.EntityTable how a read takes them as one state. The other
@@ -54,10 +54,14 @@ internal struct RootEntry
     // Where the slot and its lifetime stand.
     public RootStateEnum State;
 
-    // The four bytes the milestone contract gave to the claims of lookups. Reads protected by epochs
-    // take no claim (brief of S08), so nothing uses them; they keep the entry at its 48 bytes and its
-    // fields where the contract places them, until a later sprint gives them a use.
-    public int Reserved;
+    // The number of the member of the write batch whose publication made the last mutation, 0 for a single
+    // write, in the four bytes the milestone contract gave to the claims of lookups, which reads protected by
+    // epochs do not take: part of the revision (Engine.Entities.EntityTable.RevisionOf), so that the members
+    // of one batch, which share its position, have revisions of their own while a single write keeps its
+    // revision bit for bit. Read with the state as one aligned word (AcquireState), so that a read loads
+    // nothing more for it; a replace stores it after the mark and before the stamp of the mutation, with
+    // release semantics (ReleaseMember), an insert before the state Live.
+    public uint Member;
 
     // The root, read with acquire semantics: a read that sees a root sees what was written before
     // the store that published it.
@@ -80,6 +84,20 @@ internal struct RootEntry
     // The state, read with acquire semantics.
     public RootStateEnum AcquireState() => (RootStateEnum)Volatile.Read(ref Unsafe.As<RootStateEnum, uint>(ref State));
 
+    // The state and the member, read with acquire semantics as one aligned word: State at an offset of 40,
+    // Member after it, the state in the low half of a little-endian word.
+    public RootStateEnum AcquireState(out uint member)
+    {
+        var word = Volatile.Read(ref Unsafe.As<RootStateEnum, ulong>(ref State));
+
+        member = (uint)(word >> 32);
+
+        return (RootStateEnum)(uint)word;
+    }
+
     // Writes the state, by a store with release semantics.
     public void ReleaseState(RootStateEnum state) => Volatile.Write(ref Unsafe.As<RootStateEnum, uint>(ref State), (uint)state);
+
+    // Writes the member, by a store with release semantics.
+    public void ReleaseMember(uint member) => Volatile.Write(ref Member, member);
 }

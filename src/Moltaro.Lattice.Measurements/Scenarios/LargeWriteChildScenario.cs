@@ -262,7 +262,9 @@ internal static class LargeWriteChildScenario
         public void Copy(EntityTable table, Arena arena, ArenaAddress root)
         {
             _sequence++;
-            TransactionEncoder.Write(_tail, _sequence, table, arena, root);
+            var change = new PreparedChange(ChangeKindEnum.Insert, table, default, default, root, default);
+
+            TransactionEncoder.Write(_tail, _sequence, new ReadOnlySpan<PreparedChange>(in change), arena);
             _tail.Commit();
 
             while (_reader.HasBytes())

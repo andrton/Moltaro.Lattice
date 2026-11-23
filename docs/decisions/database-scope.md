@@ -40,9 +40,10 @@ or reserve shared between independently opened databases selected by this decisi
 Plain remains the default string policy; opted-in Dictionary fields share one logical
 string dictionary in the database. Entry counts and safe reclamation remain required.
 
-The accepted bounded WriteBatch now groups objects in this database. Its publication
-barrier protects the database's local access paths while the complete batch is
-installed. Readers remain available during preparation/storage I/O; separate reads
+The accepted bounded WriteBatch now groups objects in this database. Its atomic
+publication makes no member visible to the database's local access paths before the
+complete batch is installed (amended on 22 November 2026, the owner's answer to Q57 of the
+open questions). Readers remain available during preparation/storage I/O; separate reads
 and scans still have no shared snapshot. Ordinary operations retain per-root
 coordination. No cross-database transaction or application-held long lock is added.
 

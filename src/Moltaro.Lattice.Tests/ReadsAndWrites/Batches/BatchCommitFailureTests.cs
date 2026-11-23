@@ -4,11 +4,12 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // public API"; brief of Epic 1, sprint S14, part 2, acceptance (c)): what the caller can know from its own
 // arguments is thrown at the call — a batch submitted a second time, or with no operation —, and everything
 // the database decides comes through the task: the refusal of a member, the close of the database, a
-// token cancelled before the batch is executed, a session of another history. A failing member refuses
+// token cancelled before the batch is executed, a session of another history, a member of an entity type
+// the engine does not store yet. A failing member refuses
 // the whole batch and carries its number (the remarks of ILatticeWriteBatch, "Executing").
 public sealed class BatchCommitFailureTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_submitted_a_second_time_is_refused_at_the_call()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -31,7 +32,7 @@ public sealed class BatchCommitFailureTests
         Assert.Throws<InvalidOperationException>(() => { _ = batch.CommitAsync(new LatticeSession()); });
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Refusal_of_a_member_comes_through_the_task()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -47,7 +48,7 @@ public sealed class BatchCommitFailureTests
         Assert.Equal(0, refused.OperationIndex);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Close_of_the_database_comes_through_the_task()
     {
         var database = await TestData.OpenMasterAsync();
@@ -60,7 +61,7 @@ public sealed class BatchCommitFailureTests
         await Assert.ThrowsAsync<ObjectDisposedException>(() => commit.AsTask());
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Token_cancelled_before_the_batch_is_executed_comes_through_the_task_and_nothing_is_written()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -77,7 +78,7 @@ public sealed class BatchCommitFailureTests
         Assert.Equal(before, database.Position);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Session_of_another_history_comes_through_the_task_and_nothing_is_written()
     {
         await using var other = await TestData.OpenMasterAsync();
@@ -95,7 +96,49 @@ public sealed class BatchCommitFailureTests
         Assert.Null(database.Set<User>().Get(1L));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    // Item holds an owned value, which the engine does not store yet; Plain is stored.
+    [Theory]
+    [InlineData("insert")]
+    [InlineData("delete")]
+    public async Task Member_of_an_entity_type_the_engine_does_not_store_yet_is_not_supported_through_the_task_and_nothing_is_written(string kind)
+    {
+        var schema = LatticeSchema.Compile("""
+            {
+              "OwnedTypes": [ { "Id": 1, "Name": "Stamp", "Fields": [ { "Id": 1, "Name": "Text", "Type": "String" } ] } ],
+              "EntityTypes": [
+                { "Id": 1, "Name": "Item", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Value", "Type": "Owned", "OwnedType": "Stamp" } ], "PrimaryKey": [1] },
+                { "Id": 2, "Name": "Plain", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] }
+              ]
+            }
+            """);
+        await using var database = await TestData.OpenMasterAsync(schema: schema);
+        var items = database.Set("Item");
+        var plain = database.Set("Plain");
+        Assert.True(schema.TryGetOwnedType("Stamp", out var stamp));
+        var before = database.Position;
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(new LatticeRecord(plain.EntityType) { ["Id"] = 1L });
+
+        if (kind == "insert")
+        {
+            batch.Insert(new LatticeRecord(items.EntityType) { ["Id"] = 1L, ["Value"] = new LatticeOwnedValue(stamp!) { ["Text"] = "a" } });
+        }
+        else
+        {
+            batch.Delete("Item", 1L);
+        }
+
+        var commit = default(ValueTask<LatticeWriteResult>);
+        var atTheCall = Record.Exception(() => commit = batch.CommitAsync());
+
+        Assert.Null(atTheCall);
+        await Assert.ThrowsAsync<NotSupportedException>(() => commit.AsTask());
+        Assert.Equal(before, database.Position);
+        Assert.Null(plain.Get(1L));
+    }
+
+    [Fact]
     public async Task Replace_of_an_absent_entity_refuses_the_whole_batch_with_its_number()
     {
         await using var database = await TestData.OpenMasterAsync();

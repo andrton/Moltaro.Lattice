@@ -152,6 +152,7 @@ internal sealed class ReceivedChanges
         PositionClock clock,
         ReadEpochs epochs,
         EntityTables tables,
+        ChangePublisher publisher,
         Lock writes,
         CloseBarrier barrier,
         Action fault)
@@ -161,7 +162,7 @@ internal sealed class ReceivedChanges
         _retired = retired;
         _clock = clock;
         _epochs = epochs;
-        _publisher = new ChangePublisher(arena, roots, retired, clock, tables);
+        _publisher = publisher;
         _tables = tables;
         _writes = writes;
         _barrier = barrier;
@@ -173,13 +174,13 @@ internal sealed class ReceivedChanges
     // and whose rest the input holds, from its layout version on (RootPlacement), by the rule of a write
     // refused for memory (see the class). The roots received before it are counted for the reason of a root
     // that cannot be held.
-    public void Place(EntityTable table, ulong lastMutation, SequenceReader<byte> rest, ulong received)
+    public void Place(EntityTable table, ulong lastMutation, uint member, SequenceReader<byte> rest, ulong received)
     {
         _barrier.Enter();
 
         try
         {
-            if (TryPlace(table, lastMutation, rest, topsUp: true))
+            if (TryPlace(table, lastMutation, member, rest, topsUp: true))
             {
                 return;
             }
@@ -190,7 +191,7 @@ internal sealed class ReceivedChanges
                 _publisher.GiveBackReserves();
             }
 
-            if (TryPlace(table, lastMutation, rest, topsUp: false))
+            if (TryPlace(table, lastMutation, member, rest, topsUp: false))
             {
                 return;
             }
@@ -334,11 +335,11 @@ internal sealed class ReceivedChanges
     // rule, and tops the standing reserves of the indexes up before its publication when topsUp is true
     // (see the class, "Memory"). False when the arena refused it, with nothing of it left. The reader is a
     // copy, so that every try reads the root from its start.
-    private bool TryPlace(EntityTable table, ulong lastMutation, SequenceReader<byte> rest, bool topsUp)
+    private bool TryPlace(EntityTable table, ulong lastMutation, uint member, SequenceReader<byte> rest, bool topsUp)
     {
         lock (_writes)
         {
-            if (!TryPrepareWrite(table, lastMutation, ref rest) || !TryReserve())
+            if (!TryPrepareWrite(table, lastMutation, member, ref rest) || !TryReserve())
             {
                 return false;
             }
@@ -400,7 +401,7 @@ internal sealed class ReceivedChanges
     // carries the sequence of its transaction as its last mutation, which is the stamp of its publication.
     private bool TryPrepareEffect(ref SequenceReader<byte> reader, ulong sequence)
     {
-        switch (TransactionFormat.ReadEffect(ref reader, sequence, out var typeId, out var lastMutation, out var root))
+        switch (TransactionFormat.ReadEffect(ref reader, sequence, out var typeId, out var lastMutation, out var member, out var root))
         {
             case EffectKindEnum.Write:
                 var written = TableOf(typeId, sequence);
@@ -410,7 +411,7 @@ internal sealed class ReceivedChanges
                     throw Protocol.Invalid($"A Write of the transaction {sequence} carries a root of {written.EntityType.Name} whose last mutation is {lastMutation}.");
                 }
 
-                return TryPrepareWrite(written, sequence, ref root);
+                return TryPrepareWrite(written, sequence, member, ref root);
 
             case EffectKindEnum.Delete:
                 var deleted = TableOf(typeId, sequence);
@@ -436,7 +437,7 @@ internal sealed class ReceivedChanges
     // false when the arena refused its root, with every change prepared since the last Publish given back.
     // ValidationFailed for a root that is not valid and for a key an earlier effect of the same transaction
     // names, prepared or skipped; every change prepared since the last Publish is given back then as well.
-    private bool TryPrepareWrite(EntityTable table, ulong lastMutation, ref SequenceReader<byte> rest)
+    private bool TryPrepareWrite(EntityTable table, ulong lastMutation, uint member, ref SequenceReader<byte> rest)
     {
         var layout = table.Layout!;
         EntityKey key;
@@ -500,7 +501,7 @@ internal sealed class ReceivedChanges
             return false;
         }
 
-        _prepared.Add(new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced));
+        _prepared.Add(new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
 
         return true;
     }

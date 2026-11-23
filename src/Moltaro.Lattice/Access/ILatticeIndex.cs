@@ -23,7 +23,9 @@ namespace Moltaro.Lattice.Access;
 /// or whose indexed values move it ahead of the search, and every entity that keeps its
 /// indexed values for the whole search, in the order of the index or its reverse. A search
 /// by the full key of a unique index, with no part null, returns at most one entity, also
-/// when writes move the value while it runs.
+/// when writes move the value while it runs. A search by leading parts or by a range that runs
+/// while a batch exchanges values of a unique index may return two entities with one value, one
+/// as it was before the batch and one as after.
 /// </para>
 /// <para>
 /// The order is the order of the index: by its first field, then by its second, and so on,

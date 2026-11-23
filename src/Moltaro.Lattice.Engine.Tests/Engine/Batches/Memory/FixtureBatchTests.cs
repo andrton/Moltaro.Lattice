@@ -15,7 +15,7 @@ public sealed class FixtureBatchTests
 
     public static IEnumerable<TheoryDataRow<string>> Forms => [new(FixtureForms.Scalar), new(FixtureForms.ScalarUnique)];
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public async Task Batch_of_ten_thousand_users_of_the_fixture_with_their_indexes_is_executed_as_one_under_the_default_options(string form)
     {

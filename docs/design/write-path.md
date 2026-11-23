@@ -6,10 +6,10 @@ specification. The rule itself is in the
 an animated version of this page is [write-path.html](write-path.html). How reads are
 protected while writes run is explained in [epoch-protection.md](epoch-protection.md).
 
-**Status.** Decided by the owner on 17 November 2026 and being built in Epic 1, sprint
-S09, part 2. This page describes the intended behavior. Persistence in PostgreSQL is not
-built yet; where this page speaks of a slow persistence step, it describes what the path is
-prepared for.
+**Status.** Decided by the owner on 17 November 2026 and built in Epic 1, sprint S09,
+part 2; the write batch on a master in sprint S17, part 2. A batch through a child is not
+built yet. Persistence in PostgreSQL is not built yet; where this page speaks of a slow
+persistence step, it describes what the path is prepared for.
 
 ## What a write has to guarantee
 
@@ -95,48 +95,143 @@ always ends. When persistence takes no time this happens only when the writes he
 while a write refused for lack of memory is settled are prepared together at its end:
 otherwise a write is published before the next one is prepared.
 
+The two waits are one wait for another write (`PendingWriteStateEnum.WaitingForWrite`): the
+waiting write holds nothing, stays first among the later writes of its entity, and when the
+write it waits for ends in any way it is started again from the beginning, so it waits again
+behind whatever then shares an entity with it, and is checked against what is published
+then. No two writes wait for each other: a wait for an entity goes to a write admitted
+earlier, and a wait for a value to a prepared write, which waits for nothing but its
+persistence step.
+
+## A write batch
+
+A batch is one write with several changes: one admission, one preparation, one place in a
+group, one position. A group never splits it, and it is never refused for its size: like
+any write, only a batch that does not fit into the memory beside the stored data is refused,
+as a whole, before anything is written.
+
+- **Members are encoded when they are added.** The batch of the contract asks the engine
+  to encode each entity to its root when the application adds it, on the thread of the
+  caller and outside every lock, in the form a child uses to forward a write. Later edits of
+  the object are not part of the batch; the cost is a managed copy of every root from its
+  Add to the outcome of the batch, when the record of the batch lets go of its members,
+  whoever still holds the task of the commit.
+- **Prepared as a forwarded write is.** Member by member, in their order, the key is looked
+  up, the condition checked, and the root placed from the bytes of the member, as a master
+  places the root a child forwarded. Then all the changes reserve together, each index once
+  for their sum, and the unique indexes are checked on the state the batch leaves: two
+  members may exchange values, and a delete frees a value another member takes. Which member
+  fails is judged in two phases
+  ([Q58](../work/open-questions.md#q58-which-member-of-a-batch-is-the-failing-one-when-two-of-them-claim-one-unique-value)).
+  First each member against the state before the batch, in their order: the first member
+  that fails a condition of its own, a revision or a key that must be absent or present, is
+  reported. Only when every member passes are the unique values judged, on the state the
+  batch leaves, which does not exist before: of the members that violate one, the
+  lowest-numbered is reported. So of two members that claim one value the later is
+  reported, since the earlier alone would be accepted; against a published owner that no
+  member frees, the member that claims its value; and of the indexes one member violates,
+  the one declared first in its entity type. A failing member refuses the whole batch and
+  reports its place.
+- **Waits as one write.** The entities of a batch are one set. A batch waits for the latest
+  earlier write, not completed, that shares an entity with it, and a single write whose
+  latest earlier write of its entity is a batch waits for that batch; two single writes
+  keep their chain. Batches of the same entities in opposite orders never wait for each
+  other in a cycle.
+- **Asked through its claims.** A batch that is prepared and not published answers a later
+  write that asks who claims or who frees a value through its claims sorted by the order of
+  each unique index, by a binary search, not by a scan of its members
+  (`Engine/Entities/UniqueClaims.cs`). The claims are sorted on the first question.
+- **Published whole.** Its changes are published at one sequence as one publication (below),
+  and its transaction carries one effect for each change, with the number of its member.
+- **Revisions of their own.** The members share the position of the batch; the number of a
+  member is part of its revision, from 1 in their order for a batch of two or more, 0 for a
+  single write and for a batch of one, whose revision is then that of a single write
+  ([milestone contract](milestone-1-engine-contract.md#write-coordinator-and-revision-semantics)).
+
+**Why a write that starts again never chains behind the wrong write, and why the waits end.**
+The argument rests on two facts of the coordinator (`Engine/Writes/WriteCoordinator.cs`). Every
+write admitted and not completed whose call has left the lock is in one list, in the order of
+admission; the one write not in it yet is the write of the call that holds the lock, which is
+admitted, started and added in that one hold. And a write that starts, at its admission or
+again after the write it waited for has ended, looks for the latest write of that list that
+shares an entity with it and was admitted before it, searching back from its own place
+(`FindLastSharing`).
+
+- *It never chains behind a write that already has a later one.* Chains link single writes of
+  one entity only. Say a single write W starts and finds the single write L, and L already has a
+  write X behind it in its chain. X is a single write of the same entity, admitted after L. If X
+  was admitted before W, X lies between L and W in the list, so the search back from W meets X
+  before L and does not find L. If X was admitted after W, then W was in the list when X started,
+  later than L and of the same entity, so X found W, not L, and chained behind W or waited for
+  it. Either way L has nothing behind it when W finds it, so W takes the place right behind L,
+  and the writes that were chained behind W, while it waited, stay behind it.
+- *No two writes wait for each other.* A write waits in a chain, or for the write it shares an
+  entity with, only for a write admitted before it, since the search goes back from its own
+  place. It waits for a value only for a write that is prepared, and a prepared write waits for
+  nothing but its persistence step. The writes being resolved after a refusal for memory wait for
+  writes admitted before them or for prepared writes, and the writes they defer wait for them,
+  which were admitted earlier. So every wait goes to an earlier admission or to a write that waits
+  for nothing, and a cycle would need a wait to a later admission that is itself waiting: there is
+  none. Every wait ends when the write it waits for ends, and that one ends because the writes it
+  waits for are earlier still, down to a write that waits for its persistence step alone.
+
 ## How a publication is made
 
 A publication installs what the preparation made, and nothing else: it obtains no
 memory, grows no index, adds no root entry and runs no code of the application, because
 the preparation took and reserved everything it uses. One part makes it, on a master for
 a write and on a child for what it receives from its master
-(`Engine/Entities/ChangePublisher.cs`). A master publishes the one change of a write; a
-child publishes every change of a transaction at once, or one root of its load. A
+(`Engine/Entities/ChangePublisher.cs`). A master publishes the one change of a single write
+or the changes of the members of a batch; a child publishes every change of a transaction
+at once, or one root of its load. A
 publication at the sequence s has three steps:
 
 1. **The stores before the position.** First the new entries of the secondary indexes of
-   the entity type, of an insert and of a replace that moves a key, each by the one store
-   of its tree ([ordered index](ordered-index.md#the-entries-of-one-write)); a search that
-   finds one checks it against its root. Then an insert installs its root, then its root
-   entry, whose state Live is stored last, then its entry of the primary index, which
-   publishes both to a read by key. A replace stores the mark of a write in progress in
-   the root entry, then the new root. A delete stores the mark, then the state Deleted.
-2. **The position.** The position of the database becomes s. A root of a load has no
-   position of its own: the end of the load sets it.
-3. **The stores after the position.** A replace and a delete store the stamp s in the
-   root entry; then a delete removes its entry of the primary index, and both take their
-   old entries out of the secondary indexes, or rewrite an entry whose key is equal in
-   other bytes. What they replaced or deleted is retired, and freed once no read can
-   reach it.
+   every change, of an insert and of a replace that moves a key, each by the one store of
+   its tree ([ordered index](ordered-index.md#the-entries-of-one-write)); a search that
+   finds one checks it against its root. Then, change by change, the stores of each entity
+   with the stamp s: an insert installs its root, then its root entry, with the stamp s and
+   the state Live stored last, then its entry of the primary index, which publishes both to
+   a read by key. A replace stores the mark of a write in progress in the root entry, then
+   the new root, then the stamp s. A delete stores the mark, then the state Deleted, then
+   the stamp s.
+2. **The position.** The position of the database becomes s, once every entity of the
+   publication is stored. A root of a load has no position of its own: the end of the load
+   sets it.
+3. **The stores after the position.** A delete removes its entry of the primary index, and
+   a replace and a delete take their old entries out of the secondary indexes, or rewrite
+   an entry whose key is equal in other bytes. What they replaced or deleted is retired,
+   and freed once no read can reach it.
 
 Each store is a release, so a read that sees one sees every store before it, the values
-the preparation wrote included. The position is s − 1 until step 2, so a read never
-returns a state at a position at which the master did not have it:
+the preparation wrote included. A read does not take a stamp above the position of the
+database, which it loads right after the stamp ([the arena
+protocol](arena-protocol.md#the-stamp-of-a-root-entry)), and the position is s − 1 until
+step 2, so a read never returns a state at a position at which the master did not have it,
+and never an entity of a publication in its new state before its position:
 
-- A read that finds an inserted key reads its stamp s, at s; one that misses it read
-  s − 1 before its lookup.
+- A read that finds an inserted key before step 2 finds the stamp s above the position
+  and waits for it; one that misses it read s − 1 before its lookup.
 - A read of a replaced or deleted key returns its old state only if the mark was not
   stored yet when it loaded the stamp the second time; the mark comes before the
   position, so that read saw the position s − 1 or earlier.
-- A read that finds the mark backs off until step 3; one that loads the stamp s reads
-  the new root, or the state Deleted at s, with the position s or later.
+- A read that finds the mark, or the stamp s before step 2, backs off until the position
+  is s; then it reads the new root, or the state Deleted at s, with the position s or
+  later.
 - A read that misses a deleted key does so after step 3, at s or later.
 
-A delete of a key that is absent changes no entity and publishes only its position. Once
-step 1 has begun nothing can fail but a defect, or the fault point a test of the engine
-arms between steps 1 and 2; either faults the database, and a read that backs off on a
-mark then gives up instead of waiting for a stamp that will never come.
+A read that begins at or after step 2 sees every entity of the publication in its new state,
+also while step 3 is still taking the old entries away: a search passes over an old entry by
+its root. A search or an enumeration that runs across the publication may return some of its
+entities as they were before it and others as after, as separate reads may
+([ordered index](ordered-index.md#how-a-range-is-walked)).
+
+A read waits only when it meets an entity of the publication, for as long as the
+publication takes in memory, which for a batch and for the transaction of a child grows with
+its changes (exception X6). A delete of a key that is absent changes no entity and publishes only its
+position. Once step 1 has begun nothing can fail but a defect, or the fault point a test of
+the engine arms between steps 1 and 2; either faults the database, and a read that backs off
+then gives up with `Unavailable` instead of waiting for a position that will never come.
 
 ## What an application can rely on
 
@@ -146,7 +241,11 @@ mark then gives up instead of waiting for a stamp that will never come.
   its place when that wait ends. Calls that race on different threads have no order
   between them.
 - **A write is whole.** Readers see the state before a write or after it, never a
-  mixture.
+  mixture. So do they each member of a batch, on the master and on a child: no answer
+  carries the position of the batch before all of it is visible, and a read that begins
+  once its node has reached that position sees all of it. A search or an enumeration that
+  runs while the batch is published may return some members as they were before it and
+  others as after, as separate reads may.
 - **Cancellation is honest.** Before a write is handed to the persistence step, cancelling
   it withdraws it: it did not run and left nothing behind. After that, the call returns
   what really happened.

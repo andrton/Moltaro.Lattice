@@ -125,8 +125,8 @@ are exempt. A write of a value that another write, prepared and not published ye
 or gives up waits for that write and is decided again. A child checks its unique indexes
 once, at the position it becomes ready at, and after that every transaction it receives,
 on the state the transaction leaves. A
-batch may swap unique values or delete and reclaim one atomically; executing a batch is
-planned and not built yet.
+batch may swap unique values or delete and reclaim one atomically. A batch is executed on a
+master; a batch through a child is not built yet.
 
 <a id="writes-and-persistence"></a>
 
@@ -156,8 +156,12 @@ its all-or-nothing boundary; children preserve that same boundary during replay.
 It is a transaction of the database, not one the application works inside: a batch
 cannot read, and there is no interactive read/write transaction.
 
-Batch construction holds no locks. Readers continue during storage I/O; publication
-briefly closes access while the complete batch becomes visible. Internal grouping of
+Batch construction holds no locks. Readers continue during storage I/O; while the batch
+is published, only a read that meets one of its entities waits, until its position is
+published, and a read that begins at that position sees all of it. A search or an
+enumeration that runs across the publication is no snapshot: it may return some entities of
+the batch as they were before and others as after
+([write path](write-path.md#a-write-batch)). Internal grouping of
 independent writes for PostgreSQL efficiency does not make those calls a shared transaction.
 
 ### The saved base advances in the background

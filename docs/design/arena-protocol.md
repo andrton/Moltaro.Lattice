@@ -54,11 +54,10 @@ protection, releases it, then acquires the owner and revalidates the candidate.
 The experiment uses striped reader/writer gates for roots, one dictionary gate and
 one allocator gate. This deliberately bounds lock-object overhead; unrelated roots
 sharing a stripe can contend. Production packed root gates and dictionary sharding
-are not established by these measurements. A future batch takes the existing
-database publication barrier before root gates in canonical order; the experiment
-does not validate that multi-root integration.
-If a future batch uses striped gates, acquire each distinct physical stripe once
-in stripe order; sorting logical root identities alone does not order shared gates.
+are not established by these measurements, and the experiment does not validate a
+batch over several roots under these gates. The engine's batch takes no root gate and no
+publication barrier: it publishes its position after every one of its entities is
+stored ([Bounded WriteBatch extension](#bounded-writebatch-extension), below).
 
 The Arc extension implements index publication protection between root and dictionary
 protection. Candidate lookup retains root lifetimes under the catalog/index gate,
@@ -129,12 +128,29 @@ A read by key and the capture of a load take the state, the root and the sequenc
 last mutation of a root entry as one state, without a lock, while the publishing thread
 changes the entry. The stamp of the entry is the sequence of its last mutation, and one
 value, 0, which no published write has, is no stamp but the mark of a write in progress. A
-write stores the mark, then the new state or root, then its own sequence as the new stamp,
-each store with release semantics. A read loads the stamp with acquire semantics and backs
-off while it finds the mark, loads the state and the root with acquire semantics, and loads
-the stamp again: the same stamp both times is one state, another one means that a write came
-between, and the read takes the entry again. The reader's half is in
-`Engine/Entities/EntityTable.cs`, the writer's in `Engine/Entities/ChangePublisher.cs`.
+write stores the mark, then the new state, or the new root and the number of its member, then
+its own sequence as the new stamp, each store with release semantics, and the position of the
+database only after every entity of its publication is stored. A read loads the stamp with
+acquire semantics, then the position of the database, and backs off while it finds the mark or
+a stamp above that position, which is a publication whose position is not published yet; it
+loads the state and the root with acquire semantics, and loads the stamp again: the same stamp
+both times is one state, another one means that a write came between, and the read takes the
+entry again. The reader's half is in `Engine/Entities/EntityTable.cs`, the writer's in
+`Engine/Entities/ChangePublisher.cs`.
+
+The number of the member of a write batch is part of the revision of a state. It shares one
+aligned word with the state, and a read loads the two by one load, between its two loads of
+the stamp, so a read by key loads nothing more for it. A replace stores it after the mark and
+before its stamp, by a store with release semantics, as it stores the root: a read that loads
+the new member then finds the mark or the new stamp at its second load of the stamp, and takes
+the entry again. A plain store, or one before the mark, could become visible before the mark
+on hardware that orders stores weakly, which x64 does not show, and a read could pair the old
+stamp and the old root with the new member: a revision that no state had. An insert stores the
+member, as it stores the root and the stamp, before the state Live and before its position: the
+capture of a load takes the entry only once it loads Live, a read by key only once the index
+maps the key to it, and a search only once the position covers the stamp, each by an acquire
+of a store made after the member. A delete stores no member, since no read takes the revision
+of a deleted state, and the next lifetime of the slot stores its own.
 
 The protocol is that of `SeqLock` of crossbeam (`crossbeam-utils/src/atomic/seq_lock.rs`) and
 of the optimistic read of its `AtomicCell` (`atomic_cell.rs`), at commit
@@ -157,8 +173,13 @@ of the optimistic read of its `AtomicCell` (`atomic_cell.rs`), at commit
 - The source's read, after one failed attempt, takes the lock of the writers so that writers
   do not starve it. A read here takes no lock and writes nothing but its slot of the
   protection, so it tries again: at once after a failed validation, and while it finds the
-  mark after a back-off by `SpinWait`, which spins, then gives up the processor, as the
-  source's `Backoff.snooze` does for a writer that finds the lock held.
+  mark or a stamp above the position after a back-off by `SpinWait`, which spins, then gives
+  up the processor, as the source's `Backoff.snooze` does for a writer that finds the lock
+  held. The source has no position: the stamp above it is this engine's, so that no read
+  takes an entity of a publication of several entities in its new state before its
+  position, and a read that begins at that position sees all of it; a search or an
+  enumeration that runs across the publication may still return some of its entities as
+  they were before it and others as after.
 - The source has a write that releases the lock without a new stamp (abort). A write here
   stops between its stores only when its publication fails, which allocates nothing and does
   no I/O, so only a fault injected by a test or a defect fails it; that faults the database,
@@ -201,10 +222,11 @@ created again.
 
 ### The position of an answer
 
-For a root it copied: the sequence of the database read between the two reads of the
-entry's sequence, or the entry's sequence when that is later, because an insert publishes
-its entry before it advances the sequence of the database; the state copied is the
-entity's at that position. For a root deleted before the read reached it: the sequence of
+For a root it copied: the sequence of the database read right after the first read of the
+entry's sequence, which is never below it, since a read does not take a stamp above the
+position; the state copied is the entity's at that position, because every write of the
+entity up to that position stored its stamp before the position was published, and the
+second read of the entry's sequence finds it. For a root deleted before the read reached it: the sequence of
 its delete. For an absent key: the sequence of the database read before the lookup, when
 the lookup ended with the sequence unchanged; otherwise the read looks up again. An insert
 publishes its entry in the index before the sequence of the database and a delete the
@@ -397,6 +419,25 @@ Publication drains protected access, installs all roots and indexes, and advance
 the applied position only after the last member. Failure marks the instance faulted
 before opening access, and reopen rebuilds one arena from the independent fixture
 base and whole committed journal batches. There is no second serving arena.
+
+The engine keeps the guarantee of that barrier without it (the decision on the document
+model, "Atomic WriteBatch within one database", amended on 22 November 2026, the owner's
+answer to Q57 of the open questions): no member of a publication of several entities is
+visible in its new state before its position, a read that begins at or after the position
+sees all of it, and no answer carries a position below a stamp it holds. A publication at
+the sequence s installs the new entries of the secondary indexes of every member, then
+stores every member with the stamp s, and only then publishes the position s ([the write
+path](write-path.md#how-a-publication-is-made)). A read that meets a member before the
+position finds the mark or the stamp s above the position and waits, inside the protection,
+until the position is published or the instance has faulted, or its token ends the wait;
+the position of its answer is the one it read once the wait ended, s or later. A read of an
+entity that is no member is never held, and nothing drains. A read by key is exact. A
+search or an enumeration that runs across the publication may return some members as they
+were before it and others as after, as separate reads and scans may (the same decision, and
+[database scope](../decisions/database-scope.md)): a step goes on after a take that waited,
+and what it passed before stays passed ([the ordered index](ordered-index.md#how-a-range-is-walked)).
+A master publishes the commit of a batch, and a child a transaction of several effects, by
+the same publisher.
 
 Controlled interleavings, pre-commit rollback, post-commit publication failures,
 same-token repeats and four abrupt application-exit/reopen cases passed. Publication

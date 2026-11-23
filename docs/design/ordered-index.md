@@ -289,9 +289,10 @@ The entries of a write are installed in the hold of the lock that publishes its 
 each by its own stores, in this order: the new entries are inserted, the root is
 published, the old entries are removed or rewritten. Between those stores a reader may
 find the new entry before the root has the new key, or the old entry after the root has
-lost the old key; the check of every entry against its root covers both. A child that
-applies a transaction of several effects inserts the new entries of all of them before
-its position and removes the old ones after it.
+lost the old key; the check of every entry against its root covers both. A publication
+of several changes, as a master publishes a write batch and a child a transaction of
+several effects, inserts the new entries of all of them first, then stores every entity,
+then publishes its position, and removes the old entries after it ([the write path](write-path.md#how-a-publication-is-made)).
 
 ### The owner of a value of a unique index
 
@@ -312,15 +313,18 @@ is built from the values of the write, since a write forwarded by a child brings
 root. The writes prepared and not published, which the tree does not show, are the write
 coordinator's to know ([the write path](write-path.md#two-writes-to-one-entity)).
 
-The changes of one publication, as a transaction a child receives, are checked together,
-on the state they all leave (`ChangePublisher.TryReserve`), after every one of them is
-decided. The entity types are taken in the order of their first change and the unique
-indexes of each in the order of their declaration. In an index, every value a change sets
-is looked up as above, and an owner that a change of the same publication frees, by a
-delete or by a move of its own key, is no conflict; then the values the changes set are
-sorted by the order of the index, of equal values the earlier change first, so that two
-changes that claim one value lie side by side and the later one conflicts. The conflict
-found is that of the first index that has one, and in it the change that comes first. So
+The changes of one publication, as a write batch on a master or a transaction a child
+receives, are checked together, on the state they all leave (`ChangePublisher.TryReserve`),
+after every one of them is decided. The entity types are taken in the order of their first
+change and the unique indexes of each in the order of their declaration, and every unique
+index is checked. In an index, every value a change sets is looked up as above, and an
+owner that a change of the same publication frees, by a delete or by a move of its own key,
+is no conflict; then the values the changes set are sorted by the order of the index, of
+equal values the earlier change first, so that two changes that claim one value lie side by
+side and the later one conflicts. The conflict reported is that of the change that comes
+first among the changes, in whatever entity type and index, and of the indexes in which
+that change conflicts the one declared first in its entity type
+([Q58](../work/open-questions.md#q58-which-member-of-a-batch-is-the-failing-one-when-two-of-them-claim-one-unique-value)). So
 one publication may exchange the values of two entities, or free a value and give it to
 another entity, which no order of single writes could apply one at a time. One change
 makes one descent for each index in which it sets a value, as before.
@@ -460,11 +464,10 @@ and not published, divided by *I*. By the formula, 600 inserts waiting on an ind
 Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, about
 13 MiB; their linear bound is 600 · 9 = 5,400 nodes, about 5.3 MiB, and the pool holds
 the lesser. No mode built today lets more than one write wait: the persistence step of
-MemoryOnly completes in the hold that prepares the write, write batches are not built,
-and a child prepares one root of its load, or one transaction of its stream, at a time.
-A transaction of many changes reserves for all of them at once, each index once for
-their inserts and removes together, and a write batch, prepared whole before its
-publication, will reserve the same way.
+MemoryOnly completes in the hold that prepares the write, and a child prepares one root of
+its load, or one transaction of its stream, at a time. A transaction of many changes
+reserves for all of them at once, each index once for their inserts and removes together,
+and so does a write batch, prepared whole before its publication.
 
 ### The retired node
 
@@ -486,13 +489,15 @@ between two steps only the key and the identity of the last entity it returned:
    at the fence of the leaf, the separator above it, at or after which every entry of the
    next leaf lies. No entry of the key: the search ends.
 2. It takes the root entry the identity names by its stamp, whatever its state, as a read
-   by key does, so that it waits through the mark of a replace or a delete in flight and
-   ends at its position or a later one, never before it. No entry the tree names keeps the
-   mark for good: the entries of an insert enter the tree in the publication that stores
-   its root entry right after them, and those of a delete leave before its root entry is
-   retired; a publication that fails between the two faults the database, and the wait
-   then reports `Unavailable`. An entry that is not live, a delete or an insert not yet
-   published, is passed over: such an insert has its position after the start of the step.
+   by key does, so that it waits through the mark, or a stamp above the position, of an
+   entity of a publication in flight and ends at its position or a later one, never before
+   it. The root entry of an insert whose root is not stored yet holds the mark, so the step
+   waits for it as well. No entry the tree names keeps the mark for good: the entries of an
+   insert enter the tree in the publication that stores its root entry after them, and
+   those of a delete leave before its root entry is retired; a publication that fails
+   between the two faults the database, and the wait then reports `Unavailable`. An entry
+   that is not live, a delete, is passed over. A step whose take waited goes on from there
+   ("How a range is walked", below).
 3. It checks the root against the key; an entry whose root no longer has the key is
    passed over.
 4. It copies the root, remembers its identity and leaves the protection. The entity is
@@ -638,7 +643,21 @@ protection.
    `WalkProgress`, room for a key or for an entry, is counted against `ReadMemoryLimit` and
    made outside the protection, and the step reads its entry anew; a round that cannot write
    where it stands goes on from where the search stood, and what it remembered stays.
-8. **Offset and Limit.** Offset is linear in the matches it passes over, which are
+8. **A take that waited.** A take that waited for the position of a publication finds its
+   entity in the state the publication left, and the step goes on from there. The entries
+   it passed before were seen before the position, a member of the same publication among
+   them perhaps, passed in its state before or skipped by Offset in it, and they stay
+   passed. So a search that runs across a publication, in one step or in several, may
+   return some of its members as they were before it and others as after, as separate reads
+   may ([the document model](../decisions/document-model.md), "Atomic WriteBatch within one
+   database"; [database scope](../decisions/database-scope.md)). What it never does is
+   return a member in its new state before the position: a take does not accept a stamp
+   above the position, and the position of an answer is the one its take read, so an
+   answer that holds a member in its new state is at the position of the publication or
+   later; an answer of several steps reports the latest position of its steps. A search
+   that begins at or after the position finds every member in its state after it. A step
+   pays nothing for this beyond its takes.
+9. **Offset and Limit.** Offset is linear in the matches it passes over, which are
    remembered and counted once; Limit ends the walk after its last entity, and one more look,
    which copies nothing, says whether a match follows.
 

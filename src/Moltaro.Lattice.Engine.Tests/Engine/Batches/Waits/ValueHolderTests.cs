@@ -28,7 +28,7 @@ public sealed class ValueHolderTests
         from end in new[] { "published", "withdrawn" }
         select new TheoryDataRow<string, string, string, string>(holder, waiter, relation, end);
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [MemberData(nameof(Cases))]
     public async Task Write_that_wants_a_value_an_unpublished_write_holds_waits_for_it_and_is_decided_by_its_end(string holder, string waiter, string relation, string end)
     {

@@ -119,7 +119,7 @@ internal sealed class Capture
         {
             ref var entry = ref _roots.EntryOfSlot(slot);
 
-            if (!EntityTable.TryTakeLive(ref entry, _epochs, _clock, out var root, out var lastMutation))
+            if (!EntityTable.TryTakeLive(ref entry, _epochs, _clock, cancellationToken, out var root, out var lastMutation, out var member))
             {
                 return false;
             }
@@ -127,7 +127,7 @@ internal sealed class Capture
             // The type id of a lifetime found live, which stays that lifetime while the protection is held.
             var typeId = entry.TypeId;
 
-            RootEnvelope.Write(buffer, typeId, lastMutation);
+            RootEnvelope.Write(buffer, typeId, lastMutation, member);
             BlockExport.Write(buffer, _arena, _tables.Stored(typeId).Layout!, root);
 
             return true;

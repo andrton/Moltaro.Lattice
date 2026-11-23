@@ -6,16 +6,18 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // A write batch is checked against the unique indexes on the state it leaves (decision on unique indexes,
 // "A conflict inside an explicit WriteBatch"; the remarks of ILatticeWriteBatch, "Executing"): entities may
 // exchange or rotate their values, and a delete frees a value another member of the same batch takes.
+// The unique values are judged only when every member passes its own condition on the state before the
+// batch; otherwise the first member that fails one is named, with its own error (Q58 of the open questions).
 // When the final state would give a value two owners the whole batch is refused with
-// UniqueConstraintViolation, the index named and the failing member numbered (Q58 of the open questions):
-// of two members that claim one value, the later; against a published owner no member frees, the member
-// that claims; and of several violations, the one in the first violated index by the order of the
-// declaration. A key with a null in any part is no value. Nothing of a refused batch is written.
+// UniqueConstraintViolation, the index named and the failing member numbered:
+// the member with the lowest number among those that violate; of two members that claim one value, the later;
+// against a published owner no member frees, the member that claims; and for one member that violates
+// several indexes, the index declared first in its entity type. A key with a null in any part is no value. Nothing of a refused batch is written.
 // Schemas of UniqueSchemas: Accounts (ByLogin; ByTenantAndEmail), Profiles (ByNick declared before
 // ByLogin) and Slots (ByABC, three parts that can each be null).
 public sealed class BatchUniqueValueTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Two_entities_exchange_their_values_of_two_unique_indexes_in_one_batch()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -34,7 +36,7 @@ public sealed class BatchUniqueValueTests
         Assert.Equal([1L], IdsOf(accounts.Index("ByTenantAndEmail").Find(IndexKey.Equal("acme", "grace@example.org"))));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Three_entities_rotate_their_values_in_one_batch()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -57,7 +59,7 @@ public sealed class BatchUniqueValueTests
 
     // The value is freed by a delete of its owner whichever comes first in the batch, the delete or the
     // member that takes the value.
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Delete_frees_the_value_another_member_of_the_batch_takes(bool deleteFirst)
@@ -85,7 +87,7 @@ public sealed class BatchUniqueValueTests
         Assert.Equal([2L], IdsOf(accounts.Index("ByLogin").Find(IndexKey.Equal("ada"))));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Two_members_that_claim_one_value_refuse_the_batch_with_the_later_member()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -110,7 +112,7 @@ public sealed class BatchUniqueValueTests
         Assert.Empty(accounts.Index("ByLogin").Find(IndexKey.Equal("twin")));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Members_that_claim_one_value_of_two_indexes_are_refused_for_the_index_declared_first()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
@@ -127,7 +129,7 @@ public sealed class BatchUniqueValueTests
         Assert.Empty(profiles.Enumerate());
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Member_that_claims_the_value_of_a_published_owner_no_member_frees_is_the_failing_member()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -149,10 +151,10 @@ public sealed class BatchUniqueValueTests
         Assert.Null(accounts.Get(2L));
     }
 
-    // The earlier member violates ByLogin and the later one ByNick, each against a published owner: ByNick is
-    // declared first, so the later member is the failing one.
-    [Fact(Skip = SkipReason.WriteBatch)]
-    public async Task Of_violations_in_two_indexes_the_batch_names_the_index_declared_first()
+    // The earlier member violates ByLogin and the later one ByNick, each against a published owner: the
+    // earlier member is the failing one, although ByNick is declared first.
+    [Fact]
+    public async Task Of_violations_by_two_members_the_batch_names_the_earliest_member()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
         var profiles = database.Set("Profile");
@@ -164,14 +166,100 @@ public sealed class BatchUniqueValueTests
 
         var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.UniqueConstraintViolation, () => batch.CommitAsync());
 
+        Assert.Equal(0, refused.OperationIndex);
+        Assert.Equal("ByLogin", refused.IndexName);
+        Assert.Single(profiles.Enumerate());
+    }
+
+    // The later member violates both indexes against a published owner, and the earlier none: of the indexes
+    // of the one failing member, ByNick, declared first, is named.
+    [Fact]
+    public async Task Member_that_violates_two_indexes_is_refused_for_the_index_declared_first()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "taken-login", "taken-nick"));
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(Profile(profiles, 2, "free-login", "free-nick"));
+        batch.Insert(Profile(profiles, 3, "taken-login", "TAKEN-NICK"));
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.UniqueConstraintViolation, () => batch.CommitAsync());
+
         Assert.Equal(1, refused.OperationIndex);
         Assert.Equal("ByNick", refused.IndexName);
         Assert.Single(profiles.Enumerate());
     }
 
+    // The earlier member replaces an entity that does not exist, and the later one violates ByLogin: the
+    // earlier member is the failing one, with its own error.
+    [Fact]
+    public async Task Earlier_member_that_fails_its_condition_is_named_before_a_later_one_that_violates_an_index()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "taken-login", "taken-nick"));
+
+        var batch = database.CreateWriteBatch();
+        batch.Replace(Profile(profiles, 404, "free-login", "free-nick"));
+        batch.Insert(Profile(profiles, 2, "taken-login", "other-nick"));
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => batch.CommitAsync());
+
+        Assert.Equal(0, refused.OperationIndex);
+        Assert.Single(profiles.Enumerate());
+    }
+
+    // The earlier member violates ByLogin, and the later one replaces an entity that does not exist: the
+    // later member is the failing one, with its own error, since the unique values are judged only when
+    // every member passes its own condition.
+    [Fact]
+    public async Task Later_member_that_fails_its_condition_is_named_before_an_earlier_one_that_violates_an_index()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "taken-login", "taken-nick"));
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(Profile(profiles, 2, "taken-login", "other-nick"));
+        batch.Replace(Profile(profiles, 404, "free-login", "free-nick"));
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => batch.CommitAsync());
+
+        Assert.Equal(1, refused.OperationIndex);
+        Assert.Single(profiles.Enumerate());
+    }
+
+    // The earlier member takes the value of a published owner, and the later one deletes that owner under a
+    // revision that no longer matches: the delete fails its own condition, so it frees nothing and is the
+    // failing member.
+    [Fact]
+    public async Task Delete_of_the_owner_under_a_stale_revision_is_named_before_the_member_that_takes_its_value()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "ada", "ada-nick"));
+        Assert.True(profiles.TryGet(1L, out _, out var staleRevision));
+
+        // Someone else changes the owner after it was read, and keeps its login.
+        await profiles.ReplaceAsync(Profile(profiles, 1, "ada", "lovelace"));
+        var before = database.Position;
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(Profile(profiles, 2, "ada", "other-nick"));
+        batch.Delete("Profile", 1L, staleRevision);
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.RevisionConflict, () => batch.CommitAsync());
+
+        Assert.Equal(1, refused.OperationIndex);
+        Assert.Equal(before, database.Position);
+        Assert.Equal("lovelace", profiles.Get(1L)!["Nick"]);
+        Assert.Null(profiles.Get(2L));
+    }
+
     // Two members whose keys of ByABC are equal but for a null in the part given hold no value, so the batch
     // goes through; with no null part the same pair is refused.
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]

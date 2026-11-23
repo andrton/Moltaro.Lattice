@@ -11,12 +11,13 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // A root whose parts a test can find in a frame of a load, or in a frame of a transaction that carries it
 // in a Write (Transactions), without the encoding of the frame, so that it can damage one part of it on
 // its way to a child. By the planner's decision of 17 November 2026 after
-// the study of S10 (point 2) a root travels as its type id, its last mutation sequence, its layout
-// version, the bytes of its root payload and then the bytes of each value stored out of line; the
-// stored bytes travel as they are. Two values mark the root:
+// the study of S10 (point 2) a root travels as its type id, its last mutation sequence, the number of
+// its member in a write batch, its layout version, the bytes of its root payload and then the bytes of
+// each value stored out of line; the stored bytes travel as they are. Two values mark the root:
 // - the identity of its entity type, TypeId, whose four bytes appear once in the frame, where the type
 //   id of the root travels. The tests assume the natural widths of the envelope, as the planner's order
-//   gives it: the type id in 4 bytes, the last mutation sequence in 8, the layout version in 4;
+//   gives it: the type id in 4 bytes, the last mutation sequence in 8, the member in 4, the layout
+//   version in 4;
 // - the value of its field Marker, an Int64 whose eight bytes appear once, where that field stands in
 //   the root payload. The payload is the root block after its header (RootLayout.RootPayload), so where
 //   the stored layout puts the null bitmap and the descriptor of a field, relative to Marker, is where
