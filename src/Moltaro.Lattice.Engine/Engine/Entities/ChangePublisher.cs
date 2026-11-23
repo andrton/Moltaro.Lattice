@@ -644,6 +644,27 @@ internal sealed class ChangePublisher
         }
     }
 
+    // Under the lock of the writes: gives back what the changes took before their reservation, none of which
+    // is reserved, in the reverse of their order: the new root of an insert or a replace and the root entry of
+    // an insert, to which no index maps a key, so that no read has reached any of it.
+    public void GiveBack(ReadOnlySpan<PreparedChange> changes)
+    {
+        for (var index = changes.Length - 1; index >= 0; index--)
+        {
+            ref readonly var change = ref changes[index];
+
+            if (!change.Root.IsNull)
+            {
+                RootStorage.Free(_arena, change.Table.Layout!, change.Root);
+            }
+
+            if (change.Kind == ChangeKindEnum.Insert)
+            {
+                _roots.Release(change.Handle);
+            }
+        }
+    }
+
     // Under the lock of the writes: the first step of the publication of the changes of one publication, with
     // the stamp given (see the class): the stores before the position, the new entries of the secondary
     // indexes of every change first, then, in the order of the changes, the stores of each entity with the

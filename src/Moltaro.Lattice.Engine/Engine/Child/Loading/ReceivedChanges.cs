@@ -104,8 +104,6 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // yet and ends the following of one that is (Following.Follower).
 internal sealed class ReceivedChanges
 {
-    private readonly Arena _arena;
-
     private readonly RootTable _roots;
 
     private readonly RetiredMemory _retired;
@@ -166,7 +164,6 @@ internal sealed class ReceivedChanges
         CloseBarrier barrier,
         Action fault)
     {
-        _arena = arena;
         _roots = roots;
         _retired = retired;
         _clock = clock;
@@ -348,9 +345,19 @@ internal sealed class ReceivedChanges
     {
         lock (_writes)
         {
-            if (!TryPrepareWrite(table, lastMutation, member, ref rest) || !TryReserve())
+            try
             {
-                return false;
+                if (!TryPrepareWrite(table, lastMutation, member, ref rest) || !TryReserve())
+                {
+                    GiveBack();
+
+                    return false;
+                }
+            }
+            catch
+            {
+                GiveBack();
+                throw;
             }
 
             if (topsUp)
@@ -379,19 +386,23 @@ internal sealed class ReceivedChanges
                 {
                     if (!TryPrepareEffect(ref reader, sequence))
                     {
+                        GiveBack();
+
                         return false;
                     }
+                }
+
+                if (!TryReserve())
+                {
+                    GiveBack();
+
+                    return false;
                 }
             }
             catch
             {
                 GiveBack();
                 throw;
-            }
-
-            if (!TryReserve())
-            {
-                return false;
             }
 
             if (topsUp)
@@ -443,26 +454,16 @@ internal sealed class ReceivedChanges
     // Under the lock of the writes: checks the root of the entity type of the table that the rest of the
     // input holds, from its layout version on, whose last mutation is given, and prepares its state by
     // the rule (see the class), without reserving anything for it yet. True when it is prepared or skipped;
-    // false when the arena refused its root, with every change prepared since the last Publish given back.
-    // ValidationFailed for a root that is not valid and for a key an earlier effect of the same transaction
-    // names, prepared or skipped; every change prepared since the last Publish is given back then as well.
+    // false when the arena refused its root, with nothing of it taken. ValidationFailed for a root that is
+    // not valid and for a key an earlier effect of the same transaction names, prepared or skipped. The
+    // changes prepared since the last Publish are the caller's to give back.
     private bool TryPrepareWrite(EntityTable table, ulong lastMutation, uint member, ref SequenceReader<byte> rest)
     {
         var layout = table.Layout!;
-        EntityKey key;
-        ReceivedRoot received;
+        var received = _import.Check(ref rest, layout);
+        var key = KeyOf(table, received);
 
-        try
-        {
-            received = _import.Check(ref rest, layout);
-            key = KeyOf(table, received);
-            NameOnce(table, key);
-        }
-        catch
-        {
-            GiveBack();
-            throw;
-        }
+        NameOnce(table, key);
 
         var held = table.TryFind(key, out var handle, out var replaced);
 
@@ -476,17 +477,9 @@ internal sealed class ReceivedChanges
         // A new lifetime for a key the child does not hold; the lifetime of the entity for one it holds.
         var inserts = !held;
 
-        try
+        if (inserts)
         {
-            if (inserts)
-            {
-                handle = _roots.Add((uint)table.EntityType.Id);
-            }
-        }
-        catch
-        {
-            GiveBack();
-            throw;
+            handle = _roots.Add((uint)table.EntityType.Id);
         }
 
         ArenaAddress root;
@@ -498,14 +491,12 @@ internal sealed class ReceivedChanges
         catch
         {
             ReleaseHandle(inserts, handle);
-            GiveBack();
             throw;
         }
 
         if (root.IsNull)
         {
             ReleaseHandle(inserts, handle);
-            GiveBack();
 
             return false;
         }
@@ -517,19 +508,10 @@ internal sealed class ReceivedChanges
 
     // Under the lock of the writes: prepares the delete of the key at the sequence by the rule (see the
     // class); nothing when the child does not hold the key, or holds a state not earlier than the delete.
-    // ValidationFailed for a key an earlier effect of the same transaction names, prepared or skipped, with
-    // every change prepared since the last Publish given back.
+    // ValidationFailed for a key an earlier effect of the same transaction names, prepared or skipped.
     private bool TryPrepareDelete(EntityTable table, in EntityKey key, ulong sequence)
     {
-        try
-        {
-            NameOnce(table, key);
-        }
-        catch
-        {
-            GiveBack();
-            throw;
-        }
+        NameOnce(table, key);
 
         if (!table.TryFind(key, out var handle, out var replaced) || _roots.Entry(handle).LastMutationSequence >= sequence)
         {
@@ -546,23 +528,12 @@ internal sealed class ReceivedChanges
     // Under the lock of the writes, once every change of a transaction or the root of the load is prepared:
     // reserves what their publication needs, together, and checks their values of the unique indexes on the
     // state they leave once the child does (see the class, "Unique indexes"). False when the arena cannot hold
-    // the nodes, with every change given back; ValidationFailed for a value a change would give a second
-    // owner, with every change given back as well.
+    // the nodes; ValidationFailed for a value a change would give a second owner. Nothing is reserved then,
+    // and the changes are the caller's to give back.
     private bool TryReserve()
     {
         var changes = CollectionsMarshal.AsSpan(_prepared);
-        ReservationEnum reservation;
-        TakenValue taken;
-
-        try
-        {
-            reservation = _publisher.TryReserve(changes, _checksUnique, out taken);
-        }
-        catch
-        {
-            GiveBack();
-            throw;
-        }
+        var reservation = _publisher.TryReserve(changes, _checksUnique, out var taken);
 
         if (reservation == ReservationEnum.Reserved)
         {
@@ -571,14 +542,10 @@ internal sealed class ReceivedChanges
 
         if (reservation == ReservationEnum.RefusedForMemory)
         {
-            GiveBack();
-
             return false;
         }
 
         var failing = changes[taken.Change];
-
-        GiveBack();
 
         throw Taken(failing.Table, failing.Key, taken.Index);
     }
@@ -613,18 +580,7 @@ internal sealed class ReceivedChanges
     // entry of an insert, which no index maps, so that no read has reached any of it.
     private void GiveBack()
     {
-        for (var index = _prepared.Count - 1; index >= 0; index--)
-        {
-            var change = _prepared[index];
-
-            if (!change.Root.IsNull)
-            {
-                RootStorage.Free(_arena, change.Table.Layout!, change.Root);
-            }
-
-            ReleaseHandle(change.Kind == ChangeKindEnum.Insert, change.Handle);
-        }
-
+        _publisher.GiveBack(CollectionsMarshal.AsSpan(_prepared));
         StartNext();
     }
 

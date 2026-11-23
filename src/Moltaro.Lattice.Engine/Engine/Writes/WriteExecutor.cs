@@ -254,7 +254,7 @@ internal sealed class WriteExecutor
         {
             if (prepared is null)
             {
-                GiveBack(changes[..count]);
+                _changes.GiveBack(changes[..count]);
             }
         }
     }
@@ -346,26 +346,6 @@ internal sealed class WriteExecutor
         {
             Limit = LatticeLimitEnum.Memory,
         };
-
-    // Gives back what the changes of a batch took before their reservation, in the reverse of their order:
-    // the root an insert or a replace placed, and the root entry of an insert, to which no index maps a key.
-    private void GiveBack(ReadOnlySpan<PreparedChange> changes)
-    {
-        for (var index = changes.Length - 1; index >= 0; index--)
-        {
-            ref readonly var change = ref changes[index];
-
-            if (!change.Root.IsNull)
-            {
-                RootStorage.Free(_arena, change.Table.Layout!, change.Root);
-            }
-
-            if (change.Kind == ChangeKindEnum.Insert)
-            {
-                _roots.Release(change.Handle);
-            }
-        }
-    }
 
     private LatticeRevision RevisionOf(RootHandle handle)
     {
