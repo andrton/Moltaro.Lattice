@@ -172,6 +172,8 @@ internal sealed class StructureLayout
     // The place of the descriptor at the index, 0 to DescriptorCount less one, in the order of the descriptors.
     public ref readonly StoredField DescriptorField(int index) => ref _places[_descriptors[index]];
 
+    public int DescriptorPosition(int index) => _descriptors[index];
+
     // The layout of the element of the descriptor at the index when it is a List; null otherwise.
     public StructureLayout? DescriptorElement(int index) => _elements[_descriptors[index]];
 

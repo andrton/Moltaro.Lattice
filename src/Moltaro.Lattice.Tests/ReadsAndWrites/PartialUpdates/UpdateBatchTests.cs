@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.PartialUpdates;
 
 public sealed class UpdateBatchTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Mixed_batch_checks_final_unique_keys_and_commits_every_command_together(bool byClass)
@@ -45,7 +45,7 @@ public sealed class UpdateBatchTests
         Assert.Equal("grace", Assert.Single(records.Index("ByLogin").Find(IndexKey.Equal("ada")))["Id"]);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_late_refusal_reports_its_original_batch_index_and_keeps_every_result_unavailable(bool stale)
@@ -91,7 +91,7 @@ public sealed class UpdateBatchTests
         Assert.Throws<InvalidOperationException>(() => failed.Changed);
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Missing_entity_with_a_revision_conflicts_and_a_canceled_update_cannot_be_resubmitted()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UpdateSchema.Schema);

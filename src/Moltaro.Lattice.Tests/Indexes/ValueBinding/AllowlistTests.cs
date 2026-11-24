@@ -71,7 +71,7 @@ public sealed class AllowlistTests
         }
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [MemberData(nameof(Names))]
     public async Task Scalar_assignments_use_the_same_allowlist_as_index_queries_by_class_and_by_name(string name)
     {
@@ -102,7 +102,7 @@ public sealed class AllowlistTests
         await BindingSearch.ExpectAsync(database, row.Field, search, reverse: false, expected, name);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [MemberData(nameof(Names))]
     public Task Collection_command_operands_use_the_same_allowlist_as_index_queries(string name) =>
         CollectionOperandBinding.ExpectAsync(Cases[name]);

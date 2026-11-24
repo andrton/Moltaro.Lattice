@@ -68,7 +68,7 @@ public sealed class ListBoundTests
         Assert.Equal(0, batch.Count);
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Editing_a_List_at_its_count_limit_fails_at_execution_and_preserves_its_revision()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);

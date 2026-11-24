@@ -56,6 +56,11 @@ internal static class StructureWalk
     public static void WalkValue<TVisitor>(Arena arena, in ValueDescriptor descriptor, StructureLayout? element, ArenaAddress holder, int offset, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor
     {
+        if (!visitor.EnterValue(arena, descriptor, holder, offset))
+        {
+            return;
+        }
+
         if (descriptor.Kind == DescriptorKindEnum.Lookup)
         {
             var entries = CollectionLookup.Entries(arena, descriptor);

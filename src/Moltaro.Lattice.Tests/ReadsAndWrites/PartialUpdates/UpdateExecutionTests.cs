@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.PartialUpdates;
 // whole write makes their outcomes available (mutation-commands.md, "Collection operation outcomes").
 public sealed class UpdateExecutionTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Each_command_sees_prior_edits_and_the_current_entity_and_reports_its_outcome(bool byClass)
@@ -62,7 +62,7 @@ public sealed class UpdateExecutionTests
         Assert.Equal("ada", Assert.Single(records.Index("ByCity").Find(IndexKey.Equal("Paris")))["Id"]);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task An_update_can_initialize_a_collection_then_edit_it_and_no_ops_keep_the_revision(bool byClass)
@@ -115,7 +115,7 @@ public sealed class UpdateExecutionTests
         Assert.NotEqual(revision, nextRevision);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData("absent entity", LatticeErrorEnum.NotFound)]
     [InlineData("absent parent", LatticeErrorEnum.UpdateTargetMissing)]
     [InlineData("null collection", LatticeErrorEnum.UpdateTargetMissing)]

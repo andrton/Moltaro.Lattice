@@ -12,20 +12,22 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Updates;
 // on either role (docs/design/write-path.md, "How a publication is made").
 public sealed class UpdateVisibilityTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(true, Skip = UpdateSchema.Pending)]
     public async Task Reads_by_key_and_changed_index_wait_for_the_same_update_position(bool onChild)
     {
-        await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
+        await using var master = onChild
+            ? await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema)
+            : await EngineMaster.OpenAsync(UpdateSchema.Schema);
         var items = master.Set<UpdateItem>();
         await items.InsertAsync(UpdateSchema.Item("ada"));
         var grace = UpdateSchema.Item("grace");
         grace.Home!.City = "Berlin";
         await items.InsertAsync(grace);
-        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
+        await using var child = onChild ? await ReplicationNodes.OpenChildAsync(master.ListenUri!) : null;
 
-        var reader = onChild ? child : master;
+        var reader = child ?? master;
         var typed = reader.Set<UpdateItem>();
         var index = typed.Index("ByCity");
         var before = reader.Position;

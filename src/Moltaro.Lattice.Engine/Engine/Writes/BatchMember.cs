@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Entities;
 
 namespace Moltaro.Lattice.Engine.Writes;
@@ -8,14 +9,15 @@ namespace Moltaro.Lattice.Engine.Writes;
 // WriteCoordinator.Forward for a batch a child forwarded) and as a child forwards it
 // (Child.Forwarding.Forwarder.WriteBatchAsync): what it does, to which entity, under which condition, and for an
 // insert, a replace or an upsert the root of the entity in the load format, after its envelope, which the write
-// path places when it prepares the batch, as it places the root of a forwarded write (WriteExecutor). Root is empty for a delete. The members of a
-// batch are in the order they were added.
+// path places when it prepares the batch (WriteExecutor). A partial update brings its commands
+// instead. The members of a batch are in the order they were added.
 internal readonly record struct BatchMember(
     WriteKindEnum Kind,
     EntityTable Table,
     EntityKey Key,
     LatticeRevision? ExpectedRevision,
-    ReadOnlySequence<byte> Root)
+    ReadOnlySequence<byte> Root,
+    UpdateInput? Update = null)
 {
     // The number of the member at the place given among the members of a batch, which its change stores in
     // the root entry with its stamp (Entities.PreparedChange.Member) and which is part of the revision

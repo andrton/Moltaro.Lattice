@@ -104,9 +104,9 @@ internal static class ValueBlocks
     // or nothing.
     //
     // The blocks are prepared (Arena.TryAllocatePrepared).
-    public static bool TryStore<TSource>(Arena arena, RootHandle root, uint layoutVersion, int length, ref TSource source, scoped Span<byte> place)
+    public static bool TryStore<TSource>(Arena arena, RootHandle root, uint layoutVersion, ArenaAddress parent, uint offset, int length, ref TSource source, scoped Span<byte> place)
         where TSource : IValueSource, allows ref struct =>
-        TryStore(arena, root, layoutVersion, sharedText: false, length, ref source, place);
+        TryStore(arena, root, layoutVersion, parent, offset, sharedText: false, length, ref source, place);
 
     // Allocates the blocks of the entry of a Dictionary text of length bytes, at least one, and fills
     // them from the source, by the placement of TryStore: every block of kind SharedText, its parent
@@ -115,21 +115,11 @@ internal static class ValueBlocks
     // has (RootTable); TextSlotOf reads it. The descriptor in place becomes a Text descriptor with the
     // length and the address of the block or the directory. Stored whole or not at all, as TryStore.
     public static bool TryStoreText(Arena arena, uint slot, int length, ref ValueSource source, scoped Span<byte> place) =>
-        TryStore(arena, new RootHandle(0, slot), NoLayout, sharedText: true, length, ref source, place);
+        TryStore(arena, new RootHandle(0, slot), NoLayout, default, 0, sharedText: true, length, ref source, place);
 
     // The slot of the text entry whose first block is at the address, as TryStoreText wrote it into the
     // header of the block.
     public static uint TextSlotOf(Arena arena, ArenaAddress address) => arena.Header(address).Root.Slot;
-
-    // Names the root block as the parent of the value block or the directory of a value, a Block or a
-    // Chunked descriptor, with the offset of its descriptor in the root block.
-    public static void Adopt(Arena arena, in ValueDescriptor descriptor, ArenaAddress root, int descriptorOffset)
-    {
-        ref var header = ref arena.Header(AddressOf(descriptor));
-
-        header.Parent = root;
-        header.DescriptorOffset = (uint)descriptorOffset;
-    }
 
     // Frees every block of a value a root owns, a Block or a Chunked descriptor: its value block, or its
     // chunks and then their directory. A directory entry that is still zero names no chunk: TryStore
@@ -238,7 +228,7 @@ internal static class ValueBlocks
         }
     }
 
-    private static bool TryStore<TSource>(Arena arena, RootHandle owner, uint layoutVersion, bool sharedText, int length, ref TSource source, scoped Span<byte> place)
+    private static bool TryStore<TSource>(Arena arena, RootHandle owner, uint layoutVersion, ArenaAddress parent, uint offset, bool sharedText, int length, ref TSource source, scoped Span<byte> place)
         where TSource : IValueSource, allows ref struct
     {
         var valueKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.Value;
@@ -248,7 +238,7 @@ internal static class ValueBlocks
         if (length <= SingleBlockLimit)
         {
             // One block: it is allocated or, when the allocation fails, nothing is.
-            if (!TryAllocate(arena, length, valueKind, owner, layoutVersion, default, 0, out var block))
+            if (!TryAllocate(arena, length, valueKind, owner, layoutVersion, parent, offset, out var block))
             {
                 return false;
             }
@@ -261,7 +251,7 @@ internal static class ValueBlocks
 
         var chunks = ChunkCount(length);
 
-        if (!TryAllocate(arena, chunks * DescriptorSize, directoryKind, owner, layoutVersion, default, 0, out var directory))
+        if (!TryAllocate(arena, chunks * DescriptorSize, directoryKind, owner, layoutVersion, parent, offset, out var directory))
         {
             return false;
         }

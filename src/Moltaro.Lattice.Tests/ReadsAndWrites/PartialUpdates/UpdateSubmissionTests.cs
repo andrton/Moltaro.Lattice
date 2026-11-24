@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.PartialUpdates;
 
 public sealed class UpdateSubmissionTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Invalid_command_shape_does_not_change_the_builder(bool byClass)
@@ -38,7 +38,7 @@ public sealed class UpdateSubmissionTests
         Assert.Equal("Paris", items.Get("ada")!.Home!.City);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Adding_commands_copies_binary_whole_collections_and_owned_operands(bool byClass)
@@ -163,7 +163,7 @@ public sealed class UpdateSubmissionTests
         Assert.Throws<InvalidOperationException>(() => { _ = update.CommitAsync(); });
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task A_rejected_batch_add_does_not_consume_the_update_but_a_successful_add_does()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UpdateSchema.Schema);

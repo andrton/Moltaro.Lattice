@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Entities;
 
 namespace Moltaro.Lattice.Engine.Writes;
@@ -69,6 +70,8 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     // The values of a complete entity for an insert, a replace and an upsert; null for a delete, and for
     // a write a child forwarded, which brings its root instead (Forwarded).
     public object?[]? Values { get; private set; }
+
+    public UpdateInput? Update { get; set; }
 
     // Where a write a child forwarded came from and the root it brings (ForwardedOrigin); null for a write
     // made on this instance.
@@ -211,8 +214,8 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     // small enough to be inlined.
     private PreparedWrite NewRecord() => _record = new PreparedWrite(this);
 
-    // The prepared state of a delete of a key that is absent, which changes no entity.
-    public PreparedWrite PrepareNothingToDelete()
+    // A successful write that advances the position without changing an entity.
+    public PreparedWrite PrepareNoChange()
     {
         var record = Record;
 
@@ -239,6 +242,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Table = null!;
         Key = default;
         Values = null;
+        Update = null;
         Members = null;
         Keys = null;
         Prepared = null;

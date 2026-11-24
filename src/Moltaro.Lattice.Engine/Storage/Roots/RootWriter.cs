@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
@@ -172,6 +173,14 @@ internal ref struct RootWriter
     private readonly Span<byte> Image => _scratch.AsSpan(0, _layout.ImageCapacity);
 
     private readonly Span<byte> SetFields => _scratch.AsSpan(_layout.ImageCapacity, RootLayout.BitBytes(_layout.FieldCount));
+
+    public void PlaceUpdate(RootUpdate update)
+    {
+        ThrowIfEnded();
+        update.Place(ref _values);
+        // Omitted fields come from the validated predecessor.
+        SetFields.Fill(byte.MaxValue);
+    }
 
     // Sets the value of a nullable field, of any type, to null. A field that is not nullable is
     // refused with LatticeException, ValidationFailed, at the call.

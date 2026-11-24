@@ -5,8 +5,8 @@ using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
-using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Child;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Child.Forwarding;
@@ -346,6 +346,11 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         RootValues.BindUpdate(Part(_parts).Operations[entityType].Table.Layout, update);
     }
 
+    // Until update effects can be delivered, a listener could admit a child at any time.
+    internal bool CanPublishLocalUpdate => _options.Role == LatticeRoleEnum.Master && _options.ListenUri is null;
+
+    internal static NotSupportedException UpdateDeliveryNotSupported() => new("Partial update delivery is not implemented yet.");
+
     // The commit of a write batch of the core: its members, each key in the form of its entity type
     // (Sets.KeyArgument), go on a master to the write coordinator as one write
     // (Writes.WriteCoordinator.SubmitBatchAsync), and on a child to its master as one request
@@ -364,14 +369,15 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         for (var place = 0; place < members.Length; place++)
         {
             var operation = operations[place];
-            if (operation.Update is not null)
+            if (operation.Update is not null && !CanPublishLocalUpdate)
             {
-                return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException("Partial update execution is not implemented yet."));
+                return ValueTask.FromException<LatticeWriteResult>(UpdateDeliveryNotSupported());
             }
 
             var table = parts.Operations[operation.EntityType].Table;
 
-            members[place] = new BatchMember(operation.Kind, table, KeyArgument.Of(table, operation.Key), operation.ExpectedRevision, operation.Root);
+            var key = operation.Update is null ? KeyArgument.Of(table, operation.Key) : KeyArgument.OfNormalized(table, operation.Key);
+            members[place] = new BatchMember(operation.Kind, table, key, operation.ExpectedRevision, operation.Root, operation.Update);
         }
 
         return parts.Forwarder is { } forwarder

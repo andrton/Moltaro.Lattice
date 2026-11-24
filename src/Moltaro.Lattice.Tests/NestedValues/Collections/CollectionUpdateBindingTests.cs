@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.Collections;
 
 public sealed class CollectionUpdateBindingTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Map_keys_values_and_Set_members_use_lossless_numeric_binding(bool byClass)

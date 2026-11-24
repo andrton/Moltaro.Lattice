@@ -13,6 +13,8 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
 {
     public const int MostCompactEntries = 8;
 
+    private const int CompactAfterRemove = 4;
+
     public const int EntriesOffset = BlockHeader.Size;
 
     public const int FirstChunkOffset = EntriesOffset + ValueBlocks.DescriptorSize;
@@ -55,6 +57,11 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     }
 
     public int Capacity { get; }
+
+    public static bool IsCompact(int count) => count <= MostCompactEntries;
+
+    public static bool IsCompactAfterEdit(int count, bool hashed) =>
+        count <= (hashed ? CompactAfterRemove : MostCompactEntries);
 
     public static bool IsChunked(in ValueDescriptor descriptor) => descriptor.Length > ContiguousEntries;
 

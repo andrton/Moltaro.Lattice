@@ -33,7 +33,7 @@ LatticeSchema schema = null!;
     (DictionaryStringsSample.RunAsync, Implemented),
     (NestedValuesSample.RunAsync, Planned),
     (WriteBatchSample.RunAsync, Implemented),
-    (PartialUpdateSample.RunAsync, Planned),
+    (PartialUpdateSample.RunAsync, Implemented),
     (MemoryLimitSample.RunAsync, Implemented),
     (ReadLimitsSample.RunAsync, Implemented),
     (MasterAndChildSample.RunAsync, Implemented),

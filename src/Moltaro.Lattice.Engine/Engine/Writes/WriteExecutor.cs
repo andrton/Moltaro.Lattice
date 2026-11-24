@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -9,6 +10,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Writes;
@@ -142,7 +144,7 @@ internal sealed class WriteExecutor
 
         if (write.Kind == WriteKindEnum.Delete && !exists)
         {
-            prepared = write.PrepareNothingToDelete();
+            prepared = write.PrepareNoChange();
             refusal = null;
             taken = default;
 
@@ -152,6 +154,11 @@ internal sealed class WriteExecutor
         if (write.Kind == WriteKindEnum.Delete)
         {
             return TryPrepareDelete(write, handle, replaced, out prepared, out refusal, out taken);
+        }
+
+        if (write.Update is { } input)
+        {
+            return TryPrepareUpdate(write, input, handle, replaced, out prepared, out refusal, out taken);
         }
 
         return exists
@@ -196,6 +203,29 @@ internal sealed class WriteExecutor
 
                 if (member.Kind == WriteKindEnum.Delete && !exists)
                 {
+                    continue;
+                }
+
+                if (member.Update is { } input)
+                {
+                    var update = PlanUpdate(table, replaced, input, place);
+                    if (!update.Changed)
+                    {
+                        continue;
+                    }
+
+                    var root = Encode(table, handle, values: null, out var updateSize, out _, update);
+                    if (root.IsNull)
+                    {
+                        refusal = BatchRefusalForMemory();
+                        return ReservationEnum.RefusedForMemory;
+                    }
+
+                    changes[count++] = new PreparedChange(ChangeKindEnum.Replace, table, member.Key, handle, root, replaced)
+                    {
+                        Member = BatchMember.NumberOf(place, members.Length),
+                    };
+                    size += updateSize;
                     continue;
                 }
 
@@ -330,7 +360,7 @@ internal sealed class WriteExecutor
                 OperationIndex = operation,
             };
         }
-        else if (kind == WriteKindEnum.Replace && !exists)
+        else if (!exists && kind is WriteKindEnum.Replace or WriteKindEnum.Update)
         {
             throw new LatticeException(LatticeErrorEnum.NotFound, $"{table.EntityType.Name} '{key}' does not exist.")
             {
@@ -398,6 +428,48 @@ internal sealed class WriteExecutor
             root = Encode(table, handle, values, out size, out refusal);
         }
 
+        return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
+    }
+
+    private ReservationEnum TryPrepareUpdate(PendingWrite write, UpdateInput input, RootHandle handle,
+        ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
+    {
+        var update = PlanUpdate(write.Table, replaced, input);
+        if (!update.Changed)
+        {
+            prepared = write.PrepareNoChange();
+            refusal = null;
+            taken = default;
+            return ReservationEnum.Reserved;
+        }
+
+        var root = Encode(write.Table, handle, values: null, out var size, out refusal, update);
+        return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
+    }
+
+    private RootUpdate PlanUpdate(EntityTable table, ArenaAddress replaced, UpdateInput input, int? operation = null)
+    {
+        try
+        {
+            var update = new RootUpdate(_arena, table.Layout, replaced, input.Commands);
+            // The command results can see these bits only after the submission's task succeeds.
+            // If the coordinator retries admission it replaces them with those of the last attempt.
+            input.Outcome.SetBits(update.Bits);
+            return update;
+        }
+        catch (LatticeException exception) when (operation.HasValue)
+        {
+            throw new LatticeException(exception.Error, exception.Message, exception)
+            {
+                OperationIndex = operation,
+            };
+        }
+    }
+
+    private ReservationEnum ReserveReplacement(PendingWrite write, RootHandle handle, ArenaAddress replaced,
+        ArenaAddress root, long size, ref LatticeException? refusal, out PreparedWrite? prepared, out TakenValue taken)
+    {
+        var table = write.Table;
         if (root.IsNull)
         {
             prepared = null;
@@ -492,7 +564,8 @@ internal sealed class WriteExecutor
     // bytes of the slots the writer allocated for it (Storage.Roots.RootWriter.SlotBytes). The null address,
     // with the refusal, when the arena has no room for the entity; then, and after any failure, the
     // writer has freed everything it allocated.
-    private ArenaAddress Encode(EntityTable table, RootHandle handle, object?[] values, out long size, out LatticeException? refusal)
+    private ArenaAddress Encode(EntityTable table, RootHandle handle, object?[]? values, out long size, out LatticeException? refusal,
+        RootUpdate? update = null)
     {
         var writer = new RootWriter(_arena, table.Layout, handle);
 
@@ -500,7 +573,14 @@ internal sealed class WriteExecutor
 
         try
         {
-            RootValues.Write(ref writer, table.EntityType, values);
+            if (update is null)
+            {
+                RootValues.Write(ref writer, table.EntityType, values!);
+            }
+            else
+            {
+                writer.PlaceUpdate(update);
+            }
 
             var root = writer.Complete();
 

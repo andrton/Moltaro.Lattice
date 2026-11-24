@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Updates;
 // their epochs drain (decisions/memory-and-access.md and design/arena-protocol.md).
 public sealed class UpdateOwnershipTests
 {
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Growing_inline_data_keeps_its_neighbor_intact_and_can_move_out_of_line_without_changing_old_roots()
     {
         await using var database = await EngineMaster.OpenAsync(UpdateSchema.Schema);
@@ -102,7 +102,7 @@ public sealed class UpdateOwnershipTests
         }
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task An_unchanged_branch_and_a_child_of_copied_records_survive_successive_owners_and_recreation()
     {
         await using var database = await EngineMaster.OpenAsync(UpdateSchema.Schema);
@@ -163,7 +163,7 @@ public sealed class UpdateOwnershipTests
         Assert.Equal("ordinary replacement", items.Get("ada")!.Label);
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Arena_refusal_of_a_mixed_batch_gives_back_prepared_blocks_but_keeps_borrowed_values()
     {
         var arena = new ArenaOptions { MemoryLimit = 4L * new ArenaOptions().SegmentSize };
@@ -210,19 +210,23 @@ public sealed class UpdateOwnershipTests
         OwnershipAudit.Expect(database);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
-    [InlineData(false)]
+    [InlineData(false, Skip = UpdateSchema.Pending)]
     public async Task Fault_after_transfer_uses_publication_failure_and_close_releases_every_slot(bool onMaster)
     {
         var masterAllocator = new CountingNativeAllocator();
         var childAllocator = new CountingNativeAllocator();
-        await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema, new EngineTestInputs { Allocator = masterAllocator });
+        var masterInputs = new EngineTestInputs { Allocator = masterAllocator };
+        await using var master = onMaster
+            ? await EngineMaster.OpenAsync(UpdateSchema.Schema, masterInputs)
+            : await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema, masterInputs);
         var item = UpdateSchema.Item("ada");
         item.Data = Bytes(140_000, 17);
         await master.Set<UpdateItem>().InsertAsync(item);
-        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { Allocator = childAllocator });
-        var failingNode = onMaster ? master : child;
+        await using var child = onMaster ? null
+            : await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { Allocator = childAllocator });
+        var failingNode = child ?? master;
         var before = master.Position;
         using var held = HeldPublication.Arm(failingNode, PublicationPointEnum.AfterFirstChange);
         var update = failingNode.Set<UpdateItem>().CreateUpdate("ada");
@@ -246,7 +250,11 @@ public sealed class UpdateOwnershipTests
             Assert.Equal("Paris", master.Set<UpdateItem>().Get("ada")!.Home!.City);
         }
 
-        await child.CloseAsync().AsTask().WaitAsync(Bound);
+        if (child is not null)
+        {
+            await child.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+
         await master.CloseAsync().AsTask().WaitAsync(Bound);
         masterAllocator.ExpectEverythingReturned();
         childAllocator.ExpectEverythingReturned();

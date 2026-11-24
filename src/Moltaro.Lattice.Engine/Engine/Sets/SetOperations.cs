@@ -62,7 +62,13 @@ internal sealed class SetOperations : IUpdateExecutor
         LatticeSession? session, CancellationToken cancellationToken)
     {
         RootValues.BindUpdate(Table.Layout, update);
-        return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException("Partial update execution is not implemented yet."));
+        if (!_database.CanPublishLocalUpdate)
+        {
+            _database.ThrowIfNotReady();
+            return ValueTask.FromException<LatticeWriteResult>(EngineDatabase.UpdateDeliveryNotSupported());
+        }
+
+        return _writes.SubmitUpdateAsync(Table, KeyArgument.OfNormalized(Table, key), update, expectedRevision, session, cancellationToken);
     }
 
     // A read by key: the copy inside the protection of reads, then the result built from it, outside

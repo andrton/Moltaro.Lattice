@@ -160,6 +160,8 @@ internal static class BlockExport
     {
         public long Length { get; private set; }
 
+        public readonly bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset) => true;
+
         public void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) =>
             Length += payload.Length;
 
@@ -174,6 +176,8 @@ internal static class BlockExport
 
     private readonly struct WritingRecords(IBufferWriter<byte> output, Arena arena) : IStructureVisitor
     {
+        public bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset) => true;
+
         public void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count)
         {
             // A block of records fits one span: it is at most the payload of one block.
