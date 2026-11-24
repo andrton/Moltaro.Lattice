@@ -101,8 +101,9 @@ Gone through by the planner and the coordinator on 18 November 2026.
      `following-children`. Done on 23 November 2026, in one round of review; its record is
      in the [epic](epic-1-core.md).
   6b. **S18R,** set by the planner on 24 November 2026 after the architect's review after
-     S18: Z3, Z8, Z6, the subsumed index tests, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last. The
-     first work of the next coordinator; the section of that review says the rest.
+     S18: Z3, Z8, Z6, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last. The first work of the next
+     coordinator; after it, the subsumed index tests as a change of the light track; the
+     section of that review says the rest.
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
@@ -464,8 +465,8 @@ every write; S19 decides with its kinds); `ValueHolder`'s `Arena` and `Layout`, 
 of three uses. Not examined: `docs/design` and the README beyond names, the samples, the
 scenarios, most tests of S18 beyond the audit and the model.
 
-**S18R, the order** (set by the planner on 24 November 2026): Z3, Z8, Z6, the subsumed index
-tests, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last; one entry a commit; implementer and narrow
+**S18R, the order** (set by the planner on 24 November 2026): Z3, Z8, Z6, Z7, Z2 (a) to (d),
+Z4, Z1, and Z5 last; one entry a commit; implementer and narrow
 reviewer at Opus 5.5 high, no breaker. Z1 and Z4 lie on measured paths: their listings are
 taken on the workstation, and their line of `following-children` is owed to the next start
 of the machine. It is the first work of the next coordinator.
@@ -482,7 +483,8 @@ of the machine. It is the first work of the next coordinator.
 | Z8 | `Engine/EngineDatabase.TestAccess.cs` (`Counters`, `TextReferences`, `IndexNodes`, `ReservedNodeBytes`, `ForEachLiveRoot`, `DrainRetired`) | Six members repeat one frame: the state checked, the barrier, the parts, the lock of the writes | One private member that takes a function of the parts | Tests only | taken (S18R) |
 
 **The tests of the search by index that the model subsumes**, decided by the planner on 24
-November 2026, an entry of S18R after Z6. They go now, in a commit of their own whose
+November 2026: not part of S18R, since a refactoring sprint removes no test, but a change of
+the light track of its own after it. They go now, in a commit of their own whose
 message names, for each assertion removed, the test of the model that holds it, the narrow
 reviewer checking that list: `RangeOfEveryFamilyTests.Range_with_inclusive_and_exclusive_bounds_at_the_ends_of_the_type_...`
 (15 cases), `EnumAndFlagsTests.Enum_and_Flags_parts_are_in_numeric_order_...` and
@@ -495,10 +497,9 @@ and by name for every scalar type at its ends); `IndexPartValueTests`, whole (va
 type given boxed, both spellings of one key, an Enum over Int32); and
 `RangeOfEveryFamilyTests.Bound_given_in_another_type_...` (`AllowlistTests` holds one foreign
 bound, forward only). A test with one assertion the reviewer finds without a holder stays.
-The coordinator's note: the rules of a refactoring sprint in the [development
-process](process.md) say that no test is removed, and the starting text of a coordinator
-says a deletion happens only on the owner's word in its session; this entry needs his word
-there before it is carried out.
+It needs no word of the owner: a reviewed commit that removes a test is brought back by a
+revert, and the rule that a deletion waits for him is about what cannot be brought back;
+the change is reported to him in its record.
 
 Y1 and Y2 of "Found while building S18" are closed into Z6 and Z1.
 
