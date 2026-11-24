@@ -16,9 +16,9 @@ namespace Moltaro.Lattice.Storage.Values;
 // A piece ends between two characters. It never ends after the first half of a surrogate pair,
 // whether the pair lies in one place or across a chunk boundary, and in UTF-8 a character whose bytes
 // a chunk boundary splits is put together from the end of one chunk and the start of the next. So a
-// comparison that is made piece by piece sees every character whole. Stored text is well-formed
-// (docs/decisions/strings.md, "Input validity and preservation"; RootWriter refuses anything else),
-// so a high surrogate is always followed by its low one and decoding meets no malformed sequence.
+// comparison that is made piece by piece sees every character whole. Local writes validate text.
+// If a peer sent malformed UTF-8, comparison follows the replacement decoding of a read
+// (docs/decisions/replication-and-hosting.md, "Trust between the nodes of one database").
 //
 // Made by RootReader.ReadText, and valid only while the caller holds the protection of the root, as
 // the reader is: it holds spans over the blocks of the value. Made over a copy of stored text, such as
@@ -133,9 +133,7 @@ internal ref struct StoredTextReader
     // of a character that a chunk boundary splits, and they are joined with the next chunk.
     private int DecodeUtf8(scoped Span<char> destination)
     {
-        var status = Utf8.ToUtf16(_bytes, destination, out var read, out var written, replaceInvalidSequences: false, isFinalBlock: !HasNextChunk);
-
-        Debug.Assert(status != OperationStatus.InvalidData, "Stored text is well-formed.");
+        var status = Utf8.ToUtf16(_bytes, destination, out var read, out var written, replaceInvalidSequences: true, isFinalBlock: !HasNextChunk);
 
         _bytes = _bytes[read..];
 
@@ -150,17 +148,20 @@ internal ref struct StoredTextReader
         Span<byte> character = stackalloc byte[4];
         var length = StoredText.SequenceLength(_bytes[0]);
         var next = ValueBlocks.Chunk(_arena, _entries, _nextChunk);
-        var rest = length - _bytes.Length;
+        var tail = _bytes.Length;
+        var rest = Math.Min(length - tail, next.Length);
 
         _bytes.CopyTo(character);
-        next[..rest].CopyTo(character[_bytes.Length..]);
+        next[..rest].CopyTo(character[tail..]);
 
-        if (Utf8.ToUtf16(character[..length], destination, out _, out var written, replaceInvalidSequences: false) != OperationStatus.Done)
+        Utf8.ToUtf16(character[..(tail + rest)], destination, out var read, out var written,
+            replaceInvalidSequences: true, isFinalBlock: _nextChunk + 1 == _entries.Length / ValueBlocks.DescriptorSize && rest == next.Length);
+        if (read == 0)
         {
             return 0;
         }
 
-        _bytes = next[rest..];
+        _bytes = next[(read - tail)..];
         _nextChunk++;
 
         return written;

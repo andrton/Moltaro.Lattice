@@ -51,10 +51,8 @@ internal sealed class RootLayout
     // Compiles the layout of an entity type of the schema; the schema gives what the entity type
     // alone does not, such as its string encoding and its enum types. Refuses:
     // - an entity type that is not of the schema, with ArgumentException;
-    // - an entity type the engine cannot store yet, with NotSupportedException that names what it holds: a
-    //   Map or a Set at any depth;
     // - an entity type whose FixedSize would exceed Arena.MaxBlockSize, its owned values included, or that
-    //   holds a List whose record of an element does not fit one chunk, with LatticeException,
+    //   holds a collection whose entry does not fit one chunk, with LatticeException,
     //   InvalidSchema, that names the entity type: two rules of the schema language, which the milestone
     //   contract asks to be reported before data is admitted (StructureLayout).
     public static RootLayout Compile(LatticeEntityType entityType, LatticeSchema schema)

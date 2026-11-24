@@ -35,7 +35,7 @@ public sealed class SetRepresentationTests
 
     private static readonly DateTimeOffset FirstInstant = new(2020, 1, 2, 15, 0, 0, TimeSpan.FromHours(3));
 
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_Set_keeps_the_first_schema_equal_member_on_a_master_and_a_child(bool hashed)

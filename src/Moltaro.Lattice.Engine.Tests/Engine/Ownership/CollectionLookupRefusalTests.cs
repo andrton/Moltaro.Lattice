@@ -19,7 +19,7 @@ public sealed class CollectionLookupRefusalTests
 
     private static readonly RootLayout Layout = Compile();
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public void Budget_refusal_with_a_lookup_chunk_allocated_releases_prepared_storage_and_keeps_the_older_root()
     {
         var allocator = new CountingNativeAllocator();
@@ -37,7 +37,7 @@ public sealed class CollectionLookupRefusalTests
         ExpectUnchanged(arena, old, before);
     }
 
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Both_a_local_write_and_an_import_release_storage_after_a_reachable_lookup_chunk_and_native_refusal(bool import)

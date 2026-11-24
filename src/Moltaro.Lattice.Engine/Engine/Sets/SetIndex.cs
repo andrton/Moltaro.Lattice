@@ -8,8 +8,7 @@ namespace Moltaro.Lattice.Engine.Sets;
 
 // One declared index of a set, on the engine, for either copy: an object of a class (ClassCopy) or a
 // record (RecordCopy), as ILatticeIndex<TEntity> says. It is resolved from the schema by its name, once
-// for the object, and holds the secondary index of the table that keeps it (Indexes.SecondaryIndex), or
-// none for an entity type the engine does not store, whose search finds nothing, as a read of it does.
+// for the object, and holds the secondary index of the table that keeps it (Indexes.SecondaryIndex).
 //
 // A key is checked against the index before anything is searched (Access.Sets.IndexCriteria): a key the
 // index cannot serve is ArgumentException, and the default of IndexKey is no key. A search is a walk of the
@@ -33,8 +32,7 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
 {
     private readonly SetOperations _operations;
 
-    // Null when the engine does not store the entity type.
-    private readonly SecondaryIndex? _index;
+    private readonly SecondaryIndex _index;
 
     private readonly TCopy _prototype;
 

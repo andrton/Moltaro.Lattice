@@ -107,7 +107,7 @@ public sealed class IndexPartTypeTests
         ExpectRefused(database.Set<Person>().Index("ByWorkFloor"), IndexKey.Equal(70_000));
     }
 
-    // The key is accepted, and the search on a type the engine cannot store finds nothing (AcceptedKey).
+    // The key is accepted, and the index of the empty entity set finds nothing (AcceptedKey).
     private static void ExpectAccepted(object index, IndexKey key) =>
         AcceptedKey.Expect(() => Find(index, key));
 

@@ -378,6 +378,13 @@ internal static class NestedValues
             throw AboveTheBound(place, count, element);
         }
 
+        var source = new ManagedCollection(value);
+        PlaceCollection(ref holder, place, element, offset, count, ref source);
+    }
+
+    public static void PlaceCollection<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, ref TSource source)
+        where TSource : struct, ICollectionEntrySource
+    {
         if (holder.Refused)
         {
             return;
@@ -386,7 +393,7 @@ internal static class NestedValues
         var compact = count <= CollectionLookup.MostCompactEntries;
         if (holder.Exported is not null)
         {
-            PlaceCollectionEntries(ref holder, place, element, offset, value, count, allowInline: compact);
+            source.Place(ref holder, place, element, offset, count, allowInline: compact);
             return;
         }
 
@@ -396,7 +403,7 @@ internal static class NestedValues
         {
             if (compact)
             {
-                PlaceCollectionEntries(ref holder, place, element, offset, value, count, allowInline: true);
+                source.Place(ref holder, place, element, offset, count, allowInline: true);
                 if (!holder.Refused)
                 {
                     CheckUnique(holder, place, element, offset);
@@ -405,7 +412,7 @@ internal static class NestedValues
             }
             else if (CollectionLookup.TryPrepare(ref holder, offset, count, out var entries))
             {
-                PlaceCollectionEntries(ref entries, place, element, CollectionLookup.EntriesOffset, value, count, allowInline: false);
+                source.Place(ref entries, place, element, CollectionLookup.EntriesOffset, count, allowInline: false);
                 if (!entries.Refused)
                 {
                     holder.SlotBytes += entries.SlotBytes;
@@ -424,26 +431,29 @@ internal static class NestedValues
         holder.Refused = true;
     }
 
-    private static void PlaceCollectionEntries(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, object value, int count, bool allowInline)
+    private readonly struct ManagedCollection(object value) : ICollectionEntrySource
     {
-        if (element.Packed is PackedCollection packed)
+        public void Place(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, bool allowInline)
         {
-            using var cursor = packed.OpenEntries(value);
-            PlacePacked(ref holder, place, packed, offset, cursor, count, allowInline);
-            return;
-        }
+            if (element.Packed is PackedCollection packed)
+            {
+                using var cursor = packed.OpenEntries(value);
+                PlacePacked(ref holder, place, packed, offset, cursor, count, allowInline);
+                return;
+            }
 
-        var declaration = element.Collection!;
-        var entries = declaration.Map is { } map ? map.Entries(value) : Members(declaration.Sequence!, value);
-        using var source = entries.GetEnumerator();
-        var records = new CollectionRecords(source, Math.Min(count, element.RecordsPerChunk), holder.Encoding);
-        try
-        {
-            PlaceRecords(ref holder, place, element, offset, count, ref records);
-        }
-        finally
-        {
-            records.Dispose();
+            var declaration = element.Collection!;
+            var entries = declaration.Map is { } map ? map.Entries(value) : Members(declaration.Sequence!, value);
+            using var source = entries.GetEnumerator();
+            var records = new CollectionRecords(source, Math.Min(count, element.RecordsPerChunk), holder.Encoding);
+            try
+            {
+                PlaceRecords(ref holder, place, element, offset, count, ref records);
+            }
+            finally
+            {
+                records.Dispose();
+            }
         }
     }
 

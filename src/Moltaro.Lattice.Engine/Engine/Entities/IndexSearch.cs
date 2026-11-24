@@ -44,18 +44,17 @@ internal struct IndexSearch
     // moves where it lies.
     public ReadLimits Limits;
 
-    // The search of a lazy Find through the index, null for an entity type the engine does not store, by the
-    // key, a full key or not: forward, skipping nothing, and holding nothing of its answer.
-    public IndexSearch(ReadSettings settings, SecondaryIndex? index, in IndexKey key)
+    // The forward search of a lazy Find through the index, without an offset or a retained answer.
+    public IndexSearch(ReadSettings settings, SecondaryIndex index, in IndexKey key)
     {
         Limits = new ReadLimits(settings);
-        FullKey = index is not null && IndexWalk.IsFullKey(index.Layout, key);
-        EndsAtItsEntity = FullKey && index!.IsUnique && !HasNull(key);
+        FullKey = IndexWalk.IsFullKey(index.Layout, key);
+        EndsAtItsEntity = FullKey && index.IsUnique && !HasNull(key);
     }
 
     // The search of FindAsync through the index by the key, a full key or not, in the direction given, which
     // skips the matches of its Offset and holds its answer until it returns.
-    public IndexSearch(ReadSettings settings, SecondaryIndex? index, in IndexKey key, bool reverse, int offset)
+    public IndexSearch(ReadSettings settings, SecondaryIndex index, in IndexKey key, bool reverse, int offset)
         : this(settings, index, key)
     {
         Reverse = reverse;

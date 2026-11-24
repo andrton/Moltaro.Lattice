@@ -76,7 +76,7 @@ internal sealed partial class EngineDatabase
     // node before its children and the children of an inner node in their order, with its level, 0 for a
     // leaf, and its items: the entries of a leaf, each with the values of its parts as a record of the entity
     // type holds them and the primary key of the entity its identity names, and the separators of an inner
-    // node, with no entity. An index of an entity type the engine does not store has no node. Taken as
+    // node, with no entity. Taken as
     // TextReferences is, under the lock of the writes between two changes of the engine, on a master and on
     // a child; it does not drain. ArgumentException for an index the entity type does not declare;
     // Unavailable before the open and once Faulted, ObjectDisposedException after the close.
@@ -91,11 +91,7 @@ internal sealed partial class EngineDatabase
             var table = parts.Operations[entityType].Table;
             var nodes = new List<(int Level, List<(object?[] Key, object? Entity)> Items)>();
 
-            if (table.IndexOf(declaredIndex) is not { } index)
-            {
-                return nodes;
-            }
-
+            var index = table.IndexOf(declaredIndex);
             var values = new object?[entityType.FieldsByOrdinal.Length];
 
             foreach (var (level, entries) in index.Tree.Nodes())
@@ -113,7 +109,7 @@ internal sealed partial class EngineDatabase
                     {
                         var root = parts.Roots.Entry(IndexLayout.IdentityOf(entry)).Root;
 
-                        RootValues.Read(new RootReader(parts.Arena, table.Layout!, root), entityType, values);
+                        RootValues.Read(new RootReader(parts.Arena, table.Layout, root), entityType, values);
                         entity = values[entityType.Key.Ordinal];
                     }
 
@@ -175,7 +171,7 @@ internal sealed partial class EngineDatabase
 
                 if (entry.State == RootStateEnum.Live)
                 {
-                    action(parts.Arena, parts.Tables.Stored(entry.TypeId).Layout!, new RootHandle(entry.Generation, slot), entry.Root);
+                    action(parts.Arena, parts.Tables.Stored(entry.TypeId).Layout, new RootHandle(entry.Generation, slot), entry.Root);
                 }
             }
 

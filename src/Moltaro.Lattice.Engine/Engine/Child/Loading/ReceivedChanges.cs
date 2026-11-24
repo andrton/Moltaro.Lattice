@@ -459,7 +459,7 @@ internal sealed class ReceivedChanges
     // changes prepared since the last Publish are the caller's to give back.
     private bool TryPrepareWrite(EntityTable table, ulong lastMutation, uint member, ref SequenceReader<byte> rest)
     {
-        var layout = table.Layout!;
+        var layout = table.Layout;
         var received = _import.Check(ref rest, layout);
         var key = KeyOf(table, received);
 
@@ -469,6 +469,7 @@ internal sealed class ReceivedChanges
 
         if (held && _roots.Entry(handle).LastMutationSequence >= lastMutation)
         {
+            _import.CheckSkippedCollections(received);
             _skipped++;
 
             return true;

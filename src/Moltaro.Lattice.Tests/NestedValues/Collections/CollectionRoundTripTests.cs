@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.Collections;
 // (schema-and-types.md, "Ownership, equality and .NET access"; memory-and-access.md).
 public sealed class CollectionRoundTripTests
 {
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(false, 8)]
     [InlineData(true, 8)]
     [InlineData(false, 9)]
@@ -42,7 +42,7 @@ public sealed class CollectionRoundTripTests
         AssertItem(Item(1, count), typed.Get(item.Id)!, records.Get(item.Id)!);
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task A_whole_write_crosses_the_collection_thresholds_and_keeps_null_distinct_from_empty()
     {
         await using var database = await TestDatabases.OpenMasterAsync(CollectionSchema.Compile());
@@ -65,7 +65,7 @@ public sealed class CollectionRoundTripTests
         Assert.Null(records.Get(1L)!["Rights"]);
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task A_child_loads_maps_and_sets_applies_replaces_and_forwards_a_whole_write_and_a_batch()
     {
         await using var master = await TestDatabases.OpenListeningMasterAsync(CollectionSchema.Compile());

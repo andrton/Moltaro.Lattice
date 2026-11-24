@@ -5,30 +5,29 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// The records of a List of records that a node received, as the wire carries them (BlockExport), for the one
-// placement of such a List (Storage.Roots.IRecordSource, NestedValues.PlaceRecords): the values of a root
-// stand at the payload of the first block of its records, and each block is followed by the values its
-// records name. BlockImport.Check found it all valid, so the length of a block is that of its records and of
-// the values inline their descriptors give, and a block is copied as it came, with out-of-line descriptors
-// left pending (ValueBlocks) until its records' values are placed in order, a List of records among them through
-// the same placement. The values of the root not placed yet are held here while the List is placed, and the
-// caller takes them back where the List ends (Values).
+// Records of one collection on the wire (BlockExport), for NestedValues.PlaceRecords.
+// Each record block is followed by the values its records name. BlockImport checked the
+// payload, so each block is copied using the checked inline lengths. Descriptors are left
+// pending until their values are placed in order, including nested collections. Values
+// gives the caller the wire body after this collection.
 internal struct ReceivedRecords : IRecordSource
 {
     private ReadOnlySequence<byte> _values;
 
-    // The records of a List whose first block begins the values given.
+    // The first record block begins the supplied values.
     public ReceivedRecords(ReadOnlySequence<byte> values)
     {
         _values = values;
     }
 
-    // The values of the root after what the List placed.
+    // The values after the records placed so far.
     public readonly ReadOnlySequence<byte> Values => _values;
 
-    public readonly int BlockLength(StructureLayout element, int first, int count)
+    public readonly int BlockLength(StructureLayout element, int first, int count) =>
+        BlockLength(element, count, _values);
+
+    public static int BlockLength(StructureLayout element, int count, in ReadOnlySequence<byte> block)
     {
-        var block = _values;
         var length = count * element.Size;
         Span<byte> descriptor = stackalloc byte[ValueBlocks.DescriptorSize];
 

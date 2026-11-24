@@ -352,8 +352,8 @@ internal sealed class WriteCoordinator
     // Submits a write and returns its task, with its position and whether it changed the database. The
     // values are those of a complete entity for an insert, a replace and an upsert, and null for a
     // delete. The token cancels the write while it waits for its session's position and until its
-    // dispatch (see the class). Refusals, in the task: NotSupportedException for an entity type the
-    // engine does not store; ObjectDisposedException after the close; for the session, HistoryMismatch,
+    // dispatch (see the class). Refusals in the task include ObjectDisposedException after the close.
+    // For the session, HistoryMismatch,
     // SynchronizationTimeout and Unavailable; Unavailable after a fault; RevisionConflict, DuplicateKey
     // and NotFound for its condition; WriteRejected, with Limit Memory, for an entity the memory budget
     // cannot hold; IndeterminateOutcome when a publication failed after the persistence step took it.
@@ -368,11 +368,6 @@ internal sealed class WriteCoordinator
         LatticeSession? session,
         CancellationToken cancellationToken)
     {
-        if (table.Layout is null)
-        {
-            return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(table.Refusal));
-        }
-
         if (cancellationToken.IsCancellationRequested)
         {
             return ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken);
@@ -407,14 +402,6 @@ internal sealed class WriteCoordinator
             if (!keys.TryAdd(member.Table, member.Key))
             {
                 throw new ArgumentException($"The batch has two members for {member.Table.EntityType.Name} '{member.Key}'.", nameof(members));
-            }
-        }
-
-        foreach (ref readonly var member in members.AsSpan())
-        {
-            if (member.Table.Layout is null)
-            {
-                return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(member.Table.Refusal));
             }
         }
 

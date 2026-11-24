@@ -32,7 +32,7 @@ public sealed class ReceivedCollectionTests
 
     private const int Entries = Descriptor + 16;
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public void Collection_transfer_changes_the_wire_version_and_keeps_the_root_layout_version()
     {
         Assert.Equal(6, Protocol.WireFormat);
@@ -59,7 +59,7 @@ public sealed class ReceivedCollectionTests
         RootStorage.Free(item.Arena, item.Layout, root);
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public void A_short_hashed_Set_exports_only_its_entries_and_reexports_the_same_bytes_under_another_seed()
     {
         var options = new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit };
@@ -86,7 +86,7 @@ public sealed class ReceivedCollectionTests
         Assert.Equal(0, child.Counters.PreparedBytes);
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public void A_received_duplicate_in_an_inline_packed_Set_refuses_placement_without_retaining_any_bytes()
     {
         using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit });
@@ -104,7 +104,7 @@ public sealed class ReceivedCollectionTests
         Assert.Equal(0, arena.Counters.LiveBytes);
     }
 
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData("lookup kind")]
     [InlineData("partial entry")]
     public void A_Set_with_a_local_lookup_kind_or_a_partial_entry_is_refused_before_allocation(string damage)
@@ -133,7 +133,7 @@ public sealed class ReceivedCollectionTests
         Assert.Equal(before, item.Arena.Counters);
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task A_follower_stops_on_a_duplicate_in_a_received_Set_and_applies_none_of_the_batch()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(Schema);
@@ -173,7 +173,7 @@ public sealed class ReceivedCollectionTests
         Assert.Equal((byte)7, Assert.Single(copied.Get<HashSet<byte>>("Bytes")!));
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task Load_stream_forwarding_and_batch_build_a_lookup_with_each_nodes_own_seed()
     {
         const ulong MasterSeed = 111;
@@ -218,7 +218,7 @@ public sealed class ReceivedCollectionTests
         }
     }
 
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(2)]
     [InlineData(9)]
     public void A_stale_write_with_a_duplicate_Set_member_refuses_the_transaction_and_releases_an_earlier_prepared_insert(int count)

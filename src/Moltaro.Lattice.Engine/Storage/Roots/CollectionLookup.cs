@@ -69,7 +69,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     public static bool TryPrepare(ref ValueHolder holder, int offset, int count, out ValueHolder entries)
     {
         entries = default;
-        var wanted = (count * 10 + 6) / 7;
+        var wanted = SlotsNeeded(count);
         var chunked = wanted > ContiguousSlots;
         var chunks = chunked ? (wanted + SlotsPerChunk - 1) / SlotsPerChunk : 0;
         var length = chunked
@@ -112,6 +112,8 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     }
 
     private static int SlotPayload(int bytes) => Arena.BlockSizeFor(bytes) - BlockHeader.Size;
+
+    public static int SlotsNeeded(int count) => (count * 10 + 6) / 7;
 
     public ref ulong Slot(int index)
     {

@@ -41,10 +41,10 @@ namespace Moltaro.Lattice.Access;
 /// surrogate without its pair — is refused in the same way, at any depth, and is never stored
 /// and never replaced by another character. A String or Binary value that is larger than one
 /// value may be, as <see cref="Schema.LatticeFieldTypeEnum.String"/> and
-/// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, in a field of the entity, a field of an
-/// owned value or an element of a List, is refused in the same way; and so is a List, at any
-/// depth, of more elements than <see cref="Schema.LatticeFieldTypeEnum.List"/> states, for an
-/// entity type the engine stores. An integer
+/// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused at any depth, including
+/// in a collection. A collection above its entry limit is refused in the same way, as
+/// <see cref="Schema.LatticeFieldTypeEnum.List"/>, <see cref="Schema.LatticeFieldTypeEnum.Map"/>
+/// and <see cref="Schema.LatticeFieldTypeEnum.Set"/> state. An integer
 /// that the enum type of its field does not declare — for a Flags type, a bit that no member
 /// declares — is refused in the same way. A key
 /// given to a delete that is a String which is not well-formed text is an
@@ -294,10 +294,6 @@ public interface ILatticeWriteBatch
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
     /// </exception>
-    /// <exception cref="NotSupportedException">
-    /// An operation is of an entity type whose writes are refused until a feature of its schema is
-    /// implemented.
-    /// </exception>
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
     /// <see cref="LatticeErrorEnum.DuplicateKey"/>, <see cref="LatticeErrorEnum.NotFound"/>,
@@ -320,10 +316,6 @@ public interface ILatticeWriteBatch
     /// <param name="cancellationToken">Cancels the batch while it has not started executing.</param>
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
-    /// </exception>
-    /// <exception cref="NotSupportedException">
-    /// An operation is of an entity type whose writes are refused until a feature of its schema is
-    /// implemented.
     /// </exception>
     /// <exception cref="LatticeException">
     /// As for <see cref="CommitAsync(CancellationToken)"/>, and

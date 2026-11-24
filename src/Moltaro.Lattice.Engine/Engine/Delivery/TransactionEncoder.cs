@@ -53,7 +53,7 @@ internal static class TransactionEncoder
     // A Write of the root of the change, after the header of the transaction when header is its size.
     private static void WriteRoot(DeliveryTail tail, ulong sequence, long effects, int header, in PreparedChange change, Arena arena)
     {
-        var layout = change.Table.Layout!;
+        var layout = change.Table.Layout;
         var start = header + TransactionFormat.WriteEnvelopeSize + RootEnvelope.Size;
         var bytes = tail.GetSpan(start);
         var envelope = bytes[header..];
@@ -91,7 +91,7 @@ internal static class TransactionEncoder
 
     // The bytes of the root of the change with its envelope.
     private static long RootLength(in PreparedChange change, Arena arena) =>
-        RootEnvelope.Size + BlockExport.Length(arena, change.Table.Layout!, change.Root);
+        RootEnvelope.Size + BlockExport.Length(arena, change.Table.Layout, change.Root);
 
     // A transaction of a write that changed nothing.
     public static void Unchanged(DeliveryTail tail, ulong sequence)

@@ -1,23 +1,22 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// A write first checks what needs no engine: its arguments, and the entity against the schema
-// at every depth. Only a write that passes is refused as not implemented. That holds for every
-// entity type whose writes cannot be made yet: those with owned values, collections or
-// references. Whether an integer is a value its enum type declares is part of that validation.
-public sealed class ValidationBeforeRefusalTests
+// A write validates its arguments and the entity against the schema at every depth.
+// Whether an integer is a value its enum declares is part of that validation.
+public sealed class NestedWriteValidationTests
 {
     [Fact]
-    public async Task Valid_record_or_object_with_nested_values_ends_in_NotSupportedException()
+    public async Task Valid_record_and_object_with_nested_values_can_be_written()
     {
         await using var database = await TestData.OpenMasterAsync(schema: NestedSchema());
 
-        await ExpectNotSupportedAsync(database.Set("Holder"), ValidRecord(database.Schema));
-        await ExpectNotSupportedAsync(database.Set<Holder>(), new Holder { Id = 1 });
+        Assert.True((await database.Set("Holder").InsertAsync(ValidRecord(database.Schema))).Changed);
+        Assert.True((await database.Set<Holder>().InsertAsync(new Holder { Id = 2 })).Changed);
 
         // Adding to a write batch validates and copies; it writes nothing.
         var batch = database.CreateWriteBatch();
         batch.Insert(ValidRecord(database.Schema));
         Assert.Equal(1, batch.Count);
+        Assert.Equal(2, database.Set("Holder").Enumerate().Count());
     }
 
     [Theory]
@@ -30,7 +29,7 @@ public sealed class ValidationBeforeRefusalTests
     [InlineData("a null is added to the returned Tags")]
     [InlineData("a null value is added to the returned Options")]
     [InlineData("City of the returned Work is set to null")]
-    public async Task Record_with_an_invalid_value_at_any_depth_is_ValidationFailed_before_the_write_is_refused(string fault)
+    public async Task Record_with_an_invalid_value_at_any_depth_is_ValidationFailed(string fault)
     {
         await using var database = await TestData.OpenMasterAsync(schema: NestedSchema());
         var record = ValidRecord(database.Schema);
@@ -87,7 +86,7 @@ public sealed class ValidationBeforeRefusalTests
     [InlineData("a null in Places")]
     [InlineData("City of a Place is null")]
     [InlineData("a key twice in Counts")]
-    public async Task Object_with_an_invalid_value_at_any_depth_is_ValidationFailed_before_the_write_is_refused(string fault)
+    public async Task Object_with_an_invalid_value_at_any_depth_is_ValidationFailed(string fault)
     {
         await using var database = await TestData.OpenMasterAsync(schema: NestedSchema());
         var holder = new Holder { Id = 1 };
@@ -161,23 +160,6 @@ public sealed class ValidationBeforeRefusalTests
         var batch = database.CreateWriteBatch();
         TestData.ExpectError(LatticeErrorEnum.ValidationFailed, () => add(batch, entity));
         Assert.Equal(0, batch.Count);
-    }
-
-    private static async Task ExpectNotSupportedAsync(ILatticeSet set, LatticeRecord record)
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.InsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.UpsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.ReplaceAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.DeleteAsync(1L));
-    }
-
-    private static async Task ExpectNotSupportedAsync<TEntity>(ILatticeSet<TEntity> set, TEntity entity)
-        where TEntity : class
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.InsertAsync(entity));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.UpsertAsync(entity));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.ReplaceAsync(entity));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.DeleteAsync(1L));
     }
 
     // A record of Holder with every field that is not nullable set to a valid value.

@@ -1,43 +1,30 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// Storing Maps and Sets is not implemented yet: until it is, every write of an entity type that
-// declares a field of one of these types throws NotSupportedException, through records and through
-// classes. Compiling, saving and loading such a schema work, and so do records and the binding of
-// classes. An entity type of the same schema with an owned value, a List or a reference is written and
-// read back by name, and one that declares none of these fields, also one that others refer to, is
-// written as before.
+// Entity types in a saved and loaded schema can be written and read by name and through
+// classes, including owned values, collections and references.
 public sealed class ValueWriteTests
 {
-    [Theory]
-    [InlineData("Settings")]
-    [InlineData("Badges")]
-    public async Task Entity_type_with_a_Map_or_a_Set_is_not_writable_yet_through_records(string entityTypeName)
-    {
-        await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());
-        var set = database.Set(entityTypeName);
-        var record = CompleteRecord(set.EntityType, database.Schema);
-
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.InsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.UpsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.ReplaceAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.DeleteAsync(1L));
-        Assert.Empty(set.Enumerate());
-    }
-
     [Fact]
-    public async Task Entity_type_with_a_Map_or_a_Set_is_not_writable_yet_through_classes()
+    public async Task Entity_types_with_a_Map_or_a_Set_are_written_through_classes_in_a_saved_and_loaded_schema()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());
 
-        await ExpectNotWritableAsync(database.Set<Settings>(), new Settings { Id = 1, Values = new() { ["theme"] = "dark" } });
-        await ExpectNotWritableAsync(database.Set<Badges>(), new Badges { Id = 1, Codes = [7] });
+        var settings = database.Set<Settings>();
+        var badges = database.Set<Badges>();
+        await settings.InsertAsync(new Settings { Id = 1, Values = new() { ["theme"] = "dark" } });
+        await badges.InsertAsync(new Badges { Id = 1, Codes = [7] });
+
+        Assert.Equal("dark", settings.Get(1L)!.Values["theme"]);
+        Assert.Equal(7, Assert.Single(badges.Get(1L)!.Codes));
     }
 
     [Theory]
     [InlineData("Resident")]
     [InlineData("Roster")]
+    [InlineData("Settings")]
+    [InlineData("Badges")]
     [InlineData("Membership")]
-    public async Task Entity_type_of_a_saved_and_loaded_schema_with_an_owned_value_a_List_or_a_reference_is_written_and_read_back_by_name(string entityTypeName)
+    public async Task Entity_type_of_a_saved_and_loaded_schema_is_written_and_read_back_by_name(string entityTypeName)
     {
         await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());
         var set = database.Set(entityTypeName);
@@ -59,16 +46,6 @@ public sealed class ValueWriteTests
         await database.Set<Club>().InsertAsync(new Club { Id = 1, Title = "Chess" });
         Assert.Equal("Chess", database.Set<Club>().Get(1L)!.Title);
         Assert.Equal("Chess", database.Set("Club").Get(1L)!["Title"]);
-    }
-
-    private static async Task ExpectNotWritableAsync<TEntity>(ILatticeSet<TEntity> set, TEntity entity)
-        where TEntity : class
-    {
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.InsertAsync(entity));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.UpsertAsync(entity));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.ReplaceAsync(entity));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.DeleteAsync(1L));
-        Assert.Empty(set.Enumerate());
     }
 
     // A value of a record, its owned values field by field.

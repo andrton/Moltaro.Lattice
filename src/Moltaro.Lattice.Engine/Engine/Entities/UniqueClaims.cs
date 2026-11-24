@@ -60,7 +60,7 @@ internal sealed class UniqueClaims
 
         foreach (var (table, index, places) in _claims)
         {
-            CollectionsMarshal.AsSpan(places).Sort(new ClaimOrder(table.Indexes[index].Order, arena, table.Layout!, changes));
+            CollectionsMarshal.AsSpan(places).Sort(new ClaimOrder(table.Indexes[index].Order, arena, table.Layout, changes));
         }
     }
 
@@ -68,7 +68,7 @@ internal sealed class UniqueClaims
     // of another entity, sets or moves there, as ChangePublisher.ClaimsSameKey decides it for two changes.
     public bool Claims(in PreparedChange change)
     {
-        var layout = change.Table.Layout!;
+        var layout = change.Table.Layout;
         var mine = new RootReader(_arena, layout, change.Root);
 
         foreach (var (table, index, places) in _claims)
@@ -125,7 +125,7 @@ internal sealed class UniqueClaims
     private void AddClaims(in PreparedChange change, int place)
     {
         var indexes = change.Table.Indexes;
-        var root = new RootReader(_arena, change.Table.Layout!, change.Root);
+        var root = new RootReader(_arena, change.Table.Layout, change.Root);
 
         for (var index = 0; index < indexes.Length; index++)
         {

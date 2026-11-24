@@ -36,8 +36,7 @@ internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnum
 
     private readonly SetOperations _operations;
 
-    // Null when the engine does not store the entity type.
-    private readonly SecondaryIndex? _index;
+    private readonly SecondaryIndex _index;
 
     // The key, bound to the fields of the index, the one copy of it the search holds.
     private readonly IndexKey _key;
@@ -50,7 +49,7 @@ internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnum
 
     private int _state;
 
-    public IndexMatches(SetOperations operations, SecondaryIndex? index, in IndexKey key, TCopy prototype)
+    public IndexMatches(SetOperations operations, SecondaryIndex index, in IndexKey key, TCopy prototype)
     {
         _operations = operations;
         _index = index;

@@ -185,7 +185,7 @@ internal static class ValueComparer
     // nothing.
     public static int CompareStored(StoredTypeEnum type, ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) => type switch
     {
-        StoredTypeEnum.Boolean => left[0].CompareTo(right[0]),
+        StoredTypeEnum.Boolean => StoredScalars.ReadBoolean(left).CompareTo(StoredScalars.ReadBoolean(right)),
         StoredTypeEnum.SignedInteger => StoredScalars.ReadInteger(left).CompareTo(StoredScalars.ReadInteger(right)),
         StoredTypeEnum.UnsignedInteger => StoredScalars.ReadUnsigned(left).CompareTo(StoredScalars.ReadUnsigned(right)),
         StoredTypeEnum.Float32 => StoredScalars.ReadFloat32(left).CompareTo(StoredScalars.ReadFloat32(right)),

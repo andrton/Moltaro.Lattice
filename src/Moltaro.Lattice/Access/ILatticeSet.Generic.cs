@@ -94,20 +94,19 @@ namespace Moltaro.Lattice.Access;
 /// well-formed — a surrogate without its pair — is refused in the same way, at any depth, and
 /// is never stored and never replaced by another character. A String or Binary value that is
 /// larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/> and
-/// <see cref="LatticeFieldTypeEnum.Binary"/> state, in a field of the entity, a field of an owned
-/// value or an element of a List, is refused in the same way; and so is a List, at any depth, of
-/// more elements than <see cref="LatticeFieldTypeEnum.List"/> states, for an entity type the
-/// engine stores: the bound follows from its layout, so it is not checked before a write of a
-/// type the engine does not store is refused as not implemented. An integer
+/// <see cref="LatticeFieldTypeEnum.Binary"/> state, is refused at any depth. This applies
+/// to collection keys, values and members as well as to fields. A collection above its
+/// entry limit is refused in the same way, as <see cref="LatticeFieldTypeEnum.List"/>,
+/// <see cref="LatticeFieldTypeEnum.Map"/> and <see cref="LatticeFieldTypeEnum.Set"/> state.
+/// When members of a Set are equal under its declaration, the first in the order the input
+/// collection gives them is kept, whatever comparer the input had. An integer
 /// that the enum type of its field does not declare — for a Flags type, a bit that no member
 /// declares — is refused in the same way. Which arrays
 /// the runtime would read as other values, and that an array of a class derived from the
 /// declared element type is valid, is stated at <see cref="LatticeRecord.this[string]"/>,
-/// which refuses such arrays in the same way. Both come before the conditions of the write are looked at, whether the
-/// key exists and whether the entity has the expected revision, and before a write is
-/// refused as not implemented, for every entity type whose writes are refused until a
-/// feature of its schema is implemented, such as a Map: only a write that passes
-/// them ends in <see cref="NotSupportedException"/>. Whether a unique index already holds a
+/// which refuses such arrays in the same way. Validation precedes the conditions of the
+/// write, including whether the key exists and whether the entity has the expected revision.
+/// Whether a unique index already holds a
 /// value of the entity is decided after the conditions of the write, by the master, as
 /// <see cref="LatticeIndex.IsUnique"/> states.
 /// </para>

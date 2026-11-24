@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.Collections;
 // "Collection input contract"; document-model.md, "Atomic WriteBatch within one database").
 public sealed class CollectionInputTests
 {
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task Duplicate_Map_keys_in_an_object_refuse_the_write_and_preserve_the_entity_and_its_revision()
     {
         await using var master = await TestDatabases.OpenListeningMasterAsync(CollectionSchema.Compile());

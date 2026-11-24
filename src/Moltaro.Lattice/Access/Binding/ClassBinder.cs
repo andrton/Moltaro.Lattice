@@ -36,9 +36,9 @@ namespace Moltaro.Lattice.Access.Binding;
 // accessor C# sees for it, null included; a List becomes a new List<T> or array of the type of the
 // property, each element converted, an empty array the one empty array of its type, and a List
 // property of the very type a record holds there is given the List the read made, which holds the same
-// values at every depth. A read made every value
-// it hands over for the object it builds, so nothing is copied again. A Map and a Set are never read:
-// an entity type that holds one is not stored.
+// values at every depth. Map keys and values and Set members are converted where the bound class uses
+// another .NET form. A Dictionary or HashSet keeps the schema comparer and its entry count.
+// A read can hand over a collection it already made in the form the class declares.
 internal sealed class ClassBinder
 {
     // The conversion of a value that a record holds as the class holds it: a scalar, a String, a Binary

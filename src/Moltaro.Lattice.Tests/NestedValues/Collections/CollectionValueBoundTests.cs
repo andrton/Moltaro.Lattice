@@ -23,7 +23,7 @@ public sealed class CollectionValueBoundTests
         }
         """);
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task An_over_bound_Map_key_Map_value_or_Set_member_is_refused_before_the_write_condition()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
@@ -50,7 +50,7 @@ public sealed class CollectionValueBoundTests
         Assert.Null(named.Get(1L));
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task A_Map_key_Map_value_and_Set_member_of_exactly_the_bound_pass_validation()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);

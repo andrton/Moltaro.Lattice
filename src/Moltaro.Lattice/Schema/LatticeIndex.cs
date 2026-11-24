@@ -32,11 +32,6 @@ namespace Moltaro.Lattice.Schema;
 /// it does for an entity type whose fixed part does not fit one block. 251 String parts that
 /// are never null fit; 252 do not.
 /// </para>
-/// <para>
-/// <b>Not implemented yet.</b> The indexes of an entity type whose writes are refused until a
-/// feature of its schema is implemented, a Map or a Set, are not checked for their width, as
-/// its fixed part is not, until it can be written.
-/// </para>
 /// </remarks>
 public sealed class LatticeIndex
 {

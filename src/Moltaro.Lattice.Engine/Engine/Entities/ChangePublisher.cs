@@ -216,7 +216,7 @@ internal sealed class ChangePublisher
     private void DecideReplace(ref PreparedChange change)
     {
         var indexes = change.Table.Indexes;
-        var layout = change.Table.Layout!;
+        var layout = change.Table.Layout;
         var old = new RootReader(_arena, layout, change.Replaced);
         var current = new RootReader(_arena, layout, change.Root);
 
@@ -265,7 +265,7 @@ internal sealed class ChangePublisher
     private bool FindTakenOfOne(in PreparedChange change, out TakenValue taken)
     {
         var indexes = change.Table.Indexes;
-        var current = new RootReader(_arena, change.Table.Layout!, change.Root);
+        var current = new RootReader(_arena, change.Table.Layout, change.Root);
 
         for (var index = 0; index < indexes.Length; index++)
         {
@@ -328,7 +328,7 @@ internal sealed class ChangePublisher
     private void FindTakenInIndex(Span<PreparedChange> changes, EntityTable table, int index, ref TakenValue found)
     {
         var unique = table.Indexes[index];
-        var layout = table.Layout!;
+        var layout = table.Layout;
         var claims = 0;
         var frees = 0;
 
@@ -464,7 +464,7 @@ internal sealed class ChangePublisher
         }
 
         var indexes = change.Table.Indexes;
-        var layout = change.Table.Layout!;
+        var layout = change.Table.Layout;
         var mine = new RootReader(_arena, layout, change.Root);
         var theirs = new RootReader(_arena, layout, other.Root);
 
@@ -537,7 +537,7 @@ internal sealed class ChangePublisher
             return (change.IndexRewrites & bit) != 0 ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move;
         }
 
-        var layout = change.Table.Layout!;
+        var layout = change.Table.Layout;
         var old = new RootReader(_arena, layout, change.Replaced);
         var current = new RootReader(_arena, layout, change.Root);
 
@@ -628,13 +628,13 @@ internal sealed class ChangePublisher
             switch (change.Kind)
             {
                 case ChangeKindEnum.Insert:
-                    RootStorage.Free(_arena, change.Table.Layout!, change.Root);
+                    RootStorage.Free(_arena, change.Table.Layout, change.Root);
                     change.Table.ReleaseReservation();
                     _roots.Release(change.Handle);
                     break;
 
                 case ChangeKindEnum.Replace:
-                    RootStorage.Free(_arena, change.Table.Layout!, change.Root);
+                    RootStorage.Free(_arena, change.Table.Layout, change.Root);
                     _retired.Release();
                     break;
 
@@ -656,7 +656,7 @@ internal sealed class ChangePublisher
 
             if (!change.Root.IsNull)
             {
-                RootStorage.Free(_arena, change.Table.Layout!, change.Root);
+                RootStorage.Free(_arena, change.Table.Layout, change.Root);
             }
 
             if (change.Kind == ChangeKindEnum.Insert)
@@ -698,7 +698,7 @@ internal sealed class ChangePublisher
                     break;
 
                 case ChangeKindEnum.Replace:
-                    StoreReplace(change.Table.Layout!, change.Handle, change.Root, change.Member, stamp);
+                    StoreReplace(change.Table.Layout, change.Handle, change.Root, change.Member, stamp);
                     break;
 
                 default:
@@ -841,7 +841,7 @@ internal sealed class ChangePublisher
     // then the entry of the index, which publishes both to a read by key.
     private void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, uint member, ulong sequence)
     {
-        RootStorage.Publish(_arena, table.Layout!, root);
+        RootStorage.Publish(_arena, table.Layout, root);
 
         // No read by key reaches the entry before the index maps the key to it, and the first stamp of the
         // entry is the write's sequence, with no mark before it. The capture of a load reaches it by its
@@ -895,7 +895,7 @@ internal sealed class ChangePublisher
             RemoveOld(change);
         }
 
-        _retired.RetireRoot(change.Table.Layout!, change.Replaced);
+        _retired.RetireRoot(change.Table.Layout, change.Replaced);
     }
 
     // The stores of a delete before the position: the mark, then the state where a replace has the root,
@@ -927,7 +927,7 @@ internal sealed class ChangePublisher
             RemoveOld(change);
         }
 
-        _retired.RetireDeleted(change.Table.Layout!, change.Handle, change.Replaced);
+        _retired.RetireDeleted(change.Table.Layout, change.Handle, change.Replaced);
     }
 
     // Gives back what the indexes of the entity types given reserved for the changes, each index once for all

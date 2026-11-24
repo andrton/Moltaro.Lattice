@@ -45,15 +45,12 @@ public enum LatticeFieldTypeEnum : byte
     /// <summary><see cref="string"/>.</summary>
     /// <remarks>
     /// One value takes at most 268,173,376 bytes of its stored encoding, the encoding the schema
-    /// declares in <see cref="LatticeSchema.StringEncoding"/>, at every depth of owned values and
-    /// Lists: the bound holds for each such value, a field of the entity, a field of an owned value
-    /// and an element of a List, not only for a field of the entity. A write of a larger value, and adding an entity with one
-    /// to a write batch, is refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its
-    /// place named, as every other validation of an entity names one: the field of the entity or of
-    /// the owned type that declares it, and for an element the field that holds the List; before the
-    /// conditions of the write are looked at and before a write is refused as not implemented. The bound is a fixed rule of the storage format,
-    /// the same on every node and not an option; an entity itself has no size limit, only the
-    /// memory of the instance bounds it.
+    /// declares in <see cref="LatticeSchema.StringEncoding"/>. The bound holds at every depth
+    /// of owned values and collections, including keys, values and members. A write of a larger
+    /// String is refused before its conditions with <see cref="LatticeErrorEnum.ValidationFailed"/>,
+    /// as is adding an entity with one to a write batch. The error names the declaring field
+    /// or the field that holds the collection. The bound is a fixed rule of the storage format
+    /// on every node. The size of the entity itself is bounded by the memory of the instance.
     /// </remarks>
     String = 13,
 
@@ -74,14 +71,12 @@ public enum LatticeFieldTypeEnum : byte
 
     /// <summary>An array of <see cref="byte"/>.</summary>
     /// <remarks>
-    /// One value takes at most 268,173,376 bytes, at every depth of owned values and Lists: the bound
-    /// holds for each such value, a field of the entity, a field of an owned value and an element of a
-    /// List, not only for a field of the entity. A write of a larger value, and adding an entity with one to a write
-    /// batch, is refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named,
-    /// as for a String; before the conditions of the write are looked at and before a write is
-    /// refused as not implemented. The bound is a fixed rule of the storage format,
-    /// the same on every node and not an option; an entity itself has no size limit, only the
-    /// memory of the instance bounds it.
+    /// One value takes at most 268,173,376 bytes at every depth of owned values and collections.
+    /// A write of a larger Binary is refused before its conditions with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as is adding an entity with one to a
+    /// write batch. The error names its field as for a String. The bound is a fixed rule of the
+    /// storage format on every node. The size of the entity itself is bounded by the memory
+    /// of the instance.
     /// </remarks>
     Binary = 19,
 
@@ -115,15 +110,13 @@ public enum LatticeFieldTypeEnum : byte
     /// A List holds at most what one directory of 4,094 chunks of 65,504 bytes holds, a fixed rule
     /// of the storage format, the same on every node and not an option, as the bound of one String
     /// or Binary value is. It follows from what one element stores at a fixed width, as
-    /// <see cref="LatticeEntityType"/> counts it: a List whose elements hold no String, Binary or
-    /// List holds 268,173,376 bytes of them, 33,521,672 elements of Int64; one whose elements hold
-    /// one holds 4,094 times the elements one chunk holds whole, each with room for 64 bytes of each
-    /// String, Binary and List it holds, 3,348,892 elements of String. A write of a larger List, at
-    /// any depth, of an entity type the engine stores, and adding such an entity to a write batch, is
+    /// <see cref="LatticeEntityType"/> counts it. Without String, Binary or collection descriptors
+    /// the chunks hold 268,173,376 bytes of entries, for example 33,521,672 elements of Int64.
+    /// With descriptors each chunk holds whole entries and reserves 64 bytes per descriptor,
+    /// for example 3,348,892 elements of String across all chunks. A write of a larger List at
+    /// any depth, including when adding an entity to a write batch, is
     /// refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named as for a
-    /// String, before the conditions of the write are looked at; the bound follows from the layout of
-    /// the entity type, so a write of an entity type the engine does not store ends in
-    /// <see cref="NotSupportedException"/> without it.
+    /// String, before the conditions of the write are looked at.
     /// </para>
     /// </remarks>
     List = 22,
@@ -135,11 +128,11 @@ public enum LatticeFieldTypeEnum : byte
     /// a Map is enumerated is not guaranteed.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet.</b> A schema declares Maps, and is compiled, saved and loaded
-    /// with them, and records and bound classes hold them, but storing them is not
-    /// implemented. Until then no write of an entity type that has a Map field is carried
-    /// out: after the checks every write makes of its arguments and of the entity against the
-    /// schema, it throws <see cref="NotSupportedException"/>.
+    /// A Map key is required. A write with equal keys is refused with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/>. The entry limit is the smaller of
+    /// 23,465,170 and what the <see cref="List"/> bound holds with the key and value in
+    /// one entry. A Map above that limit at any depth is refused with the same error,
+    /// with its field named, including when adding an entity to a write batch.
     /// </remarks>
     Map = 23,
 
@@ -149,11 +142,11 @@ public enum LatticeFieldTypeEnum : byte
     /// order in which a Set is enumerated is not guaranteed.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet.</b> A schema declares Sets, and is compiled, saved and loaded
-    /// with them, and records and bound classes hold them, but storing them is not
-    /// implemented. Until then no write of an entity type that has a Set field is carried
-    /// out: after the checks every write makes of its arguments and of the entity against the
-    /// schema, it throws <see cref="NotSupportedException"/>.
+    /// From equal members a write keeps the first in the order the input collection gives
+    /// them. The member limit is the smaller of 23,465,170 and what the <see cref="List"/>
+    /// bound holds for the element declaration. A Set above that limit at any depth is refused
+    /// with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its field named, including
+    /// when adding an entity to a write batch.
     /// </remarks>
     Set = 24,
 

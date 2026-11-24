@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 // form. A whole write selects compact at four (physical-storage.md, "Map and Set lookup layout").
 public sealed class CollectionFormTests
 {
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(false, 4)]
     [InlineData(false, 5)]
     [InlineData(false, 6)]

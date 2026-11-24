@@ -36,7 +36,7 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
         }
     }
 
-    public int Count => _entry.HoldsDescriptors ? (int)_entries.Length : (int)_entries.Length / _entry.Size;
+    public int Count => _entry.StoredEntryCount(_entries);
 
     public int Width => Key.Type == StoredTypeEnum.String ? 0 : Key.Width;
 

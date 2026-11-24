@@ -52,14 +52,14 @@ internal sealed class RootPlacement
             throw Protocol.Invalid($"A root of {bytes.Length} bytes is shorter than its envelope.");
         }
 
-        if (!_tables.TryGetStored(typeId, out var table) || table.Layout is not { } layout)
+        if (!_tables.TryGetStored(typeId, out var table))
         {
             throw Protocol.Invalid($"A root names the entity type {typeId}, which the schema of the child does not store.");
         }
 
         if (lastMutation == 0)
         {
-            throw Protocol.Invalid($"A root of {layout.EntityType.Name} has no last mutation.");
+            throw Protocol.Invalid($"A root of {table.EntityType.Name} has no last mutation.");
         }
 
         _changes.Place(table, lastMutation, member, reader, _received);

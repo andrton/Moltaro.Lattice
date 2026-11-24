@@ -157,9 +157,8 @@ public sealed class InstanceStateTests
     }
 
     [Fact]
-    public async Task After_a_close_a_read_of_an_entity_type_the_engine_does_not_store_is_ObjectDisposedException()
+    public async Task After_a_close_a_read_of_an_entity_type_with_a_Map_is_ObjectDisposedException()
     {
-        // Holder has a Map field: the engine does not store it.
         var schema = LatticeSchema.Compile($$"""
             {
               "EntityTypes": [

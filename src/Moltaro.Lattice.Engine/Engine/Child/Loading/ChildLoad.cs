@@ -55,9 +55,8 @@ internal static class ChildLoad
     };
 
     // Sizes the primary index of each entity type for the roots its master announced, so that the load does
-    // not grow it root by root. A count of roots of a type the engine does not store is not valid; counts
-    // that need more than the memory limit, each root at least one block of its fixed part, cannot be held,
-    // and the open ends with Unavailable.
+    // not grow it root by root. Each root needs at least a block for its fixed part. If the count
+    // needs more than the memory limit, the open ends with Unavailable.
     private static void PresizeIndexes(IReadOnlyList<EntityTable> tables, Lock writes, long[] counts, long memoryLimit)
     {
         var least = 0.0;
@@ -69,12 +68,7 @@ internal static class ChildLoad
                 continue;
             }
 
-            if (tables[index].Layout is not { } layout)
-            {
-                throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The master announces {counts[index]} roots of {tables[index].EntityType.Name}, which the engine does not store.");
-            }
-
-            least += (double)counts[index] * Arena.BlockSizeFor(layout.FixedSize - BlockHeader.Size);
+            least += (double)counts[index] * Arena.BlockSizeFor(tables[index].Layout.FixedSize - BlockHeader.Size);
         }
 
         if (least > memoryLimit)

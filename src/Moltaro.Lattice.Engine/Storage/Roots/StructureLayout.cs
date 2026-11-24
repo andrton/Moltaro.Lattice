@@ -150,6 +150,9 @@ internal sealed class StructureLayout
         return Collection!.Sequence is { } sequence ? sequence.Count(value) : ((IDictionary)value).Count;
     }
 
+    public int StoredEntryCount(in ValueDescriptor descriptor) =>
+        HoldsDescriptors ? (int)descriptor.Length : (int)descriptor.Length / Size;
+
     // The place at the position.
     public ref readonly StoredField Place(int position) => ref _places[position];
 
@@ -183,7 +186,7 @@ internal sealed class StructureLayout
     // places the paths indexed lead to, as LatticeIndexPart.Path gives them, are parts of a secondary index:
     // a field of an owned type that stands at two positions is indexed at the one its path names. Refuses,
     // with LatticeException, InvalidSchema and the entity type named, the record of an element of a List that
-    // does not fit one chunk; with NotSupportedException and the field named, a Map or a Set at any depth.
+    // does not fit one chunk.
     public static StructureLayout OfRoot(LatticeEntityType entityType, IReadOnlyList<IReadOnlyList<LatticeField>> indexed) =>
         Compile(entityType, BlockHeader.Size, [.. entityType.Fields.Select(field => (field, field.Declaration))], indexed, collection: null);
 
@@ -324,7 +327,7 @@ internal sealed class StructureLayout
         foreach (var (position, _) in inPathOrder)
         {
             var (field, declaration) = fields[position];
-            var (type, width) = TypeOf(entityType, field, declaration);
+            var (type, width) = TypeOf(declaration);
 
             collections |= IsCollection(type);
 
@@ -344,7 +347,7 @@ internal sealed class StructureLayout
         foreach (var (position, _) in inPathOrder)
         {
             var (field, declaration) = fields[position];
-            var (type, width) = TypeOf(entityType, field, declaration);
+            var (type, width) = TypeOf(declaration);
 
             if (IsDescriptor(type))
             {
@@ -425,15 +428,15 @@ internal sealed class StructureLayout
 
     private static bool IsCollection(StoredTypeEnum type) => type is StoredTypeEnum.List or StoredTypeEnum.Map or StoredTypeEnum.Set;
 
-    // The stored type and the width of a value of the declaration. A Map and a Set are not stored yet.
-    private static (StoredTypeEnum Type, int Width) TypeOf(LatticeEntityType entityType, LatticeField field, LatticeValueDeclaration declaration) => declaration.ScalarType switch
+    // The stored type and the width of a value of the declaration.
+    private static (StoredTypeEnum Type, int Width) TypeOf(LatticeValueDeclaration declaration) => declaration.ScalarType switch
     {
         LatticeFieldTypeEnum.Owned => (StoredTypeEnum.Owned, 0),
         LatticeFieldTypeEnum.List => (StoredTypeEnum.List, ValueBlocks.DescriptorSize),
         LatticeFieldTypeEnum.String => (StoredTypeEnum.String, ValueBlocks.DescriptorSize),
         LatticeFieldTypeEnum.Binary => (StoredTypeEnum.Binary, ValueBlocks.DescriptorSize),
-        LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set =>
-            throw new NotSupportedException($"The field {entityType.Name}.{field.Name} holds a {declaration.ScalarType}, which a root cannot store yet."),
+        LatticeFieldTypeEnum.Map => (StoredTypeEnum.Map, ValueBlocks.DescriptorSize),
+        LatticeFieldTypeEnum.Set => (StoredTypeEnum.Set, ValueBlocks.DescriptorSize),
         LatticeFieldTypeEnum.Boolean => (StoredTypeEnum.Boolean, 1),
         LatticeFieldTypeEnum.Float32 => (StoredTypeEnum.Float32, 4),
         LatticeFieldTypeEnum.Float64 => (StoredTypeEnum.Float64, 8),

@@ -1,16 +1,8 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// What the engine cannot store yet, and what it does with such an entity type. It stores every key type
-// of the catalog, a String compared with either comparison, an Enum field, both encodings, Dictionary
-// storage, unique indexes, owned values, Lists and references; it refuses an entity type with a Map or a
-// Set. Every write of such an entity type, an insert, a replace, an upsert and a delete, with or
-// without a revision, is refused with NotSupportedException at the write, after the checks of its
-// arguments and the validation of the entity, in the order of Q25. A read of it by key finds nothing
-// and an enumeration of it is empty. Binding a class to it and selecting one of its indexes work.
-//
-// Each case is one entity type, Item, in a schema of its own: the key Id, an Int64, the String field
-// Text with the index ByText, and the field Value. Where the case is not Value, Value is an Int32.
-public sealed class NotStoredYetTests
+// The ordinary set operations of an entity type with a Map or Set, through both API forms.
+// Each entity type has an Int64 key, a required Text with the index ByText and a collection Value.
+public sealed class CollectionSetOperationsTests
 {
     private static readonly Dictionary<string, Case> Cases = new Case[]
     {
@@ -26,24 +18,7 @@ public sealed class NotStoredYetTests
 
     [Theory]
     [MemberData(nameof(CaseNames))]
-    public async Task Every_write_of_an_entity_type_the_engine_cannot_store_yet_is_not_supported(string caseName)
-    {
-        var @case = Cases[caseName];
-        await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
-        var items = database.Set("Item");
-        var record = @case.CompleteRecord(items.EntityType, database.Schema);
-
-        foreach (var write in EveryWrite(items, record, @case.Key))
-        {
-            await Assert.ThrowsAsync<NotSupportedException>(async () => await write());
-        }
-
-        await @case.Class.ExpectEveryWriteNotSupportedAsync(database);
-    }
-
-    [Theory]
-    [MemberData(nameof(CaseNames))]
-    public async Task Write_of_such_an_entity_type_checks_its_arguments_and_validates_the_entity_before_it_is_refused(string caseName)
+    public async Task A_write_checks_its_arguments_and_validates_an_entity_with_a_collection(string caseName)
     {
         var @case = Cases[caseName];
         await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
@@ -66,7 +41,7 @@ public sealed class NotStoredYetTests
 
     [Theory]
     [MemberData(nameof(CaseNames))]
-    public async Task Read_of_such_an_entity_type_by_key_finds_nothing_and_an_enumeration_of_it_is_empty(string caseName)
+    public async Task An_empty_entity_type_with_a_collection_has_no_entities_to_read(string caseName)
     {
         var @case = Cases[caseName];
         await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
@@ -84,7 +59,7 @@ public sealed class NotStoredYetTests
 
     [Theory]
     [MemberData(nameof(CaseNames))]
-    public async Task Class_of_such_an_entity_type_binds_and_its_index_is_selected(string caseName)
+    public async Task An_entity_type_with_a_collection_binds_and_its_index_is_selected(string caseName)
     {
         var @case = Cases[caseName];
         await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
@@ -93,23 +68,6 @@ public sealed class NotStoredYetTests
 
         @case.Class.ExpectBound(database);
     }
-
-    // Every write of the set, without and with a revision and a session.
-    private static Func<ValueTask<LatticeWriteResult>>[] EveryWrite(ILatticeSet items, LatticeRecord record, object key) =>
-    [
-        () => items.InsertAsync(record),
-        () => items.InsertAsync(record, new LatticeSession()),
-        () => items.ReplaceAsync(record),
-        () => items.ReplaceAsync(record, new LatticeSession()),
-        () => items.ReplaceAsync(record, default(LatticeRevision)),
-        () => items.ReplaceAsync(record, default(LatticeRevision), new LatticeSession()),
-        () => items.UpsertAsync(record),
-        () => items.UpsertAsync(record, new LatticeSession()),
-        () => items.DeleteAsync(key),
-        () => items.DeleteAsync(key, new LatticeSession()),
-        () => items.DeleteAsync(key, default(LatticeRevision)),
-        () => items.DeleteAsync(key, default(LatticeRevision), new LatticeSession()),
-    ];
 
     // One case: its schema, a key of its key type, and what makes a complete record and a
     // complete object of Item.
@@ -157,8 +115,6 @@ public sealed class NotStoredYetTests
     // arguments of the case.
     private abstract class ItemClass
     {
-        public abstract Task ExpectEveryWriteNotSupportedAsync(ILatticeDatabase database);
-
         public abstract Task ExpectValidatedFirstAsync(ILatticeDatabase database);
 
         public abstract Task ExpectNothingReadAsync(ILatticeDatabase database);
@@ -169,33 +125,6 @@ public sealed class NotStoredYetTests
     private sealed class ItemClass<TKey, TValue>(TKey key, Func<TValue> value) : ItemClass
         where TKey : notnull
     {
-        public override async Task ExpectEveryWriteNotSupportedAsync(ILatticeDatabase database)
-        {
-            var items = database.Set<Item<TKey, TValue>>();
-            var item = new Item<TKey, TValue> { Id = key, Text = "a", Value = value() };
-
-            Func<ValueTask<LatticeWriteResult>>[] writes =
-            [
-                () => items.InsertAsync(item),
-                () => items.InsertAsync(item, new LatticeSession()),
-                () => items.ReplaceAsync(item),
-                () => items.ReplaceAsync(item, new LatticeSession()),
-                () => items.ReplaceAsync(item, default(LatticeRevision)),
-                () => items.ReplaceAsync(item, default(LatticeRevision), new LatticeSession()),
-                () => items.UpsertAsync(item),
-                () => items.UpsertAsync(item, new LatticeSession()),
-                () => items.DeleteAsync(key),
-                () => items.DeleteAsync(key, new LatticeSession()),
-                () => items.DeleteAsync(key, default(LatticeRevision)),
-                () => items.DeleteAsync(key, default(LatticeRevision), new LatticeSession()),
-            ];
-
-            foreach (var write in writes)
-            {
-                await Assert.ThrowsAsync<NotSupportedException>(async () => await write());
-            }
-        }
-
         public override async Task ExpectValidatedFirstAsync(ILatticeDatabase database)
         {
             var items = database.Set<Item<TKey, TValue>>();

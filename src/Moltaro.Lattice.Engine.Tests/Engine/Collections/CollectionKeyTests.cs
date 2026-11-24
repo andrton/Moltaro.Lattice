@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
 // only under the root's protection (physical-storage.md, "Map and Set lookup layout").
 public sealed class CollectionKeyTests
 {
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData("Boolean")]
     [InlineData("Int8")]
     [InlineData("UInt8")]
@@ -59,7 +59,7 @@ public sealed class CollectionKeyTests
 
     // An Int32 value and a UInt16 key take six bytes. The 65,504th byte falls inside entry
     // 10,917, and the collection also crosses a lookup slot chunk before that.
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public Task A_lookup_finds_a_key_of_a_packed_Map_entry_that_spans_two_chunks() =>
         AgreementAsync("UInt16", number => (ushort)number, [10_919]);
 
@@ -180,8 +180,8 @@ public sealed class CollectionKeyTests
     {
         var key = type switch
         {
-            "Enum" => """{ "Type": "Enum", "EnumType": "Number" }""",
-            "Flags" => """{ "Type": "Enum", "EnumType": "Mask" }""",
+            "Enum" => """{ "Type": "Enum", "Enum": "Number" }""",
+            "Flags" => """{ "Type": "Enum", "Enum": "Mask" }""",
             "Reference" => """{ "Type": "Reference", "EntityType": "Target" }""",
             "String" => """{ "Type": "String", "Comparison": "OrdinalIgnoreCase" }""",
             _ => $$"""{ "Type": "{{type}}" }""",

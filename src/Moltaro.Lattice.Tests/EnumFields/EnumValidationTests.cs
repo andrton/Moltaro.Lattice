@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Tests.EnumFields;
 // value that an ordinary enum type does not declare, and for a Flags type a bit that no member
 // declares, is ValidationFailed with the field named: by class, where a .NET enum property holds such
 // a value by a cast, and by name; through a set and when added to a batch; at any depth; before the
-// conditions of the write are looked at and before the write is refused as not implemented. For a
+// conditions of the write are looked at. For a
 // Flags type zero is valid, for an ordinary enum type only when it is declared; null is valid where
 // the field is nullable. A value set into a record is not checked: the write checks it. A missing
 // required value and a null in a field that is not nullable are refused in the same way.
@@ -131,7 +131,7 @@ public sealed class EnumValidationTests
         }
 
         // Through a set, by name and by class: an insert and an upsert of an absent key, which would
-        // otherwise succeed or be refused as not implemented, and a replace.
+        // otherwise succeed, and a replace.
         await TestData.ExpectValidationFailedAsync(field, () => records.InsertAsync(RecordOf(1)));
         await TestData.ExpectValidationFailedAsync(field, () => records.UpsertAsync(RecordOf(1)));
         await TestData.ExpectValidationFailedAsync(field, () => records.ReplaceAsync(RecordOf(1)));

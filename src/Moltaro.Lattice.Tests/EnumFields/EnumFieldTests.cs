@@ -168,9 +168,6 @@ public sealed class EnumFieldTests
         await Cases[underlyingType].ExpectWrittenAndReadBackAsync();
     }
 
-    // Moved here from MalformedTextWriteTests, whose case on the engine stated that such text is refused
-    // before the write is refused as not implemented: the engine stores the entity type from this
-    // sprint, so a write of well-formed text is stored.
     [Fact]
     public async Task Text_that_is_not_well_formed_in_an_entity_type_with_an_Enum_field_is_ValidationFailed_and_well_formed_text_is_stored()
     {

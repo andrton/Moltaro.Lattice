@@ -33,7 +33,7 @@ public sealed class RefusedPeerTests
         new("another wire format", "Format"),
         new("the wire format 3", "Format"),
         new("the wire format 4", "Format"),
-        new TheoryDataRow<string, string>("the wire format 5", "Format") { Skip = SkipReason.MapsAndSets },
+        new TheoryDataRow<string, string>("the wire format 5", "Format"),
         new("another layout format", "Format"),
         new("the layout version 1", "Format"),
         new("the byte order of a big-endian machine", "Format"),

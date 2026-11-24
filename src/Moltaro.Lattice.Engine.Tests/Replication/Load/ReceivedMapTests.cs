@@ -1,11 +1,13 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Text;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 
@@ -22,7 +24,7 @@ public sealed class ReceivedMapTests
 
     private const int FirstKeyDescriptor = MapDescriptor + 16 + sizeof(int);
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public void A_hashed_Map_sends_its_records_and_their_inline_text_with_no_lookup_or_addresses()
     {
         const int Count = 9;
@@ -65,7 +67,7 @@ public sealed class ReceivedMapTests
         RootStorage.Free(item.Arena, item.Layout, root);
     }
 
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData("entry count")]
     [InlineData("wrong kind")]
     [InlineData("Map address")]
@@ -93,7 +95,7 @@ public sealed class ReceivedMapTests
         Assert.Equal(before, item.Arena.Counters);
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public void A_received_Map_with_equal_keys_under_the_schema_comparer_is_refused_and_freed()
     {
         using var item = new RootArena(Schema);
@@ -114,6 +116,68 @@ public sealed class ReceivedMapTests
         Assert.Contains("Entries", error.Message, StringComparison.Ordinal);
         Assert.Equal(0, item.Arena.Counters.PreparedBytes);
         Assert.Equal(0, item.Arena.Counters.LiveBytes);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(7)]
+    public void Received_and_skipped_Map_entries_use_the_same_text_equality_across_boundaries(int otherEntries)
+    {
+        using var item = new RootArena(Schema);
+        var prefix = new string('x', ValueBlocks.ChunkPayload - 1);
+        var different = prefix + "a!";
+        var replacement = prefix + "\uFFFD!";
+        var map = new Dictionary<string, int> { [different] = 1, [replacement] = 2 };
+        for (var index = 0; index < otherEntries; index++)
+        {
+            map.Add($"other{index}", 3 + index);
+        }
+
+        var wire = RootValues.Export(item.Layout, item.EntityType, [1L, map]).ToArray();
+        var at = wire.Length - Encoding.UTF8.GetByteCount(different) - Encoding.UTF8.GetByteCount(replacement) + prefix.Length;
+        Assert.Equal((byte)'a', wire[at]);
+
+        // The received transport and the resident chunk both split a UTF-8 sequence.
+        // The continuation is malformed, and so this key compares equal to the replacement key.
+        wire[at] = 0xE2;
+        var first = new Piece(wire.AsMemory(0, at + 1));
+        var last = first.Append(wire.AsMemory(at + 1));
+        var body = new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length);
+        var import = new BlockImport(item.Arena);
+        var before = item.Arena.Counters.PreparedBytes;
+
+        var skipped = Assert.Throws<LatticeException>(() => Check(place: false));
+        var placed = Assert.Throws<LatticeException>(() => Check(place: true));
+
+        Assert.Equal(LatticeErrorEnum.ValidationFailed, skipped.Error);
+        Assert.Equal(skipped.Message, placed.Message);
+        Assert.Equal(before, item.Arena.Counters.PreparedBytes);
+
+        void Check(bool place)
+        {
+            var reader = new SequenceReader<byte>(body);
+            var received = import.Check(ref reader, item.Layout);
+            if (place)
+            {
+                import.Place(received, RootArena.Handle, out _);
+            }
+            else
+            {
+                import.CheckSkippedCollections(received);
+            }
+        }
+    }
+
+    private sealed class Piece : ReadOnlySequenceSegment<byte>
+    {
+        public Piece(ReadOnlyMemory<byte> bytes) => Memory = bytes;
+
+        public Piece Append(ReadOnlyMemory<byte> bytes)
+        {
+            var next = new Piece(bytes) { RunningIndex = RunningIndex + Memory.Length };
+            Next = next;
+            return next;
+        }
     }
 
     private static byte[] Damage(byte[] bytes, string damage)

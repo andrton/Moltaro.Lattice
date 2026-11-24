@@ -27,7 +27,7 @@ public sealed class CollectionEntityBytesTests
         }
         """);
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task The_bytes_of_compact_hashed_and_chunked_collections_agree_with_owned_blocks_after_churn()
     {
         await using var database = await EngineMaster.OpenAsync(Schema);
@@ -53,7 +53,7 @@ public sealed class CollectionEntityBytesTests
         OwnershipAudit.Expect(database);
     }
 
-    [Fact(Skip = SkipReason.MapsAndSets)]
+    [Fact]
     public async Task A_search_counts_the_derived_lookup_and_hits_its_exact_memory_boundary()
     {
         // A fixed part of 76 bytes, 9 packed pairs of 16 bytes, and a 128-byte lookup payload.

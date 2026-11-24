@@ -18,8 +18,6 @@ namespace Moltaro.Lattice.Engine.Sets;
 // A key is converted without boxing it when it is given as its own type or as an integer of another
 // width, through a class or by name, and the hash of a String key is computed here, before the read
 // enters the protection.
-// An entity type the engine does not store converts its key all the same, and nothing is looked up
-// with it.
 internal static class KeyArgument
 {
     // A key given as a value of its own type, through a class or by name.

@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 // the writer gives the same ownership as a writer whose first attempt never took place.
 public sealed class CompactCollectionValidationTests
 {
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -69,7 +69,7 @@ public sealed class CompactCollectionValidationTests
         Assert.Equal(0, item.Arena.Counters.LiveBytes);
     }
 
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void Nullable_collection_remains_null_when_its_write_is_refused_and_the_root_completes(bool map)

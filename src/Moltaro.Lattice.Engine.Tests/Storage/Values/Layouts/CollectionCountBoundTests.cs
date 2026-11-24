@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 // (arena-protocol.md, "Stored structures and root transfer"; LatticeFieldTypeEnum.Map and Set).
 public sealed class CollectionCountBoundTests
 {
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData("'Type': 'Set', 'Element': { 'Type': 'Int64' }", 23_465_170)]
     [InlineData("'Type': 'Set', 'Element': { 'Type': 'Guid' }", 16_760_836)]
     [InlineData("'Type': 'Set', 'Element': { 'Type': 'String' }", 3_348_892)]
@@ -30,7 +30,7 @@ public sealed class CollectionCountBoundTests
         Assert.Equal(expected, layout.Structure.ElementOf(items.Ordinal).MostElements);
     }
 
-    [Theory(Skip = SkipReason.MapsAndSets)]
+    [Theory]
     [InlineData(23_465_170, true)]
     [InlineData(23_465_171, false)]
     public void Received_Set_entries_fit_up_to_the_lookup_count_bound(int count, bool fits)
