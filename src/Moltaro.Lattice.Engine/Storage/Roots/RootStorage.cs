@@ -110,6 +110,8 @@ internal static class RootStorage
     // Frees what each descriptor holds outside its block (FreeValue).
     private struct Freeing : IStructureVisitor
     {
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
+
         public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
             switch (descriptor.Kind)
@@ -134,6 +136,8 @@ internal static class RootStorage
     // prepared.
     private struct Publishing : IStructureVisitor
     {
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
+
         public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
             switch (descriptor.Kind)
@@ -159,6 +163,8 @@ internal static class RootStorage
     private struct Retiring : IStructureVisitor
     {
         public long TextBytes { get; private set; }
+
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
 
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {

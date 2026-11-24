@@ -300,6 +300,8 @@ internal readonly ref struct RootReader
     {
         public long Bytes { get; private set; }
 
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
+
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
             switch (descriptor.Kind)

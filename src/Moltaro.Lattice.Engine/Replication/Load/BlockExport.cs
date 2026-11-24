@@ -30,10 +30,7 @@ namespace Moltaro.Lattice.Replication.Load;
 // The numbers of the payload and of the values are in the byte order of this machine, which the
 // handshake announces (Protocol.LayoutFormat); the layout version is little-endian.
 //
-// The export descends on its own, not through the walk over what a root owns (StructureWalk): the wire is in
-// preorder, a block of records before the values of its records, and the walk visits children first, the
-// records of a List before the List, as a free needs. So Write goes through the blocks of a List itself
-// (RecordBlocks), and Length counts the same way, so that Length is what Write writes.
+// The export visits each block of records in StructureWalk before visiting the descriptors it holds.
 //
 // The caller holds the protection of the root while Write reads it (Engine.Children.Capture): the
 // blocks of a published root never change, and those of a root that a write replaced stay allocated
@@ -120,104 +117,36 @@ internal static class BlockExport
     // no List of records, pay nothing in their frames for it. Inlined, the List of records grew the frame of
     // Length from 48 bytes to 64 and that of Write from 248 to 264 (JIT listing of a Release build).
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static long RecordsLengthOfRoot(Arena arena, RootLayout layout, ArenaAddress root, int index) =>
-        RecordsLength(arena, DescriptorOfRoot(arena, layout, root, index), layout.Structure.DescriptorElement(index)!);
+    private static long RecordsLengthOfRoot(Arena arena, RootLayout layout, ArenaAddress root, int index)
+    {
+        var visitor = new CountingRecords();
+
+        WalkRecordsOfRoot(arena, layout, root, index, ref visitor);
+
+        return visitor.Length;
+    }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void WriteRecordsOfRoot(IBufferWriter<byte> output, Arena arena, RootLayout layout, ArenaAddress root, int index) =>
-        WriteRecords(output, arena, DescriptorOfRoot(arena, layout, root, index), layout.Structure.DescriptorElement(index)!);
+    private static void WriteRecordsOfRoot(IBufferWriter<byte> output, Arena arena, RootLayout layout, ArenaAddress root, int index)
+    {
+        var visitor = new WritingRecords(output);
 
-    // The descriptor at the index of the root.
-    private static ValueDescriptor DescriptorOfRoot(Arena arena, RootLayout layout, ArenaAddress root, int index) =>
-        ValueBlocks.Read(layout.RootPayload(arena, root)[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]);
+        WalkRecordsOfRoot(arena, layout, root, index, ref visitor);
+    }
+
+    private static void WalkRecordsOfRoot<TVisitor>(Arena arena, RootLayout layout, ArenaAddress root, int index, ref TVisitor visitor)
+        where TVisitor : struct, IStructureVisitor
+    {
+        var offset = layout.DescriptorField(index).Offset;
+        var descriptor = ValueBlocks.Read(layout.RootPayload(arena, root)[(offset - BlockHeader.Size)..]);
+
+        StructureWalk.WalkValue(arena, descriptor, layout.Structure.DescriptorElement(index), root, offset, ref visitor);
+    }
 
     // Whether the descriptor names blocks of this arena, whose address the wire carries as 0: a value out of
     // line, or the records of a List that is not empty.
     private static bool NamesBlocks(in ValueDescriptor descriptor) =>
         ValueBlocks.LiesOutOfLine(descriptor) || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Location != 0);
-
-    // The bytes WriteRecords writes for a List of records, its element the layout given.
-    private static long RecordsLength(Arena arena, in ValueDescriptor records, StructureLayout element)
-    {
-        var length = 0L;
-        var blocks = new RecordBlocks(arena, records, element);
-
-        while (blocks.MoveNext())
-        {
-            var payload = arena.Payload(blocks.Block);
-
-            length += payload.Length;
-
-            for (var record = 0; record < blocks.Count; record++)
-            {
-                for (var index = 0; index < element.DescriptorCount; index++)
-                {
-                    var descriptor = RecordDescriptor(payload, element, record, index);
-
-                    if (ValueBlocks.LiesOutOfLine(descriptor))
-                    {
-                        length += descriptor.Length;
-                    }
-                    else if (descriptor.Kind == DescriptorKindEnum.Records)
-                    {
-                        length += RecordsLength(arena, descriptor, element.DescriptorElement(index)!);
-                    }
-                }
-            }
-        }
-
-        return length;
-    }
-
-    // A List of records (see the class): each block of its records, its payload with every location of a
-    // block of this arena as 0, then the values its records name, in their order.
-    private static void WriteRecords(IBufferWriter<byte> output, Arena arena, in ValueDescriptor records, StructureLayout element)
-    {
-        var blocks = new RecordBlocks(arena, records, element);
-
-        while (blocks.MoveNext())
-        {
-            var payload = arena.Payload(blocks.Block);
-
-            // A block of records fits one span: it is at most the payload of one block.
-            var copy = output.GetSpan(payload.Length)[..payload.Length];
-
-            payload.CopyTo(copy);
-
-            for (var record = 0; record < blocks.Count; record++)
-            {
-                for (var index = 0; index < element.DescriptorCount; index++)
-                {
-                    var place = copy[(RecordOffset(element, record, index) - BlockHeader.Size)..];
-                    var descriptor = ValueBlocks.Read(place);
-
-                    if (NamesBlocks(descriptor))
-                    {
-                        ValueBlocks.Write(place, descriptor with { Location = 0 });
-                    }
-                }
-            }
-
-            output.Advance(payload.Length);
-
-            for (var record = 0; record < blocks.Count; record++)
-            {
-                for (var index = 0; index < element.DescriptorCount; index++)
-                {
-                    var descriptor = RecordDescriptor(payload, element, record, index);
-
-                    if (ValueBlocks.LiesOutOfLine(descriptor))
-                    {
-                        WriteValue(output, arena, descriptor, payload);
-                    }
-                    else if (descriptor.Kind == DescriptorKindEnum.Records)
-                    {
-                        WriteRecords(output, arena, descriptor, element.DescriptorElement(index)!);
-                    }
-                }
-            }
-        }
-    }
 
     // The bytes of one value out of line, from its block or its chunks; the payload is that of the block that
     // holds its descriptor.
@@ -238,11 +167,56 @@ internal static class BlockExport
         }
     }
 
-    // The descriptor at the index of the record of a block of records whose payload is given.
-    private static ValueDescriptor RecordDescriptor(ReadOnlySpan<byte> payload, StructureLayout element, int record, int index) =>
-        ValueBlocks.Read(payload[(RecordOffset(element, record, index) - BlockHeader.Size)..]);
+    private struct CountingRecords : IStructureVisitor
+    {
+        public long Length { get; private set; }
 
-    // The offset in its block, the header counted, of the descriptor at the index of the record.
-    private static int RecordOffset(StructureLayout element, int record, int index) =>
-        BlockHeader.Size + (record * element.Size) + element.DescriptorField(index).Offset;
+        public void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) =>
+            Length += payload.Length;
+
+        public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
+        {
+            if (ValueBlocks.LiesOutOfLine(descriptor))
+            {
+                Length += descriptor.Length;
+            }
+        }
+    }
+
+    private readonly struct WritingRecords(IBufferWriter<byte> output) : IStructureVisitor
+    {
+        public void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count)
+        {
+            // A block of records fits one span: it is at most the payload of one block.
+            var copy = output.GetSpan(payload.Length)[..payload.Length];
+
+            payload.CopyTo(copy);
+
+            for (var record = 0; record < count; record++)
+            {
+                var descriptors = copy[((record * element.Size) + element.DescriptorOffset)..];
+
+                for (var index = 0; index < element.DescriptorCount; index++)
+                {
+                    var place = descriptors[(index * ValueBlocks.DescriptorSize)..];
+                    var descriptor = ValueBlocks.Read(place);
+
+                    if (NamesBlocks(descriptor))
+                    {
+                        ValueBlocks.Write(place, descriptor with { Location = 0 });
+                    }
+                }
+            }
+
+            output.Advance(payload.Length);
+        }
+
+        public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
+        {
+            if (ValueBlocks.LiesOutOfLine(descriptor))
+            {
+                WriteValue(output, arena, descriptor, payload: default);
+            }
+        }
+    }
 }

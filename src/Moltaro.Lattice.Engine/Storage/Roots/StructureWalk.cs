@@ -105,6 +105,8 @@ internal static class StructureWalk
     {
         var payload = arena.Payload(block);
 
+        visitor.EnterRecordBlock(payload, element, count);
+
         for (var record = 0; record < count; record++)
         {
             WalkStructure(arena, element, payload, BlockHeader.Size, BlockHeader.Size + (record * element.Size), block, ref visitor);
