@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // A descriptor of kind Records whose location is 0 names no block, as an empty List does; a directory entry
 // still zero names no chunk; a record whose writer stopped before it is zero and holds only descriptors of
 // kind Null; and a value that a node received and has not placed yet has a descriptor of kind Null too
-// (Replication.Load.BlockImport, "pending"). So the walk serves a root its writer or its import left half
+// (Replication.Load.BlockImport, "Pending"). So the walk serves a root its writer or its import left half
 // written as well as a whole one.
 //
 // The caller holds what keeps the blocks of the root from being freed or changed while it walks: the lock of

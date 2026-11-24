@@ -30,10 +30,10 @@ namespace Moltaro.Lattice.Replication.Load;
 // The numbers of the payload and of the values are in the byte order of this machine, which the
 // handshake announces (Protocol.LayoutFormat); the layout version is little-endian.
 //
-// The walk over what a root owns (StructureWalk) visits a List of records after its records, as a free
-// needs; the wire carries the blocks of the records before the values of the records, so the export
-// descends in that order itself, through the blocks of the List (RecordBlocks), and counts its length the
-// same way, so that Length is what Write writes.
+// The export descends on its own, not through the walk over what a root owns (StructureWalk): the wire is in
+// preorder, a block of records before the values of its records, and the walk visits children first, the
+// records of a List before the List, as a free needs. So Write goes through the blocks of a List itself
+// (RecordBlocks), and Length counts the same way, so that Length is what Write writes.
 //
 // The caller holds the protection of the root while Write reads it (Engine.Children.Capture): the
 // blocks of a published root never change, and those of a root that a write replaced stay allocated

@@ -7,7 +7,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // or the chunks its directory names, every chunk but the last holding RecordsPerChunk records. An empty List
 // has no block. A directory entry that is still zero names no chunk and is passed over: the writer of a List
 // leaves it so when the arena refused that chunk, and the walk over such a List frees the chunks it has
-// (StructureWalk). The walk, the read, the export and the placement of a List go through its blocks so.
+// (StructureWalk). The walk, the read and the export of a List go through its blocks so; its placement makes
+// them (NestedValues.PlaceRecords).
 //
 // A ref struct over the directory, for an explicit loop: it allocates nothing and reads the arena only, under
 // what the caller holds that keeps the blocks of the root from being freed: the lock of the writes, or the

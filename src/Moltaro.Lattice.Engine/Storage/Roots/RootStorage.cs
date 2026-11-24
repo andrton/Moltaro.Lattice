@@ -23,6 +23,9 @@ internal static class RootStorage
     // every owned block is freed first, the blocks a block of records names before that block, and the root
     // block, which holds them, last.
     //
+    // A root that a node did not finish placing from what it received is freed so too: what it did not place
+    // is pending and names nothing (Replication.Load.BlockImport, "Pending").
+    //
     // The caller frees a root only when no reader can reach its blocks any more
     // (docs/design/arena-protocol.md, "Deferred reclamation"). A retired root is freed in the same
     // way: its blocks are still allocated and its descriptors as they were. A root with a Text

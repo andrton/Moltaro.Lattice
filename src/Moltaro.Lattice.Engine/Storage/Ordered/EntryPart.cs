@@ -4,12 +4,12 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Storage.Ordered;
 
 // One part of the entries of an index, as IndexLayout lays it out: how the root stores the value of the
-// field of the entity type it takes its value from, its width in an entry (0 for a String, whose width
-// is that of its value), the bit of the null bitmap of an entry that says it is null (NoNullBit for a
-// part that is never null), where a search key holds its stored bytes (FixedOffset), and for a String
-// the comparison its field declares. A part reached through owned values takes its path from the schema
-// (LatticeIndexPart); a root that holds owned values is not stored yet, so the field is a field of the
-// root.
+// field it takes its value from, its width in an entry (0 for a String, whose width is that of its value),
+// the bit of the null bitmap of an entry that says it is null (NoNullBit for a part that is never null),
+// where a search key holds its stored bytes (FixedOffset), and for a String the comparison its field
+// declares. The field is a field of the entity type, or a field inside an owned value that the path of the
+// part leads to (LatticeIndexPart), which the root holds flattened, with a null bit of its own beneath a
+// nullable owned value, set while that owned value is absent (Roots.StructureLayout).
 //
 // FixedOffset is the bytes of the fixed-width parts before this one in the order of the index, 0 for a
 // String: a search key lays the stored bytes of its fixed-width parts one after the other, each at its

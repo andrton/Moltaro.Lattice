@@ -187,10 +187,13 @@ internal static class NestedValues
     //
     // A List above the bound of a List is refused with ValidationFailed, as the guard of the stored form
     // (see the class). When the arena refuses a block, for the List or for a value of a record, the List
-    // frees everything it took, its descriptor is written as zero, and the holder is Refused; an
-    // OutOfMemoryException of the native allocator passes after the same free. So the descriptor names a
-    // whole List or nothing. For a root for a forwarded write each block is kept apart, with the values of
-    // its records (ExportedValues.StoreRecords), and the descriptor has the location 0.
+    // frees everything it took and the holder is Refused; an OutOfMemoryException of the native allocator
+    // passes after the same free. Its descriptor then names nothing: written as zero once it named a block,
+    // or still as it was when the arena refused the first one, zero in the image of a root and pending in a
+    // block that was received (Replication.Load.BlockImport, "Pending"). So the descriptor names a whole List
+    // or nothing. The descriptor names the block or the directory before they are filled, so that a free of
+    // the List halfway reaches what it took. For a root for a forwarded write each block is kept apart, with
+    // the values of its records (ExportedValues.StoreRecords), and the descriptor has the location 0.
     public static void PlaceRecords<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, ref TSource source)
         where TSource : struct, IRecordSource
     {
