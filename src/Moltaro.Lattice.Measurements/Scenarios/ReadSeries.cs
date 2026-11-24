@@ -26,7 +26,11 @@ internal static class ReadSeries
     // Warms up, then runs the reads of a series, while the writer writes when there is one, and
     // reports them. read times the first count reads of the series; for a series of writes it times
     // writes, and operations names them in the report.
-    public static string Run(string title, Func<int, long[]> read, Action? writer, string operations = "reads")
+    public static string Run(string title, Func<int, long[]> read, Action? writer, string operations = "reads") =>
+        Measure(title, read, writer, operations).Line;
+
+    // Run, with the distribution of the times beside the line that reports it.
+    public static (string Line, SeriesFigures Figures) Measure(string title, Func<int, long[]> read, Action? writer, string operations = "reads")
     {
         read(WarmUp);
 
@@ -65,11 +69,35 @@ internal static class ReadSeries
 
         Array.Sort(times);
 
-        var line = $"{title}: p50 {Nanoseconds(Percentile(times, 0.50))}, p95 {Nanoseconds(Percentile(times, 0.95))}, p99 {Nanoseconds(Percentile(times, 0.99))}, max {Nanoseconds(times[^1])}; "
+        var figures = new SeriesFigures(Percentile(times, 0.50), Percentile(times, 0.95), Percentile(times, 0.99), times[^1]);
+        var line = $"{title}: {Distribution(figures)}; "
             + $"total {Seconds(total)} s for {Number(times.Length)} {operations}; collections gen0 {gen0}, gen1 {gen1}, gen2 {gen2}";
 
-        return writing is null ? line : $"{line}; the writer replaced {Number(writes)} entities meanwhile";
+        return (writing is null ? line : $"{line}; the writer replaced {Number(writes)} entities meanwhile", figures);
     }
+
+    // The line of the median of the rounds of one series, each figure the median of that figure over the
+    // rounds, the middle one of an odd number of rounds.
+    public static string MedianLine(string title, IReadOnlyList<SeriesFigures> rounds)
+    {
+        static long Median(IEnumerable<long> values)
+        {
+            var sorted = values.Order().ToArray();
+
+            return sorted[(sorted.Length - 1) / 2];
+        }
+
+        var median = new SeriesFigures(
+            Median(rounds.Select(round => round.P50)),
+            Median(rounds.Select(round => round.P95)),
+            Median(rounds.Select(round => round.P99)),
+            Median(rounds.Select(round => round.Max)));
+
+        return $"{title}, median of {rounds.Count} rounds: {Distribution(median)}";
+    }
+
+    private static string Distribution(SeriesFigures figures) =>
+        $"p50 {Nanoseconds(figures.P50)}, p95 {Nanoseconds(figures.P95)}, p99 {Nanoseconds(figures.P99)}, max {Nanoseconds(figures.Max)}";
 
     // The ticks of each of the first count reads by name, with keys given as their own type, which a
     // read by name takes without a box.
