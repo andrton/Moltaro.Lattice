@@ -167,8 +167,8 @@ internal sealed class ReadEpochs
     }
 
     // The mark of a fault, visible to the database state, a child about to forward a write and a read
-    // that retries on the mark of a write in progress. The write will never store its stamp
-    // (Entities.EntityTable), so the read has to give up. The ordinary path of a read does not call this.
+    // retrying while a publication is incomplete (Entities.EntityTable). The publication will never
+    // finish, so the read gives up. The ordinary path of a read does not call this.
     public bool IsFaulted => (Volatile.Read(ref _state) & Faulted) != 0;
 
     // Whether a read that entered now would be refused: the database is closed or faulted (ThrowForState).

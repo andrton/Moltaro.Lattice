@@ -9,7 +9,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
 // The Faulted state serves no new writes. A child held at its fault mark cannot read its next reply,
 // but its sender can still reach the master. A wait for the position of the attempted write detects
-// that it was forwarded even if the child has not yet answered it.
+// that it was forwarded even if the child has not yet answered it. The caller's fresh session stays
+// unbound because the request is refused before it can be encoded and queued.
 public sealed class ChildFaultTests
 {
     [Theory]
@@ -36,7 +37,8 @@ public sealed class ChildFaultTests
         var next = PositionOf(HistoryOf(published.Position), PositionSequence.Of(published.Position) + 1);
         using var cancellation = new CancellationTokenSource();
         var applied = nodes.Master.WaitForPositionAsync(next, Bound, cancellation.Token).AsTask();
-        var write = operation == "set" ? items.InsertAsync(entity).AsTask() : batch.CommitAsync().AsTask();
+        var session = new LatticeSession();
+        var write = operation == "set" ? items.InsertAsync(entity, session).AsTask() : batch.CommitAsync(session).AsTask();
 
         try
         {
@@ -44,6 +46,7 @@ public sealed class ChildFaultTests
 
             Assert.Null(masterItems.Get(entity.Id));
             Assert.Equal(LatticeErrorEnum.Unavailable, (await Assert.ThrowsAsync<LatticeException>(() => write.WaitAsync(Bound))).Error);
+            Assert.Null(session.MinPosition);
             Assert.Equal(published.Position, nodes.Master.Position);
         }
         finally
