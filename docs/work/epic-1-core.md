@@ -8920,6 +8920,93 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 
 **Added by the planner on 23 November 2026:** the study of this sprint answers Q60.
 
+**The brief, as passed by the planner on 24 November 2026 after the study.** The study read
+Redis, Garnet, the .NET runtime and Abseil at the commits its report names; nothing is
+adapted. The names below are the study's; the implementer commits its internal contract
+with the first step of implementation, for the planner to read.
+
+*What is built.*
+
+1. **The first structural commit, with no change of behavior:** the comparison and the
+   hash of a stored value move below the placement, and the text members of
+   `ValueComparer` and `IndexValue.Bind` get a form by a declaration, since the
+   declaration of a Map or Set field is not the declaration of its key.
+2. **Entries.** The entries of a Map or a Set are a List of S18 of entry records, in the
+   order they were given: for a Set its element, for a Map its key and value flattened.
+3. **Two forms by the count.** Up to 8 entries a collection is exactly that List and a
+   lookup scans it by the comparison service. From 9 it has a lookup under a descriptor
+   kind of its own, whose block holds the descriptor of the entries and then slots of a
+   hash and the number of an entry, never an address; linear probing, a load of at most
+   70 %, a capacity that fills a size class. The form follows from the count alone, at a
+   whole write and on receipt; a collection that comes down to 4 goes back to the first
+   form. The lookup is derived state.
+4. **The hash** is seeded for the instance and taken by the stored type, with the
+   equalities of the comparison service: every NaN one value, both zeros one value, a
+   Decimal without its trailing zeros, text under the comparison of its declaration.
+5. **The wire** carries the entries only, as a List; a child chooses the form by the
+   count and builds its own lookup, and never uses a hash computed in another process.
+6. **Uniqueness is structure.** One build refuses a duplicate key or member, on a master
+   as `ValidationFailed` before publication, on a child as a protocol failure.
+7. **Reads** give a `Dictionary` or a `HashSet` whose comparer is that of the declaration
+   of the key or the element (Q60), sized to the count.
+8. **The bounds**: a String or a Binary at a key, a value and a member is checked as at
+   every other position; a Map and a Set have the stated bound of their form.
+9. **Every type of the schema is stored.** The refusals for a feature of the schema go,
+   in the code and in every sentence that states them.
+
+*Decided by the planner on the study's findings.* The first structural commit is S19's,
+not a refactoring sprint's. No sentence of the Acceptance changes: "crosses the threshold
+of 4 downward" and "lookup by the comparison service for every permitted key type" are
+held in this sprint by tests of the engine, and S20 makes both reachable through the
+public API and repeats them there. The sentences of the design page that describe the
+design before epochs (a power-of-two bucket directory, an install under the gate of a
+root, deleted markers and tombstones rebuilt, regions marked for reconstruction), and the
+sentences S18 added that this sprint makes false (the refusal of an entity type the engine
+does not store in the remarks of `LatticeFieldTypeEnum.List` and of `ILatticeSet<TEntity>`,
+the heads of `ValueComparer`, `ClassBinder`, `StoredTypeEnum` and `ReferenceFixture`), go to
+the checklist of the sprint with the reviewer's list of S18, part 1. Measured and reported
+as well: the time a write holds the lock of the writes while it builds the lookup of a Map
+of 1,000, 100,000 and 1,000,000 entries, which joins what Q52 asks.
+
+*Tests, committed before the implementation,* a string key in the public ones.
+- By name and by a class, every permitted type of key and of member, value types nested,
+  nullable positions, null against empty, in both forms and both forms of the entries,
+  at the boundaries of a chunk of entries and of slots.
+- The input rules stored and read back on a master and on a child: a duplicate key
+  refuses the whole write and leaves the entity and its revision; the first
+  representation of equal members is kept (another case, 1.0 and 1.00, both zeros, NaN
+  with different payloads, one instant at two offsets, a reference compared without
+  case, two nulls); a null key is refused.
+- The thresholds: 8 and 9 upward through the public API; 5 to 8 entries in both forms
+  and 4 downward by engine tests, equal content in each.
+- The lookup against a model for every permitted key type, given against stored and
+  stored against stored, hit and miss, on a master and on a child, across two seeds.
+- The wire: no slot byte travels; a load, the stream, a forwarded write and a member of
+  a batch give the same entries on a node with another seed; each way the wire can be
+  wrong at a Map or a Set place is refused before anything is allocated; a received
+  duplicate stops the child with nothing applied.
+- The comparer of what a read gives, for a record and for a class: a lookup in the copy
+  finds what the lookup in the database finds, under each comparison.
+- The bounds at their boundary; the ownership audit after churn; `EntityBytes` of an
+  entity with both forms.
+- The binary round trip of the arena and of the wire for every type of the schema.
+
+*The breaker's targets, in order.* (1) Two entries the comparison service holds equal in
+one collection, by any path: a whole write, a batch, a forwarded write, a load, the
+stream. (2) A lookup that misses a present key or finds an absent one, at the thresholds
+and the boundaries of a chunk, across seeds. (3) The wire to a child at a Map or a Set
+place. (4) Ownership and memory after churn, refusals and faults. (5) A reader during a
+replace of a collection that changes form.
+
+*Measured, in the one start of the machine, beside "Measured" above.* `root-bytes` for
+all four types of the fixture in their full form; bytes for an entry at 8, 9 and 1,000;
+the lookup of a String and of an Int64 key, hit and miss, beside a read of the whole Map
+and `TryGetValue` in the copy; the time the lock of the writes is held by a write of a
+Map of 1,000, 100,000 and 1,000,000 entries; and whatever the start of S18 left owed.
+
+If the internal contract shows the sprint is too large for one review, the coordinator
+proposes its parts to the planner with the first step.
+
 #### S20 · Partial updates
 
 **Carried from the study of S11:** how a partial update travels to a child is decided in
@@ -9106,15 +9193,24 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 - **To read.** [Q06.2, Q06.3](../decisions/memory-and-access.md);
   [reader protection, borrowed reads](../design/milestone-1-engine-contract.md#reader-protection-publication-and-compaction).
 - **Acceptance.** Scalars, nested values, Lists, Maps, Sets and references are readable
-  through a view and equal the owned copy. A database call from inside the callback is
-  refused. Code that stores a view, returns it or awaits inside the callback does not
-  compile, shown by compiler tests. An exception in the callback releases the
-  protection. A writer of the same entity waits for the callback and then proceeds;
-  writers of other entities do not wait for it. Closing or faulting the database waits
-  for open views before memory is freed. A handle bound to another schema is refused.
-- **Measured.** Asserted: a view read of scalar fields allocates nothing. Reported: sum
-  over a List of 1,000 numbers through a view and through a copy; writer delay caused by
-  a callback of a known duration.
+  through a view and equal the owned copy. A viewer must be short and must not wait or
+  call the database; the engine does not check it, and a read made inside a viewer does
+  not end the protection of the view around it. Code that stores a view, returns it or
+  awaits inside the callback does not compile, shown by compiler tests. An exception in
+  the callback releases the protection. A write of the viewed entity made while its viewer
+  runs is published without waiting for it, as writes of other entities are, while the
+  memory budget holds it; a read by key then returns the new state, and the view goes on
+  returning the state it began with, whole, until the viewer returns. While a view is open
+  no memory replaced after it began is freed, of any entity: a write that the budget
+  cannot hold without it waits for the viewer to return and is then executed or refused,
+  and the close waits for the open views before any memory is freed; nothing is built
+  against a viewer that does not return. A faulted database frees nothing and refuses a
+  new view with `Unavailable`. A handle bound to another schema is refused.
+- **Measured.** Asserted: a view read of scalar fields allocates nothing. Reported: a read
+  by key against its cost before this sprint; a replace of the viewed entity completed
+  while its viewer is held, against one without a view; the cost of entering and leaving a
+  view on 1 and 20 threads against a read by key; the sum over a List of 1,000 and of
+  100,000 numbers through a view and through a copy.
 - **Out of scope.** Typed views (S22). Writable views. Views that span entities or follow
   references.
 
@@ -9166,10 +9262,13 @@ with that decision of the owner as its reason, and is entered with the code of t
   [schema identity](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration).
 - **Acceptance.** The typed view and the view by name return the same values for every
   field type, including nested values and collections. The misuse that does not compile
-  for a view by name does not compile for a typed view. The generator reports a class
-  that does not match its entity type when the application is built, with the field
-  named. A class that inherits its properties from a class in another assembly gets its
-  view. No shipped assembly references Roslyn, checked by a test of the built
+  for a view by name does not compile for a typed view. When the schema is given to the
+  build as a file, the generator reports a class or a view that does not match it when the
+  application is built, with the field named; a schema made only in code is judged at the
+  first view of that type, which reports `BindingFailed` with the field named. A class
+  that inherits its properties from a class in another assembly gets its view. The
+  generator is an assembly of its own, `Moltaro.Lattice.Generators`, which alone references
+  the compiler, and no other shipped assembly does, checked by a test of the built
   references. An application that does not use typed views builds and runs without the
   analyzer.
 - **Measured.** Asserted: a typed view read of scalar fields allocates nothing.

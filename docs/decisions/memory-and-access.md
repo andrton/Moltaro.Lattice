@@ -2,7 +2,7 @@
 
 **Current implementation baseline:** the [milestone 1 contract](../design/milestone-1-engine-contract.md#reader-protection-publication-and-compaction)
 now specifies native layout, gates and acquisition order, claims/generations,
-publication, borrowed-scope enforcement and initial resource limits. Earlier
+publication, the lifetime of a borrowed scope and initial resource limits (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Earlier
 open-mechanism notes below record the decision's history; they do not reopen
 those specified mechanisms. Implementation and integrated verification remain required.
 
@@ -251,8 +251,7 @@ Those restrictions are not imposed on owned ID/query results.
 
 - **Reads:** full ID results pay for copying/materialization; reusable destinations
   can reduce allocation. Internal DSL predicates can avoid copying unneeded data.
-- **Writes:** conflicting changes can wait during the engine's actual read/copy,
-  not during later application processing of an independent result. A single
+- **Writes:** a write does not wait for a read's copy, nor for later application processing of an independent result (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). A single
   ordered writer can delay subsequent queued writes while it waits.
 - **Memory:** result copies coexist with arena data, but ordinary returned results
   do not require historical record generations or arena pins. Independently
@@ -277,10 +276,7 @@ protection boundary, not a measured optimum or one managed lock instance for
 every record.
 
 For example, a root, its scalar block, owned child blocks and an array split
-across several chunks form one protected logical record. The copy/query reader
-acquires shared access; a mutation of any owned part requires exclusive access.
-Multiple readers can overlap. The engine releases read access when its copying
-or evaluation completes, before returning an owned result as specified in Q06.
+across several chunks form one protected logical record. A reader enters the protection of reads, which excludes nothing; a mutation of any owned part publishes a new root under the lock of the writes. Readers and a writer overlap. The engine leaves the protection when its copying or evaluation completes, before returning an owned result as specified in Q06 (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
 
 A non-owning reference to another independent root does not bring that target
 under this gate. Shared immutable dictionary text is not an owned mutable child
@@ -348,8 +344,7 @@ remain open. Q06.2 separately accepts lending a protected view to caller code.
 
 **Accepted on 12 November 2026: option B.** Normal GetById/ReadInto returns owned
 data under Q06. V1 also provides a separate short, synchronous, read-only operation
-over a protected arena view, subject to the restrictions below. It does not
-reopen the accepted root-document gate or require a whole-graph snapshot.
+over a protected arena view, subject to the restrictions below. It does not change the protection of reads by epochs or require a whole-graph snapshot (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
 
 Retain the ordinary owned-result path alongside this direct access. This serves
 the requested generated-view traversal and large-array computations without
@@ -379,9 +374,7 @@ keys and owned values, or build their own computational representation.
 
 ### Option B: owned results plus a separate short protected view — accepted
 
-The engine acquires the root's shared gate, calls a synchronous application
-operation with a read-only generated view, and releases protection when that
-operation returns or throws. The operation may read owned fields and collections
+The engine enters the protection of reads, takes one written state of the root, calls a synchronous application operation with a read-only view of it, and leaves the protection when that operation returns or throws (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). The operation may read owned fields and collections
 directly and return a scalar or independently owned result. A sum over a numeric
 array, for example, need not first materialize that array in a CLR collection.
 
@@ -393,16 +386,12 @@ on existing owned results:
   references to replica or master storage are exposed through this read API.
 - The operation must not await, yield, perform I/O or wait on external work.
   Normal GetById/ReadInto results remain suitable for such later application work.
-- No nested database reads or writes while the view is active in the accepted
-  v1 API. Reference fields expose keys; copy the next key or a bounded group of
+- No nested database reads or writes while the view is active in the accepted v1 API, an obligation of the caller, which the engine does not check (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Reference fields expose keys; copy the next key or a bounded group of
   keys, end this operation, then resolve another record. Graph traversal remains
   possible, but is not a chain of simultaneously retained protected views.
 - No global graph snapshot is implied. Each subsequent record access can observe
   a different commit, just as with ordinary independent ID reads.
-- User code can still take arbitrarily long even without await. Exception cleanup
-  releases the gate when code unwinds; a timeout cannot safely revoke a view or
-  free its memory while that code is executing. This API cannot promise a hard
-  maximum writer delay.
+- User code can still take arbitrarily long even without await. Exception cleanup leaves the protection when code unwinds; a timeout cannot revoke a view or free its memory while that code runs. A write does not wait for a view; while one is open no memory retired in the instance is freed, so a write the memory budget cannot hold, a child's application in the same case, and the close wait for it, without a bound: that is the application's (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
 
 These restrictions require an explicit SDK contract and verification. A ref
 struct is a candidate for preventing heap storage and some escapes, but is not
@@ -417,15 +406,12 @@ a focused prototype before the API is finalized.
   algorithm itself. Converting encoded text to string or keeping collections
   beyond the operation can still allocate/copy. Segmented storage does not
   promise one contiguous Span for every stored array.
-- **Writes:** the root remains protected for the entire application operation.
-  Inspecting a few fields may hold it for less time than a full copy; a long
-  calculation may hold it for much longer and delay conflicting mutations and their dependent work.
+- **Writes:** a write of the viewed entity is published while the operation runs; a long operation delays only the freeing of memory retired meanwhile, and through it a write the budget cannot hold, and the close (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
 - **Memory:** no full document copy is required for this access. Per-operation
   bookkeeping and selected outputs still cost memory; delayed reclamation can
   retain other storage. This does not require permanent record versions.
 - **Complexity:** a second explicit access contract, generated public views,
-  lifetime/reentrancy checks and focused misuse/concurrency tests. The existing
-  record gate is reused; no new distributed lock protocol is required.
+  lifetime/reentrancy checks and focused misuse/concurrency tests. The protection of reads by epochs is reused; no lock is added (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
 
 Neither option changes network traffic for a ready local replica. Delayed local
 application of updates can increase replication lag and pressure on its bounded
@@ -441,8 +427,7 @@ shape determine the outcome. The earlier allocator prototype cannot answer this.
 **Decision recorded:** ordinary owned copies plus a separate short protected
 read-only operation in v1, with the lifetime and execution restrictions above.
 This preserves direct access for computational C# code and owned copies for
-long processing. It does not authorize a long-lived graph lock. Physical gates,
-API signatures and enforcement remain implementation work to verify.
+long processing. It does not authorize a long-lived graph lock. The signatures are those of the brief of S21; the compiler enforces what it can, the rest is the caller's (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
 
 <a id="q06.3-can-records-be-used-without-generated-classes"></a>
 
@@ -481,8 +466,7 @@ rules. Exact type names, signatures and cancellation behavior remain design work
 - **Performance:** runtime descriptor/type dispatch can cost more than a generated
   specialized accessor. Resolve names once and reuse typed handles where practical;
   a C# dynamic binder, per-value boxing or reflection is not required by this model.
-- **Lifetimes:** the view cannot escape, cross await/yield, hold locks during I/O
-  or make nested database calls. Collection enumeration stays within its owner's
+- **Lifetimes:** the view cannot escape or cross await/yield, which the compiler refuses; it must not wait, do I/O or make nested database calls, which nothing checks (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Collection enumeration stays within its owner's
   protected access. Reference fields expose keys; following a reference requires
   another read after the current protected operation ends. Long calculations still
   use owned values or a separate application representation.

@@ -89,15 +89,6 @@ in the meantime.
 | **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part (`IndexValue.Of`, the remarks of `IndexKey`) |
 | **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1-core.md) |
 
-### Q60. Which comparer do the `Dictionary` and the `HashSet` have that a read gives an entity class?
-
-| | |
-| --- | --- |
-| **Found** | 23 November 2026, the review of the contract of stage 5, part 1 of Epic 1 |
-| **Question** | For a record the remarks of `LatticeValueDeclaration.ValueType` state that a Map or a Set read back has the comparer of the schema. For a class, the table of `ILatticeDatabase.Set<TEntity>` names only `Dictionary<K, V>` and `HashSet<T>`. With a key compared without case, a copy built with the default comparer finds by lookup what the database does not, or misses what it finds |
-| **Until answered** | Open, for the study of S19. The planner's recommendation: one that agrees with the comparison of the schema where .NET has it (text, with or without case), so that a lookup in what was read finds what a lookup in the database finds; and the remarks say so. What the code does today is named by the study |
-| **Decides** | The planner, in the study of S19, before its contract step |
-
 ### Q61. Does "stable write inputs" allow a batch and an update to take their input when it is added?
 
 | | |
@@ -614,6 +605,16 @@ in the meantime.
 | --- | --- |
 | **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
 | **Question** | The stored form of S18 gives a List one directory level, so a List holds at most 268,173,376 bytes of packed elements (33,521,672 Int64) or about 3.3 million elements that hold text. The contract states no bound for a List; O19 names only String and Binary, and O20 allows a limit only where the engine cannot work without one |
-| **Answer** | Decided by the owner, 24 November 2026: the bound is stated in the contract, as the bound of a String is; a second directory level is built when an application needs a larger List |
+| **Answer** | Decided by the owner, 24 November 2026: the bound is stated in the contract, as the bound of a String is; a second directory level is built when an application needs a larger List. The planner reads it so for a Map and a Set, for the owner to read: their bound is the bound of a List of their entry records, and for a hashed form also of its lookup, as the study of S19 computes (a Set of String 3,348,892 members; a Map of String to String 1,674,446 entries; a Set of Guid and a Map of Int64 to Int64 16,760,836; a Set of Int64 23,465,170, bound by its lookup) |
 | **What the code does** | As S18 built it: a List above its bound is refused with `ValidationFailed` |
 | **Where the rule lives** | The remarks of `LatticeFieldTypeEnum.List`; the brief of S18 in the [document of Epic 1](epic-1-core.md) |
+
+### Q60. Which comparer do the `Dictionary` and the `HashSet` have that a read gives an entity class?
+
+| | |
+| --- | --- |
+| **Found** | 23 November 2026, the review of the contract of stage 5, part 1 of Epic 1 |
+| **Question** | For a record the remarks of `LatticeValueDeclaration.ValueType` state that a Map or a Set read back has the comparer of the schema. For a class, the table of `ILatticeDatabase.Set<TEntity>` names only `Dictionary<K, V>` and `HashSet<T>`. With a key compared without case, a copy built with the default comparer finds by lookup what the database does not, or misses what it finds |
+| **Answer** | Answered by the planner, 24 November 2026, for the owner to read: the collections a read gives, to a record and to a class alike, have the comparer of the declaration of their key or element, so that a lookup in what was read finds what a lookup in the database finds. For text that is the schema's own comparison, as an `IEqualityComparer<string>` of the engine's, never `StringComparer.OrdinalIgnoreCase`, which is another comparison; the remarks say so in one sentence. `StringComparer.Ordinal` for Ordinal text only with a figure |
+| **What the code does** | Nothing yet: a Map or a Set is not read before S19 |
+| **Where the rule lives** | The brief of S19 in the [document of Epic 1](epic-1-core.md) |
