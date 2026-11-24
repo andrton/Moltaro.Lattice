@@ -35,6 +35,37 @@ public sealed class CollectionInputTests
     }
 
     [Fact]
+    public async Task Duplicate_Map_keys_are_refused_before_a_stale_revision_on_master_and_child()
+    {
+        await using var master = await TestDatabases.OpenListeningMasterAsync(CollectionSchema.Compile());
+        var masterItems = master.Set<CollectionItem>();
+        await masterItems.InsertAsync(new CollectionItem { Id = 1, Options = new() { ["before"] = null } });
+        Assert.True(masterItems.TryGet(1L, out _, out var stale));
+        await using var child = await TestDatabases.OpenChildAsync(master);
+
+        var current = new CollectionItem { Id = 1, Options = new() { ["current"] = null } };
+        var moved = await masterItems.ReplaceAsync(current);
+        await child.WaitForPositionAsync(moved.Position, TimeSpan.FromMinutes(1));
+        Assert.True(masterItems.TryGet(1L, out _, out var revision));
+        Assert.NotEqual(stale, revision);
+
+        var invalid = new CollectionItem
+        {
+            Id = 1,
+            Options = new Dictionary<string, CollectionDetails?>(StringComparer.Ordinal) { ["ı"] = null, ["I"] = new() },
+        };
+        foreach (var database in new[] { master, child })
+        {
+            var items = database.Set<CollectionItem>();
+            await TestData.ExpectErrorAsync(LatticeErrorEnum.RevisionConflict, () => items.ReplaceAsync(current, stale));
+            await TestData.ExpectValidationFailedAsync("Options", () => items.ReplaceAsync(invalid, stale));
+            Assert.True(items.TryGet(1L, out var unchanged, out var after));
+            Assert.Equal(revision, after);
+            Assert.Equal("current", Assert.Single(unchanged.Options!).Key);
+        }
+    }
+
+    [Fact]
     public void A_record_refuses_duplicate_and_null_Map_keys_and_keeps_the_previously_assigned_value()
     {
         var schema = CollectionSchema.Compile();

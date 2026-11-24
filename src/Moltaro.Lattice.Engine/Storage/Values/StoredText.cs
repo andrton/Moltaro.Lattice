@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text;
 using Moltaro.Lattice.Schema;
@@ -78,31 +79,42 @@ internal static class StoredText
     // Decodes the UTF-8 of a chunked value into the destination and returns the number of its
     // characters; with an empty destination it only counts them, so that the string can be made at
     // its length first. A character split by a chunk boundary is put together from the end of one
-    // chunk and the start of the next, and every other byte is decoded where it lies. Counting and
-    // decoding are two passes, kept apart on purpose until a measurement shows that one pass over a
-    // buffer that grows would be worth its code.
+    // chunk and the start of the next. An invalid split fails the copy. The final chunk decodes
+    // any unfinished sequence as a replacement, as StoredTextReader does in comparisons.
+    // Counting and decoding are two passes, kept apart until a measurement shows what a growing
+    // buffer would cost.
     private static int DecodeChunks(Arena arena, ReadOnlySpan<byte> entries, Span<char> destination)
     {
         Span<byte> split = stackalloc byte[4];
         var splitLength = 0;
         var splitHave = 0;
         var characters = 0;
+        var chunks = entries.Length / ValueBlocks.DescriptorSize;
 
-        for (var chunk = 0; chunk < entries.Length / ValueBlocks.DescriptorSize; chunk++)
+        for (var chunk = 0; chunk < chunks; chunk++)
         {
             var bytes = ValueBlocks.Chunk(arena, entries, chunk);
 
             if (splitHave > 0)
             {
                 var rest = splitLength - splitHave;
+                if (rest > bytes.Length)
+                {
+                    throw InvalidSplit();
+                }
 
                 bytes[..rest].CopyTo(split[splitHave..]);
-                characters += Decode(split[..splitLength], destination, characters);
+                if (Rune.DecodeFromUtf8(split[..splitLength], out var rune, out _) != OperationStatus.Done)
+                {
+                    throw InvalidSplit();
+                }
+
+                characters += destination.IsEmpty ? rune.Utf16SequenceLength : rune.EncodeToUtf16(destination[characters..]);
                 bytes = bytes[rest..];
                 splitHave = 0;
             }
 
-            var tail = IncompleteTail(bytes);
+            var tail = chunk + 1 < chunks ? IncompleteTail(bytes) : 0;
 
             characters += Decode(bytes[..^tail], destination, characters);
 
@@ -117,7 +129,10 @@ internal static class StoredText
         return characters;
     }
 
-    // Decodes well-formed UTF-8 into the destination after the characters already there, or counts
+    private static DecoderFallbackException InvalidSplit() =>
+        new("Stored UTF-8 has a malformed sequence at a chunk boundary.");
+
+    // Decodes UTF-8 into the destination after the characters already there, or counts
     // its characters when there is no destination.
     private static int Decode(ReadOnlySpan<byte> bytes, Span<char> destination, int decoded) =>
         destination.IsEmpty ? Encoding.UTF8.GetCharCount(bytes) : Encoding.UTF8.GetChars(bytes, destination[decoded..]);
