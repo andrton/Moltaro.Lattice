@@ -433,13 +433,16 @@ send up — makes at most
 
 splits, with *P* the progress of the level at the base, and at the leaves the second
 credit of the last leaf and 2*c* for each remove added to it; it sends as many separators
-up. A level above the tree has no progress, so from there the splits at least halve from
-one level to the next, and the sum ends. The bound is linear in the changes or better.
+up. The pool computes the quotient only when *P* < *k* · *c*. At or above that threshold,
+the bound is *k*. A level above the tree has no progress, so from there the splits at
+least halve from one level to the next, and the sum ends. The bound is linear in the
+changes or better.
 
 The pool keeps the progress of every level: the tree tells it of each node it writes into
 the tree and of each node it replaces, and the pool adds or takes away the progress of
-the node, one division of its bytes, in the hold that publishes. A read pays nothing. It
-keeps room for every level the tree can reach while the changes reserved wait, and the
+the node in the hold that publishes. A node with space for its full credit has zero
+progress, which the pool can tell without dividing. A read pays nothing. The pool keeps
+room for every level the tree can reach while the changes reserved wait, and the
 path of the writer as many: one more than the levels that can split, since only a split of
 the root adds a level, which are at most the levels of the tree, the leaves of an empty
 tree among them, and ⌊log₂ *p*⌋ above them, where each level splits at most half as often
@@ -462,6 +465,20 @@ progress than its credit; for one remove at a height of 2 or more the bound is t
 A Debug build asserts after every preparation, publication and withdrawal that the pool
 and the places hold at least the lesser bound of the writes still waiting, and that the
 ledger never takes more than it was charged.
+
+The multiply in the split bound fits in `long`, including when the ledger counts more
+than the current Int32 reservations. With positive leaf credit the base must move before
+it can retain 2⁵⁰ charged inserts. When removes are fewer than half the inserts, each
+split adds one leaf and each remove loses at most one. The leaf split bound then has at
+least ⌊*p* / (*c* + 1)⌋ minus the maximum live leaf count still unused. With at least half
+as many removes as inserts, the bound allows every insert to split. An ordinary split
+consumes a leaf ready to split, and its halves, a merged leaf and a new singleton each fit
+one more widest entry. An insert or rewrite without a split can make another leaf ready.
+A split by an append at the right edge saves a node and a retirement. The unused splits
+and those savings leave more than the bounds of the waiting changes at that threshold.
+There are fewer than 2³² live entries even while old and new keys overlap, and the credits
+are at most 64. With zero leaf credit the inner credit is one, so the product fits for
+any nonnegative `long` count.
 
 The reserved nodes are linked through their own payload, each holding the address of the
 next in its first bytes, so the pool takes no managed room for them: a reservation the

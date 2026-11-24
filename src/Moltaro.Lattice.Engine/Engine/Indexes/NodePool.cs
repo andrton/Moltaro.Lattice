@@ -322,6 +322,13 @@ internal sealed class NodePool
     // a whole steps of L, which add L (0 + 1 + ... + (a - 1)), and b terms more, which add a each.
     public static long Need(int height, int room, int leastSeparators, int inserts, int removes)
     {
+        // While the inserts fit the room of the root nothing grows: m = 0 and Growth(p) = 0, so the need is
+        // that without the divisions, the same exactly.
+        if (inserts <= room)
+        {
+            return (inserts * ((2L * height) + 1)) + (removes * (height + 1L));
+        }
+
         long least = leastSeparators;
         var beyondRoom = Math.Max(0L, inserts - 1L - room);
         var steps = beyondRoom / least;
@@ -377,7 +384,13 @@ internal sealed class NodePool
                 made += leafCredit + (2L * leafCredit * removes);
             }
 
-            arriving = Math.Min(arriving, (made + arriving) / (credit + 1));
+            // (made + arriving) / (credit + 1) is no less than arriving exactly when made >= arriving * credit,
+            // so the division is made only when it can lower the count.
+            if (made < arriving * credit)
+            {
+                arriving = (made + arriving) / (credit + 1);
+            }
+
             splits += arriving;
             splitting += arriving > 0 ? 1 : 0;
         }
@@ -394,8 +407,16 @@ internal sealed class NodePool
     private long ProgressOf(int level, int usedBytes)
     {
         var credit = level == 0 ? _leafCredit : _innerCredit;
+        var widest = level == 0 ? _leafWidest : _innerWidest;
 
-        return credit - Math.Min(credit, InsertsBeforeFull(usedBytes, level == 0 ? _leafWidest : _innerWidest));
+        // A node with room for its whole credit of the widest item has made none of it: the division would
+        // give at least the credit, so it is not made.
+        if (_capacity - usedBytes >= credit * widest)
+        {
+            return 0;
+        }
+
+        return credit - Math.Min(credit, InsertsBeforeFull(usedBytes, widest));
     }
 
     // The inserts of the widest item given a node of the used bytes given, which it holds, takes before it may
