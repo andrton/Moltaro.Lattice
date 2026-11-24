@@ -81,7 +81,7 @@ internal sealed class StructureLayout
         int size,
         LatticeValueDeclaration? list,
         bool holdsNestedValues,
-        bool holdsOwnedValuesOrLists)
+        bool holdsLists)
     {
         Start = start;
         _places = places;
@@ -94,7 +94,7 @@ internal sealed class StructureLayout
         Size = size;
         List = list;
         HoldsNestedValues = holdsNestedValues;
-        HoldsOwnedValuesOrLists = holdsOwnedValuesOrLists;
+        HoldsLists = holdsLists;
 
         if (list is not null && DescriptorCount > 0)
         {
@@ -155,8 +155,10 @@ internal sealed class StructureLayout
     // Whether the structure holds an owned value, a List or a Reference, at any depth.
     public bool HoldsNestedValues { get; }
 
-    // Whether it holds an owned value or a List, at any depth.
-    public bool HoldsOwnedValuesOrLists { get; }
+    // Whether it holds a List, in its owned values included, whose bound a write is checked against before
+    // it is submitted (Engine.Entities.RootValues.CheckListBounds); for the record of an element, whether
+    // the element holds one.
+    public bool HoldsLists { get; }
 
     // The place at the position.
     public ref readonly StoredField Place(int position) => ref _places[position];
@@ -305,7 +307,7 @@ internal sealed class StructureLayout
         var descriptors = new List<int>();
         var offset = start + RootLayout.BitBytes(nullableCount);
         var nested = false;
-        var ownedOrList = false;
+        var lists = false;
 
         foreach (var (position, _) in inPathOrder)
         {
@@ -313,7 +315,7 @@ internal sealed class StructureLayout
             var (type, width) = TypeOf(entityType, field, declaration);
 
             nested |= declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Reference;
-            ownedOrList |= declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List;
+            lists |= declaration.Type == LatticeFieldTypeEnum.List;
 
             if (type == StoredTypeEnum.Owned)
             {
@@ -358,7 +360,7 @@ internal sealed class StructureLayout
             offset - start,
             list,
             nested,
-            ownedOrList);
+            lists);
     }
 
     // How the elements of a packed List of the element declared become bytes: by the .NET type a record holds

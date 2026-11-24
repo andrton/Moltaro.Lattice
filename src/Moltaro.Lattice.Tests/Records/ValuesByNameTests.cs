@@ -11,8 +11,8 @@ namespace Moltaro.Lattice.Tests.Records;
 // in the words that name the field, its type and the value (DynamicSetTests): a Decimal for a floating-point
 // field and the reverse, a floating-point value or a Decimal for an integer field, 42.0 included, an integer
 // a Float32 or a Float64 does not hold exactly, a Float64 that does not convert back. The elements of a
-// collection are taken only as declared, and an Enum field refuses at the write an integer its enum type does
-// not declare, as it does today.
+// collection are taken only as declared, an Enum field refuses at the write an integer its enum type does
+// not declare, as it does today, and a primary key keeps its rule: an integer of another width that fits.
 //
 // The schema: Priced, whose key Code is a String, holds Price, a Decimal, Ratio, a Float32, Weight, a Float64,
 // Count, an Int32, Total, an Int64, Level, an Enum of the integers 0 and 1 over UInt8, Prices, a List of
@@ -120,7 +120,7 @@ public sealed class ValuesByNameTests
 
     public static TheoryData<string> RefusedRows => [.. Refused.Keys];
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [MemberData(nameof(AcceptedRows))]
     public async Task Value_written_by_name_is_accepted_by_the_allowlist_of_a_search_key_and_held_as_the_type_of_its_field(string row)
     {
@@ -172,7 +172,7 @@ public sealed class ValuesByNameTests
         Assert.Null(detail[field]);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public void Elements_of_a_collection_are_taken_only_as_declared()
     {
         Assert.True(Schema.TryGetEntityType("Priced", out var priced));
@@ -185,6 +185,19 @@ public sealed class ValuesByNameTests
 
         record["Prices"] = new[] { 1m, 2m };
         Assert.Equal([1m, 2m], record.Get<List<decimal>>("Prices"));
+    }
+
+    [Fact]
+    public void Primary_key_written_by_name_keeps_its_rule_an_integer_of_another_width_that_fits()
+    {
+        // User of TestData has an Int64 key, Id.
+        Assert.True(TestData.Schema.TryGetEntityType("User", out var user));
+        var record = new LatticeRecord(user) { ["Id"] = 5 };
+
+        Assert.Equal(5L, record["Id"]);
+        Assert.Throws<ArgumentException>(() => record["Id"] = 5m);
+        Assert.Throws<ArgumentException>(() => record["Id"] = 5.0);
+        Assert.Equal(5L, record["Id"]);
     }
 
     [Fact]

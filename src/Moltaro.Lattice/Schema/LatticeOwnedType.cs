@@ -28,8 +28,9 @@ namespace Moltaro.Lattice.Schema;
 /// the depth of a declaration, which is at most 32, see <see cref="LatticeValueDeclaration"/>.
 /// </para>
 /// <para>
-/// <b>Not implemented yet</b> for every use: an owned value is stored and read back by name,
-/// and the rest is not built yet, as the remarks of <see cref="LatticeFieldTypeEnum.Owned"/> say.
+/// <b>Not implemented yet</b> for every use: an owned value is stored and read back by name and
+/// through a class, and the rest is not built yet, as the remarks of
+/// <see cref="LatticeFieldTypeEnum.Owned"/> say.
 /// </para>
 /// </remarks>
 public sealed class LatticeOwnedType

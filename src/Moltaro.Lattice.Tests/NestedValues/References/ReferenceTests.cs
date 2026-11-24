@@ -11,7 +11,7 @@ public sealed class ReferenceTests
     // A text longer than one value inline and than one block of its own, so that it lies in chunks.
     private static readonly string LongKey = new('k', 70_000);
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Reference_holds_the_key_of_its_target_in_the_type_of_that_key_for_every_key_type()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);
@@ -65,7 +65,7 @@ public sealed class ReferenceTests
         Assert.Equal(LongKey.ToUpperInvariant(), link.ToName);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Null_reference_is_read_back_null_by_name_and_through_the_class()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);
@@ -85,7 +85,7 @@ public sealed class ReferenceTests
         Assert.All(record.EntityType.Fields.Where(field => field.Name.StartsWith("To", StringComparison.Ordinal)), field => Assert.Null(record[field.Name]));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Reference_to_a_target_that_does_not_exist_is_written_and_kept_after_its_target_is_deleted()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);
@@ -111,7 +111,7 @@ public sealed class ReferenceTests
         Assert.Equal(404, links.Get("dangling")!.ToInt64);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Lists_of_references_keep_their_order_and_their_duplicates_in_each_form()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);
@@ -137,7 +137,7 @@ public sealed class ReferenceTests
         Assert.Equal(written.Names, record.Get<List<string>>("Names"));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Reference_whose_key_is_text_that_is_not_well_formed_is_ValidationFailed_with_the_field_named()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);

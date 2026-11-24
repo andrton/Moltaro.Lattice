@@ -2,9 +2,9 @@ namespace Moltaro.Lattice.Tests.Records;
 
 // The element, key and value types of a collection are exact: a List<int> is not a List of
 // Int64, nor a Map with int keys a Map of Int64 keys, and each is refused with the field
-// named. An integer of another width is accepted when it fits only where a value is given by
-// itself: a field of a record, a field of an owned value, a primary key, a part of a search
-// key.
+// named. A number of another type is accepted only where a value is given by itself: a field
+// of a record and a field of an owned value take it by the rule of a part of a search key, a
+// primary key an integer of another width that fits (ValuesByNameTests).
 public sealed class ExactCollectionTypeTests
 {
     [Fact]

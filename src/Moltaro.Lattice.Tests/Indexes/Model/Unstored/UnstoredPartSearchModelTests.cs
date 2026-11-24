@@ -1,9 +1,11 @@
 namespace Moltaro.Lattice.Tests.Indexes.Model.Unstored;
 
-// A search of an index of a part the engine cannot store yet agrees with the model of the order, as every
-// other part does (ModelRun, ModelSearches), once its feature is implemented (SkipReason):
+// A search of an index of a part that the engine does not store yet on a master and a child alike agrees with
+// the model of the order, as every other part does (ModelRun, ModelSearches), once its feature is
+// implemented (SkipReason):
 // - a Reference part is compared as the key of its target (LatticeIndex), here an Int64, nullable and never
-//   null; a reference is a key without integrity enforcement, so it may name a key no entity has;
+//   null; a reference is a key without integrity enforcement, so it may name a key no entity has. A master
+//   stores it, and a child of such a master is refused when it connects;
 // - a part on a path into an owned value is the field at the end of the path, and null where the owned value
 //   is absent, here the City of the nullable owned value Home (IndexKey; LatticeIndexPart).
 // Each stores 400 entities and searches every value it stored and values it did not, ranges, both
@@ -15,7 +17,7 @@ public sealed class UnstoredPartSearchModelTests
     // The keys no entity is given as a reference, nor as a City.
     private static readonly IReadOnlyList<object> NeverReferenced = [50L, 100L];
 
-    [Fact(Skip = SkipReason.OwnedValuesAndReferences)]
+    [Fact(Skip = SkipReason.NestedValues)]
     public Task Search_of_an_index_of_a_nullable_Reference_part_by_value_by_range_and_in_pages_agrees_with_the_model_on_a_master_and_a_child()
     {
         var table = new ModelTable<Colleague>
@@ -32,7 +34,7 @@ public sealed class UnstoredPartSearchModelTests
         return RunAsync(table, UnstoredSchema.References, References(nullable: true), [NeverReferenced]);
     }
 
-    [Fact(Skip = SkipReason.OwnedValuesAndReferences)]
+    [Fact(Skip = SkipReason.NestedValues)]
     public Task Search_of_an_index_of_a_Reference_part_never_null_by_value_by_range_and_in_pages_agrees_with_the_model_on_a_master_and_a_child()
     {
         var table = new ModelTable<Apprentice>
@@ -49,7 +51,7 @@ public sealed class UnstoredPartSearchModelTests
         return RunAsync(table, UnstoredSchema.References, References(nullable: false), [NeverReferenced]);
     }
 
-    [Fact(Skip = SkipReason.OwnedValuesAndReferences)]
+    [Fact(Skip = SkipReason.NestedValues)]
     public Task Search_of_an_index_on_a_path_into_an_owned_value_by_value_by_range_and_in_pages_agrees_with_the_model_with_a_null_where_the_owned_value_is_absent()
     {
         var table = new ModelTable<Resident>

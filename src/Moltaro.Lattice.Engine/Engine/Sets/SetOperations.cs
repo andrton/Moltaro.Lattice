@@ -28,6 +28,10 @@ internal sealed class SetOperations
     // The read limits of the database, which every enumeration and every search takes (Entities.ReadLimits).
     private readonly ReadSettings _reads;
 
+    // Whether the entity type is stored with a List at any depth, whose bound a write is checked against
+    // before it is submitted (RootValues.CheckListBounds).
+    private readonly bool _checksLists;
+
     public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
     {
         Table = table;
@@ -36,6 +40,7 @@ internal sealed class SetOperations
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
         _reads = reads;
+        _checksLists = table.Layout is { Structure.HoldsLists: true };
     }
 
     public EntityTable Table { get; }
@@ -182,6 +187,17 @@ internal sealed class SetOperations
 
         progress.Hold(bytes);
         search.CheckMemory(progress.Bytes + progress.Held, cancellationToken, Table.EntityType.Name, index?.Definition.Name);
+    }
+
+    // Refuses a List above its bound among the values a write took, with ValidationFailed
+    // (RootValues.CheckListBounds), for a set that validates them: before the write is submitted, and so
+    // before its conditions, as the set refuses what the validation of the core refuses.
+    public void CheckListBounds(object?[] values)
+    {
+        if (_checksLists)
+        {
+            RootValues.CheckListBounds(Table.Layout!, values);
+        }
     }
 
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>

@@ -3,10 +3,11 @@ namespace Moltaro.Lattice.Tests.NestedValues.References;
 // An index declared on a reference field finds the entities whose reference holds a given key, and an entity
 // whose reference is null is found by a search for null, as for an index on a field of any other type. A
 // reference is compared as the key of its target, with the comparison of that key (LatticeIndexPart):
-// ByToName compares without case, as its target Name does, and ByToText by its code units (ReferenceSchema).
+// ByToName compares without case, as its target Name does, and ByToText by its code units (ReferenceSchema),
+// also for a key of 70,000 characters, which lies in chunks.
 public sealed class ReferenceIndexTests
 {
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Index_on_a_reference_finds_the_entities_whose_reference_holds_a_key_and_those_whose_reference_is_null()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);
@@ -32,6 +33,23 @@ public sealed class ReferenceIndexTests
 
         Assert.Equal(["a"], CodesOf(links.Index("ByToInt64").Find(IndexKey.Equal(1L))));
         Assert.Equal(["b", "c"], CodesOf(links.Index("ByToInt64").Find(IndexKey.Equal(2L))));
+    }
+
+    [Fact]
+    public async Task Index_on_a_reference_finds_an_entity_by_a_key_that_lies_in_chunks_by_name_and_through_the_class()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);
+        var links = database.Set<Link>();
+
+        // A key of 70,000 characters lies in chunks, and one that differs only in its last character does not
+        // find it.
+        var longKey = new string('k', 70_000);
+
+        await links.InsertAsync(new Link { Code = "long", ToText = longKey });
+        await links.InsertAsync(new Link { Code = "other", ToText = longKey[..^1] + "j" });
+
+        Assert.Equal(["long"], CodesOf(links.Index("ByToText").Find(IndexKey.Equal(longKey))));
+        Assert.Equal(["long"], [.. database.Set("Link").Index("ByToText").Find(IndexKey.Equal(longKey)).Select(record => (string)record["Code"]!)]);
     }
 
     private static string[] CodesOf(IEnumerable<Link> found) => [.. found.Select(link => link.Code).Order(StringComparer.Ordinal)];

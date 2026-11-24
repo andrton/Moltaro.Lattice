@@ -39,7 +39,7 @@ public sealed class ListChunkBoundaryTests
 
     private const int AddressRecordsInOneChunk = 65_504 / (1 + 4 + 8 + 8 + 16 + 16 + (2 * 64));
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [InlineData(Int64InOneChunk)]
     [InlineData(Int64InOneChunk + 1)]
     public async Task Packed_List_keeps_its_order_and_its_duplicates_at_the_boundary_of_a_chunk(int count)
@@ -52,7 +52,7 @@ public sealed class ListChunkBoundaryTests
         await ExpectReadBackAsync(person);
     }
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [InlineData(AcrossTheBoundary + 1)]
     [InlineData(AcrossTheBoundary + 2)]
     public async Task Packed_element_that_continues_across_the_boundary_of_a_chunk_is_read_back_whole(int count)
@@ -77,7 +77,7 @@ public sealed class ListChunkBoundaryTests
         await ExpectReadBackAsync(person);
     }
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [InlineData(TextRecordsInOneChunk)]
     [InlineData(TextRecordsInOneChunk + 1)]
     public async Task List_of_records_keeps_its_order_and_its_duplicates_at_the_boundary_of_a_chunk(int count)
@@ -93,7 +93,7 @@ public sealed class ListChunkBoundaryTests
         await ExpectReadBackAsync(person);
     }
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [InlineData(AddressRecordsInOneChunk)]
     [InlineData(AddressRecordsInOneChunk + 1)]
     public async Task List_of_owned_values_keeps_its_order_and_its_duplicates_at_the_boundary_of_a_chunk(int count)

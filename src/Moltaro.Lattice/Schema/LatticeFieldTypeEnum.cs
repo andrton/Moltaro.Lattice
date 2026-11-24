@@ -45,11 +45,13 @@ public enum LatticeFieldTypeEnum : byte
     /// <summary><see cref="string"/>.</summary>
     /// <remarks>
     /// One value takes at most 268,173,376 bytes of its stored encoding, the encoding the schema
-    /// declares in <see cref="LatticeSchema.StringEncoding"/>. A write of a larger value, and
-    /// adding an entity with one to a write batch, is refused with
-    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with the field named, as every other
-    /// validation of an entity: before the conditions of the write are looked at and before a
-    /// write is refused as not implemented. The bound is a fixed rule of the storage format,
+    /// declares in <see cref="LatticeSchema.StringEncoding"/>, at every depth of owned values and
+    /// Lists: the bound holds for each such value, a field of the entity, a field of an owned value
+    /// and an element of a List, not only for a field of the entity. A write of a larger value, and adding an entity with one
+    /// to a write batch, is refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its
+    /// place named, as every other validation of an entity names one: the field of the entity or of
+    /// the owned type that declares it, and for an element the field that holds the List; before the
+    /// conditions of the write are looked at and before a write is refused as not implemented. The bound is a fixed rule of the storage format,
     /// the same on every node and not an option; an entity itself has no size limit, only the
     /// memory of the instance bounds it.
     /// </remarks>
@@ -72,11 +74,12 @@ public enum LatticeFieldTypeEnum : byte
 
     /// <summary>An array of <see cref="byte"/>.</summary>
     /// <remarks>
-    /// One value takes at most 268,173,376 bytes. A write of a larger value, and adding an
-    /// entity with one to a write batch, is refused with
-    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with the field named, as every other
-    /// validation of an entity: before the conditions of the write are looked at and before a
-    /// write is refused as not implemented. The bound is a fixed rule of the storage format,
+    /// One value takes at most 268,173,376 bytes, at every depth of owned values and Lists: the bound
+    /// holds for each such value, a field of the entity, a field of an owned value and an element of a
+    /// List, not only for a field of the entity. A write of a larger value, and adding an entity with one to a write
+    /// batch, is refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named,
+    /// as for a String; before the conditions of the write are looked at and before a write is
+    /// refused as not implemented. The bound is a fixed rule of the storage format,
     /// the same on every node and not an option; an entity itself has no size limit, only the
     /// memory of the instance bounds it.
     /// </remarks>
@@ -101,13 +104,11 @@ public enum LatticeFieldTypeEnum : byte
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet</b> for every use. An entity with owned values, Lists and
-    /// references is stored and read back by name, on a master, at every depth. Not yet: a read
-    /// through a class of an entity type that holds an owned value or a List, at any depth, which
-    /// is refused with <see cref="NotSupportedException"/> before it reads, as
-    /// <see cref="Access.ILatticeSet{TEntity}"/> says; a write batch with such an entity, whose
-    /// commit reports <see cref="NotSupportedException"/> through its task; an index over a field
-    /// inside an owned value, which keeps its entity type from being stored, so that every write of
-    /// it throws <see cref="NotSupportedException"/> after the checks of its arguments and of the
+    /// references is stored and read back by name and through a class, on a master, at every
+    /// depth. Not yet: a write batch with such an entity, whose commit reports
+    /// <see cref="NotSupportedException"/> through its task; an index over a field inside an
+    /// owned value, which keeps its entity type from being stored, so that every write of it
+    /// throws <see cref="NotSupportedException"/> after the checks of its arguments and of the
     /// entity; and a child of a master that stores such an entity type, whose open throws
     /// <see cref="NotSupportedException"/>.
     /// </remarks>
@@ -120,8 +121,24 @@ public enum LatticeFieldTypeEnum : byte
     /// another collection included.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet</b> for every use: a List is stored and read back by name, and the
-    /// rest is not built yet, as the remarks of <see cref="Owned"/> say.
+    /// <para>
+    /// A List holds at most what one directory of 4,094 chunks of 65,504 bytes holds, a fixed rule
+    /// of the storage format, the same on every node and not an option, as the bound of one String
+    /// or Binary value is. It follows from what one element stores at a fixed width, as
+    /// <see cref="LatticeEntityType"/> counts it: a List whose elements hold no String, Binary or
+    /// List holds 268,173,376 bytes of them, 33,521,672 elements of Int64; one whose elements hold
+    /// one holds 4,094 times the elements one chunk holds whole, each with room for 64 bytes of each
+    /// String, Binary and List it holds, 3,348,892 elements of String. A write of a larger List, at
+    /// any depth, of an entity type the engine stores, and adding such an entity to a write batch, is
+    /// refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named as for a
+    /// String, before the conditions of the write are looked at; the bound follows from the layout of
+    /// the entity type, so a write of an entity type the engine does not store ends in
+    /// <see cref="NotSupportedException"/> without it.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet</b> for every use: a List is stored and read back by name and through
+    /// a class, and the rest is not built yet, as the remarks of <see cref="Owned"/> say.
+    /// </para>
     /// </remarks>
     List = 22,
 
@@ -162,10 +179,17 @@ public enum LatticeFieldTypeEnum : byte
     /// deleting the target does not change the reference.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name, and
-    /// through a class when its entity type holds no owned value and no List; a write batch and a
-    /// child are not built yet for an entity type that holds one, as the remarks of
-    /// <see cref="Owned"/> say.
+    /// <para>
+    /// A reference whose target has a String key holds text, and a write validates it as a String
+    /// value: text that is not well-formed, with a surrogate without its pair, and text above the
+    /// bound of one value, see <see cref="String"/>, are refused with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named, at every depth.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name and
+    /// through a class; a write batch and a child are not built yet for an entity type that holds
+    /// one, as the remarks of <see cref="Owned"/> say.
+    /// </para>
     /// </remarks>
     Reference = 25,
 }

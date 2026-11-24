@@ -19,7 +19,7 @@ public sealed class WholeTreeTests
 
     private const int Replaces = 200;
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Complete_write_replaces_the_whole_tree_and_nothing_of_the_old_one_remains()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -48,7 +48,7 @@ public sealed class WholeTreeTests
         }
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Read_by_key_returns_one_whole_tree_while_the_entity_is_being_replaced()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -72,7 +72,7 @@ public sealed class WholeTreeTests
         Assert.Equal(Replaces, ExpectOneState(byName.Get("gauge")!));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Search_returns_whole_trees_while_the_entities_are_being_replaced()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

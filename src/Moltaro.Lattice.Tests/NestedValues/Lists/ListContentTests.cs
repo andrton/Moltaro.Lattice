@@ -23,7 +23,7 @@ public sealed class ListContentTests
 
     private const int AboveAChunk = 65_505;
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Empty_List_and_List_of_one_element_are_read_back_as_written_in_each_form()
     {
         var empty = NestedSchema.Full("empty");
@@ -51,7 +51,7 @@ public sealed class ListContentTests
         await ExpectReadBackAsync(empty, single);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task List_keeps_the_supplied_order_and_its_duplicates_in_each_form()
     {
         var person = NestedSchema.Full("ordered");
@@ -63,7 +63,7 @@ public sealed class ListContentTests
         await ExpectReadBackAsync(person);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task List_of_nullable_elements_keeps_each_null_in_its_place_and_an_empty_element_is_a_value()
     {
         var person = NestedSchema.Full("nulls");
@@ -74,7 +74,7 @@ public sealed class ListContentTests
         await ExpectReadBackAsync(person);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task List_of_owned_values_keeps_each_owned_value_with_all_it_holds()
     {
         var person = NestedSchema.Full("owned");
@@ -89,7 +89,7 @@ public sealed class ListContentTests
         await ExpectReadBackAsync(person);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task List_of_Lists_keeps_every_inner_List_in_its_order()
     {
         var person = NestedSchema.Full("lists");
@@ -98,7 +98,7 @@ public sealed class ListContentTests
         await ExpectReadBackAsync(person);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Text_and_Binary_elements_of_64_and_65_bytes_and_above_a_chunk_are_read_back_whole()
     {
         // ASCII text, one byte a character in UTF-8, each length distinct in its characters.

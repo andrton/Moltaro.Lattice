@@ -39,9 +39,12 @@ namespace Moltaro.Lattice.Access;
 /// schema is refused when it is added, with
 /// <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not well-formed — a
 /// surrogate without its pair — is refused in the same way, at any depth, and is never stored
-/// and never replaced by another character. A String or Binary value of a field of the entity
-/// that is larger than one value may be, as <see cref="Schema.LatticeFieldTypeEnum.String"/> and
-/// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. An integer
+/// and never replaced by another character. A String or Binary value that is larger than one
+/// value may be, as <see cref="Schema.LatticeFieldTypeEnum.String"/> and
+/// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, in a field of the entity, a field of an
+/// owned value or an element of a List, is refused in the same way; and so is a List, at any
+/// depth, of more elements than <see cref="Schema.LatticeFieldTypeEnum.List"/> states, for an
+/// entity type the engine stores. An integer
 /// that the enum type of its field does not declare — for a Flags type, a bit that no member
 /// declares — is refused in the same way. A key
 /// given to a delete that is a String which is not well-formed text is an

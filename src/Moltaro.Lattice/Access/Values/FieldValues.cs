@@ -1,4 +1,3 @@
-using System.Globalization;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Values;
@@ -9,33 +8,23 @@ namespace Moltaro.Lattice.Access.Values;
 // here.
 internal static class FieldValues
 {
-    // Returns the value in the field's exact .NET type. An integer of another width is
-    // accepted when it fits, so that a literal such as 1 works for an Int64 field, for an Enum
-    // field, which holds the integer of its enum type, and for a Reference, which holds the key
-    // of its target.
-    public static object Normalize(LatticeField field, object value, string parameterName)
-    {
-        var declaration = field.Declaration;
-        var expected = declaration.ValueType;
-        if (value.GetType() == expected)
-        {
-            return value;
-        }
+    // Returns the value in the field's exact .NET type: a value of that type as it is, and a number of
+    // another type as a part of a search key takes it, by the same code (IndexValue.TryConvertTo; the
+    // remarks of IndexKey): an integer of another width that fits, any integer for a Decimal, an integer
+    // that a Float32 or a Float64 holds exactly, a Float32 for a Float64, and a Float64 for a Float32 when
+    // it converts back to itself. So a literal such as 1 works for an Int64 field, for a Decimal field, for
+    // an Enum field, which holds the integer of its enum type, and for a Reference, which holds the key of
+    // its target. Text that is not well-formed and an integer that an enum type does not allow are the
+    // checks of the write. For the types a primary key may have, the integers, String and Guid, the rule is
+    // that of a key given as an argument.
+    public static object Normalize(LatticeField field, object value, string parameterName) =>
+        value.GetType() == field.Declaration.ValueType ? value : Converted(field, value, parameterName);
 
-        if (FieldTypes.IsInteger(declaration.ScalarType) && value is sbyte or byte or short or ushort or int or uint or long or ulong)
-        {
-            try
-            {
-                return Convert.ChangeType(value, expected, CultureInfo.InvariantCulture);
-            }
-            catch (OverflowException)
-            {
-                // Reported below together with the other mismatches.
-            }
-        }
-
-        throw CannotBeUsed(field, value, parameterName);
-    }
+    // A value of another type than that of the field, converted as a part of a search key is, or refused.
+    private static object Converted(LatticeField field, object value, string parameterName) =>
+        IndexValue.Of(value).TryConvertTo(field.Declaration.ScalarType, out var converted)
+            ? converted.ToObject()!
+            : throw CannotBeUsed(field, value, parameterName);
 
     // The refusal of a value, not null, that cannot be used for the field, for the parameter named: of a
     // value given by itself here, and of a value of an index key or a bound (IndexValue.Bind).

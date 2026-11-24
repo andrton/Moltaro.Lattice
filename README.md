@@ -20,8 +20,8 @@ the whole database from its master over TCP while the master keeps writing, buil
 own indexes, then follows its changes, and forwards its own writes to the master. A
 unique index gives a value to one entity only, whichever node submits the write. An entity
 may hold owned values, Lists and references at every depth, which a master stores and reads
-back by name; reading owned values and Lists through a class, writing any of them in a batch
-and loading them on a child are not built yet. Two rules of the schema language bound what one
+back by name and through a class; writing any of them in a batch and loading them on a child
+are not built yet. Two rules of the schema language bound what one
 entity stores: its fixed part, the fields of its owned values included, fits one block, and the
 record of an element of a List fits one chunk; a database whose schema breaks one does not open
 (`LatticeEntityType`). A schema can already declare more than the engine stores: an entity
@@ -418,8 +418,8 @@ path, from simple to complex.
 
 In the contract but not implemented yet: Durable persistence, a child that connects again after it lost its master,
 storing Maps and Sets, which a schema declares, a record and a class hold, and no write stores
-yet; a read through a class of an entity type with owned values or Lists; and, for owned values,
-Lists and references, a write batch, an index over a field inside an owned value and a child, as
+yet; and, for owned values, Lists and references, a write batch, an index over a field inside an
+owned value and a child, as
 the remarks of `LatticeFieldTypeEnum.Owned` say. Not in the contract yet: partial updates, safe retry
 of a write, schema migration and replication status. A query language is not planned for
 the first version.

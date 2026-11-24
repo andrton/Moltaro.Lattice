@@ -11,18 +11,12 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>Reads</b> are served from local memory and return owned copies. A copy never changes
 /// when the database changes, and editing a copy changes nothing in the database until it
-/// is submitted by a write. Each returned entity is coherent; separate reads do not share a
-/// snapshot. Only the fields declared in the schema are stored, each in the property that
+/// is submitted by a write. Two reads share no object at any depth, but for an empty array, of
+/// a Binary value or of a List, which is the one empty array of its type,
+/// <see cref="Array.Empty{T}"/>, that no caller can change. Each returned entity is coherent;
+/// separate reads do not share a snapshot. Only the fields declared in the schema are stored, each in the property that
 /// <see cref="ILatticeDatabase.Set{TEntity}"/> binds to it; other properties of the class
 /// are ignored.
-/// </para>
-/// <para>
-/// <b>Not implemented yet.</b> A read of an entity type that holds an owned value or a List, at
-/// any depth, is refused with <see cref="NotSupportedException"/> before it reads: building such
-/// an object from what is stored is not built yet. A synchronous read and <see cref="Index"/>,
-/// which selects an index for such reads, throw it at the call; <see cref="GetAsync"/> and
-/// <see cref="EnumerateAsync"/> report it through the returned task or enumeration. Its entities
-/// are written through the class and read by name, see <see cref="ILatticeSet"/>.
 /// </para>
 /// <para>
 /// There are two kinds of reads. The synchronous ones, <see cref="Get"/>,
@@ -98,9 +92,13 @@ namespace Moltaro.Lattice.Access;
 /// such as a <c>uint[]</c> in an <c>int[]</c> property or an <c>sbyte[]</c> in a
 /// <c>byte[]</c> one, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not
 /// well-formed — a surrogate without its pair — is refused in the same way, at any depth, and
-/// is never stored and never replaced by another character. A String or Binary value of a field
-/// of the entity that is larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/>
-/// and <see cref="LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. An integer
+/// is never stored and never replaced by another character. A String or Binary value that is
+/// larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/> and
+/// <see cref="LatticeFieldTypeEnum.Binary"/> state, in a field of the entity, a field of an owned
+/// value or an element of a List, is refused in the same way; and so is a List, at any depth, of
+/// more elements than <see cref="LatticeFieldTypeEnum.List"/> states, for an entity type the
+/// engine stores: the bound follows from its layout, so it is not checked before a write of a
+/// type the engine does not store is refused as not implemented. An integer
 /// that the enum type of its field does not declare — for a Flags type, a bit that no member
 /// declares — is refused in the same way. Which arrays
 /// the runtime would read as other values, and that an array of a class derived from the

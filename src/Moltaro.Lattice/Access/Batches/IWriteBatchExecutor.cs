@@ -13,7 +13,9 @@ internal interface IWriteBatchExecutor
     // executes the batch; the batch keeps it as it is and does not read it. Empty for a delete, whose values
     // are null, and for an entity type the engine does not store, whose batch the engine refuses when it is
     // committed. Called for every operation added, so that each Add after the close of the database is
-    // ObjectDisposedException, whatever its kind.
+    // ObjectDisposedException, whatever its kind. It refuses, with ValidationFailed and the place named, a
+    // List above its bound at any depth, which only the engine knows from the layout of the entity type, so
+    // that the Add refuses it as a single write refuses it before its conditions.
     ReadOnlySequence<byte> EncodeRoot(LatticeEntityType entityType, object?[]? values);
 
     // Executes the operations, of which there is at least one, as one write after the position the session

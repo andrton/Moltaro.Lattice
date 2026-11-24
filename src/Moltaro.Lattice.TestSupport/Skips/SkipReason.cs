@@ -5,12 +5,8 @@ namespace Moltaro.Lattice.TestSupport.Skips;
 // of the sprint that implements a feature removes its skips and its constant.
 internal static class SkipReason
 {
-    // Owned values, Lists and references stored, copied, replaced and followed by children, with what comes
-    // with them: the bound of a value at every depth, a value written by name bound as a part of a search
-    // key, and the timestamps of a read from a source the tests drive.
-    public const string NestedValues = "Storing owned values, Lists and references is not implemented yet.";
-
-    // A write of an entity type with an Owned or a Reference field is refused with NotSupportedException
-    // (LatticeFieldTypeEnum.Owned and LatticeFieldTypeEnum.Reference).
-    public const string OwnedValuesAndReferences = "Storing owned values and references is not implemented yet.";
+    // What remains of owned values, Lists and references: a child of a master that stores them, which loads
+    // and follows them; a write batch, and a write forwarded by a child, that holds them; and an index over a
+    // field inside an owned value.
+    public const string NestedValues = "Owned values, Lists and references on a child, in a write batch and in an index over a path are not implemented yet.";
 }
