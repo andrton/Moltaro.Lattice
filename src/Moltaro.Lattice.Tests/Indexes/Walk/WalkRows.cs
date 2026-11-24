@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Tests.Indexes.Model;
+
 namespace Moltaro.Lattice.Tests.Indexes.Walk;
 
 // The rows of the walk tests and the searches over them.
@@ -40,6 +42,9 @@ internal static class WalkRows
     ];
 
     public static IReadOnlyList<Row> All { get; } = Generate();
+
+    // The model of the order of the index of every field (WalkShape.Model).
+    private static IndexModel Order { get; } = new WalkShape(4, 0, null, null, null, Reverse: false).Model;
 
     // The searches of the tests of order and bounds over the rows, in both directions: every index; every
     // count of leading parts, each with the values of every distinct key the rows have for those parts and
@@ -102,7 +107,7 @@ internal static class WalkRows
 
         foreach (var row in All)
         {
-            if (!distinct.Any(seen => WalkOracle.CompareKeys(leading, seen, row) == 0))
+            if (!distinct.Any(seen => Order.CompareKeys(seen.Key, row.Key, leading) == 0))
             {
                 distinct.Add(row);
             }
