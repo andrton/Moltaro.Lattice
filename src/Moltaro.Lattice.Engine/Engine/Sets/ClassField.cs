@@ -14,15 +14,21 @@ namespace Moltaro.Lattice.Engine.Sets;
 // set.
 //
 // A read sets the fields after it released the protection of the root, from its copy (ClassCopy): a
-// value of a fixed-width type from the copy of the fixed part of the root, and a value that lies
-// outside it from the slot of the field among the values the read made under the protection: a String
-// or a Binary value as the property holds it, and an owned value or a List in the form a record holds
-// it, which the setter turns into the value of the property first (BoundProperty.FromRecord). The set
-// accessor, and what FromRecord makes of an owned value, are the application's code.
+// value of a fixed-width type from the copy of the fixed part of the root, and a String or Binary
+// value, which lies outside it, from the slot of the field among the values the read made under the
+// protection. The set accessor is the application's code.
+//
+// An owned value or a List of the entity, a nested field, has a slot too, and is copied and set by
+// members of its own (CopyNested, SetNested), so that the members of the other fields stay as small as
+// the read of a class without nested fields needs them: under the protection the read makes it in the
+// form a record holds it, which only the types of the core and of .NET make (RootReader.GetOwned and
+// GetList), and after the protection its setter turns that form into the value of the property
+// (BoundProperty.FromRecord), which runs the constructors and the set accessors of the classes of the
+// owned values it holds.
 internal readonly struct ClassField<TEntity>
     where TEntity : class
 {
-    // The slot of a field whose value lies in the fixed part of a root.
+    // The slot of a field that is no String, no Binary and no nested field.
     public const int NoSlot = -1;
 
     private readonly LatticeField _field;
@@ -47,19 +53,19 @@ internal readonly struct ClassField<TEntity>
         _setNull = setNull;
     }
 
-    // Where a read keeps the value of a field with a slot (HasSlot) between the copy and the object;
-    // NoSlot for any other field.
+    // Where a read keeps the value of a String or Binary field, or of a nested field, between the copy
+    // and the object; NoSlot for any other field.
     public int Slot { get; }
 
     // The setters of a property of a field the engine stores: a scalar, an Enum, a Reference, a String, a
-    // Binary, an owned value or a List. A field with a slot (HasSlot) gets the given slot. The setter of an
-    // owned value or a List takes the form a record holds, as an object, and sets what FromRecord makes of it.
+    // Binary or a nested field. A String or Binary field and a nested field get the given slot. The setter
+    // of a nested field takes the form a record holds, as an object, and sets what FromRecord makes of it.
     public static ClassField<TEntity> Compile(BoundProperty property, int slot)
     {
         var declaration = property.Field.Declaration;
         var propertyType = property.Property.PropertyType;
         var entity = Expression.Parameter(typeof(TEntity), "entity");
-        var nested = declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List;
+        var nested = IsNested(property.Field);
         var value = Expression.Parameter(nested ? typeof(object) : declaration.ValueType, "value");
         Expression converted = value;
 
@@ -83,15 +89,17 @@ internal readonly struct ClassField<TEntity>
         return new ClassField<TEntity>(property.Field, slot, setValue, setNull);
     }
 
-    // Whether the value of the field lies outside the fixed part of a root, or beneath it: a String or a
-    // Binary, a Reference whose key is a String included, an owned value or a List.
+    // Whether the field is a String or a Binary, a Reference whose key is a String included, whose value
+    // lies outside the fixed part of a root.
     public static bool HasSlot(LatticeField field) =>
-        field.Declaration.ScalarType is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary or LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List;
+        field.Declaration.ScalarType is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
 
-    // Under the protection of the root: makes the value of the field into its slot, the string or the
-    // array that the returned object will hold, or an owned value or a List in the form a record holds it,
-    // which only the types of the core and of .NET make (RootReader.GetOwned and GetList). Null for a null
-    // value.
+    // Whether the field is an owned value or a List, a nested field.
+    public static bool IsNested(LatticeField field) =>
+        field.Declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List;
+
+    // Under the protection of the root: makes the value of a String or Binary field into its slot,
+    // the string or the array that the returned object will hold. Null for a null value.
     public void CopyValue(in RootReader root, object?[] values)
     {
         if (root.IsNull(_field))
@@ -101,17 +109,11 @@ internal readonly struct ClassField<TEntity>
             return;
         }
 
-        values[Slot] = _type switch
-        {
-            LatticeFieldTypeEnum.String => root.GetString(_field),
-            LatticeFieldTypeEnum.Binary => root.GetBinary(_field),
-            LatticeFieldTypeEnum.Owned => root.GetOwned(_field),
-            _ => root.GetList(_field),
-        };
+        values[Slot] = _type == LatticeFieldTypeEnum.String ? root.GetString(_field) : root.GetBinary(_field);
     }
 
     // After the protection: sets the property from the copy of the fixed part of the root, or, for a
-    // field with a slot, from its slot.
+    // String or Binary field, from its slot.
     public void Set(TEntity entity, in RootReader copied, object?[] values)
     {
         if (_setNull is not null && copied.IsNull(_field))
@@ -180,12 +182,36 @@ internal readonly struct ClassField<TEntity>
             case LatticeFieldTypeEnum.Binary:
                 ((Action<TEntity, byte[]>)_setValue)(entity, (byte[])values[Slot]!);
                 break;
-            case LatticeFieldTypeEnum.Owned:
-            case LatticeFieldTypeEnum.List:
-                ((Action<TEntity, object>)_setValue)(entity, values[Slot]!);
-                break;
             default:
-                throw new UnreachableException($"The field {_field.Name} is {_type}, which the engine does not store.");
+                throw new UnreachableException($"The field {_field.Name} is {_type}, which the engine does not store, or a nested field, which SetNested sets.");
         }
+    }
+
+    // Under the protection of the root: makes the value of a nested field into its slot, in the form a
+    // record holds it. Null for a null value.
+    public void CopyNested(in RootReader root, object?[] values)
+    {
+        if (root.IsNull(_field))
+        {
+            values[Slot] = null;
+
+            return;
+        }
+
+        values[Slot] = _type == LatticeFieldTypeEnum.Owned ? root.GetOwned(_field) : root.GetList(_field);
+    }
+
+    // After the protection: sets the property of a nested field to what FromRecord makes of its slot, or
+    // to null.
+    public void SetNested(TEntity entity, object?[] values)
+    {
+        if (values[Slot] is { } value)
+        {
+            ((Action<TEntity, object>)_setValue)(entity, value);
+
+            return;
+        }
+
+        _setNull!(entity);
     }
 }

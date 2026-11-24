@@ -22,36 +22,49 @@ internal sealed class ClassCopier<TEntity>
 
     private readonly RootLayout _layout;
 
-    // By LatticeField.Ordinal, as the binding has the properties.
+    // The fields that are not nested, by LatticeField.Ordinal as the binding has the properties.
     private readonly ClassField<TEntity>[] _fields;
+
+    // The nested fields, the owned values and Lists of the entity, in the same order: copied and set in a
+    // pass of their own (ClassField); empty for an entity type without them.
+    private readonly ClassField<TEntity>[] _nested;
 
     public ClassCopier(EntityBinding<TEntity> binding, RootLayout layout)
     {
         _binding = binding;
         _layout = layout;
-        _fields = new ClassField<TEntity>[binding.Properties.Count];
 
+        var fields = new List<ClassField<TEntity>>();
+        var nested = new List<ClassField<TEntity>>();
         var slots = 0;
 
-        for (var index = 0; index < _fields.Length; index++)
+        foreach (var property in binding.Properties)
         {
-            var property = binding.Properties[index];
-            var slot = ClassField<TEntity>.HasSlot(property.Field) ? slots++ : ClassField<TEntity>.NoSlot;
+            if (ClassField<TEntity>.IsNested(property.Field))
+            {
+                nested.Add(ClassField<TEntity>.Compile(property, slots++));
+            }
+            else
+            {
+                var slot = ClassField<TEntity>.HasSlot(property.Field) ? slots++ : ClassField<TEntity>.NoSlot;
 
-            _fields[index] = ClassField<TEntity>.Compile(property, slot);
+                fields.Add(ClassField<TEntity>.Compile(property, slot));
+            }
         }
 
+        _fields = [.. fields];
+        _nested = [.. nested];
         ValueCount = slots;
     }
 
     // The bytes of the copy of the fixed part of a root.
     public int FixedPartLength => RootReader.FixedPartLength(_layout);
 
-    // The slots of the values of the fields that have one (ClassField.HasSlot).
+    // The slots of the values of String and Binary fields and of nested fields.
     public int ValueCount { get; }
 
-    // Under the protection of the root: copies its fixed part into fixedPart and makes the values that lie
-    // outside it, or beneath it, into their slots.
+    // Under the protection of the root: copies its fixed part into fixedPart and makes its String and
+    // Binary values, and its nested fields in the form a record holds them, into their slots.
     public void Copy(in RootReader root, Span<byte> fixedPart, object?[] values)
     {
         root.CopyFixedPart(fixedPart);
@@ -62,6 +75,11 @@ internal sealed class ClassCopier<TEntity>
             {
                 field.CopyValue(root, values);
             }
+        }
+
+        foreach (ref readonly var field in _nested.AsSpan())
+        {
+            field.CopyNested(root, values);
         }
     }
 
@@ -74,6 +92,11 @@ internal sealed class ClassCopier<TEntity>
         foreach (ref readonly var field in _fields.AsSpan())
         {
             field.Set(entity, copied, values);
+        }
+
+        foreach (ref readonly var field in _nested.AsSpan())
+        {
+            field.SetNested(entity, values);
         }
 
         return entity;
