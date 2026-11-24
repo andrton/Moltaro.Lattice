@@ -29,8 +29,8 @@ internal sealed class SetOperations
     private readonly ReadSettings _reads;
 
     // Whether the entity type is stored with a List at any depth, whose bound a write is checked against
-    // before it is submitted (RootValues.CheckListBounds).
-    private readonly bool _checksLists;
+    // before it is submitted (RootValues.CheckCollectionBounds).
+    private readonly bool _checksCollections;
 
     public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
     {
@@ -40,7 +40,7 @@ internal sealed class SetOperations
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
         _reads = reads;
-        _checksLists = table.Layout is { Structure.HoldsLists: true };
+        _checksCollections = table.Layout is { Structure.HoldsCollections: true };
     }
 
     public EntityTable Table { get; }
@@ -190,13 +190,13 @@ internal sealed class SetOperations
     }
 
     // Refuses a List above its bound among the values a write took, with ValidationFailed
-    // (RootValues.CheckListBounds), for a set that validates them: before the write is submitted, and so
+    // (RootValues.CheckCollectionBounds), for a set that validates them: before the write is submitted, and so
     // before its conditions, as the set refuses what the validation of the core refuses.
-    public void CheckListBounds(object?[] values)
+    public void CheckCollectionBounds(object?[] values)
     {
-        if (_checksLists)
+        if (_checksCollections)
         {
-            RootValues.CheckListBounds(Table.Layout!, values);
+            RootValues.CheckCollectionBounds(Table.Layout!, values);
         }
     }
 

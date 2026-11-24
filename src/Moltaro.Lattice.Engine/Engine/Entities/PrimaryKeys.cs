@@ -251,7 +251,7 @@ internal readonly struct PrimaryKeys
     // does not know the seed can choose keys that share a hash and lengthen one chain of the index, and the
     // index depends on nothing a process sets. For a String, the seeded hash of the comparison its field
     // declares (ValueComparer.TextHash), computed with the key. For an integer, held as a long,
-    // and for a Guid, all its bits mixed by the finalizer of MurmurHash3 (Mix), the seed mixed in by an
+    // and for a Guid, all its bits mixed by the finalizer of MurmurHash3 (ValueComparer), the seed mixed in by an
     // exclusive or before the finalizer, into the integer and into the second half of the Guid:
     // Int64.GetHashCode and Guid.GetHashCode are the exclusive or of the halves or the quarters of the value,
     // which keys of a structure share systematically, such as (shard << 32) | id or (i << 32) | i, all of

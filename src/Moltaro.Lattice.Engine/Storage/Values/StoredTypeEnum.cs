@@ -44,4 +44,9 @@ internal enum StoredTypeEnum : byte
     // of a Binary value do, of kind Inline, Block or Chunked; when they hold descriptors it is of kind
     // Records (DescriptorKindEnum.Records). StructureLayout.ElementOf gives the layout of its elements.
     List = 15,
+
+    // A collection of entries, with a derived lookup when the collection is hashed.
+    Map = 16,
+
+    Set = 17,
 }

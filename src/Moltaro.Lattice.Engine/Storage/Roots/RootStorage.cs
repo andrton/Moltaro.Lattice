@@ -101,7 +101,7 @@ internal static class RootStorage
     // kind Records names no block.
     public static void AdoptValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress root, int descriptorOffset)
     {
-        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Location != 0))
+        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked or DescriptorKindEnum.Lookup || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Location != 0))
         {
             ValueBlocks.Adopt(arena, descriptor, root, descriptorOffset);
         }
@@ -126,6 +126,14 @@ internal static class RootStorage
 
                 case DescriptorKindEnum.Records when descriptor.Location != 0:
                     ValueBlocks.FreeBlocks(arena, ValueBlocks.AddressOf(descriptor), NestedValues.LiesInChunks(descriptor, element!));
+                    break;
+
+                case DescriptorKindEnum.Lookup:
+                    foreach (var block in new LookupBlocks(arena, descriptor))
+                    {
+                        arena.Free(block);
+                    }
+
                     break;
             }
         }
@@ -152,6 +160,14 @@ internal static class RootStorage
 
                 case DescriptorKindEnum.Records when descriptor.Location != 0:
                     ValueBlocks.PublishBlocks(arena, ValueBlocks.AddressOf(descriptor), NestedValues.LiesInChunks(descriptor, element!));
+                    break;
+
+                case DescriptorKindEnum.Lookup:
+                    foreach (var block in new LookupBlocks(arena, descriptor))
+                    {
+                        arena.Publish(block);
+                    }
+
                     break;
             }
         }
@@ -180,6 +196,14 @@ internal static class RootStorage
 
                 case DescriptorKindEnum.Records when descriptor.Location != 0:
                     ValueBlocks.RetireBlocks(arena, ValueBlocks.AddressOf(descriptor), NestedValues.LiesInChunks(descriptor, element!));
+                    break;
+
+                case DescriptorKindEnum.Lookup:
+                    foreach (var block in new LookupBlocks(arena, descriptor))
+                    {
+                        arena.Retire(block);
+                    }
+
                     break;
             }
         }

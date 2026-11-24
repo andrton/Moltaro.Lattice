@@ -318,7 +318,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     }
 
     // The root of a member of a write batch, encoded when it is added, on the thread of the caller and
-    // outside every lock (Entities.RootValues.Export), after the bound of its Lists (RootValues.CheckListBounds),
+    // outside every lock (Entities.RootValues.Export), after the bound of its Lists (RootValues.CheckCollectionBounds),
     // so that a List above it is refused at the Add, as a single write refuses it before it is submitted;
     // empty for a delete and for an entity type the engine does not store, which the commit refuses
     // (Writes.WriteCoordinator.SubmitBatchAsync).
@@ -332,9 +332,9 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             return ReadOnlySequence<byte>.Empty;
         }
 
-        if (layout.Structure.HoldsLists)
+        if (layout.Structure.HoldsCollections)
         {
-            RootValues.CheckListBounds(layout, values);
+            RootValues.CheckCollectionBounds(layout, values);
         }
 
         return RootValues.Export(layout, entityType, values);

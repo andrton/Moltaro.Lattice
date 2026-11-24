@@ -98,9 +98,9 @@ internal readonly struct ClassField<TEntity>
     public static bool HasSlot(LatticeField field) =>
         field.Declaration.ScalarType is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
 
-    // Whether the field is an owned value or a List, a nested field.
+    // Whether the field is an owned value or a collection.
     public static bool IsNested(LatticeField field) =>
-        field.Declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List;
+        field.Declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set;
 
     // Under the protection of the root: makes the value of a String or Binary field into its slot,
     // the string or the array that the returned object will hold. Null for a null value.
@@ -193,17 +193,7 @@ internal readonly struct ClassField<TEntity>
 
     // Under the protection of the root: makes the value of a nested field into its slot, in the form a
     // record holds it. Null for a null value.
-    public void CopyNested(in RootReader root, object?[] values)
-    {
-        if (root.IsNull(_field))
-        {
-            values[Slot] = null;
-
-            return;
-        }
-
-        values[Slot] = _type == LatticeFieldTypeEnum.Owned ? root.GetOwned(_field) : root.GetList(_field);
-    }
+    public void CopyNested(in RootReader root, object?[] values) => values[Slot] = root.GetNested(_field);
 
     // After the protection: sets the property of a nested field to what FromRecord makes of its slot, or
     // to null.

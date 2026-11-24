@@ -194,6 +194,10 @@ internal static class RecordValues
             throw place.Fail(NotAccepted(declaration, value));
         }
 
+        var keyDeclaration = declaration.Key!;
+        var valueDeclaration = declaration.Value!;
+        var boundedKey = place.IsWrite && ValueBound.Applies(keyDeclaration);
+        var boundedValue = place.IsWrite && ValueBound.Applies(valueDeclaration);
         var copy = form.Create();
         foreach (var (key, item) in form.Entries(value))
         {
@@ -202,8 +206,18 @@ internal static class RecordValues
                 throw place.Fail("has a null key; a Map key is never null.");
             }
 
-            var copiedKey = Copy(declaration.Key!, key, place);
-            var copiedItem = item is null ? Null(declaration.Value!, place) : Copy(declaration.Value!, item, place);
+            if (boundedKey)
+            {
+                ThrowIfAboveTheBound(keyDeclaration, key, place);
+            }
+
+            if (boundedValue && item is not null)
+            {
+                ThrowIfAboveTheBound(valueDeclaration, item, place);
+            }
+
+            var copiedKey = Copy(keyDeclaration, key, place);
+            var copiedItem = item is null ? Null(valueDeclaration, place) : Copy(valueDeclaration, item, place);
             if (!form.TryAdd(copy, copiedKey, copiedItem))
             {
                 throw place.Fail($"has the key '{key}' twice, as its key declaration compares keys.");

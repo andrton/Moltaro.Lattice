@@ -29,7 +29,7 @@ internal sealed class MapForm<TKey, TValue> : MapForm
         }
     }
 
-    public override object Create() => new Dictionary<TKey, TValue>(_comparer);
+    public override object Create(int capacity = 0) => new Dictionary<TKey, TValue>(capacity, _comparer);
 
     public override bool TryAdd(object map, object key, object? value) =>
         ((Dictionary<TKey, TValue>)map).TryAdd((TKey)key, (TValue)value!);

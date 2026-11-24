@@ -124,7 +124,7 @@ internal sealed class RecordSet : ILatticeSet
         try
         {
             values = record.ValuesForWrite();
-            _operations.CheckListBounds(values);
+            _operations.CheckCollectionBounds(values);
         }
         catch (LatticeException exception)
         {

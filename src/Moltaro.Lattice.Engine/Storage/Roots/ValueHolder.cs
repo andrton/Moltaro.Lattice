@@ -123,7 +123,7 @@ internal ref struct ValueHolder
 
     // Places a value of length bytes of the place, which the source hands out, its descriptor at the offset
     // given: inline when it is short enough and the block has room, else in blocks of its own (see the type).
-    public void PlaceBytes<TSource>(in StoredField place, int offset, int length, ref TSource source)
+    public void PlaceBytes<TSource>(in StoredField place, int offset, int length, ref TSource source, bool allowInline = true)
         where TSource : IValueSource, allows ref struct
     {
         if (length > ValueBlocks.MostValueBytes)
@@ -138,7 +138,7 @@ internal ref struct ValueHolder
 
         var descriptor = At(offset, ValueBlocks.DescriptorSize);
 
-        if (length <= ValueBlocks.InlineLimit && InlineEnd + length <= End)
+        if (allowInline && length <= ValueBlocks.InlineLimit && InlineEnd + length <= End)
         {
             source.Fill(At(InlineEnd, length));
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)InlineEnd });

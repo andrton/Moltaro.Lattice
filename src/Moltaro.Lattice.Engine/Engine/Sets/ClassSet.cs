@@ -132,7 +132,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         try
         {
             values = _binding.ValuesForWrite(entity);
-            _operations.CheckListBounds(values);
+            _operations.CheckCollectionBounds(values);
         }
         catch (LatticeException exception)
         {

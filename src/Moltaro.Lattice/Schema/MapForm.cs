@@ -21,7 +21,7 @@ internal abstract class MapForm
     public abstract IEnumerable<KeyValuePair<object?, object?>> Entries(object input);
 
     // A new, empty collection of the record.
-    public abstract object Create();
+    public abstract object Create(int capacity = 0);
 
     // Adds an entry whose key and value are of type K and V; false when the Map already has a
     // key that the key declaration holds equal.

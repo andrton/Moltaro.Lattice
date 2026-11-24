@@ -21,7 +21,10 @@ internal abstract class SequenceForm
     public abstract IEnumerable<object?> Elements(object input);
 
     // A new, empty collection of the record.
-    public abstract object Create();
+    public abstract object Create(int capacity = 0);
+
+    // The count in a collection this form created.
+    public abstract int Count(object collection);
 
     // Adds an element of type T. A HashSet keeps the member it has when an equal one is
     // added, so of equal members the first is kept.

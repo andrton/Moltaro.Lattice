@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
@@ -62,6 +63,21 @@ internal struct AuditVisitor : IStructureVisitor
 
             case DescriptorKindEnum.Records:
                 OwnRecords(arena, descriptor, holder, offset, element!);
+                break;
+
+            case DescriptorKindEnum.Lookup:
+                Own(arena, address, holder, offset, BlockKindEnum.Lookup, length: null);
+                // A block after its header and entries descriptor holds 8,186 slots.
+                // At a load of 70 percent it can index at most 5,730 entries.
+                if (descriptor.Length > 5_730)
+                {
+                    var chunks = MemoryMarshal.Cast<byte, ArenaAddress>(arena.Payload(address)[16..]);
+                    for (var chunk = 0; chunk < chunks.Length; chunk++)
+                    {
+                        Own(arena, chunks[chunk], address, 48 + chunk * 8, BlockKindEnum.Chunk, length: null);
+                    }
+                }
+
                 break;
 
             case DescriptorKindEnum.Text:

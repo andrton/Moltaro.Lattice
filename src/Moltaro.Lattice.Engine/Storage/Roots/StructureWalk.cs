@@ -56,6 +56,14 @@ internal static class StructureWalk
     public static void WalkValue<TVisitor>(Arena arena, in ValueDescriptor descriptor, StructureLayout? element, ArenaAddress holder, int offset, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor
     {
+        if (descriptor.Kind == DescriptorKindEnum.Lookup)
+        {
+            var entries = CollectionLookup.Entries(arena, descriptor);
+            WalkValue(arena, entries, element, ValueBlocks.AddressOf(descriptor), CollectionLookup.EntriesOffset, ref visitor);
+            visitor.Visit(arena, descriptor, holder, offset, element);
+            return;
+        }
+
         if (descriptor.Kind != DescriptorKindEnum.Records)
         {
             visitor.Visit(arena, descriptor, holder, offset, null);
@@ -80,7 +88,7 @@ internal static class StructureWalk
         {
             var offset = at + structure.DescriptorOffset + (index * ValueBlocks.DescriptorSize);
             var descriptor = ValueBlocks.Read(bytes[(offset - origin)..]);
-            var element = descriptor.Kind == DescriptorKindEnum.Records ? structure.DescriptorElement(index) : null;
+            var element = descriptor.Kind is DescriptorKindEnum.Records or DescriptorKindEnum.Lookup ? structure.DescriptorElement(index) : null;
 
             WalkValue(arena, descriptor, element, holder, offset, ref visitor);
         }

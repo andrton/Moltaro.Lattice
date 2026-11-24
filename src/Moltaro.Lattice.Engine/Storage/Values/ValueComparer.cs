@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Hashing;
 
@@ -128,6 +129,42 @@ internal static class ValueComparer
 
     // The hash of a Guid from its two halves.
     public static uint GuidHash(long low, long high, ulong seed) => (uint)Mix((ulong)low ^ Mix((ulong)high ^ seed));
+
+    // Fixed values hash by their logical equality. The float representations and decimal scale are
+    // retained in storage, but do not distinguish equal keys.
+    public static uint FixedHash(StoredTypeEnum type, ReadOnlySpan<byte> value, ulong seed) => type switch
+    {
+        StoredTypeEnum.Boolean => IntegerHash(StoredScalars.ReadBoolean(value) ? 1 : 0, seed),
+        StoredTypeEnum.SignedInteger => IntegerHash(StoredScalars.ReadInteger(value), seed),
+        StoredTypeEnum.UnsignedInteger => IntegerHash((long)StoredScalars.ReadUnsigned(value), seed),
+        StoredTypeEnum.Float32 => IntegerHash(FloatBits(StoredScalars.ReadFloat32(value)), seed),
+        StoredTypeEnum.Float64 => IntegerHash(FloatBits(StoredScalars.ReadFloat64(value)), seed),
+        StoredTypeEnum.Decimal => IntegerHash(StoredScalars.ReadDecimal(value).GetHashCode(), seed),
+        StoredTypeEnum.Guid => GuidHash(MemoryMarshal.Read<long>(value), MemoryMarshal.Read<long>(value[sizeof(long)..]), seed),
+        StoredTypeEnum.DateOnly => IntegerHash(MemoryMarshal.Read<int>(value), seed),
+        StoredTypeEnum.DateTimeOffset or StoredTypeEnum.TimeOnly or StoredTypeEnum.TimeSpan => IntegerHash(MemoryMarshal.Read<long>(value), seed),
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a fixed-width type."),
+    };
+
+    private static int FloatBits(float value)
+    {
+        if (float.IsNaN(value))
+        {
+            value = float.NaN;
+        }
+
+        return value == 0 ? 0 : BitConverter.SingleToInt32Bits(value);
+    }
+
+    private static long FloatBits(double value)
+    {
+        if (double.IsNaN(value))
+        {
+            value = double.NaN;
+        }
+
+        return value == 0 ? 0 : BitConverter.DoubleToInt64Bits(value);
+    }
 
     // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
     // domain: every bit of the value changes every bit of the result with a probability near one half,
