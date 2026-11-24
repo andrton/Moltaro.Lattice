@@ -14,4 +14,7 @@ internal enum WriteKindEnum
 
     // Remove; an absent key is an ordinary result.
     Delete,
+
+    // Change only explicit fields or collection elements of an existing entity.
+    Update = 5,
 }

@@ -36,7 +36,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
     public LatticeUpdate CreateUpdate<TKey>(TKey key)
         where TKey : notnull =>
-        _operations.CreateUpdate(key);
+        _operations.CreateUpdate(key, _binding.Properties);
 
     public ILatticeIndex<TEntity> Index(string indexName) =>
         SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(_copier));

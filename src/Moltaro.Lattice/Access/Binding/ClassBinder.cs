@@ -2,6 +2,7 @@ using System.Collections;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 
@@ -80,7 +81,7 @@ internal sealed class ClassBinder
         var read = Expression.Convert(Expression.Call(Expression.Convert(instance, type), getAccessor), typeof(object));
         var get = Expression.Lambda<Func<object, object?>>(read, instance).Compile();
 
-        return new BoundProperty(field, property, getAccessor, setAccessor, get, conversion.ToRecord, take, conversion.FromRecord);
+        return new BoundProperty(field, property, getAccessor, setAccessor, get, conversion.ToRecord, take, conversion.FromRecord, conversion.Update);
     }
 
     // The property of a field is the one C# finds by its name on the class: the public member of
@@ -257,7 +258,9 @@ internal sealed class ClassBinder
         var cast = Expression.Convert(Expression.Convert(Expression.Convert(integer, stored), dotNetEnum), typeof(object));
         var toEnum = Expression.Lambda<Func<object, object>>(cast, integer).Compile();
 
-        return new Conversion(value => Allowed(Convert.ChangeType(value, stored, CultureInfo.InvariantCulture)), toEnum);
+        object ToInteger(object value) => Convert.ChangeType(value, stored, CultureInfo.InvariantCulture);
+
+        return new Conversion(value => Allowed(ToInteger(value)), toEnum, new UpdateValueBinding(ValueType: dotNetEnum, EnumToInteger: ToInteger));
     }
 
     // An owned value is an object of the class its owned type names. An owned type without a
@@ -337,7 +340,7 @@ internal sealed class ClassBinder
             return instance;
         };
 
-        bound = new Conversion(toRecord, fromRecord);
+        bound = new Conversion(toRecord, fromRecord, new UpdateValueBinding(ValueType: type, OwnedFields: properties));
         _ownedClasses.Add((ownedType, type), bound);
         return bound;
     }
@@ -363,6 +366,7 @@ internal sealed class ClassBinder
         var element = ConversionOf(elementType, elementDeclaration, place);
         var toRecord = BindSequence(element.ToRecord, declaration, place);
         var sameElements = elementType == elementDeclaration.PositionType;
+        var update = BindUpdateSequence(declaration, elementType, element.Update);
 
         if (isArray)
         {
@@ -370,12 +374,12 @@ internal sealed class ClassBinder
                 ? SequenceMethod(nameof(CopyArray), elementType).CreateDelegate<Func<object, object>>()
                 : SequenceFromRecord(nameof(ArrayOf), elementType, element.FromRecord);
 
-            return new Conversion(ReadAsTheyAre(type, toRecord, place), fromArray);
+            return new Conversion(ReadAsTheyAre(type, toRecord, place), fromArray, update);
         }
 
         var fromRecord = sameElements ? Same : SequenceFromRecord(nameof(ListOf), elementType, element.FromRecord);
 
-        return new Conversion(toRecord, fromRecord);
+        return new Conversion(toRecord, fromRecord, update);
     }
 
     // A property of an array type, or an array element of one, may hold an array of another
@@ -398,9 +402,10 @@ internal sealed class ClassBinder
         var elementType = GenericArgument(type, typeof(HashSet<>)) ?? throw place.Mismatch();
         var element = ConversionOf(elementType, declaration.Element!, place);
         var toRecord = BindSequence(element.ToRecord, declaration, place);
+        var update = BindUpdateSequence(declaration, elementType, element.Update);
         if (type == declaration.ValueType)
         {
-            return new Conversion(toRecord, Same);
+            return new Conversion(toRecord, Same, update);
         }
 
         var fromRecord = SequenceMethod(nameof(SetOf), elementType)
@@ -408,8 +413,13 @@ internal sealed class ClassBinder
         var form = declaration.Sequence!;
         var comparison = declaration.Element!.TextComparison;
 
-        return new Conversion(toRecord, value => fromRecord(value, form.Count(value), element.FromRecord, comparison));
+        return new Conversion(toRecord, value => fromRecord(value, form.Count(value), element.FromRecord, comparison), update);
     }
+
+    private static UpdateValueBinding? BindUpdateSequence(LatticeValueDeclaration declaration, Type elementType, UpdateValueBinding? element) =>
+        elementType == declaration.Element!.PositionType
+            ? null
+            : new UpdateValueBinding(Element: element, Sequence: SequenceForm.For(declaration.Type == LatticeFieldTypeEnum.Set, elementType, declaration.Element.TextComparison));
 
     // An element that is a String or a Binary value is checked against the bound of one value before it is
     // taken.
@@ -583,7 +593,8 @@ internal sealed class ClassBinder
             .MakeGenericMethod(arguments).CreateDelegate<Func<object, Func<object, object>, Func<object, object>, TextComparison?, object>>();
         var comparison = keyDeclaration.TextComparison;
 
-        return new Conversion(ToRecord, value => fromRecord(value, key.FromRecord, item.FromRecord, comparison));
+        var update = new UpdateValueBinding(Key: key.Update, Value: item.Update, Map: MapForm.For(arguments[0], arguments[1], comparison));
+        return new Conversion(ToRecord, value => fromRecord(value, key.FromRecord, item.FromRecord, comparison), update);
     }
 
     private static object MapOf<TKey, TValue>(object map, Func<object, object> key, Func<object, object> value, TextComparison? comparison)
@@ -609,7 +620,7 @@ internal sealed class ClassBinder
 
     // What a write takes of a value of a position and what a read gives a position of what a record holds,
     // each for a value that is not null.
-    private readonly record struct Conversion(Func<object, object> ToRecord, Func<object, object> FromRecord);
+    private readonly record struct Conversion(Func<object, object> ToRecord, Func<object, object> FromRecord, UpdateValueBinding? Update = null);
 
     // A property that a field is bound to, for the messages about it: at binding, what type it
     // needs; at a write, what it holds.

@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access;
@@ -33,17 +35,30 @@ namespace Moltaro.Lattice.Access;
 /// </remarks>
 public sealed class LatticeUpdate
 {
-    internal const string NotImplemented = "Partial updates are not implemented yet.";
+    private readonly IUpdateExecutor _executor;
+    private readonly IReadOnlyList<BoundProperty>? _fields;
+    private readonly UpdateOutcome _outcome = new();
+    private List<UpdateCommand>? _commands = [];
+    private HashSet<string>? _assigned;
 
-    private LatticeUpdate()
+    internal LatticeUpdate(LatticeEntityType entityType, object key, object database, IUpdateExecutor executor, IReadOnlyList<BoundProperty>? fields)
     {
+        EntityType = entityType;
+        Key = key;
+        Database = database;
+        _executor = executor;
+        _fields = fields;
     }
 
     /// <summary>The entity type whose fields the commands address.</summary>
-    public LatticeEntityType EntityType => throw new NotSupportedException(NotImplemented);
+    public LatticeEntityType EntityType { get; }
 
     /// <summary>The number of commands added.</summary>
-    public int Count => throw new NotSupportedException(NotImplemented);
+    public int Count { get; private set; }
+
+    internal object Key { get; }
+
+    internal object Database { get; }
 
     /// <summary>
     /// Assigns a scalar, Binary, Enum or Reference value, or replaces a whole collection.
@@ -55,7 +70,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid, or a scalar assignment already addresses the target.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult Assign<TValue>(string field, TValue value) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult Assign<TValue>(string field, TValue value) =>
+        Add(UpdateCommandKindEnum.Assign, field, 0, value, (object?)null);
 
     /// <summary>Appends an element to an existing List, after all its elements at execution.</summary>
     /// <typeparam name="TElement">The type of the element supplied by the caller.</typeparam>
@@ -64,7 +80,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult ListAppend<TElement>(string field, TElement element) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult ListAppend<TElement>(string field, TElement element) =>
+        Add(UpdateCommandKindEnum.ListAppend, field, 0, element, (object?)null);
 
     /// <summary>Inserts an element before the given position of an existing List, or at its end.</summary>
     /// <typeparam name="TElement">The type of the element supplied by the caller.</typeparam>
@@ -74,7 +91,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult ListInsert<TElement>(string field, int position, TElement element) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult ListInsert<TElement>(string field, int position, TElement element) =>
+        Add(UpdateCommandKindEnum.ListInsert, field, position, element, (object?)null);
 
     /// <summary>Replaces the element at a position of an existing List, counting equal replacement as a change.</summary>
     /// <typeparam name="TElement">The type of the element supplied by the caller.</typeparam>
@@ -84,7 +102,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult ListReplace<TElement>(string field, int position, TElement element) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult ListReplace<TElement>(string field, int position, TElement element) =>
+        Add(UpdateCommandKindEnum.ListReplace, field, position, element, (object?)null);
 
     /// <summary>Removes the element at a position of an existing List.</summary>
     /// <param name="field">The List field name or path.</param>
@@ -92,7 +111,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult ListRemove(string field, int position) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult ListRemove(string field, int position) =>
+        Add(UpdateCommandKindEnum.ListRemove, field, position, (object?)null, (object?)null);
 
     /// <summary>
     /// Inserts an entry or replaces its value in an existing Map. The key of an equal
@@ -106,7 +126,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or an operand is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult MapSet<TKey, TValue>(string field, TKey key, TValue value) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult MapSet<TKey, TValue>(string field, TKey key, TValue value) =>
+        Add(UpdateCommandKindEnum.MapSet, field, 0, key, value);
 
     /// <summary>Removes an entry from an existing Map. An absent key leaves the Map unchanged.</summary>
     /// <typeparam name="TKey">The type of the Map key supplied by the caller.</typeparam>
@@ -115,7 +136,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult MapRemove<TKey>(string field, TKey key) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult MapRemove<TKey>(string field, TKey key) =>
+        Add(UpdateCommandKindEnum.MapRemove, field, 0, key, (object?)null);
 
     /// <summary>Adds a member to an existing Set unless an equal member already exists.</summary>
     /// <typeparam name="TMember">The type of the member supplied by the caller.</typeparam>
@@ -124,7 +146,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult SetAdd<TMember>(string field, TMember member) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult SetAdd<TMember>(string field, TMember member) =>
+        Add(UpdateCommandKindEnum.SetAdd, field, 0, member, (object?)null);
 
     /// <summary>Removes a member from an existing Set. An absent member leaves the Set unchanged.</summary>
     /// <typeparam name="TMember">The type of the member supplied by the caller.</typeparam>
@@ -133,7 +156,8 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
-    public LatticeCommandResult SetRemove<TMember>(string field, TMember member) => throw new NotSupportedException(NotImplemented);
+    public LatticeCommandResult SetRemove<TMember>(string field, TMember member) =>
+        Add(UpdateCommandKindEnum.SetRemove, field, 0, member, (object?)null);
 
     /// <summary>Submits these commands as one write in the order they were added.</summary>
     /// <remarks>
@@ -159,7 +183,7 @@ public sealed class LatticeUpdate
     /// when the final state violates a unique index, or an error of any write.
     /// </exception>
     public ValueTask<LatticeWriteResult> CommitAsync(CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException(NotImplemented);
+        Commit(null, null, cancellationToken);
 
     /// <summary>
     /// Submits the update after the position the session depends on and advances the
@@ -172,8 +196,11 @@ public sealed class LatticeUpdate
     /// As for <see cref="CommitAsync(CancellationToken)"/>, or
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/> for a session from another history.
     /// </exception>
-    public ValueTask<LatticeWriteResult> CommitAsync(LatticeSession session, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException(NotImplemented);
+    public ValueTask<LatticeWriteResult> CommitAsync(LatticeSession session, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return Commit(null, session, cancellationToken);
+    }
 
     /// <summary>
     /// Submits the update provided the entity still has the expected revision at execution.
@@ -186,7 +213,7 @@ public sealed class LatticeUpdate
     /// revision. Other errors are as for <see cref="CommitAsync(CancellationToken)"/>.
     /// </exception>
     public ValueTask<LatticeWriteResult> CommitAsync(LatticeRevision expectedRevision, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException(NotImplemented);
+        Commit(expectedRevision, null, cancellationToken);
 
     /// <summary>
     /// Submits a revision-checked update after the position the session depends on and
@@ -201,6 +228,149 @@ public sealed class LatticeUpdate
     /// As for <see cref="CommitAsync(LatticeRevision, CancellationToken)"/>, or
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/> for a session from another history.
     /// </exception>
-    public ValueTask<LatticeWriteResult> CommitAsync(LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException(NotImplemented);
+    public ValueTask<LatticeWriteResult> CommitAsync(LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return Commit(expectedRevision, session, cancellationToken);
+    }
+
+    private LatticeCommandResult Add<TFirst, TSecond>(UpdateCommandKindEnum kind, string field, int position, TFirst first, TSecond second)
+    {
+        ThrowIfSubmitted();
+        ArgumentException.ThrowIfNullOrEmpty(field);
+        var (path, binding) = Resolve(field);
+        var declaration = path[^1].Declaration;
+        var type = declaration.Type;
+        var required = kind switch
+        {
+            UpdateCommandKindEnum.Assign => type,
+            UpdateCommandKindEnum.MapSet or UpdateCommandKindEnum.MapRemove => LatticeFieldTypeEnum.Map,
+            UpdateCommandKindEnum.SetAdd or UpdateCommandKindEnum.SetRemove => LatticeFieldTypeEnum.Set,
+            _ => LatticeFieldTypeEnum.List,
+        };
+        if (type != required || type == LatticeFieldTypeEnum.Owned || ReferenceEquals(path[0], EntityType.Key))
+        {
+            throw new ArgumentException($"The command {kind} cannot address '{EntityType.Name}.{field}'.", nameof(field));
+        }
+
+        var scalarAssignment = kind == UpdateCommandKindEnum.Assign && type is not (LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set);
+        if (scalarAssignment && _assigned?.Contains(field) == true)
+        {
+            throw new ArgumentException($"The update already assigns '{EntityType.Name}.{field}'.", nameof(field));
+        }
+
+        var firstBinding = kind switch
+        {
+            UpdateCommandKindEnum.Assign => binding,
+            UpdateCommandKindEnum.MapSet or UpdateCommandKindEnum.MapRemove => binding?.Key,
+            _ => binding?.Element,
+        };
+        var copiedFirst = UpdateCommand.FirstOf(kind, declaration) is { } firstDeclaration
+            ? UpdateValues.Capture(firstDeclaration, first, firstBinding, field)
+            : null;
+        var copiedSecond = kind == UpdateCommandKindEnum.MapSet
+            ? UpdateValues.Capture(declaration.Value!, second, binding?.Value, field)
+            : null;
+
+        if (scalarAssignment)
+        {
+            (_assigned ??= new HashSet<string>(StringComparer.Ordinal)).Add(field);
+        }
+
+        _commands!.Add(new UpdateCommand(kind, field, path, position, copiedFirst, copiedSecond));
+        return new LatticeCommandResult(_outcome, Count++);
+    }
+
+    private (LatticeField[] Path, UpdateValueBinding? Binding) Resolve(string field)
+    {
+        var steps = field.Split('.');
+        var path = new LatticeField[steps.Length];
+        if (!EntityType.TryGetField(steps[0], out var first))
+        {
+            throw InvalidPath(field);
+        }
+
+        path[0] = first;
+        var binding = _fields?[first.Ordinal].Update;
+        for (var index = 1; index < steps.Length; index++)
+        {
+            if (path[index - 1].Declaration.OwnedType is not { } owner ||
+                !owner.TryGetField(steps[index], out var next))
+            {
+                throw InvalidPath(field);
+            }
+
+            path[index] = next;
+            binding = binding?.OwnedFields?[next.Ordinal].Update;
+        }
+
+        return (path, binding);
+    }
+
+    private ArgumentException InvalidPath(string field) =>
+        new($"'{EntityType.Name}.{field}' is not a field path through owned values.", nameof(field));
+
+    internal void ThrowIfSubmitted()
+    {
+        if (_commands is null)
+        {
+            throw new InvalidOperationException("The update has already been submitted. Build a new update.");
+        }
+    }
+
+    internal void ThrowIfEmpty()
+    {
+        if (Count == 0)
+        {
+            throw new InvalidOperationException("The update is empty; there is nothing to commit.");
+        }
+    }
+
+    internal void Consume()
+    {
+        _commands = null;
+        _assigned = null;
+    }
+
+    internal UpdateInput ValidateContent() => ValidateContent(_commands!);
+
+    private UpdateInput ValidateContent(List<UpdateCommand> commands)
+    {
+        var validated = new UpdateCommand[commands.Count];
+        for (var index = 0; index < validated.Length; index++)
+        {
+            var command = commands[index];
+            var field = command.Path[^1];
+            var declaration = field.Declaration;
+            var first = UpdateCommand.FirstOf(command.Kind, declaration) is { } firstDeclaration
+                ? UpdateValues.Validate(firstDeclaration, command.First, EntityType, field)
+                : null;
+            var second = command.Kind == UpdateCommandKindEnum.MapSet
+                ? UpdateValues.Validate(declaration.Value!, command.Second, EntityType, field)
+                : null;
+            validated[index] = command with { First = first, Second = second };
+        }
+
+        return new UpdateInput(validated, _outcome);
+    }
+
+    private ValueTask<LatticeWriteResult> Commit(LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
+    {
+        ThrowIfSubmitted();
+        ThrowIfEmpty();
+        var commands = _commands!;
+        Consume();
+
+        try
+        {
+            var input = ValidateContent(commands);
+            var result = _executor.ExecuteUpdateAsync(Key, input, expectedRevision, session, cancellationToken).AsTask();
+            _outcome.Attach(result);
+            return new ValueTask<LatticeWriteResult>(result);
+        }
+        catch (Exception failure)
+        {
+            return ValueTask.FromException<LatticeWriteResult>(failure);
+        }
+    }
 }

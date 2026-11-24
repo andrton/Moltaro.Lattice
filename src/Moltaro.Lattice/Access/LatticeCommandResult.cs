@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Access.Updates;
+
 namespace Moltaro.Lattice.Access;
 
 /// <summary>
@@ -6,6 +8,15 @@ namespace Moltaro.Lattice.Access;
 /// </summary>
 public readonly struct LatticeCommandResult
 {
+    private readonly UpdateOutcome? _outcome;
+    private readonly int _command;
+
+    internal LatticeCommandResult(UpdateOutcome outcome, int command)
+    {
+        _outcome = outcome;
+        _command = command;
+    }
+
     /// <summary>
     /// Whether this command changed the entity at its turn. An addition to a Set that
     /// already contained an equal member, or removal of an absent Map key or Set member,
@@ -14,5 +25,5 @@ public readonly struct LatticeCommandResult
     /// <exception cref="InvalidOperationException">
     /// This result has no successfully completed submission.
     /// </exception>
-    public bool Changed => throw new InvalidOperationException("The command has no successfully completed submission.");
+    public bool Changed => (_outcome ?? throw UpdateOutcome.Unavailable()).Changed(_command);
 }

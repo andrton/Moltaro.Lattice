@@ -1,4 +1,5 @@
 using System.Buffers;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Batches;
@@ -11,4 +12,5 @@ internal readonly record struct WriteBatchOperation(
     LatticeEntityType EntityType,
     object Key,
     LatticeRevision? ExpectedRevision,
-    ReadOnlySequence<byte> Root);
+    ReadOnlySequence<byte> Root,
+    UpdateInput? Update = null);

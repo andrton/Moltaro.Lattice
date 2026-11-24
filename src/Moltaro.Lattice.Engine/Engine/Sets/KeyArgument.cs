@@ -71,17 +71,16 @@ internal static class KeyArgument
 
     // The key among the values a write took of an object or a record, which the core checked: the
     // value of the type the key field declares, and for a String well-formed text.
-    public static EntityKey OfValues(EntityTable table, object?[] values)
-    {
-        var key = values[table.EntityType.Key.Ordinal]!;
+    public static EntityKey OfValues(EntityTable table, object?[] values) =>
+        OfNormalized(table, values[table.EntityType.Key.Ordinal]!);
 
-        return table.Keys.KeyKind switch
+    public static EntityKey OfNormalized(EntityTable table, object key) =>
+        table.Keys.KeyKind switch
         {
             KeyKindEnum.Integer => Integer(table, IntegerOf(key)!.Value),
             KeyKindEnum.Guid => EntityKey.OfGuid((Guid)key),
             _ => EntityKey.OfText((string)key, table.Keys.TextHash((string)key)),
         };
-    }
 
     // The value of a key given as one of the eight integer types, read as its own type without a box;
     // null for a key of any other type.

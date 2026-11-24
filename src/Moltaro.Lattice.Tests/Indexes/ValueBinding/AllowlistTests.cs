@@ -107,7 +107,7 @@ public sealed class AllowlistTests
     public Task Collection_command_operands_use_the_same_allowlist_as_index_queries(string name) =>
         CollectionOperandBinding.ExpectAsync(Cases[name]);
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task An_undeclared_enum_value_passes_shape_check_but_fails_submission()
     {
         await using var database = await BindingSchema.OpenAsync();

@@ -98,7 +98,7 @@ public sealed class UpdateSubmissionTests
         Assert.All(stored.Options.Values, value => Assert.Equal(new byte[] { 3, 4 }, value!.Data));
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Unset_required_fields_in_owned_operands_fail_at_submission(bool byClass)
@@ -122,7 +122,7 @@ public sealed class UpdateSubmissionTests
         Assert.Equal("Theme", Assert.Single(typed.Get("ada")!.Options!).Key);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData("duplicate Map key")]
     [InlineData("invalid text in replaced Set")]
     [InlineData("invalid text in a removal")]
@@ -196,7 +196,7 @@ public sealed class UpdateSubmissionTests
         Assert.False(command.Changed);
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Batch_add_checks_core_content_then_batch_state_then_key_before_the_closed_engine()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UpdateSchema.Schema);

@@ -72,6 +72,22 @@ internal static class RecordValues
         return submitted;
     }
 
+    // The update already has the exact type and owns the mutable bytes. It
+    // applies the same scalar checks as a submitted record without copying them.
+    public static void CheckCopiedLeaf(LatticeValueDeclaration declaration, object value, LatticeEntityType entityType, LatticeField field)
+    {
+        var place = new Place(entityType, entityType.Name, field);
+        ThrowIfAboveTheBound(declaration, value, place);
+        if (declaration.ScalarType == LatticeFieldTypeEnum.String)
+        {
+            CopyText(declaration, value, place);
+        }
+        else if (declaration.Type == LatticeFieldTypeEnum.Enum)
+        {
+            CopyEnum(declaration, value, place);
+        }
+    }
+
     private static object Copy(LatticeValueDeclaration declaration, object value, Place place) => declaration.Type switch
     {
         LatticeFieldTypeEnum.Owned => CopyOwned(declaration.OwnedType!, value, place),

@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -40,6 +41,33 @@ internal static class RootValues
             {
                 CheckCollectionBounds(entityType, layout.Structure, entityType.Name, field.Ordinal, value);
             }
+        }
+    }
+
+    public static void BindUpdate(RootLayout layout, UpdateInput update)
+    {
+        var structure = layout.Structure;
+        var type = layout.EntityType;
+        for (var index = 0; index < update.Commands.Length; index++)
+        {
+            var command = update.Commands[index];
+            var target = structure.PositionOf(command.Path);
+            Debug.Assert(target >= 0, "An update path must resolve in its entity layout.");
+            if (command.Kind == UpdateCommandKindEnum.Assign && command.First is { } assigned)
+            {
+                CheckCollectionBounds(type, structure, type.Name, target, assigned);
+            }
+            else if (command.Kind == UpdateCommandKindEnum.MapSet && command.Second is { } value)
+            {
+                CheckCollectionBounds(type, structure.ElementOf(target), type.Name, 1, value);
+            }
+            else if (command.Kind is UpdateCommandKindEnum.ListAppend or UpdateCommandKindEnum.ListInsert or UpdateCommandKindEnum.ListReplace &&
+                command.First is { } entry)
+            {
+                CheckCollectionBounds(type, structure.ElementOf(target), type.Name, 0, entry);
+            }
+
+            update.Commands[index] = command with { Target = target };
         }
     }
 

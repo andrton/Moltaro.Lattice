@@ -23,6 +23,9 @@ internal sealed class SequenceForm<T> : SequenceForm
     public override bool IsInput(object value) =>
         value is IEnumerable<T> && (value is not Array array || ArrayElements.AreReadAsTheyAre(array.GetType(), typeof(T)));
 
+    public override bool IsInputType(Type type) =>
+        typeof(IEnumerable<T>).IsAssignableFrom(type) && (!type.IsArray || ArrayElements.AreReadAsTheyAre(type, typeof(T)));
+
     public override IEnumerable<object?> Elements(object input)
     {
         foreach (var element in (IEnumerable<T>)input)
