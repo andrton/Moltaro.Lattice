@@ -8741,6 +8741,10 @@ night by the owner's word in the planner's session.
   `LevelBoundTests.Reservation_made_or_refused_takes_no_managed_room_for_its_nodes`, an
   allocation counted on one thread, in code part 1 does not touch; it passed alone 25 times
   and in every full run since, its output is kept, and its cause is not known.
+  The merge of `main` brought the tests of the search by index against a model, whose
+  Reference and owned-path parts are skipped with a reason of their own,
+  `SkipReason.OwnedValuesAndReferences`; part 2 folds it into `SkipReason.NestedValues` and
+  takes the skip from the Reference parts that part 1 now stores.
 - *Every suite at the head* (e4fce78): 3,325 tests, 3,151 passing, 174 skipped, in Debug and
   in Release.
 
