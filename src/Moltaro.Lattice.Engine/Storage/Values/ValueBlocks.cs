@@ -56,6 +56,12 @@ internal static class ValueBlocks
 
     public static void Write(Span<byte> place, ValueDescriptor descriptor) => MemoryMarshal.Write(place, in descriptor);
 
+    // A value still to be placed has its length or count, but names no storage yet.
+    public static void WritePending(Span<byte> place, uint length) => Write(place, new ValueDescriptor { Length = length });
+
+    public static bool IsPending(in ValueDescriptor descriptor) =>
+        descriptor.Kind == DescriptorKindEnum.Null && descriptor.Length != 0;
+
     // The address a descriptor of kind Block, Chunked or Text holds in its Location. Inlined, so that the
     // walks over the shared keys of the nodes of an index make no call for each key (JIT listing at full
     // optimization).

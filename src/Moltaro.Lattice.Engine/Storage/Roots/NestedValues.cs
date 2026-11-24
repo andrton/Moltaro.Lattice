@@ -192,7 +192,7 @@ internal static class NestedValues
     // frees everything it took and the holder is Refused; an OutOfMemoryException of the native allocator
     // passes after the same free. Its descriptor then names nothing: written as zero once it named a block,
     // or still as it was when the arena refused the first one, zero in the image of a root and pending in a
-    // block that was received (Replication.Load.BlockImport, "Pending"). So the descriptor names a whole List
+    // block that was received (ValueBlocks.WritePending). So the descriptor names a whole List
     // or nothing. The descriptor names the block or the directory before they are filled, so that a free of
     // the List halfway reaches what it took. For a root for a forwarded write each block is kept apart, with
     // the values of its records (ExportedValues.StoreRecords), and the descriptor has the location 0.

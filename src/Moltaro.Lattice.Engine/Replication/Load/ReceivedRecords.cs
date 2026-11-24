@@ -9,8 +9,8 @@ namespace Moltaro.Lattice.Replication.Load;
 // placement of such a List (Storage.Roots.IRecordSource, NestedValues.PlaceRecords): the values of a root
 // stand at the payload of the first block of its records, and each block is followed by the values its
 // records name. BlockImport.Check found it all valid, so the length of a block is that of its records and of
-// the values inline their descriptors give, and a block is copied as it came, its descriptors pending (see
-// BlockImport) until its records' values are placed in their order, a List of records among them through
+// the values inline their descriptors give, and a block is copied as it came, with out-of-line descriptors
+// left pending (ValueBlocks) until its records' values are placed in order, a List of records among them through
 // the same placement. The values of the root not placed yet are held here while the List is placed, and the
 // caller takes them back where the List ends (Values).
 internal struct ReceivedRecords : IRecordSource

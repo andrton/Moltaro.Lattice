@@ -60,14 +60,11 @@ namespace Moltaro.Lattice.Replication.Load;
 // records and each entry it added, so that a root a child forwards has on its master the encoded size the
 // same write made there has (Engine.Writes.PreparedWrite.EncodedSize). The caller publishes the root.
 //
-// Pending, the one rule of a structure being placed from what was received. A structure is copied into its
-// block with the descriptor of each value that follows it on the wire pending: of kind Null, with the length
-// or the count it was received with and the location 0 (LeavePending). The check leaves the copy of the root
-// payload so, which Place copies into the root block; ReceivedRecords leaves each block of records so as it
-// copies it. PlaceValues takes a descriptor of kind Null with a length that is not 0 to be pending, a null
-// value having the descriptor of zeros, and writes the descriptor of each value it places over it. Until
-// then the descriptor names nothing to every walk over what a root owns, which takes a descriptor of kind
-// Null to name nothing (StructureWalk), and NestedValues.PlaceRecords names the block or the directory of a
+// A structure is copied into its block with the descriptor of each value that follows it on the wire
+// pending (ValueBlocks, LeavePending). The check leaves the copy of the root payload so, which Place copies
+// into the root block. ReceivedRecords leaves each block of records so as it copies it. PlaceValues writes
+// the descriptor of each value it places over the pending one. A pending descriptor names no storage
+// (StructureWalk), and NestedValues.PlaceRecords names the block or the directory of a
 // List before it fills them, so a walk meets the pending records of a block not filled yet, and an entry of
 // the directory still zero for a chunk not allocated yet. So a root whose placement stops halfway, refused or
 // failed, is freed by the free of a root, whatever it had placed (Storage.Roots.RootStorage.Free), and a
@@ -240,7 +237,7 @@ internal sealed class BlockImport
             var offset = at + place.Offset;
             var pending = ValueBlocks.Read(holder.At(offset, ValueBlocks.DescriptorSize));
 
-            if (pending.Kind != DescriptorKindEnum.Null || pending.Length == 0)
+            if (!ValueBlocks.IsPending(pending))
             {
                 continue;
             }
@@ -289,7 +286,7 @@ internal sealed class BlockImport
     {
         if (ValueBlocks.LiesOutOfLine(received) || (received.Kind == DescriptorKindEnum.Records && received.Length != 0))
         {
-            ValueBlocks.Write(place, new ValueDescriptor { Length = received.Length });
+            ValueBlocks.WritePending(place, received.Length);
         }
     }
 
