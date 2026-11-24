@@ -8875,6 +8875,37 @@ owner. With it S18 is closed whole.
   the machine (the plan in the notes of the coordinator), which the owner has been asked to
   start; Q63 for the owner.
 
+**Found after the close of S18, 24 November 2026: the state of an instance behind its fault.**
+A red check of `arm64` on a pull request of documents (PR 59, merged with it by the
+coordinator's mistake: a merge needs every check green, though `build` is the only check the
+repository requires) showed
+`ChildPublicationTests.Read_that_waits_for_a_publication_of_a_child_that_fails_ends_with_Unavailable`
+fail once: both reads refused with `Unavailable`, then `State` read Ready, not Faulted. The
+log is kept outside the repository. The cause, by reading and by a delay: `EngineDatabase.Fault`
+marks the reads faulted first (`ReadEpochs.Fault`) and stores the state under the lock of
+the state after it, then ends the waits for a position; on a child the first mark is made
+under the lock of the writes in the publication's catch and the state is stored after the
+unwind, a window of 17 to 67 µs (median 27), on a master 7 to 12 µs. It is the same on x64;
+the runner was descheduled inside it. 800 runs on the workstation unchanged gave no failure;
+a pause at that point failed the test 30 of 30 at 50 ms, 12 of 30 at 5 ms and 1 of 30 at
+1 ms, always the same three rows (this test and both rows of
+`WaitingReadTests.Read_that_waits_for_a_publication_that_fails_ends_with_Unavailable`, the two
+tests that use `held.Fail()`); the eleven other assertions of `State == Faulted` follow an
+awaited write outcome, given after the store. The contract's letter holds, but an
+application told "the database is Faulted" by one call could read Ready on the next.
+Decided by the planner on 24 November 2026, form (A): one point decides the fault. `State`
+reads the fault mark of the reads as well as the stored state, and `ThrowIfNotReady` reads
+`State`; the remarks of the Faulted state gain the sentence that once a read has reported
+`Unavailable` for the fault, `State` is Faulted. It is a small change of behavior, of the
+light track, with one reviewer at xhigh, and the first work of the next coordinator, before
+S18R: the test first, with a pause at that point through the switch the engine tests
+already have, failing before the change on a master and on a child; then the change; the
+listings of a read by key and of a search showing no load added, since neither reads
+`State`; the two tests that use `held.Fail()` unchanged and passing with the pause; and the
+other way checked as well, that nothing reports work of a Ready instance done after `State`
+reads Faulted. The ordering lane and these tests run on ARM64 in the next start of the
+machine.
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
