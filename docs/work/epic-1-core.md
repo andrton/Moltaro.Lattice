@@ -8532,10 +8532,11 @@ during catch-up is recorded and must be resolved by a delete before R.
   `ListRemove(string field, int position)`;
   `MapSet<TKey, TValue>(string field, TKey key, TValue value)`,
   `MapRemove<TKey>(string field, TKey key)`; `SetAdd<TMember>(string field, TMember member)`,
-  `SetRemove<TMember>(string field, TMember member)`; `bool CommandChanged(int command)`;
-  and `CommitAsync` in the four forms a
+  `SetRemove<TMember>(string field, TMember member)`, each command returning
+  `LatticeCommandResult`; and `CommitAsync` in the four forms a
   write of a set has (the token; a session; an expected revision; both), each returning
-  `ValueTask<LatticeWriteResult>`.
+  `ValueTask<LatticeWriteResult>`. `LatticeCommandResult`, a `readonly struct` with one
+  member, `bool Changed`.
   `ILatticeSet` and `ILatticeSet<TEntity>`: `LatticeUpdate CreateUpdate<TKey>(TKey key) where
   TKey : notnull`. `ILatticeWriteBatch`: `Update(LatticeUpdate update)` and
   `Update(LatticeUpdate update, LatticeRevision expectedRevision)`.
@@ -8564,12 +8565,13 @@ during catch-up is recorded and must be resolved by a delete before R.
   well-formed, an integer its enum type does not declare, a value above its bound; this is
   the rule of a record, on purpose. `CommitAsync` executes the commands
   in their order against the state it finds and publishes them together with their index
-  changes, or nothing; fields not named keep their values. `CommandChanged` says whether the
-  command at that place, in the order the commands were added and counted from 0, changed
-  the entity; it is valid once the commit, of the update or of its batch, has returned a
-  result; before that, or after the commit threw, it is `InvalidOperationException`, and for
-  a number that is not a command of the update `ArgumentOutOfRangeException`; it allocates nothing beyond
-  what the update holds. A Set member added that was present, and a Map key or a Set member
+  changes, or nothing; fields not named keep their values. The `LatticeCommandResult` a
+  command returns says, by `Changed`, whether that command changed the entity; it is valid
+  once the commit of its update, alone or in a batch, has returned a result; before that, or
+  after the commit threw, reading it is the caller's mistake, `InvalidOperationException`; it
+  allocates nothing beyond what the update holds, and a caller that does not need an outcome
+  ignores it: `var tagAdded = update.SetAdd("Tags", "vip"); await update.CommitAsync(); if
+  (tagAdded.Changed) { … }`. A Set member added that was present, and a Map key or a Set member
   removed that was absent, did not change the entity; every other command that was
   executed did. `MapSet` always counts as a change: the value it replaces is not compared
   with the new one. `LatticeWriteResult.Changed` of the update is whether any command
@@ -8612,11 +8614,15 @@ during catch-up is recorded and must be resolved by a delete before R.
   rename: all excluded by decision.
 
 **Decided by the planner on 23 November 2026, with the contract.** An update copies each
-value when its command is added. The outcome of each command is exposed by
-`CommandChanged`, as `mutation-commands.md`, "Collection operation outcomes", requires; the
-shape, a flag by the number of the command kept in the update, is the planner's. The tests
-of the sprint state the outcome of every command of an update of several, alone and in a
-batch, by class and by name. Refusals at the add are
+value when its command is added. The outcome of each command is the `LatticeCommandResult`
+the command returns, as `mutation-commands.md`, "Collection operation outcomes", requires;
+the shape was changed by the owner on 23 November 2026 from a member `CommandChanged(int)`
+of the update, which he did not find clear, to a result of each command ("С тегом понятно.
+Ну, результат выполнения операции.": with the tag it is clear, the result of the
+operation), and the contract of S20 to S22 approved in that form ("ok"); the name
+`LatticeCommandResult` is the planner's. The tests of the sprint state the outcome of every
+command of an update of several, alone and in a batch, by class and by name, read from the
+results the commands returned. Refusals at the add are
 `ArgumentException`. A second assignment of a scalar is refused as
 `mutation-commands.md`, "Repeated scalar targets in an explicit partial update", says: "One
 explicit partial mutation may contain at most one scalar assignment per target path", and
@@ -8625,7 +8631,7 @@ accepted execution semantics and are outside this duplicate-scalar rule". `Admit
 third kind of input is the P4 of the review of S17 joined here ([the refactoring
 backlog](refactoring.md), the architect's review after S17). The study of this sprint also
 takes: the reply to an update or to a batch forwarded through a child carries the outcome
-of each command, so that `CommandChanged` answers on a child as on the master, and the study
+of each command, so that a command's result answers on a child as on the master, and the study
 names the bytes and whether the wire format changes; where `batch.Update` refuses a value
 that a write checks (at the add, as a member of a batch is `ValidationFailed` at its add, or
 at the commit); and that an update of another database given to `batch.Update` is
