@@ -19,7 +19,8 @@ internal struct ValueDescriptor
     // flag is defined yet.
     public DescriptorKindEnum Kind;
 
-    // The bytes of the value in its stored encoding; for a collection, the number of its elements.
+    // The bytes of the value in its stored encoding, those of the records of a List whose elements hold
+    // no descriptor included; for a List of kind Records, the number of its elements.
     public uint Length;
 
     // Where the value is: a relative address of its blocks or of the entry of its text, or an offset

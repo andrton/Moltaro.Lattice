@@ -9,8 +9,10 @@ internal enum BlockKindEnum : ushort
     // One owned variable value of an entity, held whole in one block outside its root.
     Value = 2,
 
-    // One bounded piece of a large value. A chunk boundary is not a boundary of the value: a
-    // character or an element may continue in the next chunk.
+    // One bounded piece of a large value, or of the records of a List whose elements hold
+    // descriptors. A chunk boundary is not a boundary of the value: a character, or the record of an
+    // element of a List whose elements hold no descriptor, may continue in the next chunk; a record that
+    // holds descriptors lies whole in one block (DescriptorKindEnum.Records).
     Chunk = 3,
 
     // The bounded directory of the chunks of one large value.

@@ -127,7 +127,9 @@ internal sealed class ChildConnection
 
             var peer = FrameCodec.ReadHelloBody(new(hello.Payload));
 
-            if (HelloCheck.RefusalOfChild(_capture.Hello, peer) is { } reason)
+            var refusal = HelloCheck.RefusalOfChild(_capture.Hello, peer);
+
+            if (refusal is { } reason)
             {
                 _connection.AddRefuse(reason);
                 await _connection.SendAsync(finishing).ConfigureAwait(false);

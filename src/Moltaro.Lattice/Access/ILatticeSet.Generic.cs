@@ -11,8 +11,10 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>Reads</b> are served from local memory and return owned copies. A copy never changes
 /// when the database changes, and editing a copy changes nothing in the database until it
-/// is submitted by a write. Each returned entity is coherent; separate reads do not share a
-/// snapshot. Only the fields declared in the schema are stored, each in the property that
+/// is submitted by a write. Two reads share no object at any depth, but for an empty array, of
+/// a Binary value or of a List, which is the one empty array of its type,
+/// <see cref="Array.Empty{T}"/>, that no caller can change. Each returned entity is coherent;
+/// separate reads do not share a snapshot. Only the fields declared in the schema are stored, each in the property that
 /// <see cref="ILatticeDatabase.Set{TEntity}"/> binds to it; other properties of the class
 /// are ignored.
 /// </para>
@@ -90,9 +92,13 @@ namespace Moltaro.Lattice.Access;
 /// such as a <c>uint[]</c> in an <c>int[]</c> property or an <c>sbyte[]</c> in a
 /// <c>byte[]</c> one, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not
 /// well-formed — a surrogate without its pair — is refused in the same way, at any depth, and
-/// is never stored and never replaced by another character. A String or Binary value of a field
-/// of the entity that is larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/>
-/// and <see cref="LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. An integer
+/// is never stored and never replaced by another character. A String or Binary value that is
+/// larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/> and
+/// <see cref="LatticeFieldTypeEnum.Binary"/> state, in a field of the entity, a field of an owned
+/// value or an element of a List, is refused in the same way; and so is a List, at any depth, of
+/// more elements than <see cref="LatticeFieldTypeEnum.List"/> states, for an entity type the
+/// engine stores: the bound follows from its layout, so it is not checked before a write of a
+/// type the engine does not store is refused as not implemented. An integer
 /// that the enum type of its field does not declare — for a Flags type, a bit that no member
 /// declares — is refused in the same way. Which arrays
 /// the runtime would read as other values, and that an array of a class derived from the
@@ -100,7 +106,7 @@ namespace Moltaro.Lattice.Access;
 /// which refuses such arrays in the same way. Both come before the conditions of the write are looked at, whether the
 /// key exists and whether the entity has the expected revision, and before a write is
 /// refused as not implemented, for every entity type whose writes are refused until a
-/// feature of its schema is implemented, such as an owned value: only a write that passes
+/// feature of its schema is implemented, such as a Map: only a write that passes
 /// them ends in <see cref="NotSupportedException"/>. Whether a unique index already holds a
 /// value of the entity is decided after the conditions of the write, by the master, as
 /// <see cref="LatticeIndex.IsUnique"/> states.

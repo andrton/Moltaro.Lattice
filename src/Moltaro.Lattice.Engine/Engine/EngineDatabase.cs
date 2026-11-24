@@ -308,13 +308,26 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     }
 
     // The root of a member of a write batch, encoded when it is added, on the thread of the caller and
-    // outside every lock (Entities.RootValues.Export); empty for a delete and for an entity type the engine
-    // does not store. ObjectDisposedException once the database is closed, for every kind of member.
+    // outside every lock (Entities.RootValues.Export), after the bound of its Lists (RootValues.CheckListBounds),
+    // so that a List above it is refused at the Add, as a single write refuses it before it is submitted;
+    // empty for a delete and for an entity type the engine does not store, which the commit refuses
+    // (Writes.WriteCoordinator.SubmitBatchAsync).
+    // ObjectDisposedException once the database is closed, for every kind of member.
     ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values)
     {
         var table = Part(_parts).Operations[entityType].Table;
 
-        return values is not null && table.Layout is { } layout ? RootValues.Export(layout, entityType, values) : ReadOnlySequence<byte>.Empty;
+        if (values is null || table.Layout is not { } layout)
+        {
+            return ReadOnlySequence<byte>.Empty;
+        }
+
+        if (layout.Structure.HoldsLists)
+        {
+            RootValues.CheckListBounds(layout, values);
+        }
+
+        return RootValues.Export(layout, entityType, values);
     }
 
     // The commit of a write batch of the core: its members, each key in the form of its entity type
@@ -773,12 +786,13 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 _options.SynchronizationTimeout,
                 Fault);
             var forwarder = child ? new Forwarder(clock, _options.SynchronizationTimeout) : null;
+            var reads = new ReadSettings(_options, _testInputs?.ReadTimestamps);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
             foreach (var table in tables.InSchemaOrder)
             {
-                var forType = new SetOperations(table, coordinator, forwarder, clock, _options);
+                var forType = new SetOperations(table, coordinator, forwarder, clock, _options, reads);
 
                 operations.Add(table.EntityType, forType);
                 recordSets.Add(table.EntityType, new RecordSet(forType));

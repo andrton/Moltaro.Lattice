@@ -8,7 +8,9 @@ namespace Moltaro.Lattice.Engine.Tests.Storage;
 // returns it took and which memory is still outstanding. Memory returned that it did not give out,
 // or that came back already, fails the test, and is not handed to the native allocator. When
 // FailNextAllocation is set, the next request fails as the native allocator fails, with
-// OutOfMemoryException, obtains nothing and clears the setting.
+// OutOfMemoryException, obtains nothing and clears the setting; when FailAt is set, the request of that
+// number fails so, counted from 1 over every request, failed ones included (Requests), and Failed tells
+// whether it came.
 //
 // HoldNextAllocation runs an action once, at the next request, on the thread that makes it and
 // before anything is obtained: a test of the engine holds a write there while it is being prepared,
@@ -31,6 +33,15 @@ internal sealed class CountingNativeAllocator : NativeAllocator
 
     public bool FailNextAllocation { get; set; }
 
+    // How many requests were made, failed ones included.
+    public int Requests { get; private set; }
+
+    // The number of the request that fails, from 1; 0 for none.
+    public int FailAt { get; set; }
+
+    // Whether the request FailAt names came and failed.
+    public bool Failed { get; private set; }
+
     // Arms the action that the next request runs once.
     public void HoldNextAllocation(Action hold) => Volatile.Write(ref _hold, hold);
 
@@ -45,6 +56,15 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     public override nint Allocate(int size)
     {
         Interlocked.Exchange(ref _hold, null)?.Invoke();
+
+        Requests++;
+
+        if (Requests == FailAt)
+        {
+            Failed = true;
+
+            throw new OutOfMemoryException("The test failed this native allocation.");
+        }
 
         if (FailNextAllocation)
         {

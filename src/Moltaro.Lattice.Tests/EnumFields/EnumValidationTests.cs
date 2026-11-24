@@ -14,8 +14,8 @@ namespace Moltaro.Lattice.Tests.EnumFields;
 // Alarm has the key Id, a required Text and four Enum fields: Level, of an ordinary UInt8 enum type
 // without zero; Grade, nullable, of an ordinary Int16 enum type with zero; Rights, of a Flags UInt64
 // enum type whose highest declared bit is the 64th; and Signal, nullable, of a Flags Int8 enum type
-// that declares its sign bit. Panel holds a List of Level, which the engine does not store until S18,
-// so there a valid value ends in NotSupportedException after the validation; the engine stores Alarm.
+// that declares its sign bit. Panel holds a List of Level, whose valid values the engine stores as it
+// stores those of Alarm.
 public sealed class EnumValidationTests
 {
     private enum LevelEnum : byte
@@ -189,7 +189,7 @@ public sealed class EnumValidationTests
     }
 
     [Fact]
-    public async Task Value_its_enum_type_does_not_allow_inside_a_collection_is_ValidationFailed_before_the_write_is_refused()
+    public async Task Value_its_enum_type_does_not_allow_inside_a_collection_is_ValidationFailed_and_valid_values_are_stored()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var panels = database.Set<Panel>();
@@ -202,12 +202,15 @@ public sealed class EnumValidationTests
         TestData.ExpectValidationFailed("Levels", () => database.CreateWriteBatch().Insert(record));
         TestData.ExpectValidationFailed("Levels", () => database.CreateWriteBatch().Insert(panel));
 
-        // With declared values the write passes the validation and is refused as not implemented: a List
-        // is not stored yet.
+        // With declared values the write passes the validation and is stored.
         record["Levels"] = new byte[] { 1, 2 };
+        panel.Id = 2;
         panel.Levels = [LevelEnum.Low, LevelEnum.High];
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await records.InsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await panels.InsertAsync(panel));
+        await records.InsertAsync(record);
+        await panels.InsertAsync(panel);
+
+        Assert.Equal(new byte[] { 1, 2 }, records.Get(1L)!.Get<List<byte>>("Levels"));
+        Assert.Equal(new byte[] { (byte)LevelEnum.Low, (byte)LevelEnum.High }, records.Get(2L)!.Get<List<byte>>("Levels"));
     }
 
     [Fact]

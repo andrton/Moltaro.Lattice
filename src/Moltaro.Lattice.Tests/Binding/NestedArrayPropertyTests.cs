@@ -37,8 +37,7 @@ public sealed class NestedArrayPropertyTests
         Assert.Equal(0, batch.Count);
     }
 
-    // The object passes validation: a write batch takes it, and a set refuses the write only as
-    // not implemented, which storing a List is.
+    // The object passes validation: a write batch takes it, and a set writes it.
     private static async Task ExpectWrittenAsFarAsAWriteGoesAsync<TArray>(string field, TArray value)
     {
         await using var database = await TestData.OpenMasterAsync(schema: BindingSchema.For<BindingSchema.Holder<TArray>>(field));
@@ -47,6 +46,6 @@ public sealed class NestedArrayPropertyTests
 
         batch.Insert(holder);
         Assert.Equal(1, batch.Count);
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await database.Set<BindingSchema.Holder<TArray>>().InsertAsync(holder));
+        Assert.True((await database.Set<BindingSchema.Holder<TArray>>().InsertAsync(holder)).Changed);
     }
 }

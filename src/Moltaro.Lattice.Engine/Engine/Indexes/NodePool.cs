@@ -24,7 +24,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // reserve (AssertReserved).
 //
 // What protects its state. Only the publishing thread calls it, under the lock of the writes, and the tree
-// gives its height and the room of its root to every member that needs them. The reserved nodes are linked
+// tells it its height and the room of its root at the end of every publication. The reserved nodes are linked
 // through their own payload, the address of the next one in its first bytes, so that the pool takes no
 // managed room for them.
 internal sealed class NodePool
@@ -74,6 +74,14 @@ internal sealed class NodePool
     // The ledger (see the class); a value, so that a reservation that is not made puts it back as it was.
     private Ledger _ledger;
 
+    // The height of the tree and the room of its root, which change only in a publication, as the last one
+    // left them (AfterPublication), and the standing reserve at that tree.
+    private int _height;
+
+    private int _room;
+
+    private long _reserve;
+
     // For the tests of the engine (exception X3, docs/work/exceptions.md): whether the next growth of the
     // arrays of the levels fails in place of its last allocation (ArmLevelsFault).
     private bool _levelsFault;
@@ -101,10 +109,15 @@ internal sealed class NodePool
 
         _leafCredit = Math.Min(InsertsBeforeFull(leafHalf, _leafWidest), InsertsBeforeFull(_leafWidest, _leafWidest) / 2);
         _innerCredit = InsertsBeforeFull(innerHalf, _innerWidest);
+        _reserve = StandingReserve(height: 0, room: 0);
     }
 
     // The inserts reserved and not published or withdrawn, from which the tree sizes the path of its writer.
     public int Inserts => _inserts;
+
+    // How many nodes the pool holds reserved, for the audit of the ownership of blocks by the tests of the
+    // engine (EngineDatabase.ReservedNodeBytes).
+    public int Count => _count;
 
     // The credits of a leaf and of an inner node of this index (the constructor).
     public int LeafCredit => _leafCredit;
@@ -117,7 +130,7 @@ internal sealed class NodePool
     // false, with nothing taken and the pool as it was, when the arena cannot hold the nodes, or a bound of
     // them cannot be counted as an Int32. An OutOfMemoryException of the native allocator or of the managed
     // heap leaves nothing taken either.
-    public bool TryReserve(int inserts, int removes, int height, int room)
+    public bool TryReserve(int inserts, int removes)
     {
         var ledger = _ledger;
 
@@ -128,7 +141,7 @@ internal sealed class NodePool
 
         // When the base moves, what the ledger leaves from there is the bounds of the changes waiting from
         // the tree as it is; the move itself waits until nothing of the reservation can fail.
-        var (nodes, places) = Targets(height, room, LeftAfterMove(height, out var moves));
+        var (nodes, places) = Targets(LeftAfterMove(out var moves));
         var taken = 0;
 
         try
@@ -143,7 +156,7 @@ internal sealed class NodePool
                 if (_count >= nodes)
                 {
                     // The levels first: an OutOfMemoryException of their arrays leaves no place reserved.
-                    var levels = MostLevels(height, _inserts);
+                    var levels = MostLevels(_height, _inserts);
 
                     if (_progress.Length < levels)
                     {
@@ -159,10 +172,10 @@ internal sealed class NodePool
                     // Nothing fails from here: the move allocates nothing.
                     if (moves)
                     {
-                        MoveBase(height);
+                        MoveBase();
                     }
 
-                    AssertReserved(height, room);
+                    AssertReserved();
 
                     return true;
                 }
@@ -182,13 +195,11 @@ internal sealed class NodePool
     // Once every index of the changes has what they need: tops the pool up to the standing reserve, as far
     // as the arena gives. What the arena refuses, or the native allocator cannot supply, is not taken, and
     // nothing fails.
-    public void TopUp(int height, int room)
+    public void TopUp()
     {
-        var reserve = StandingReserve(height, room);
-
         try
         {
-            while (_count < reserve && TryAllocate())
+            while (_count < _reserve && TryAllocate())
             {
             }
         }
@@ -198,24 +209,24 @@ internal sealed class NodePool
             // not a failure of the write.
         }
 
-        AssertReserved(height, room);
+        AssertReserved();
     }
 
     // The changes given are withdrawn before their publication: they leave the ledger, and every node above
     // the bound of the changes still waiting goes back to the arena, the standing reserve with them, so that
     // what a change took and did not publish never stays in the pool.
-    public void Release(int inserts, int removes, int height, int room)
+    public void Release(int inserts, int removes)
     {
         _inserts -= inserts;
         _removes -= removes;
         _ledger.ChargedInserts -= inserts;
         _ledger.ChargedRemoves -= removes;
-        Trim(height, room, keepsReserve: false);
+        Trim(keepsReserve: false);
     }
 
     // Before a write is refused for memory: every node above the bound of the changes waiting goes back to
     // the arena, the standing reserve with them.
-    public void GiveBackReserve(int height, int room) => Trim(height, room, keepsReserve: false);
+    public void GiveBackReserve() => Trim(keepsReserve: false);
 
     // In a publication: a reserved node, live from now on, with its payload, which the tree writes whole; the
     // link the pool kept in it is read before. InvalidOperationException when none is left: a publication
@@ -270,13 +281,17 @@ internal sealed class NodePool
         _removes--;
     }
 
-    // The end of a publication, which retired the nodes counted: the places they took are used, and what is
-    // above the larger of the bound of the changes still waiting and the standing reserve goes back.
+    // The end of a publication, which retired the nodes counted and left the tree of the height and the room
+    // of its root given: the places they took are used, and what is above the larger of the bound of the
+    // changes still waiting and the standing reserve goes back.
     public void AfterPublication(int retired, int height, int room)
     {
         _places -= retired;
         _ledger.Used += retired;
-        Trim(height, room, keepsReserve: true);
+        _height = height;
+        _room = room;
+        _reserve = StandingReserve(height, room);
+        Trim(keepsReserve: true);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the arrays of the
@@ -285,10 +300,10 @@ internal sealed class NodePool
     // nothing else reads it.
     public void ArmLevelsFault() => _levelsFault = true;
 
-    // The bounds by levels of the inserts and the removes given from the tree as it is, of the height given:
+    // The bounds by levels of the inserts and the removes given from the tree as it is:
     // the nodes they take and the places they use, in any order of their publications (see the class).
-    public (long Nodes, long Places) BoundsAt(int height, long inserts, long removes) =>
-        Bounds(Levels(_progress, height), _leafCredit, _innerCredit, inserts, removes);
+    public (long Nodes, long Places) BoundsAt(long inserts, long removes) =>
+        Bounds(Levels(_progress, _height), _leafCredit, _innerCredit, inserts, removes);
 
     // The most nodes the inserts and the removes given, waiting, can take from a tree of the height given whose
     // root has the room given, and the most places in the retired list they can use: the k-th insert counts
@@ -397,30 +412,28 @@ internal sealed class NodePool
     // what Left counts now. With nothing published since the base the tree is the base and the changes charged
     // are those waiting, so it stays: every publication takes a node or retires one. Moves nothing itself, so
     // that a reservation moves the base only after its last step that can fail.
-    private (long Nodes, long Places) LeftAfterMove(int height, out bool moves)
+    private (long Nodes, long Places) LeftAfterMove(out bool moves)
     {
-        moves = _ledger.Taken != 0 || _ledger.Used != 0;
-
-        if (moves && _inserts == 0 && _removes == 0)
+        if (_ledger.Taken == 0 && _ledger.Used == 0)
         {
+            moves = false;
+
+            return Left();
+        }
+
+        if (_inserts == 0 && _removes == 0)
+        {
+            moves = true;
+
             return (0, 0);
         }
 
         var left = Left();
+        var bounds = BoundsAt(_inserts, _removes);
 
-        if (moves)
-        {
-            var bounds = BoundsAt(height, _inserts, _removes);
+        moves = bounds.Nodes <= left.Nodes && bounds.Places <= left.Places;
 
-            moves = bounds.Nodes <= left.Nodes && bounds.Places <= left.Places;
-
-            if (moves)
-            {
-                return bounds;
-            }
-        }
-
-        return left;
+        return moves ? bounds : left;
     }
 
     // The base of the ledger moves to the tree as it is: the progress of its levels is copied into the base,
@@ -428,10 +441,10 @@ internal sealed class NodePool
     // nothing. Inlined, so that a publication, after which the base moves, makes no call for it beside
     // LeftAfterMove (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void MoveBase(int height)
+    private void MoveBase()
     {
-        var from = Levels(_progress, height);
-        var to = Levels(_baseProgress, height);
+        var from = Levels(_progress, _height);
+        var to = Levels(_baseProgress, _height);
 
         // Both hold the levels of the height; each length is tested, so that the copy checks no bound.
         for (var level = 0; (uint)level < (uint)from.Length && (uint)level < (uint)to.Length; level++)
@@ -439,7 +452,7 @@ internal sealed class NodePool
             to[level] = from[level];
         }
 
-        _ledger = new Ledger { Height = height, ChargedInserts = _inserts, ChargedRemoves = _removes };
+        _ledger = new Ledger { Height = _height, ChargedInserts = _inserts, ChargedRemoves = _removes };
     }
 
     // What the bounds of the changes charged since the base leave, counted from the tree at the base, after
@@ -478,9 +491,9 @@ internal sealed class NodePool
     // tree and what the ledger leaves, given (see the class). Inlined, so that a reservation and a trim make no
     // call for it beside the count of the need (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private (long Nodes, long Places) Targets(int height, int room, (long Nodes, long Places) left)
+    private (long Nodes, long Places) Targets((long Nodes, long Places) left)
     {
-        var need = Need(height, room, _layout.LeastSeparators, _inserts, _removes);
+        var need = Need(_height, _room, _layout.LeastSeparators, _inserts, _removes);
 
         return (Math.Min(need, left.Nodes), Math.Min(need, left.Places));
     }
@@ -526,17 +539,17 @@ internal sealed class NodePool
     // After a publication, a withdrawal or before a refusal: the nodes above the bound of the changes still
     // waiting go back to the arena, but for the standing reserve after a publication, and the places above it
     // to the retired list. With nothing waiting the base moves to the tree as it is.
-    private void Trim(int height, int room, bool keepsReserve)
+    private void Trim(bool keepsReserve)
     {
-        var left = LeftAfterMove(height, out var moves);
+        var left = LeftAfterMove(out var moves);
 
         if (moves)
         {
-            MoveBase(height);
+            MoveBase();
         }
 
-        var (nodes, places) = Targets(height, room, left);
-        var kept = keepsReserve ? Math.Max(nodes, StandingReserve(height, room)) : nodes;
+        var (nodes, places) = Targets(left);
+        var kept = keepsReserve ? Math.Max(nodes, _reserve) : nodes;
 
         while (_count > kept)
         {
@@ -549,7 +562,7 @@ internal sealed class NodePool
             _places = (int)places;
         }
 
-        AssertReserved(height, room);
+        AssertReserved();
     }
 
     // Whether the nodes given may fit the arena: their slots no more than what the memory limit leaves beside
@@ -603,11 +616,11 @@ internal sealed class NodePool
     // For a Debug build, after every change of the pool: what it holds against the bounds of the changes
     // waiting and the reserve (see the class).
     [Conditional("DEBUG")]
-    private void AssertReserved(int height, int room)
+    private void AssertReserved()
     {
         var (nodesLeft, placesLeft) = Left();
-        var (nodes, places) = Targets(height, room, (nodesLeft, placesLeft));
-        var most = Math.Max(nodes, StandingReserve(height, room));
+        var (nodes, places) = Targets((nodesLeft, placesLeft));
+        var most = Math.Max(nodes, _reserve);
 
         Debug.Assert(nodesLeft >= 0 && placesLeft >= 0, $"The publications of the index {_layout.Index.Name} took {_ledger.Taken} nodes and used {_ledger.Used} places since the base, beyond the bounds of what was charged.");
         Debug.Assert(_count >= nodes, $"The index {_layout.Index.Name} holds {_count} nodes for changes that can take {nodes}.");

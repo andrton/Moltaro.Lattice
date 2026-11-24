@@ -8,9 +8,10 @@ namespace Moltaro.Lattice.Engine.Sets;
 // The entities of one entity type as objects of a .NET class, on the engine. It behaves as the
 // contract of ILatticeSet<TEntity> says, as the set of the core does; it is the engine's own so that
 // a read by key converts its key without boxing it and copies the root into the object through
-// pooled scratch, without boxing a value: a read allocates the returned object, with what is
-// reachable from it, and nothing else. The constructor and the set accessors of the class run after the
-// read left the protection of reads (ClassCopier). A write takes the values of the object through the
+// pooled scratch, without boxing a value of a field of the entity: a read allocates the returned
+// object, with what is reachable from it, and nothing else, but for the form a record holds of an
+// owned value or a List, from which their objects are made. The constructors and the set accessors of
+// the classes run after the read left the protection of reads (ClassCopier). A write takes the values of the object through the
 // binding of the core, which checks them against the schema at every depth and takes a byte array of a
 // field as the object holds it: the engine copies it once, into its own memory, while the write runs
 // (EntityBinding.ValuesForWrite), since the application keeps the input of a write unchanged until the write
@@ -120,8 +121,8 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         return session;
     }
 
-    // The arguments are checked first and the entity validated against the schema, before anything
-    // else can refuse the write.
+    // The arguments are checked first and the entity validated against the schema, its Lists against
+    // their bound included, before anything else can refuse the write.
     private ValueTask<LatticeWriteResult> Save(WriteKindEnum kind, TEntity entity, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entity);
@@ -131,6 +132,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         try
         {
             values = _binding.ValuesForWrite(entity);
+            _operations.CheckListBounds(values);
         }
         catch (LatticeException exception)
         {

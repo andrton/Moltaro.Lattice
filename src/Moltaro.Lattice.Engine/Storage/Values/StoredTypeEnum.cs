@@ -35,4 +35,14 @@ internal enum StoredTypeEnum : byte
 
     // A ValueDescriptor in the fixed part, the bytes as they are.
     Binary = 13,
+
+    // An owned value, flattened into the structure that holds it (Roots.StructureLayout): it has no bytes
+    // of its own, Width and Offset 0, and its fields have theirs. A nullable one has its presence bit as its
+    // null bit, set while it is absent; one that is not nullable has none.
+    Owned = 14,
+
+    // A List: a ValueDescriptor in the fixed part. When its elements hold no descriptor it lies as the bytes
+    // of a Binary value do, of kind Inline, Block or Chunked; when they hold descriptors it is of kind
+    // Records (DescriptorKindEnum.Records). The layout of its elements is Roots.RootLayout.ElementOf.
+    List = 15,
 }

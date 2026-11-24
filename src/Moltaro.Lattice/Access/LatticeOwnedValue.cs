@@ -29,15 +29,8 @@ namespace Moltaro.Lattice.Access;
 /// </para>
 /// <para>
 /// Changing an owned value changes nothing in the database until the record that holds it
-/// is submitted by a write. Once owned values are stored, a read will return new ones with
-/// the record; until then none is stored, as the part below says. An owned value is not safe
-/// to change from several threads.
-/// </para>
-/// <para>
-/// <b>Not implemented yet.</b> Records hold owned values, but storing them is not
-/// implemented. Until then no write of an entity type that has an Owned field is carried
-/// out: after the checks every write makes of its arguments and of the entity against the
-/// schema, it throws <see cref="NotSupportedException"/>.
+/// is submitted by a write. A read returns new ones with the record, at every depth. An owned
+/// value is not safe to change from several threads.
 /// </para>
 /// </remarks>
 public sealed class LatticeOwnedValue
@@ -65,11 +58,15 @@ public sealed class LatticeOwnedValue
     /// <summary>
     /// Gets or sets the value of a field. A value has the field's .NET type, see
     /// <see cref="LatticeValueDeclaration.ValueType"/>, which also says what is accepted for
-    /// an owned value and a collection. An integer of another width is accepted when it fits,
-    /// and a collection is taken by the rules of a field of a record, see
-    /// <see cref="LatticeRecord.this[string]"/>. Getting returns what the owned value holds, the same object
+    /// an owned value and a collection. Getting returns what the owned value holds, the same object
     /// every time; setting stores a copy of the value.
     /// </summary>
+    /// <remarks>
+    /// A value is taken by the rules of a field of a record, see
+    /// <see cref="LatticeRecord.this[string]"/>: a number of another type by the one rule of a part
+    /// of a search key, see <see cref="IndexKey"/>, held as the .NET type of the field, and a
+    /// collection only with the declared types.
+    /// </remarks>
     /// <param name="fieldName">The field name declared in the owned type.</param>
     /// <exception cref="ArgumentException">
     /// The owned type has no such field, or the value does not match the declaration of the

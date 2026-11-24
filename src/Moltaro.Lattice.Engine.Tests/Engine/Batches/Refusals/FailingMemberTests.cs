@@ -1,10 +1,10 @@
 namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Refusals;
 
-// A write batch reports the member with the lowest number among those that fail (Q58 of the open questions),
-// in whatever entity types and indexes they fail, whatever the order in which the entity types of the batch
-// first appear: one member takes a Number of ByNumber and one a Login of ByLogin that published entities hold,
-// and the batch, its members added in either order, names its first member and the index that member
-// violates. Nothing of it is written. UniqueSchema.
+// A write batch reports the member with the lowest number among those that fail
+// (ILatticeWriteBatch.CommitAsync), in whatever entity types and indexes they fail, whatever the order in
+// which the entity types of the batch first appear: one member takes a Number of ByNumber and one a Login of
+// ByLogin that published entities hold, and the batch, its members added in either order, names its first
+// member and the index that member violates. Nothing of it is written. UniqueSchema.
 public sealed class FailingMemberTests
 {
     [Theory]

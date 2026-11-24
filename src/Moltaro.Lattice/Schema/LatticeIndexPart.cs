@@ -30,13 +30,7 @@ namespace Moltaro.Lattice.Schema;
 /// <para>
 /// When an owned value on the path is absent, the component has no value: it is
 /// <see langword="null"/>, with the rules of a component without a value: a search for
-/// <see langword="null"/> will find the entity, and a unique index will not compare it.
-/// </para>
-/// <para>
-/// <b>Not implemented yet.</b> An entity type with an owned value or a Reference field cannot
-/// be written yet, so a search through a part inside an owned value or of a Reference finds
-/// nothing yet, see <see cref="LatticeIndex"/>. What this documentation says of them describes
-/// how they will work.
+/// <see langword="null"/> finds the entity, and a unique index does not compare it.
 /// </para>
 /// </remarks>
 public sealed class LatticeIndexPart

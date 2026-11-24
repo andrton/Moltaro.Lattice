@@ -98,6 +98,7 @@ in the meantime.
 | **Until answered** | Open, for the study of S19. The planner's recommendation: one that agrees with the comparison of the schema where .NET has it (text, with or without case), so that a lookup in what was read finds what a lookup in the database finds; and the remarks say so. What the code does today is named by the study |
 | **Decides** | The planner, in the study of S19, before its contract step |
 
+<<<<<<< HEAD
 ### Q61. Does "stable write inputs" allow a batch and an update to take their input when it is added?
 
 | | |
@@ -107,6 +108,16 @@ in the meantime.
 | **Answer** | Taken by the planner, 23 November 2026, for the owner to read: no. The record speaks of the input of an asynchronous write between its start and its completion; adding to a batch or to an update is synchronous and starts no write, and what was added is the batch's own from then on. A write of a set, `SaveAsync` and the others, keeps the rule of the record |
 | **What the code does** | A member of a batch is encoded when it is added (S17) |
 | **Where the rule lives** | The remarks of `ILatticeWriteBatch`; the brief of S20 in the document of Epic 1 |
+=======
+### Q62. Two rules of the schema language that the stored form of S18 brings
+
+| | |
+| --- | --- |
+| **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
+| **Question** | An owned value is stored inside its holder, so the fixed part of an entity can outgrow one block through its owned types; and the record of an element of a List has to fit one chunk. Until now the contract stated a size rule only in a clause of `LatticeIndex`. May a schema be refused for either? |
+| **Answer** | Taken by the planner, 24 November 2026, for the owner to read: yes, both are rules of the schema language, the same in every process, checked when a database compiles its layouts at its open (`InvalidSchema`, the entity type named) and stated in the remarks of `LatticeEntityType` and `LatticeOwnedType`; every node compiles them by the same code, so a schema means the same on every node; a schema would need thousands of fixed fields to meet them |
+| **What the code does** | As the brief of S18 says |
+| **Where the rule lives** | The brief of S18 in the [document of Epic 1](epic-1-core.md); the remarks named above |
 
 ## Answered
 
@@ -552,8 +563,8 @@ in the meantime.
 | --- | --- |
 | **Found** | 21 November 2026, the architect's review after Epic 1, sprint S15, part 2 |
 | **Question** | A search binds a value by the allowlist of Q07.3.6: an integer of another width, any integer for a Decimal, an integer a Float32 or a Float64 holds exactly, a Float32 for a Float64 and a Float64 that converts back to itself. A value written by name is accepted only in the type of the field, or as an integer of another width that fits. So `record["Price"] = 5` is refused for a Decimal field, where `IndexKey.Equal(5)` finds the entity. Is the difference meant? |
-| **Answer** | Decided by the owner, 21 November 2026, in the planner's session: one rule. A value given by itself in a write by name, the value of a field of a record or of an owned value, is bound by the allowlist of Q07.3.6, as a part of a search key is; the elements, keys and values of a collection stay as declared, and a primary key keeps its own rule, since a key is an integer, a String or a Guid. Not built yet: it is a task of S18, which works on the values written by name |
-| **What the code does** | The narrower rule, as the remarks of `LatticeRecord` state it (`FieldValues.Normalize`) |
+| **Answer** | Decided by the owner, 21 November 2026, in the planner's session: one rule. A value given by itself in a write by name, the value of a field of a record or of an owned value, is bound by the allowlist of Q07.3.6, as a part of a search key is; the elements, keys and values of a collection stay as declared, and a primary key keeps its own rule, since a key is an integer, a String or a Guid. Built in S18, which works on the values written by name |
+| **What the code does** | The one rule: `FieldValues.Normalize` takes a number as a part of a search key takes it, by the code of `IndexValue` (`TryConvertTo`), as the remarks of `LatticeRecord` state |
 | **Where the rule lives** | The remarks of the indexer of `LatticeRecord`; `docs/decisions/queries.md`, Q07.3.6, for a search |
 
 
@@ -598,3 +609,14 @@ in the meantime.
 | **Answer** | Taken by the planner, 22 and 23 November 2026, for the owner to read at the close of the sprint. A batch is judged in two phases. First each member against the state before the batch, in the batch's order: the first member that fails a condition of its own, a revision, a key that must be absent or present, is reported. Only when every member passes is the state the batch leaves judged for unique values, since that state does not exist before: the member with the lowest number among those that violate is reported, so of two members that claim one value the later, since the earlier alone would be accepted, and against a published owner that no member frees the member that claims; for one member that violates several indexes, the index declared first in its entity type. A refusal for memory is of the batch as a whole and names no member. Read and accepted by the owner, 23 November 2026 |
 | **What the code does** | As the brief of S17 says |
 | **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md) |
+
+### Q63. Does a List have a bound of its own?
+
+| | |
+| --- | --- |
+| **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
+| **Question** | The stored form of S18 gives a List one directory level, so a List holds at most 268,173,376 bytes of packed elements (33,521,672 Int64) or about 3.3 million elements that hold text. The contract states no bound for a List; O19 names only String and Binary, and O20 allows a limit only where the engine cannot work without one |
+| **Answer** | Decided by the owner, 24 November 2026: the bound is stated in the contract, as the bound of a String is; a second directory level is built when an application needs a larger List |
+| **What the code does** | As S18 built it: a List above its bound is refused with `ValidationFailed` |
+| **Where the rule lives** | The remarks of `LatticeFieldTypeEnum.List`; the brief of S18 in the [document of Epic 1](epic-1-core.md) |
+>>>>>>> origin/main

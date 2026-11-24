@@ -34,4 +34,18 @@ internal enum DescriptorKindEnum : uint
     // Chunked lies; the blocks belong to the entry and are of kind SharedText. The block that holds the
     // descriptor holds one reference to the entry until it is freed (Text.TextTable).
     Text = 4,
+
+    // The value is a List whose elements hold descriptors: elements that are a String, a Binary or a List,
+    // or an owned value with one of them (Roots.StructureLayout). Its form is told by this kind, never by
+    // its length. Length is the number of its elements, not of bytes. The elements are records of the
+    // structure of the element declaration, StructureLayout.Size bytes each, in their order, and a record
+    // lies whole in one block; nothing sorts or merges them. Location is 0 for an empty List. For a List of
+    // at most StructureLayout.RecordsPerChunk elements it is the relative address of one block of kind Value
+    // that holds its records; for a longer one, of a directory of kind ChunkDirectory with one descriptor of
+    // kind Block for each chunk of kind Chunk, every chunk but the last holding RecordsPerChunk records. The
+    // parent of that block or directory is the block that holds this descriptor. In a block of records, a
+    // value of at most ValueBlocks.InlineLimit bytes that a descriptor of a record names lies inline after
+    // the records, its Location an offset from the start of that block, its header included; a larger value
+    // lies in blocks of its own, whose parent is that block.
+    Records = 5,
 }

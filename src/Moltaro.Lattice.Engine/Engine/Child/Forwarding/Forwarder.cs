@@ -243,7 +243,7 @@ internal sealed class Forwarder
 
         if (kind != WriteKindEnum.Delete)
         {
-            var writer = new RootWriter(layout, new ExportedValues(layout.DescriptorCount));
+            var writer = new RootWriter(layout, ExportedValues.OfRoot(layout));
 
             try
             {

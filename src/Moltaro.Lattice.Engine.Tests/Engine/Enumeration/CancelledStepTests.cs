@@ -22,15 +22,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 //   ReadTimes, which the first step does not reach unless the machine holds it up for two seconds and
 //   the wait has passed, so that the limit and the token have both been passed when the step looks.
 // - A round entered with the token cancelled and the time limit passed. A step looks at its token and
-//   then at its limits each time a round of it has entered the protection. A pass under a time limit of
-//   one tick, which any wait passes, takes its first step while every slot is held, so that it waits
-//   for a slot; the test cancels the token and only then gives one slot back. A step that waits looks at
-//   its token only after it has found every slot held, so it either sees the cancellation in its wait
-//   or takes the slot and enters a round with its token cancelled and its limit passed. It has to end
-//   in OperationCanceledException either way; a step that looked at its limits before its token would
-//   end in ReadLimitExceeded. The test cannot choose which of the two a step meets, so it makes twenty
-//   attempts: a step that waits sleeps between its looks at the slots, and the held read that gives its
-//   slot back leaves it sooner than that.
+//   then at its limits each time a round of it has entered the protection. The database takes the
+//   timestamps of its reads from a source the test drives (ScriptedClock, EngineTestInputs.ReadTimestamps):
+//   under a time limit of one tick, every reading is a millisecond later than the one before, and the
+//   first reading, which the step takes when it starts, cancels the token. So the step enters its first
+//   round with its token cancelled and its limit passed, and has to end in OperationCanceledException; a
+//   step that looked at its limits before its token would end in ReadLimitExceeded.
 // - Between the rounds of a step. A step walks the index in rounds of 256 words, each inside the
 //   protection of reads, and after a growth of the index it walks the grown table from its start. The
 //   test makes a long step: 65,536 entities, as many as the main table holds before it grows, every one
@@ -62,14 +59,8 @@ public sealed class CancelledStepTests
 
     private const ulong Seed = 0x9E3779B97F4A7C15;
 
-    // The attempts of the test of a round entered with the token cancelled and the limit passed.
-    private const int Attempts = 20;
-
     // How long a step waits for a slot before its token is cancelled, where no limit has to pass.
     private static readonly TimeSpan ShortWait = TimeSpan.FromMilliseconds(500);
-
-    // How long a step of an attempt is let wait for a slot, so that it waits when its token is cancelled.
-    private static readonly TimeSpan IntoTheWait = TimeSpan.FromMilliseconds(50);
 
     public static TheoryData<string, string, string> Cases => new()
     {
@@ -119,38 +110,35 @@ public sealed class CancelledStepTests
     [Fact]
     public async Task Step_that_enters_a_round_with_its_token_cancelled_and_its_time_limit_passed_ends_in_OperationCanceledException()
     {
-        var database = await OpenWithStampsAsync(TimeSpan.FromTicks(1));
+        var clock = new ScriptedClock();
+        var database = EngineDatabase.Create(
+            new LatticeDatabaseOptions
+            {
+                PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+                Schema = StampSchema.Schema,
+                ReadTimeLimit = TimeSpan.FromTicks(1),
+            },
+            new EngineTestInputs { ReadTimestamps = clock.Source });
+
+        await database.OpenAsync();
 
         try
         {
-            using var full = await FullEpochTable.StartAsync(database, 0);
-
-            for (var attempt = 1; attempt <= Attempts; attempt++)
+            for (var key = 0; key < Keys; key++)
             {
-                using var cancellation = new CancellationTokenSource();
-                await using var steps = database.Set<StampSchema.Stamp>().EnumerateAsync(new LatticeSession(), cancellation.Token).GetAsyncEnumerator();
-                using var started = new ManualResetEventSlim();
-                var stepping = OwnThread.Run(
-                    () =>
-                    {
-                        started.Set();
-
-                        return steps.MoveNextAsync().AsTask().GetAwaiter().GetResult();
-                    });
-
-                Assert.True(started.Wait(Bound), "The step did not start.");
-                await Task.Delay(IntoTheWait);
-
-                // The cancellation comes before the slot, so that no step can enter a round before it.
-                cancellation.Cancel();
-                var released = full.ReleaseOneAsync();
-                var failure = await Record.ExceptionAsync(() => stepping.WaitAsync(Bound));
-
-                await released;
-                Assert.True(failure is OperationCanceledException, $"In attempt {attempt} the step whose token was cancelled ended with {Outcome(failure)}, not OperationCanceledException.");
-
-                await full.HoldOneAsync();
+                await database.Set<StampSchema.Stamp>().InsertAsync(StampSchema.StampOf(key, key));
             }
+
+            using var cancellation = new CancellationTokenSource();
+            await using var steps = database.Set<StampSchema.Stamp>().EnumerateAsync(new LatticeSession(), cancellation.Token).GetAsyncEnumerator();
+
+            // The step takes its first timestamp when it starts; the cancellation comes there, before any round.
+            clock.Step = TimeSpan.FromMilliseconds(1);
+            clock.AtNextReading(cancellation.Cancel);
+
+            var failure = await Record.ExceptionAsync(async () => await steps.MoveNextAsync());
+
+            Assert.True(failure is OperationCanceledException, $"The step whose token was cancelled ended with {Outcome(failure)}, not OperationCanceledException.");
         }
         finally
         {

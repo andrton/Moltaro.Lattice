@@ -22,8 +22,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // - A transaction of many effects whose last effect names the key of its first, as a forged batch would: the
 //   relay passes, in the place of the transactions of 199 inserts and a replace of the first of them, one
 //   at the sequence of the first, as a master writes the members of a batch. The child refuses it whole, as
-//   above: a transaction names each key once however many effects lie between (the brief of Epic 1, sprint
-//   S17, point 6, where the check becomes a set of the keys of a transaction).
+//   above: a transaction names each key once however many effects lie between, which the child checks with
+//   one set of the keys of a transaction (Entities.PublicationKeys).
 // The shapes of the frames are those TransactionPayload states; the master holds one root of MarkedRoot.
 public sealed class KeyNamedOnceTests
 {

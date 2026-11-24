@@ -56,7 +56,7 @@ public sealed class AllowlistTests
             return;
         }
 
-        await BindingSearch.ExpectAsync(database, row.Field, TypedValues.Equal(row.Given), reverse: false, ValueOracle.Equal(stored, row.Bound), $"{name}, as the value");
+        await BindingSearch.ExpectAsync(database, row.Field, TypedValues.Equal(row.Given), reverse: false, BindingSearch.Equal(stored, row.Bound), $"{name}, as the value");
 
         foreach (var inclusive in new[] { true, false })
         {
@@ -64,8 +64,8 @@ public sealed class AllowlistTests
             var asUpper = IndexKey.All.Range(null, TypedValues.Bound(row.Given, inclusive));
             var end = new RangeEnd(row.Bound, inclusive);
 
-            await BindingSearch.ExpectAsync(database, row.Field, asLower, reverse: false, ValueOracle.Range(stored, end, null, reverse: false), $"{name}, as a lower bound {end}");
-            await BindingSearch.ExpectAsync(database, row.Field, asUpper, reverse: false, ValueOracle.Range(stored, null, end, reverse: false), $"{name}, as an upper bound {end}");
+            await BindingSearch.ExpectAsync(database, row.Field, asLower, reverse: false, BindingSearch.Range(stored, end, null, reverse: false), $"{name}, as a lower bound {end}");
+            await BindingSearch.ExpectAsync(database, row.Field, asUpper, reverse: false, BindingSearch.Range(stored, null, end, reverse: false), $"{name}, as an upper bound {end}");
         }
     }
 

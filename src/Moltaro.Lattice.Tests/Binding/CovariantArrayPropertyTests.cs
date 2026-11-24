@@ -19,11 +19,11 @@ public sealed class CovariantArrayPropertyTests
             Box = new Box { Places = new SpecialPlace[] { new() { Number = 2 } }, Layers = new LongList[] { [3] } },
         };
 
-        // Validated and taken; storing what it holds is not implemented yet.
+        // Validated and taken, and written.
         var batch = database.CreateWriteBatch();
         batch.Insert(holder);
         Assert.Equal(1, batch.Count);
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await database.Set<Holder>().InsertAsync(holder));
+        Assert.True((await database.Set<Holder>().InsertAsync(holder)).Changed);
     }
 
     [Fact]

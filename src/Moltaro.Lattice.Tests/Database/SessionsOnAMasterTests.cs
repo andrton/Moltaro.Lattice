@@ -12,7 +12,8 @@ namespace Moltaro.Lattice.Tests.Database;
 // depends on such a position, by key and in an enumeration, waits the same way, for the timeout of
 // the options of the database unless the session sets its own, and answers once a write reaches the
 // position; an enumeration that timed out returned nothing. A test makes one up from
-// the text of a position (TestData.Ahead).
+// the text of a position (TestData.Ahead). A read that takes a session and is given none throws at the
+// call, through a class and by name: it is a mistake the caller can know from its own arguments.
 public sealed class SessionsOnAMasterTests
 {
     [Fact]
@@ -92,6 +93,19 @@ public sealed class SessionsOnAMasterTests
         var empty = new LatticeSession();
         Assert.Empty(await database.Set("Setting").EnumerateAsync(empty).ToListAsync());
         Assert.Equal(database.Position, empty.MinPosition);
+    }
+
+    [Fact]
+    public async Task Read_that_takes_a_session_throws_at_the_call_when_none_is_given()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync();
+        var users = database.Set<User>();
+        var userRecords = database.Set("User");
+
+        Assert.Throws<ArgumentNullException>(() => { _ = users.GetAsync(1, null!); });
+        Assert.Throws<ArgumentNullException>(() => users.EnumerateAsync(null!));
+        Assert.Throws<ArgumentNullException>(() => { _ = userRecords.GetAsync(1L, null!); });
+        Assert.Throws<ArgumentNullException>(() => userRecords.EnumerateAsync(null!));
     }
 
     [Fact]

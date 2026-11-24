@@ -9,8 +9,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Waits;
 
 // A write batch waits for the latest earlier write not completed that shares an entity with it, and a
 // single write whose latest earlier write of its entity is a batch waits for that batch, each holding
-// nothing; when that write ends, the waiter is started again from the beginning (the brief of Epic 1,
-// sprint S17, point 4; exception X6). So the writes of one entity are executed in the order of their calls,
+// nothing; when that write ends, the waiter is started again from the beginning (docs/design/write-path.md,
+// "A write batch"; exception X6). So the writes of one entity are executed in the order of their calls,
 // and nothing is applied twice or lost:
 // - a single write, a batch and a single write of one entity, called while the persistence step holds the
 //   first, are published in that order;

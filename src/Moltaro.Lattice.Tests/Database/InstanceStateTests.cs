@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Tests.NestedValues;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Database;
@@ -5,7 +6,8 @@ namespace Moltaro.Lattice.Tests.Database;
 // The states of an instance of a MemoryOnly master and what an operation does in each (brief of
 // Epic 1, sprint S06, "States"): Created until the open, Ready after it, Closed after a close.
 // Before the open an operation is Unavailable; after a close it is ObjectDisposedException, also
-// through a set that was obtained before. Closing a closed database does nothing, and disposing
+// through a set that was obtained before, a set through a class of an entity type with owned values and Lists
+// as well. Closing a closed database does nothing, and disposing
 // closes it in the same way. The close is one operation (brief of S09, part 2, the first finding of
 // the outside review it carries): a close or a dispose called while an earlier close has not
 // completed completes with it, without an error, and a token that cancels the wait of a close does
@@ -83,6 +85,21 @@ public sealed class InstanceStateTests
     }
 
     [Fact]
+    public async Task After_a_close_a_read_through_a_class_of_an_entity_type_with_nested_values_is_ObjectDisposedException()
+    {
+        var database = await NestedSchema.OpenMasterAsync();
+        var persons = database.Set<Person>();
+        await persons.InsertAsync(NestedSchema.Full("ada"));
+
+        await database.CloseAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => persons.Get("ada"));
+        Assert.Throws<ObjectDisposedException>(() => persons.Enumerate().ToList());
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await persons.GetAsync("ada", new LatticeSession()));
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await persons.EnumerateAsync(new LatticeSession()).ToListAsync());
+    }
+
+    [Fact]
     public async Task Closing_or_disposing_a_closed_database_does_nothing()
     {
         var closed = await TestDatabases.OpenMasterAsync();
@@ -144,13 +161,13 @@ public sealed class InstanceStateTests
     [Fact]
     public async Task After_a_close_a_read_of_an_entity_type_the_engine_does_not_store_is_ObjectDisposedException()
     {
-        // Holder has a List field: the engine does not store it.
+        // Holder has a Map field: the engine does not store it.
         var schema = LatticeSchema.Compile($$"""
             {
               "EntityTypes": [
                 {
                   "Id": 1, "Name": "Holder", "ClrType": "{{typeof(Holder).FullName}}",
-                  "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Lines", "Type": "List", "Element": { "Type": "String" } } ],
+                  "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Lines", "Type": "Map", "Key": { "Type": "String" }, "Value": { "Type": "String" } } ],
                   "PrimaryKey": [1]
                 }
               ]
@@ -184,6 +201,6 @@ public sealed class InstanceStateTests
     {
         public long Id { get; set; }
 
-        public List<string> Lines { get; set; } = [];
+        public Dictionary<string, string> Lines { get; set; } = [];
     }
 }

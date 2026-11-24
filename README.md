@@ -18,10 +18,16 @@ through an index by its full key, by its leading fields and a range on the next,
 order of the index or its reverse and in pages, each entity at most once. A child loads
 the whole database from its master over TCP while the master keeps writing, builds its
 own indexes, then follows its changes, and forwards its own writes to the master. A
-unique index gives a value to one entity only, whichever node submits the write. A
-schema can already declare more than the engine stores: an entity type with an owned
-value, a List, a Map, a Set or a reference compiles, but cannot be written yet. A write
-batch is executed by the master, also one committed through a child. PostgreSQL persistence
+unique index gives a value to one entity only, whichever node submits the write. An entity
+may hold owned values, Lists and references at every depth, which a master stores, reads back
+by name and through a class, finds through an index over a field inside an owned value and
+writes in a batch, and which a child loads, follows and forwards. Two rules of the schema
+language bound what one
+entity stores: its fixed part, the fields of its owned values included, fits one block, and the
+record of an element of a List fits one chunk; a database whose schema breaks one does not open
+(`LatticeEntityType`). A schema can already declare more than the engine stores: an entity
+type with a Map or a Set compiles, but cannot be written yet. A write batch is executed by the
+master, also one committed through a child. PostgreSQL persistence
 is not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
@@ -160,8 +166,9 @@ foreach (var record in settings.Enumerate())
 Both ways work on the same data and follow the same rules.
 
 **Finding by index.** An entity type
-declares its secondary indexes in the schema, each with a name and the fields it covers,
-in order:
+declares its secondary indexes in the schema, each with a name and the ids of the fields it
+covers, in order; here `ByEmail` covers the field `Email`, id 5, of a user, and
+`BySectionAndName` the fields `Section` and `Name`, ids 2 and 3, of a setting:
 
 ```json
 "Indexes": [
@@ -199,7 +206,8 @@ var page = await bySectionAndName.FindAsync(
 
 **Unique indexes.** Several entities can have the same indexed values unless the index says
 otherwise; an index over several fields compares them together, so the same login may
-belong to one account in each tenant:
+belong to one account in each tenant, here with the fields `Email`, `Tenant` and `Login`,
+ids 5, 6 and 7, of an account:
 
 ```json
 "Indexes": [
@@ -410,9 +418,8 @@ path, from simple to complex.
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 In the contract but not implemented yet: Durable persistence, a child that connects again after it lost its master,
-and storing what a schema can declare beyond scalar and enum fields:
-owned values, Lists, Maps, Sets and references, which a schema declares, a record and
-a class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
+storing Maps and Sets, which a schema declares, a record and a class hold, and no write stores
+yet. Not in the contract yet: partial updates, safe retry
 of a write, schema migration and replication status. A query language is not planned for
 the first version.
 
@@ -423,7 +430,7 @@ the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the public contract: the schema, and scenario tests of reads, writes, master and child, which run on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities in memory, by primary key and through their secondary indexes, and commits a write batch, on a master or forwarded by a child, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database.  |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity into the arena with its owned values, Lists and references, and a database that inserts, reads, replaces and deletes entities in memory, by primary key and through their secondary indexes, and commits a write batch, on a master or forwarded by a child, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database. An entity type with a Map or a Set is not stored yet |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |

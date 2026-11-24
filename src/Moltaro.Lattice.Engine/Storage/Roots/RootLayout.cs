@@ -1,36 +1,28 @@
+using System.Collections.Immutable;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The compiled layout of the roots of one entity type: where each field of an entity stands in its
-// root block, and where a variable value goes (milestone contract, "Native layout and allocation";
-// Q16, "Record-oriented layout with separate variable payloads"). RootWriter, RootReader and
-// RootStorage take from it where every value is.
+// The compiled layout of the roots of one entity type: where each value of an entity stands in its root
+// block, and where a variable value goes (milestone contract, "Native layout and allocation"; Q16,
+// "Record-oriented layout with separate variable payloads"). RootWriter, RootReader and RootStorage take from
+// it where every value is. The fixed part of a root is its 32-byte header, BlockHeader, and after it the
+// structure of the fields of the entity type (StructureLayout): the null bitmap, the fixed-width fields and
+// the descriptors, packed without padding, the fields of its owned values flattened into it. FixedSize is the
+// sum of the header and the structure. An offset inside a root block, that of a field, of a descriptor and of
+// an inline value, is counted from the start of the block, the header included. A value of more than one byte
+// is stored in the byte order of the machine, as the block header and the descriptors are: native memory is
+// never a durable or a wire form, and each of those forms states its own byte order.
 //
-// The fixed part of a root comes first in the root block, packed without padding, in this order:
-// - the 32-byte block header, BlockHeader;
-// - the nullable bitmap: n / 8 bytes, rounded up, for the n nullable fields;
-// - the fixed-width fields, in the order of their field identities, each at the width of its type
-//   in the scalar catalog (Q03.1, Q03.4.1): a small integer is not widened, a Boolean is one byte,
-//   0 or 1, and an Enum field has the width of the underlying type of its enum type. A nullable
-//   field keeps its place when it is null;
-// - one ValueDescriptor of 16 bytes for each String and Binary field, in the order of their field
-//   identities.
-// FixedSize is the sum of these four parts. An offset inside a root block, that of a descriptor and
-// that of an inline value, is counted from the same start, the header included. A value of more
-// than one byte is stored in the byte order of the machine, as the block header and the
-// descriptors are: native memory is never a durable or a wire form, and the byte order of those
-// forms belongs to their sprints.
+// A fixed-width field takes the width of its type in the scalar catalog (Q03.1, Q03.4.1): a small integer is
+// not widened, a Boolean is one byte, 0 or 1, an Enum field has the width of the underlying type of its enum
+// type, and a Reference that of the key of its target. A nullable field keeps its place when it is null. The
+// bytes of a fixed field that is null are zero, and so is the descriptor of a null String, Binary or List.
 //
-// The nullable fields have their bits in the order of their field identities, the first in the
-// lowest bit of the first byte. A bit is set while its field is null; the bits after the last
-// nullable field are zero. The bytes of a fixed field that is null are zero, and so is the
-// descriptor of a null String or Binary.
-//
-// A String or Binary value is placed by its encoded length, by the bounds of a value that
-// Values.ValueBlocks sets, InlineLimit, SingleBlockLimit and ChunkPayload; DescriptorKindEnum says what
-// its descriptor holds in each case:
+// A String or Binary value, and a List whose elements hold no descriptor, which lies as the bytes of a Binary
+// value, is placed by its encoded length, by the bounds of a value that Values.ValueBlocks sets, InlineLimit,
+// SingleBlockLimit and ChunkPayload; DescriptorKindEnum says what its descriptor holds in each case:
 // - at most InlineLimit bytes: inline, in the root block after the fixed part, when the root block
 //   still fits one block. An empty value is inline with length 0;
 // - any other value of at most SingleBlockLimit bytes: in one block of its own, of kind Value;
@@ -38,23 +30,25 @@ namespace Moltaro.Lattice.Storage.Roots;
 //   full, and one directory block of kind ChunkDirectory with one 16-byte descriptor for each
 //   chunk. A value has at most the chunks one directory block holds, ValueBlocks.MostChunks, so it
 //   takes at most 268,173,376 bytes; a larger one is ValidationFailed with the field named, refused
-//   by the validation of the core and, as the guard of the stored form, by the Set… member of
-//   RootWriter: a fixed rule of the format (decision O19 of Epic 1). A chunk
-//   boundary is not a boundary of the value: a character may continue in the next chunk.
-// The parent of a value block and of a directory is the root block; the parent of a chunk is its
-// directory. A null String or Binary is null in the bitmap, and its descriptor is all zero.
+//   by the validation of the core and, as the guard of the stored form, by RootWriter: a fixed rule
+//   of the format (decision O19 of Epic 1). A chunk boundary is not a boundary of the value: a character,
+//   or the record of an element of a List, may continue in the next chunk.
+// A List whose elements hold descriptors lies as records, never inline (DescriptorKindEnum.Records).
+// The parent of a value block, of a directory and of a block of records is the block that holds its
+// descriptor, the root block for a value of the root; the parent of a chunk is its directory. A null String,
+// Binary or List is null in the bitmap, and its descriptor is all zero.
 //
 // Text is stored in the database encoding that the schema declares (LatticeSchema.StringEncoding,
 // Q04.1): in a UTF-8 database the UTF-8 of its characters, in a UTF-16 database its code units. A field
 // with Plain storage stores every value on its own, placed as above. A field with Dictionary storage
 // has the same descriptor, and a text that is not empty lies in an entry of the text table of the
 // database, shared by every block that holds the same exact bytes, which the descriptor names by the
-// kind Text, the length of the text and the relative address of the entry (Text.TextTable; brief of
-// Epic 1, sprint S13, the planner's decision after the study, points 1 and 2): never inline, so it takes
-// nothing of the root block but its descriptor, and the entry is placed as a value out of line is, one
-// block up to SingleBlockLimit bytes and chunks above. The empty text is inline with length 0, as in a
-// Plain field. So the layout of an entity type is the same whichever storage its String fields select.
-// A String field that is part of a secondary index stores a text longer than InlineLimit in an entry of
+// kind Text, the length of the text and the relative address of the entry (Text.TextTable): never inline,
+// so it takes nothing of the root block but its descriptor, and the entry is placed as a value out of line
+// is, one block up to SingleBlockLimit bytes and chunks above. The empty text is inline with length 0, as in
+// a Plain field. So the layout of an entity type is the same whichever storage its String fields select.
+// A String field that is part of a secondary index, of the entity type or inside an owned value at the
+// position the path of the part names, stores a text longer than InlineLimit in an entry of
 // the text table as well, whatever its storage, so that the entry of the index can share it with its
 // root; such an entry is found by its bytes like any other, so equal long texts of an indexed Plain field
 // are stored once, and a text of InlineLimit bytes or less is placed as a Plain value is
@@ -65,48 +59,41 @@ namespace Moltaro.Lattice.Storage.Roots;
 // serve any number of writers and readers on any number of threads.
 internal sealed class RootLayout
 {
-    // Every field by LatticeField.Ordinal, its position in the entity type: one array index finds
-    // it, without a lookup by name or by identity.
-    private readonly StoredField[] _fields;
+    // Every field by LatticeField.Ordinal, its position in the entity type: one array index finds it, without
+    // a lookup by name or by identity. It is the table of the places of the structure, whose first positions
+    // are the fields of the entity type (StructureLayout), held here as well so that a field is found by one
+    // load and one index rather than through the structure, a load more for every value a root writes or
+    // reads (JIT listing at full optimization).
+    private readonly ImmutableArray<StoredField> _fields;
 
     // One bit for every field that is not nullable, by LatticeField.Ordinal: what Complete requires.
     private readonly byte[] _requiredFields;
 
-    // The String and Binary fields in the order of their descriptors, which is the order of their
-    // identities: what a reader of a whole root that walks its descriptors needs (Replication.Load).
-    private readonly StoredField[] _descriptorFields;
-
     // A layout is made by Compile only.
-    private RootLayout(
-        LatticeEntityType entityType,
-        LatticeStringEncodingEnum stringEncoding,
-        StoredField[] fields,
-        byte[] requiredFields,
-        StoredField[] descriptorFields,
-        int nullableCount,
-        int descriptorOffset,
-        int fixedSize)
+    private RootLayout(LatticeEntityType entityType, LatticeStringEncodingEnum stringEncoding, StructureLayout structure, byte[] requiredFields)
     {
         EntityType = entityType;
         StringEncoding = stringEncoding;
-        _fields = fields;
+        Structure = structure;
+        _fields = structure.SharedPlaces;
         _requiredFields = requiredFields;
-        _descriptorFields = descriptorFields;
-        NullableCount = nullableCount;
-        DescriptorOffset = descriptorOffset;
-        DescriptorCount = descriptorFields.Length;
-        FixedSize = fixedSize;
-        ImageCapacity = (int)Math.Min(fixedSize + (long)ValueBlocks.InlineLimit * DescriptorCount, Arena.MaxBlockSize);
+        FieldCount = entityType.Fields.Count;
+        NullableCount = structure.NullableCount;
+        DescriptorOffset = structure.DescriptorOffset;
+        DescriptorCount = structure.DescriptorCount;
+        FixedSize = BlockHeader.Size + structure.Size;
+        ImageCapacity = (int)Math.Min(FixedSize + (long)ValueBlocks.InlineLimit * DescriptorCount, Arena.MaxBlockSize);
     }
 
     // Compiles the layout of an entity type of the schema; the schema gives what the entity type
     // alone does not, such as its string encoding and its enum types. Refuses:
     // - an entity type that is not of the schema, with ArgumentException;
-    // - an entity type with a field S05 cannot store yet, an Owned, List, Map, Set or Reference
-    //   field, with NotSupportedException that names the field. S18 and S19 extend the layout;
-    // - an entity type whose FixedSize would exceed Arena.MaxBlockSize, with LatticeException,
-    //   InvalidSchema, that names the entity type: the fixed part has to fit one block, and the
-    //   milestone contract asks that an oversized fixed layout be reported before data is admitted.
+    // - an entity type the engine cannot store yet, with NotSupportedException that names what it holds: a
+    //   Map or a Set at any depth;
+    // - an entity type whose FixedSize would exceed Arena.MaxBlockSize, its owned values included, or that
+    //   holds a List whose record of an element does not fit one chunk, with LatticeException,
+    //   InvalidSchema, that names the entity type: two rules of the schema language, which the milestone
+    //   contract asks to be reported before data is admitted (StructureLayout).
     public static RootLayout Compile(LatticeEntityType entityType, LatticeSchema schema)
     {
         ArgumentNullException.ThrowIfNull(entityType);
@@ -118,76 +105,29 @@ internal sealed class RootLayout
             throw new ArgumentException($"The entity type {entityType.Name} is not an entity type of the given schema.", nameof(entityType));
         }
 
-        var declared = entityType.Fields;
+        // The places that are part of an index, by their paths: a field of the entity type, or a field inside
+        // an owned value of it.
+        var indexed = entityType.Indexes.SelectMany(index => index.Parts).Select(part => part.Path).ToList();
+        var requiredFields = new byte[BitBytes(entityType.Fields.Count)];
 
-        foreach (var field in declared)
+        foreach (var field in entityType.Fields)
         {
-            ThrowIfNotStorable(entityType, field);
-        }
-
-        var inIdentityOrder = declared.OrderBy(field => field.Id).ToArray();
-
-        // The fields that are part of an index: a part of an entity type that is stored is one of its
-        // fields, since a path through an owned value is refused above.
-        var indexed = entityType.Indexes.SelectMany(index => index.Parts).Select(part => part.Field).ToHashSet();
-        var fields = new StoredField[declared.Count];
-        var requiredFields = new byte[BitBytes(declared.Count)];
-        var nullBits = new int[declared.Count];
-        var nullableCount = 0;
-
-        // The bits of the null bitmap go to the nullable fields in identity order, whatever their type.
-        foreach (var field in inIdentityOrder)
-        {
-            if (field.Declaration.IsNullable)
+            if (!field.Declaration.IsNullable)
             {
-                nullBits[field.Ordinal] = nullableCount++;
-            }
-            else
-            {
-                nullBits[field.Ordinal] = StoredField.NoNullBit;
                 requiredFields[field.Ordinal / 8] |= (byte)(1 << (field.Ordinal % 8));
             }
         }
 
-        // The fixed fields first and the descriptors after them, each group in identity order.
-        var offset = BlockHeader.Size + BitBytes(nullableCount);
+        var structure = StructureLayout.OfRoot(entityType, indexed);
 
-        foreach (var field in inIdentityOrder.Where(field => !IsVariable(field)))
-        {
-            var (type, width) = FixedTypeOf(field.Declaration);
-
-            fields[field.Ordinal] = new StoredField(field, type, width, offset, nullBits[field.Ordinal], indexed.Contains(field));
-            offset += width;
-        }
-
-        var descriptorOffset = offset;
-        var descriptorFields = new List<StoredField>();
-
-        foreach (var field in inIdentityOrder.Where(IsVariable))
-        {
-            var type = field.Declaration.Type == LatticeFieldTypeEnum.String ? StoredTypeEnum.String : StoredTypeEnum.Binary;
-
-            fields[field.Ordinal] = new StoredField(field, type, ValueBlocks.DescriptorSize, offset, nullBits[field.Ordinal], indexed.Contains(field));
-            descriptorFields.Add(fields[field.Ordinal]);
-            offset += ValueBlocks.DescriptorSize;
-        }
-
-        if (offset > Arena.MaxBlockSize)
+        if (BlockHeader.Size + structure.Size > Arena.MaxBlockSize)
         {
             throw new LatticeException(
                 LatticeErrorEnum.InvalidSchema,
-                $"The fixed part of a root of the entity type {entityType.Name} takes {offset} bytes, more than the {Arena.MaxBlockSize} bytes of one block.");
+                $"The fixed part of a root of the entity type {entityType.Name} takes {BlockHeader.Size + structure.Size} bytes, more than the {Arena.MaxBlockSize} bytes of one block.");
         }
 
-        return new RootLayout(
-            entityType,
-            schema.StringEncoding,
-            fields,
-            requiredFields,
-            [.. descriptorFields],
-            nullableCount,
-            descriptorOffset,
-            offset);
+        return new RootLayout(entityType, schema.StringEncoding, structure, requiredFields);
     }
 
     // The entity type the layout was compiled for.
@@ -213,7 +153,8 @@ internal sealed class RootLayout
     // The text encoding of the database, in which every String of these roots is stored.
     internal LatticeStringEncodingEnum StringEncoding { get; }
 
-    // How many fields are nullable, and so how many bits the null bitmap has.
+    // How many bits the null bitmap has: the nullable fields, and the presence bits and the fields beneath a
+    // nullable owned value (StructureLayout).
     internal int NullableCount { get; }
 
     // Where the null bitmap begins: right after the header.
@@ -222,21 +163,21 @@ internal sealed class RootLayout
     // The bytes of the null bitmap.
     internal int NullBitmapLength => BitBytes(NullableCount);
 
-    // Where the descriptors of the String and Binary fields begin, and how many there are: they
-    // close the fixed part, 16 bytes each, in identity order.
+    // Where the descriptors begin, and how many there are: those of the String, Binary and List fields and of
+    // the fields of the owned values, which close the fixed part, 16 bytes each, in the order of their paths.
     internal int DescriptorOffset { get; }
 
     internal int DescriptorCount { get; }
 
-    // The String or Binary field whose descriptor is the one at the index, 0 to DescriptorCount less one.
-    internal ref readonly StoredField DescriptorField(int index) => ref _descriptorFields[index];
+    // The place whose descriptor is the one at the index, 0 to DescriptorCount less one.
+    internal ref readonly StoredField DescriptorField(int index) => ref Structure.DescriptorField(index);
 
     // The most bytes a root block of this layout can take: the fixed part with every String and
     // Binary value inline, never more than one block.
     internal int ImageCapacity { get; }
 
     // How many fields the entity type has, and so how many bits a set of its fields takes.
-    internal int FieldCount => _fields.Length;
+    internal int FieldCount { get; }
 
     // One bit for every field that is not nullable, by LatticeField.Ordinal.
     internal ReadOnlySpan<byte> RequiredFields => _requiredFields;
@@ -253,12 +194,43 @@ internal sealed class RootLayout
 
         var ordinal = field.Ordinal;
 
-        if ((uint)ordinal >= (uint)_fields.Length || !ReferenceEquals(_fields[ordinal].Field, field))
+        if ((uint)ordinal >= (uint)FieldCount || !ReferenceEquals(_fields.ItemRef(ordinal).Field, field))
         {
             throw new ArgumentException($"The field {field.Name} is not a field of the entity type {EntityType.Name}.", nameof(field));
         }
 
-        return ref _fields[ordinal];
+        return ref _fields.ItemRef(ordinal);
+    }
+
+    // The structure of the root after its header: its null bitmap, its fixed-width fields and its
+    // descriptors, the fields of its owned values flattened into it (StructureLayout).
+    internal StructureLayout Structure { get; }
+
+    // Where the field at the end of the path stands in the root block and how it is stored. The path is that
+    // of LatticeIndexPart.Path: from a field of the entity type through owned values down to the field, one
+    // element for a field of the entity type itself, which StoredFieldOf(LatticeField) gives. An owned value
+    // on the path is flattened into the root (StructureLayout), so a field inside it has its offset in the
+    // root block and, beneath a nullable owned value, a null bit of its own; the path of an owned value
+    // itself gives its presence bit (StoredTypeEnum.Owned). Resolved once, by the layout of an index; an empty
+    // path, a first step that is not a field of the entity type and a step that is not a field of the owned
+    // type of the step before it are refused with ArgumentException.
+    internal ref readonly StoredField StoredFieldOf(IReadOnlyList<LatticeField> path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (path.Count == 0)
+        {
+            throw new ArgumentException($"A path into {EntityType.Name} has at least one field.", nameof(path));
+        }
+
+        var position = Structure.PositionOf(path);
+
+        if (position < 0)
+        {
+            throw new ArgumentException($"The path {string.Join(".", path.Select(step => step.Name))} is not a path of the entity type {EntityType.Name}.", nameof(path));
+        }
+
+        return ref Structure.Place(position);
     }
 
     // The payload of a root block written with this layout, after checking that the block is one:
@@ -282,47 +254,4 @@ internal sealed class RootLayout
 
         return arena.Payload(root);
     }
-
-    private static bool IsVariable(LatticeField field) =>
-        field.Declaration.Type is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
-
-    // Owned values and collections come with S18 and S19, references with S18.
-    private static void ThrowIfNotStorable(LatticeEntityType entityType, LatticeField field)
-    {
-        var declaration = field.Declaration;
-
-        if (declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set or LatticeFieldTypeEnum.Reference)
-        {
-            throw new NotSupportedException($"The field {entityType.Name}.{field.Name} is {declaration.Type}, which a root cannot store yet.");
-        }
-    }
-
-    // The stored type and the width of a field that is neither a String nor a Binary.
-    private static (StoredTypeEnum Type, int Width) FixedTypeOf(LatticeValueDeclaration declaration) => declaration.Type switch
-    {
-        LatticeFieldTypeEnum.Boolean => (StoredTypeEnum.Boolean, 1),
-        LatticeFieldTypeEnum.Float32 => (StoredTypeEnum.Float32, 4),
-        LatticeFieldTypeEnum.Float64 => (StoredTypeEnum.Float64, 8),
-        LatticeFieldTypeEnum.Decimal => (StoredTypeEnum.Decimal, 16),
-        LatticeFieldTypeEnum.Guid => (StoredTypeEnum.Guid, 16),
-        LatticeFieldTypeEnum.DateTimeOffset => (StoredTypeEnum.DateTimeOffset, 8),
-        LatticeFieldTypeEnum.DateOnly => (StoredTypeEnum.DateOnly, 4),
-        LatticeFieldTypeEnum.TimeOnly => (StoredTypeEnum.TimeOnly, 8),
-        LatticeFieldTypeEnum.TimeSpan => (StoredTypeEnum.TimeSpan, 8),
-        LatticeFieldTypeEnum.Enum => IntegerTypeOf(declaration.EnumType!.UnderlyingType),
-        _ => IntegerTypeOf(declaration.Type),
-    };
-
-    private static (StoredTypeEnum Type, int Width) IntegerTypeOf(LatticeFieldTypeEnum type) => type switch
-    {
-        LatticeFieldTypeEnum.Int8 => (StoredTypeEnum.SignedInteger, 1),
-        LatticeFieldTypeEnum.UInt8 => (StoredTypeEnum.UnsignedInteger, 1),
-        LatticeFieldTypeEnum.Int16 => (StoredTypeEnum.SignedInteger, 2),
-        LatticeFieldTypeEnum.UInt16 => (StoredTypeEnum.UnsignedInteger, 2),
-        LatticeFieldTypeEnum.Int32 => (StoredTypeEnum.SignedInteger, 4),
-        LatticeFieldTypeEnum.UInt32 => (StoredTypeEnum.UnsignedInteger, 4),
-        LatticeFieldTypeEnum.Int64 => (StoredTypeEnum.SignedInteger, 8),
-        LatticeFieldTypeEnum.UInt64 => (StoredTypeEnum.UnsignedInteger, 8),
-        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not an integer type."),
-    };
 }

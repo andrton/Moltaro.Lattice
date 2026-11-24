@@ -1296,7 +1296,8 @@ Why this order:
 | S17, part 1 | The reservation of a publication and a child's transaction checked on the state it leaves | Full, critical | Done on 22 November 2026 |
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
-| S18 | Owned values, Lists and references | Full | Not started |
+| S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
+| S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
@@ -8360,6 +8361,80 @@ planner decided on it as follows.
 
 ### Stage 5. The full type model and access
 
+**The record of S17R** (closed on 23 November 2026; its entries are W1 to W5 of the
+[refactoring backlog](refactoring.md), the architect's review after S17). It was
+coordinated by the eighth coordinator of the epic, who stays for the sprints of the night
+by the owner's word in the planner's session, not replaced at this boundary. The
+implementer and the narrow reviewer ran at Opus 5.5 high. Five commits, one entry each, W5
+the commit of comments and documents; no assertion changed and no test was removed, which
+the coordinator and the reviewer checked line by line. The JIT listings of the callers each
+entry names, a Release driver over the public API with tiered PGO off, its engine compared
+with the tree's build, are kept outside the repository: W1 makes three calls fewer on an
+insert and on a delete into an Int64 index (`TopUpIndexes` 4 → 3, `OrderedTree.TryReserve`
+5 → 4, `NodePool.TopUp` 4 → 3, `Trim` 5 → 4), while `NodePool.AfterPublication` is no
+longer inlined into the tree's (one call more a publication) and `LeftAfterMove` grows from
+680 to 895 bytes with no call; W3 takes the frame of the single path from 168 to 96 bytes;
+W2 leaves the path that succeeds as it was and makes fewer calls in the preparations of a
+child; W4 leaves the writers of the delivery identical. The review took one round: no P1,
+no P2, 2 P3 (two comments that cited what no longer said it) and P4s, of which one sentence
+at the root of `OrderedTree` was taken; the fix, comments only, was read by the
+coordinator. The hardest part to follow, by the reviewer: that the height and the room the
+pool keeps are never stale, which holds because every store to the root and the height of
+the tree sits in `Insert`, `Remove` or `Rewrite`, each ending in `AfterPublication`; a
+comment there now says so. Every suite at the head: 3,215 tests, 3,086 passing and 129
+skipped, in Debug and in Release. No start of the machine: the figures are owed to the
+start of S18, on `index-writes` with 3 and 6 indexes, `unique-writes` lines 1 to 3 and
+`following-children`; if `index-writes` falls, the first remedy to try is to inline
+`NodePool.AfterPublication` again.
+
+**The record of the search by index against a model** (closed on 24 November 2026; tests
+only, beside S17R and S18). The owner asked on 23 November 2026 whether the search by index
+is tested close to completely for correctness across the types of a part. An audit of the
+tests found equality close to complete for every type, and order and range held against a
+model only for Int32, Int64 and String. This work adds one differential test of a search
+against a sorted list in memory, in `Moltaro.Lattice.Tests/Indexes/Model`, with the shared
+model there and the tests in `Scalars`, `Composites` and `Unstored`. It was coordinated by
+the eighth coordinator of the epic; the implementer ran at Opus 5.5 high, its one reviewer
+at xhigh, no breaker.
+
+- *What it covers.* Every scalar type that can be a part, nullable and never null, 400
+  entities a cell (at least 4 leaves at the narrowest entry), seeded values and the edges of
+  each type (zero, NaN in three forms and the empty text stored beside the nulls); the exact
+  search of every stored value and of values never stored; ranges with every kind of bound,
+  on, between and beyond stored values; both directions; pages by Offset and Limit with
+  `HasMore`, an Offset at the end and past it included; through a class and by name; on a
+  master and on a child, which builds its index once from the load and once while
+  following. Composite keys of three and four parts of mixed widths, a fixed part after a
+  text part included, with every count of leading parts and a range after them. The path of
+  a single never-null part of eight signed bytes (`IndexOrder.OneNumber`) has a test of its
+  own. A Reference part and a part on a path into an owned value are written and skipped
+  with the shared reason. The two older oracles became the one model, and no assertion
+  changed.
+- *Mutants killed by hand,* each made in the engine of a copy and restored: an order of
+  signed or unsigned numbers read the other way, an exclusive lower bound taken as
+  inclusive, nulls at the wrong end and a reverse walk started before them, a comparison
+  without case that does not map a non-ASCII letter or a surrogate pair, a separator one
+  entry off, `HasMore` true after a full page, a Decimal ordered by its scale, the UTF-8
+  order around the surrogates, a zero fixed part or a NaN taken as null, an offset past a
+  text part one byte off. An inner node splits only in the composite of four parts.
+- *What stays empty, and why.* Leading parts for Int8, UInt8, UInt16, UInt64, Float32,
+  TimeOnly, TimeSpan, Enum and Flags, which are a part of no composite key of the tests;
+  Boolean ranges whose bounds are only stored values, since it has no value between or
+  beyond false and true; negative values on the eight-byte path for DateTimeOffset and
+  TimeOnly, whose ticks are never negative; Reference and owned paths, skipped until S18
+  stores them; text that is not normalized; text with Dictionary storage in the model
+  (`TextKeySearchTests` keeps its equality); trees of three levels.
+- *Review:* two rounds. Round 1: no P1; one P2 (the nullable cells held back the values
+  that share a null's bytes or its edge of the order, so a mutant that took a zero part or
+  a NaN for null passed the model) and four P3 (no fixed part after a text part, an id check
+  that named nothing, no page past the end, the folder). Round 2: every finding closed. The
+  hardest part to follow, by the reviewer: which searches a cell makes, assembled from four
+  members of `ModelSearches` and the comments of the runs.
+- *No defect of the engine was found.* The tests add about 25 to 35 seconds to a Debug run
+  of `Moltaro.Lattice.Tests` and 10 to 15 in Release, under a minute, so no lane of their
+  own. Every suite at the head: 3,274 tests, 3,142 passing and 132 skipped, the three new
+  skips being the Reference and owned paths.
+
 #### S18 · Owned values, Lists and references
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
@@ -8466,6 +8541,339 @@ number at every position. S18 checks and tests it for a field of an owned value 
 element of a List, at depth; S19 for a key, a value and a member of a Map and a Set. A
 value above it is refused as the write is refused today, and the refusal names the place
 of the value as the validation of a write names a place today.
+
+**The brief, as passed by the planner on 24 November 2026 after the study.** The study read
+Cap'n Proto, FlatBuffers, Tarantool and Apache Arrow at the commits its report names;
+nothing is adapted. The names below are the study's; the implementer commits its internal
+contract with the first step of implementation, for the planner to read.
+
+*What is built.*
+
+1. **One stored form for a structure.** A compiled layout, a null bitmap, the fixed
+   fields and the descriptors that close it, serves a root and the record of an element
+   of a List. An owned value is flattened into its holder: no block and no hop; a nullable
+   owned value has one presence bit and every field beneath it a null bit, and an absent
+   one keeps its width with every byte zero.
+2. **Lists in two forms.** A List whose elements hold no descriptor (fixed-width values,
+   references by an integer or a Guid, nullable ones with their bitmap in the record) is
+   stored as a Binary is: the Length of its descriptor is bytes, an element may continue
+   in the next chunk, and what places, frees, retires, exports and imports a Binary serves
+   it unchanged. A List whose elements hold descriptors (String, Binary, a nested List, an
+   owned value with such) is records at one stride, whole records in a block, under a
+   descriptor kind of its own whose Length is the count; its form is told by the kind,
+   never by the length. A value of at most 64 bytes is inline in the block that holds its
+   descriptor. Nothing sorts or merges.
+3. **One walk.** One recursive visitor over the descriptors of a structure serves the
+   free, the publication, the retirement with its text bytes, the counts, `EntityBytes`,
+   the export and the audit. It descends only into Lists whose elements hold descriptors,
+   and no deeper than the schema allows.
+4. **A Reference** is a field of the type of its target's key: an integer at its width, a
+   Guid, or text stored as a String is. It is null by its null bit and never looked up; a
+   missing target is not an error. A key that is text is validated by the core as a
+   String value is.
+5. **An index over a path** resolves its stored field once, when the layout of the index
+   is compiled; an absent owned value on the path gives a null part. The size of an
+   entry part does not change.
+6. **A child.** The wire carries the version of the layout, the root with its locations
+   zeroed, then the values in preorder, with no offset between values. The check walks
+   the whole input by the layout before anything is allocated: a count times a stride in
+   64 bits against the bytes left, a kind against a count, null bits that agree, zero
+   locations, inline spans inside their block, the total exact. One routine places what
+   a child received, a forwarded write, a member of a batch and a local write.
+7. **Copies.** A read by name gains owned values, Lists and references without a box for
+   each element. A read by a class gets the binding of a record to a class for nested
+   values, which does not exist today: under the protection the nested value is made in
+   the form of a record, and the object is built from it outside the protection, so that
+   no constructor and no setter of the application runs inside it.
+8. **The bound at depth, the rule of Q55, the time limit that tests can drive, and L4**,
+   as the notes above say. The refusals name a place as the validation names one today,
+   by the type that declares the field and the field.
+9. **Rules of the schema language**, checked when a database compiles its layouts at its
+   open, `InvalidSchema` with the entity type named: the fixed part of
+   an entity, its owned values included, fits one block; the record of an element of a
+   List fits one chunk; an entity type is refused as not stored yet only when it holds a
+   Map or a Set at any depth.
+
+*Decided by the planner on the study's findings.* A List has the bound its one directory
+level gives, and a List above it is refused as a String above its bound is, with tests at
+the boundary in both forms; whether the bound stays is the owner's (Q63), and a second
+directory level would be a task with a place of its own, not part of this sprint. A
+Reference whose key is text is refused as `ValidationFailed` by the write, never by the
+guard of the writer. The design page and the comment of `BlockKindEnum.Chunk` follow the
+code: a record with descriptors lies whole in one block. The flattening of an owned value
+is taken with its price said: an absent owned value keeps its width, and the record of the
+sprint reports the bytes of an entity with the owned value present and absent beside the
+arithmetic of a block for each owned value.
+
+*Corrected by this brief.* The paragraph carried from the architect's review after S13
+said that the length of a descriptor of a collection is the number of its elements. It is
+that only for a List whose elements hold descriptors; for the other form it is bytes, and
+`ValueBlocks.LiesInChunks` stays right as it is.
+
+*Tests, committed before the implementation,* in folders by area, a string key in the
+public ones.
+- A List: empty, of one element, at the boundary of a chunk in each form (the last
+  element that fits, the first that does not, an element that continues across the
+  boundary), with duplicates and the supplied order kept across it; of nullable
+  elements; of owned values; of Lists; of text at 64 and 65 bytes and above a chunk.
+- An owned value present and absent at every depth the schema allows, the deepest
+  included; an absent one replaced by a present one and back.
+- A Reference by each kind of key, null, and to a target that does not exist.
+- A complete write replaces the whole tree and frees everything the old one owned, by
+  the counters; the ownership audit after churn, with refusals and withdrawals in it,
+  finds every block owned by exactly one live entity.
+- Two reads share nothing at any depth, and nothing a caller changes after a write
+  returned changes what was written, by name and by a class.
+- An index over a field inside an owned value: found by the value, found by null when
+  the owned value is absent, not compared by a unique index then; the same on a child.
+- A child loads such entities and applies their replacement; each way the wire can be
+  wrong is refused before anything is allocated (a count that overflows, a kind that
+  does not fit its count, null bits that disagree, a location that is not zero, an
+  inline span outside its block, a total that is not exact).
+- A forwarded write and a member of a batch with such an entity.
+- The bounds: a String and a Binary at their bound at depth, in an owned value and as an
+  element; a List at its bound in each form; the two rules of the schema language at
+  their boundary.
+- The pairs of Q55 by name, the refused pairs, as the note of 21 November lists them.
+- The two timing tests driven by the source of the timestamp, their loops gone.
+
+*The breaker's targets, in order.* (1) Ownership: a block leaked, freed twice or owned
+by two entities, after churn with refusals for memory, withdrawals, faults and a close.
+(2) A reader that sees a tree half replaced, by key and by a search, on ARM64 as well.
+(3) The wire to a child: an input that makes the check read outside it, allocate before
+it has passed, or accept what a master could not have written. (4) The boundaries of a
+chunk in both forms of a List. (5) Copies that share memory at some depth. (6) A refusal
+for memory in the middle of a tree that leaves something behind. (7) An index over a
+path while the owned value on it appears and disappears.
+
+*Measured, in the one start of the machine, beside "Measured" above.* `root-bytes` for
+the user and the group of the fixture in their full form beside the scalar form; the
+bytes of an entity with an owned value present and absent; a read and a write of an
+entity with its Lists against the scalar form; and what the start owes from before: the
+figures of S17R, the two variant builds of K2, `read-by-key-threads` for `ed81c76`,
+`3e24ce4` and the head, the p3 line with the machine's listings, trees rotated, and the
+correctness lanes on ARM64 with the breaker's probes of this sprint.
+
+If the internal contract shows the sprint is too large for one review, the coordinator
+proposes its parts to the planner with the first step.
+
+**Decided by the planner on 24 November 2026, on the internal contract of step 1**
+(799e03d is the last commit of step 1). The bound of a List is checked by the engine where
+a write is encoded outside the lock, by the encoder a batch's `Add` uses, so it comes
+before the conditions; the core names no number. A record of an element fits one chunk
+when its stride and 64 bytes for each descriptor it holds come to at most 65,504, a packed
+element when its stride does. A List whose elements hold descriptors is never inline in its
+holder; one kind serves it, one block or a directory by its count. A flattened structure
+lays its fixed fields and then its descriptors, each in the order of their paths, and its
+null bits in that order. `RootLayout.Version` stays 2: no schema that compiles today
+changes its bytes, and a node without these forms refuses such a schema as not stored
+before it could meet one; it is raised at the first change of the bytes of a schema that is
+stored today. One test of `EntityBytes` for a tree, an entity with an owned value and both
+forms of a List, its figure equal to the sum the audit reaches. The sprint is carried out
+in three parts on one branch, a pull request for each, each with its review and its
+breaker: (1) the stored form and the walk: `StructureLayout`, the flattening, both forms of
+a List, references, the rules of the schema language, the writer and the reader by name,
+the walk for the free, the publication, the retirement, the counts and `EntityBytes`, with
+`ReadSettings` and L4; (2) copies and the core: the binding of a record to a class for
+nested values, Q55, the bound at depth, the bound of a List, the validation of a text key of
+a reference; (3) children and paths: the wire and its check, the one placement routine,
+indexes over paths. The breaker's targets 1, 2, 4 and 6 belong to part 1, on ARM64 too in
+the start of the machine; target 2 is run again in part 2 for a read by a class and in part
+3 on a child; target 5 belongs to part 2, and 3 and 7 to part 3. The one start of the
+machine follows the review and the breaker of part 1 and carries what is owed from before.
+
+**The record of S18, part 1** (closed on 24 November 2026): the stored form and the walk.
+It was coordinated by the eighth coordinator of the epic, who stays for the sprints of the
+night by the owner's word in the planner's session.
+
+- *Step 1:* the internal contract and the tests of the whole sprint end at 799e03d (3e36413,
+  1e82cc3, 799e03d); the tests of parts 2 and 3 stay skipped with `SkipReason.NestedValues`.
+  One member of that contract went in the fixes, `RootLayout.ElementOf`, for
+  `StructureLayout.ElementOf` by the position of a field; the one step-1 test that used it
+  reaches the element that way, its assertion unchanged.
+- *Built:* `StructureLayout` for a root and for the record of an element; owned values
+  flattened into their holder; both forms of a List; references stored as a field of their
+  key's type; the two rules of the schema language at the open; the writer and the reader
+  by name; one walk (`StructureWalk`) for the free, the publication, the retirement, the
+  counts and `EntityBytes`; one placement of a String, a Binary and a packed List at every
+  depth (`ValueHolder`); `ReadSettings` with the timestamp source the tests replace, and L4
+  as `IndexSearch.RefuseForState`. Refused in part 1, each where it is refused: a child of a
+  master that stores such entity types, at the handshake; the commit of a batch that holds
+  one, through its task; a read through a class of a type with an owned value or a List,
+  through its task, and `Index` on such a set, at the call; an index over a path into an
+  owned value; a Map or a Set at any depth. Pre-sprint tests that asserted
+  `NotSupportedException` for owned values, Lists and references were edited where part 1
+  made them false, each replacement stating the stored behavior.
+- *The listings,* a Release driver over the public API with tiered PGO off, against the
+  build before part 1: `EntityTable.Step` 4,897 → 4,953 bytes over a record copy, frame
+  984 → 1,000, and 4,687 → 4,861 over a class copy; `TryReadNext` 2,050 → 2,284, frame
+  344 → 360; no call added on a read without a time limit, `StartStep` now inline, a round
+  one call as before, `TicksOf` no longer called each round. `TryPrepareInsert` 950 → 1,026,
+  frame 168 → 184; `RetiredMemory.Free` 259 → 324, frame 40 → 56; `Install` 136 → 175,
+  frame 32 → 40; `RootValues.Write` frame 328 unchanged; `TryStore` unchanged; per String
+  the same two calls as before. `StructureWalk.Walk` and `IndexSearch.CheckRound` are not
+  inlined, each for the figure written beside it. The figures of time are owed to the start
+  of the machine.
+- *Review:* three rounds. Round 1, at 5edfde9: 1 P1 (a native out-of-memory while the chunks
+  of a List of records were allocated left the directory and the chunks taken prepared for
+  good, about 4 MB in the probe; the breaker found it too, and its nested case), 1 P2 (the
+  sentences of part 1 held only by step-1 tests that also read by a class or commit a batch:
+  by-name tests added), 6 P3 (a class read refused at the call, the refusal of `Index` not
+  documented, a linear search on the read of a List, the placement written twice, stale
+  documents, comments) and P4s. Round 2: every finding closed; 2 P3 (a stale comment, a
+  second copy of the inline rule in the placement of a packed List). Round 3: both closed,
+  nothing new. The hardest part to follow, by the reviewer: `NestedValues`, its three frames
+  of offsets and a sizing pass that must agree with the writing pass.
+- *The breaker:* targets 1, 2, 4 and 6, 123 probes, each run in Debug and Release, the
+  concurrent ones twelve times more, three of them beside a full suite. One defect, the P1
+  above, deterministic; after its fix every probe passes. Held: churn by name with an audit
+  after every round and 41 to 46 refusals for memory a seed, 18 faults each followed by a
+  close, readers by key, by enumeration and by search beside writers replacing trees, no
+  read torn in about 2,000 a run, every chunk boundary of both forms at every place, a
+  refusal at every block a tree needs. Not reached here: ARM64, in the start of the machine.
+- *Found and left:* the ownership audit cannot audit an entity type with a secondary index,
+  since the indexes count no live nodes; the head of `OwnershipAudit` says what it would
+  take. No sentence of part 1 is left without a test by it, but part 3, whose index over a
+  path shares the text entry of a flattened String, needs an audit that counts the indexes,
+  or a test of the counters. After a close, a read through a class of a nested type reports
+  `NotSupportedException` where other reads report `ObjectDisposedException`; it goes with
+  the reads by a class of part 2. One full Debug run failed once in
+  `LevelBoundTests.Reservation_made_or_refused_takes_no_managed_room_for_its_nodes`, an
+  allocation counted on one thread, in code part 1 does not touch; it passed alone 25 times
+  and in every full run since, its output is kept, and its cause is not known.
+  The merge of `main` brought the tests of the search by index against a model, whose
+  Reference and owned-path parts are skipped with a reason of their own,
+  `SkipReason.OwnedValuesAndReferences`; part 2 folds it into `SkipReason.NestedValues` and
+  takes the skip from the Reference parts that part 1 now stores.
+- *Every suite at the head* (e4fce78): 3,325 tests, 3,151 passing, 174 skipped, in Debug and
+  in Release.
+
+**The record of S18, part 2** (closed on 24 November 2026): copies and the core. It was
+coordinated by the eighth coordinator of the epic, by the same word of the owner.
+
+- *Built:* the read through an entity class of owned values, Lists and references: under
+  the protection the engine makes each nested value in the form of a record, and the object
+  is built from it after the protection, so no constructor and no setter of the application
+  runs inside it; the rule of Q55 by one internal member of `IndexValue`, which `BindOther`
+  and `FieldValues.Normalize` both call; the bound of a String or a Binary value in a field
+  of the entity, in a field of an owned value and in an element of a List, each value
+  checked once (the top-level pass as it was, the nested values where the walk descends
+  into them); the text key of a reference validated as a String value is; the bound of a
+  List for an entity type the engine stores, checked by one routine,
+  `RootValues.CheckListBounds`, in the validation step of a set and at a batch's `Add`,
+  before the conditions. A single write on a master is encoded on the publishing thread
+  after its conditions, so the planner's "where a write is encoded outside the lock" is
+  kept in its intent, before the conditions and by the engine, through that routine; the
+  core names no number. The bound of a List is stated in one paragraph of the remarks of
+  `LatticeFieldTypeEnum.List`, which a different answer to Q63 removes with its tests and
+  its routine. An empty array read through a class is the one empty array of its type, as
+  an empty Binary already was. `SkipReason.OwnedValuesAndReferences` is folded into
+  `SkipReason.NestedValues`; the two Reference cases of the model of the search by index
+  stay skipped, since they fail only at the open of a child, which part 1 refuses. The tests
+  added by name in the review of part 1 that a step-1 test now holds are removed, each with
+  its holder named.
+- *The listings,* against 739af9c: the read path by key and by a step unchanged;
+  `ClassCopier.Copy` 1,294 → 1,518 bytes and `Build` 210 → 481, a test of an empty array
+  for a scalar type; `CopyText` and `TakeBinary` as they were; `RecordValues.Copy` 416 → 426
+  (the arm of a text key of a reference); `CopyFields` 395 → 505, frame 120 → 136;
+  `ClassSet.Save` 392 → 420 and `RecordSet.Save` 850 → 878, one load and a branch for a
+  scalar type. The nested fields of a class are copied in a pass of their own, for the
+  figure written beside it: in one pass `CopyValue` grew from 328 to 370 bytes and stopped
+  being inlined into `ClassCopier.Copy`, a call for every String or Binary field.
+- *Review:* three rounds. Round 1: no P1, no P2; 6 P3 (remarks that bounded only a field of
+  the entity, a top-level value checked twice — taken by the reviewer's second form, so the
+  order of refusals of a record stays —, comments stating an order the code does not keep,
+  comments citing a role, a figure missing beside the second pass, "a primary key keeps its
+  rule" without a test) and P4s, taken with tests first. Round 2: all closed, every String
+  and Binary counted once at every depth on both paths; 1 P3 (remarks that claimed the
+  bounds for an entity type the engine does not store) and 1 P4. Round 3: both closed;
+  1 P4 left: the remarks say two reads share nothing but the empty array of a type, and
+  an empty String, `string.Empty`, is shared as well, immutable, for the next sprint that
+  touches those remarks. The hardest part to follow, by the reviewer: the pairs of
+  conversions in `ClassBinder`, where whether a value is copied again depends on which
+  branch returns `Same`.
+- *The breaker:* targets 5 and 2 by a class, 171 probes in Debug and Release, the
+  concurrent ones about 40 runs, three beside a full suite. No guarantee broken; the one low
+  point, the empty array shared on one path and not on another, is made one rule above.
+  Held: no object shared in 28 reads of 6,076 objects nor in concurrent reads of 177,000;
+  changes to an input after its write and to a read copy change nothing; constructors and
+  setters of the application saw no protection held, a control showing the probe would see
+  one; 80,059 reads through a class with no tree torn; Q55 at its edges in 99 rows at four
+  places; the bound of a List at eight places in both forms before the conditions; the text
+  key of a reference at its bound in UTF-16. Noted for S21: a write refused for memory waits
+  for reads with no bound of time, which only test code inside a read reaches today, and
+  which a viewer will reach.
+- *Every suite at the head* (15ee84d): 3,403 tests, 3,258 passing, 145 skipped, in Debug and
+  in Release.
+
+**The record of S18, part 3, and the close of S18** (closed on 24 November 2026): children
+and paths. It was coordinated by the eighth coordinator of the epic, by the same word of the
+owner. With it S18 is closed whole.
+
+- *Built:* the wire of a tree to a child: the version of the layout, the root with its
+  locations zeroed, then the values in preorder with no offset between them, a List of
+  records as each block's payload followed by its records' values; the check that walks the
+  whole input by the layout before anything is allocated, one `CheckStructure` for the root
+  and every record, with the inline values of a structure required to lie one after the
+  other from the end of its fixed part or of its records, the last ending the block, in
+  whatever order a master wrote them; one placement for what a child received, a forwarded
+  write, a member of a batch and a local write; a received descriptor left pending, kind
+  Null with its length, until its value is placed, so that a half-placed root is freed by
+  `RootStorage.Free`, the rule stated once in the head of `BlockImport`; children of a
+  master that stores owned values, Lists and references; write batches with them; an index
+  over a path into an owned value, its stored field resolved once, an absent owned value a
+  null part that a unique index does not compare, the entry part still 48 bytes; and an
+  ownership audit that counts the nodes of the indexes and the text references their
+  entries hold. Every refusal of parts 1 and 2 that part 3 makes false went with the
+  sentences that stated it; `SkipReason.NestedValues` went with its last use, and no test
+  of S18 is skipped. `NestedValuesSample` stops where its entity type holds a Map, which S19
+  stores.
+- *A departure from the brief:* item 3 named the export among the users of the one walk.
+  The export descends on its own, since the wire is in preorder and the walk visits the
+  children first; the head of `BlockExport` says so. It is for the architect's review after
+  S18, with the cost that S19 extends two recursions beside the walk.
+- *The listings,* against be8bca3, a Release driver over the public API with tiered PGO off,
+  each driver's engine compared with its build: the read path, `RootValues.Write`,
+  `TryPrepareInsert` and `TryPrepareReplace`, the writers of the delivery and a child's
+  `TryApply` unchanged; the check of a received scalar root makes three calls more
+  (`CheckStructure`, `CheckBits`, `CheckValuesOfRoot`, one `CheckInline`) and placing an
+  out-of-line value one call level more, through the one placement; `BlockImport.Place`
+  1,736 → 591 bytes with `PlaceValues` 1,368 beside it; `ReadPayload` 5,239 → 3,672. The
+  figures of time on the workstation scattered too widely to state one; they are owed to
+  the start of the machine, with `following-children` and the forwarded writes.
+- *Review:* three rounds. Round 1: no P1, no P2; 4 P3 (the walk's comment still naming the
+  export, the README's row of the engine, the head of `EntryPart`, and the names `Unstored`
+  of the tests of the model of the search by index, which now test stored parts: the
+  comment corrected, the rename a move for the refactoring sprint after S18) and P4s, among
+  them two churn tests that did not assert the refusals for memory they claimed, now
+  asserted. Round 2: all closed or rightly left; nothing new. After it the breaker found the
+  P2 below, which the reviewer had ranked P4 in round 1 without reading the values back.
+  Round 3: its fix right, its tests sufficient, nothing new. The hardest part to follow, by
+  the reviewer: the rule of pending descriptors, which five places rely on.
+- *The breaker:* targets 3, 7, 2 on a child and 1 with batches, 61 probes in Debug and
+  Release, the concurrent ones eight times, twice beside a full suite. One P2, deterministic:
+  the check accepted a value inline at the location of another, an overlap and a gap of the
+  same size passing as an exact total, in a block of records and, since S10, in the root;
+  a child read "ab, ab" for ["ab", "cd"], and a forwarded write of it was executed by the
+  master. Fixed test first (045e1ad, 2b2c803). Held: 230,439 damaged inputs, each refused
+  with the counters unchanged or placed, read, exported to the same bytes and freed whole;
+  damages through a link in a load, a transaction and a forwarded write; refusals and
+  native out-of-memory in the middle of a received tree; an index over a path while the
+  owned value appears and disappears, 195,000 writes and 29.7 million entities returned,
+  38,661 refusals of the unique index, none for an absent owned value; 21,372 reads on a
+  child with no tree torn; churn with 2,834 batches, 636 refusals for memory and 132 native
+  out-of-memory outcomes, the audit exact on both nodes after every round and every native
+  byte returned at the close. Recorded and left: bytes under a null bit are not checked to
+  be zero on the wire; no reader, entry of an index or comparison reads them.
+- *Every suite at the head* (2b2c803): 3,416 tests, 3,287 passing, 129 skipped (the stores of
+  the Identity package, the ordering lane and one filter), in Debug and in Release.
+- *The sprint as a whole:* the Acceptance of S18 is held by tests that run, every sentence;
+  no step-1 assertion was changed but one added on the coordinator's decision (the refusals
+  for memory of a batch in `OwnershipAfterChurnTests`); three parts, each with three rounds
+  of review and a breaker; one P1 and one P2 found by breakers and fixed test first; no
+  public type and no public member added. Owed: every figure of time, to the one start of
+  the machine (the plan in the notes of the coordinator), which the owner has been asked to
+  start; Q63 for the owner.
 
 #### S19 · Maps and Sets
 

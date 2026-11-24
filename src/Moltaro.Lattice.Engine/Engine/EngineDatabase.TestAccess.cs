@@ -10,18 +10,19 @@ namespace Moltaro.Lattice.Engine;
 
 // What the tests of the engine and the measurement program reach of an instance beside the public
 // contract (exception X3, docs/work/exceptions.md): the Create with their inputs, the counters, the
-// contents of the text table and of the trees of the indexes, the drain, the switches that hold a read, a
-// growth, a refused write or the application of a child, the fault points, and the report of a child's
-// catch-up. Each member says what it costs an instance whose tests do not use it.
+// contents of the text table and of the trees of the indexes, the nodes their pools hold, the live roots,
+// the drain, the switches that
+// hold a read, a growth, a refused write or the application of a child, the fault points, and the report of
+// a child's catch-up. Each member says what it costs an instance whose tests do not use it.
 internal sealed partial class EngineDatabase
 {
     // For the tests of the engine and the measurement program (exception X3, docs/work/exceptions.md):
     // makes an instance as LatticeDatabase.Create does, with the same refusals, that takes what the inputs
     // give instead of what an instance makes for itself: the options of its arena, the allocator of its
-    // native memory, the seed of the hashes of its primary indexes and the persistence step of its commit
-    // stage, each when it is set (EngineTestInputs). When the inputs give the options of the arena,
-    // MemoryLimit of the options of the database is not read. Nothing else differs, and an instance made
-    // by LatticeDatabase.Create pays nothing for it.
+    // native memory, the seed of the hashes of its primary indexes, the persistence step of its commit
+    // stage and the source of the timestamps of its reads, each when it is set (EngineTestInputs). When the
+    // inputs give the options of the arena, MemoryLimit of the options of the database is not read. Nothing
+    // else differs, and an instance made by LatticeDatabase.Create pays nothing for it.
     public static EngineDatabase Create(LatticeDatabaseOptions options, EngineTestInputs inputs)
     {
         Check(options);
@@ -168,6 +169,80 @@ internal sealed partial class EngineDatabase
                 }
 
                 return nodes;
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+    }
+
+    // For the audit of the ownership of blocks by the tests of the engine (exception X3,
+    // docs/work/exceptions.md): the bytes of the nodes the secondary indexes of every entity type the engine
+    // stores hold reserved for their publications and as their standing reserves, prepared blocks that no
+    // tree names (Indexes.NodePool), each node a block of the node size of its index. Taken as TextReferences
+    // is, under the lock of the writes between two changes of the engine, on a master and on a child; it does
+    // not drain. Unavailable before the open and once Faulted, ObjectDisposedException after the close.
+    public long ReservedNodeBytes()
+    {
+        ThrowIfNotReady();
+        _barrier.Enter();
+
+        try
+        {
+            var parts = Part(_parts);
+
+            lock (parts.Writes)
+            {
+                var bytes = 0L;
+
+                foreach (var operations in parts.Operations.Values)
+                {
+                    foreach (var index in operations.Table.Indexes)
+                    {
+                        bytes += (long)index.Tree.ReservedNodes * index.Layout.NodeBytes;
+                    }
+                }
+
+                return bytes;
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+    }
+
+    // For the audit of the ownership of blocks by the tests of the engine (exception X3,
+    // docs/work/exceptions.md): calls the action once for every live root of every entity type the engine
+    // stores, with the arena, the layout of its entity type, the handle of its root entry and the address of
+    // its root block, so that the test walks what the root owns itself (Storage.Roots.StructureWalk) and
+    // compares it with the counters of the arena. Taken as TextReferences is, under the lock of the writes
+    // between two changes of the engine, on a master and on a child, so nothing the action reads changes
+    // while it reads; the action reads and changes nothing, and calls nothing of the database. It does not
+    // drain: a root a write replaced or deleted is retired, not live, and is not given. Unavailable before
+    // the open and once Faulted, ObjectDisposedException after the close.
+    public void ForEachLiveRoot(Action<Arena, RootLayout, RootHandle, ArenaAddress> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ThrowIfNotReady();
+        _barrier.Enter();
+
+        try
+        {
+            var parts = Part(_parts);
+
+            lock (parts.Writes)
+            {
+                for (var slot = 0u; slot < (uint)parts.Roots.SlotExtent; slot++)
+                {
+                    ref var entry = ref parts.Roots.EntryOfSlot(slot);
+
+                    if (entry.State == RootStateEnum.Live)
+                    {
+                        action(parts.Arena, parts.Tables.Stored(entry.TypeId).Layout!, new RootHandle(entry.Generation, slot), entry.Root);
+                    }
+                }
             }
         }
         finally

@@ -20,7 +20,7 @@ namespace Moltaro.Lattice.Storage.Values;
 // first bytes end this chunk and the rest begins the next, because a chunk boundary is not a
 // boundary of the value (milestone contract, "Native layout and allocation"). The text is
 // well-formed, which RootWriter checked first, so no character is ever replaced.
-internal ref struct ValueSource
+internal ref struct ValueSource : IValueSource
 {
     // The bytes not handed out yet, of a Binary value.
     private ReadOnlySpan<byte> _bytes;

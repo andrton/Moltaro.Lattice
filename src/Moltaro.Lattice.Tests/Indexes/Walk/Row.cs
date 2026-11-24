@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Tests.Indexes.Model;
+
 namespace Moltaro.Lattice.Tests.Indexes.Walk;
 
 // Bound to the entity type "Row" of WalkSchema.
@@ -13,7 +15,13 @@ internal sealed class Row
 
     public string? D { get; set; }
 
+    // The values of the fields A to D, in the order of the indexes.
+    public IReadOnlyList<object?> Key => [A, B, C, D];
+
     public Row Copy() => new() { Id = Id, A = A, B = B, C = C, D = D };
+
+    // The row as the model of an index holds it (IndexModel).
+    public ModelEntry Entry() => new(Id, Key);
 
     public override string ToString() => $"{Id}: ({Show(A)}, {Show(B)}, {Show(C)}, {Show(D)})";
 

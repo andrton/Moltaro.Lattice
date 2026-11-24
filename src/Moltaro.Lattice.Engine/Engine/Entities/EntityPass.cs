@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // that table (PrimaryIndex.TableAndVersion), which a growth changes. A position belongs to the table
 // of its version, and a step that finds another table walks it from its start (EntityTable).
 //
-// The read limits of the options of the database, and what the pass has spent of them (ReadLimits): the
+// The read limits of the database, and what the pass has spent of them (ReadLimits): the
 // memory is the bytes ReturnedKeys holds, by its rule, checked before it grows for the key of an entry the
 // pass has not returned, before the entry is copied; the time is that of its steps, checked each time a
 // round of a step has entered the protection of reads, so once for every EntityTable.WordsPerRound words of
@@ -30,11 +30,11 @@ internal sealed class EntityPass
 
     private int _stagedVersion;
 
-    public EntityPass(string entityName, ReturnedKeys returned, LatticeDatabaseOptions options)
+    public EntityPass(string entityName, ReturnedKeys returned, ReadSettings settings)
     {
         _entityName = entityName;
         Returned = returned;
-        _limits = new ReadLimits(options);
+        _limits = new ReadLimits(settings);
     }
 
     public ReturnedKeys Returned { get; }

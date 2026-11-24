@@ -28,4 +28,10 @@ internal sealed class EngineTestInputs
     // The persistence step of the commit stage, so that a test can hold a commit until it releases it
     // (IPersistence). Null: the persistence of MemoryOnly, which completes at once.
     public IPersistence? Persistence { get; init; }
+
+    // The source of the timestamps a read takes for its time limit, in ticks of Stopwatch, so that a test
+    // decides how much time a step spends inside the engine, and when, without the clock of the machine and
+    // without waiting (Entities.ReadSettings). It is called on the thread of the read, inside the step, and
+    // must neither wait nor call the database. Null: Stopwatch.GetTimestamp.
+    public Func<long>? ReadTimestamps { get; init; }
 }

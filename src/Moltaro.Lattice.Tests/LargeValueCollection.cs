@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.ReadsAndWrites;
+namespace Moltaro.Lattice.Tests;
 
 // The test collection of the tests that hold values of hundreds of megabytes. They run alone, after
 // the tests that run in parallel, so that their memory is never added to the memory of other tests

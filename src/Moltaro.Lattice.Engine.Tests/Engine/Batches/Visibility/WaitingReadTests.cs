@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
 
 // A read that meets a member of a batch whose position is not published yet waits for the position, inside
 // the protection of reads and outside every lock (exception X6, the wait of a read for a step of a
-// publication), and only such a read waits; how each wait ends (the brief of Epic 1, sprint S17, the tests
-// of point 2):
+// publication), and only such a read waits; how each wait ends (docs/design/write-path.md, "How a publication
+// is made"):
 // - when the publication goes on, the read returns the state after the batch, at its position or later, a
 //   search whose one wait is in the step that ends its walk as well;
 // - when the publication fails, a read that waits gives up with Unavailable, as the instance is Faulted,

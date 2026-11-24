@@ -8,8 +8,10 @@ namespace Moltaro.Lattice.Samples.Schema;
 // position by position. A record holds them by name; a class holds them in its own types. An
 // index may cover a field inside an owned value.
 //
-// This shows the intended use. Storing such entities is not implemented yet: the write at the
-// end throws NotSupportedException, which Program.cs reports.
+// This shows the intended use. The engine stores owned values, Lists and references, reads them back by
+// name and through a class and finds them through an index over a field inside an owned value; the Maps
+// and Sets of Person are not built yet, so the engine does not store Person and the write at the end throws
+// NotSupportedException, which Program.cs reports.
 internal static class NestedValuesSample
 {
     private static readonly string SchemaJson = $$"""

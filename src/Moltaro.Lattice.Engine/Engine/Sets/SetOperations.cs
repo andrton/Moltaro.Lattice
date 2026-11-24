@@ -25,18 +25,22 @@ internal sealed class SetOperations
     // How long an operation waits for the position of its session when the session does not say.
     private readonly TimeSpan _synchronizationTimeout;
 
-    // The options of the database, whose read limits every enumeration and every search takes
-    // (Entities.ReadLimits).
-    private readonly LatticeDatabaseOptions _options;
+    // The read limits of the database, which every enumeration and every search takes (Entities.ReadLimits).
+    private readonly ReadSettings _reads;
 
-    public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options)
+    // Whether the entity type is stored with a List at any depth, whose bound a write is checked against
+    // before it is submitted (RootValues.CheckListBounds).
+    private readonly bool _checksLists;
+
+    public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
     {
         Table = table;
         _writes = writes;
         _forwarder = forwarder;
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
-        _options = options;
+        _reads = reads;
+        _checksLists = table.Layout is { Structure.HoldsLists: true };
     }
 
     public EntityTable Table { get; }
@@ -88,15 +92,15 @@ internal sealed class SetOperations
         new SessionEnumeration<TCopy, TResult>(this, prototype, session, cancellationToken);
 
     // A new pass of an enumeration of the entity type, under the read limits of the options.
-    public EntityPass StartPass() => Table.StartPass(_options);
+    public EntityPass StartPass() => Table.StartPass(_reads);
 
     // A new search of a lazy Find through the index by the key, under the read limits of the options.
-    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key) => new(_options, index, key);
+    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key) => new(_reads, index, key);
 
     // A new search of FindAsync through the index by the key, in the direction given and past the matches
     // of its Offset, under the read limits of the options.
     public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key, bool reverse, int offset) =>
-        new(_options, index, key, reverse, offset);
+        new(_reads, index, key, reverse, offset);
 
     // Waits for the position the session depends on, before the first step of an enumeration.
     public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken) =>
@@ -183,6 +187,17 @@ internal sealed class SetOperations
 
         progress.Hold(bytes);
         search.CheckMemory(progress.Bytes + progress.Held, cancellationToken, Table.EntityType.Name, index?.Definition.Name);
+    }
+
+    // Refuses a List above its bound among the values a write took, with ValidationFailed
+    // (RootValues.CheckListBounds), for a set that validates them: before the write is submitted, and so
+    // before its conditions, as the set refuses what the validation of the core refuses.
+    public void CheckListBounds(object?[] values)
+    {
+        if (_checksLists)
+        {
+            RootValues.CheckListBounds(Table.Layout!, values);
+        }
     }
 
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>

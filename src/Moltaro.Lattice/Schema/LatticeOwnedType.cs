@@ -10,8 +10,9 @@ namespace Moltaro.Lattice.Schema;
 /// <remarks>
 /// <para>
 /// A value of an owned type has no key and no identity of its own. It belongs to one entity
-/// and is never shared with another one; once owned values are stored, it is written and read
-/// with that entity, as the part below says. It can be held
+/// and is never shared with another one; it is written and read with that entity, and stored
+/// inside it: its fields count toward the rules of the schema language that bound what an
+/// entity stores, see <see cref="LatticeEntityType"/>. It can be held
 /// by a field of an entity type or of another owned type, by an element of a List and by a
 /// value of a Map; never by a Map key or a Set element.
 /// </para>
@@ -25,13 +26,6 @@ namespace Moltaro.Lattice.Schema;
 /// A Reference is not containment: an owned type may refer to any entity type, the one whose
 /// entities hold it included. A chain of owned types, each holding the next, counts toward
 /// the depth of a declaration, which is at most 32, see <see cref="LatticeValueDeclaration"/>.
-/// </para>
-/// <para>
-/// <b>Not implemented yet.</b> An owned type is declared, compiled, saved and loaded, records
-/// hold its values as <c>LatticeOwnedValue</c> and its class is bound against it, but storing
-/// its values is not implemented. Until then no write of an entity type that has an Owned
-/// field is carried out: after the checks every write makes of its arguments and of the
-/// entity against the schema, it throws <see cref="NotSupportedException"/>.
 /// </para>
 /// </remarks>
 public sealed class LatticeOwnedType

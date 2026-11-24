@@ -7,8 +7,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Waits;
 
 // A write batch and a single write each wait for the one prepared, unpublished write of other entities that
 // claims a value of a unique index they set, or that frees one a published root holds, holding nothing, and
-// are prepared again from the start once that write completes (the brief of Epic 1, sprint S17, points 3 and
-// 4; exception X6, the wait for a unique value): a prepared batch answers who claims and who frees a value as
+// are prepared again from the start once that write completes (docs/design/write-path.md, "A write batch";
+// exception X6, the wait for a unique value): a prepared batch answers who claims and who frees a value as
 // a single write does. Every pairing a batch takes part in, for both ends of the holder:
 // - the holder claims the value: published, the waiter is refused with UniqueConstraintViolation, a batch
 //   with the number of its member that claims; withdrawn, the waiter takes the value;
