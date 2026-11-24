@@ -100,7 +100,7 @@ public sealed class LayoutTests
     [Fact]
     public void A_descriptor_of_all_zero_bytes_is_the_descriptor_of_a_null_value()
     {
-        // The descriptor of a null String or Binary is all zero (brief of S05, "Where a value goes").
+        // The descriptor of a null String or Binary is all zero (docs/design/arena-protocol.md).
         Assert.Equal(DescriptorKindEnum.Null, default(ValueDescriptor).Kind);
     }
 

@@ -24,7 +24,7 @@ internal static class RootStorage
     // block, which holds them, last.
     //
     // A root that a node did not finish placing from what it received is freed so too: what it did not place
-    // is pending and names nothing (Replication.Load.BlockImport, "Pending").
+    // is pending and names nothing (ValueBlocks.WritePending).
     //
     // The caller frees a root only when no reader can reach its blocks any more
     // (docs/design/arena-protocol.md, "Deferred reclamation"). A retired root is freed in the same
@@ -110,6 +110,8 @@ internal static class RootStorage
     // Frees what each descriptor holds outside its block (FreeValue).
     private struct Freeing : IStructureVisitor
     {
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
+
         public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
             switch (descriptor.Kind)
@@ -134,6 +136,8 @@ internal static class RootStorage
     // prepared.
     private struct Publishing : IStructureVisitor
     {
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
+
         public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
             switch (descriptor.Kind)
@@ -159,6 +163,8 @@ internal static class RootStorage
     private struct Retiring : IStructureVisitor
     {
         public long TextBytes { get; private set; }
+
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
 
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {

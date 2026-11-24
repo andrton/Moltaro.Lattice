@@ -10,74 +10,21 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// Places one root that a node received in its arena: the reverse of BlockExport. The input holds the root
-// after its type id and its last mutation sequence, which the caller has read to choose the layout and to
-// take the entry of the root: its layout version, the bytes of its root payload, and the values it holds
-// out of line, in preorder (BlockExport), and nothing else.
+// Checks and places one root received by a node. The caller uses the type id to pick the layout.
+// The body starts at the layout version and carries the root payload and the data it names, in
+// preorder (BlockExport). The check validates the whole body against the layout before it reaches
+// the arena. Its scratch buffers are reused and describe the most recently checked root. The
+// caller can read the key from that checked root before allocating a new one.
 //
-// The whole input is checked by the layout before it is used, and before anything is allocated for the root
-// (Check), each structure in it, the root and every record of a List of records, by the same rules:
-// - the layout version against the layout;
-// - the null bitmap: no bit set beyond the bits of the structure, and bits that agree, as a writer sets them
-//   (StructureLayout.Beneath): every bit beneath an absent owned value set, and the bit of a place that is
-//   not nullable beneath a present one clear; and the bit of each nullable String, Binary or List against
-//   its descriptor: a value that is null has the descriptor of zeros, one that is not has a descriptor of a
-//   value. The records of a packed List whose elements have bits are held to the same bits;
-// - the kind of each descriptor against its length or count and its place, as the writer places values: a
-//   text that lies in an entry of the text table (Storage.Values.StoredField.LiesInTextEntry: one that is
-//   not empty of a field with Dictionary storage, one longer than ValueBlocks.InlineLimit of a field that is
-//   part of an index) of kind Text, up to ValueBlocks.MostValueBytes bytes out of line; any other String or
-//   Binary value, and a List whose elements hold no descriptor, whose length is then a whole number of its
-//   records, inline at most ValueBlocks.InlineLimit bytes, in a block of its own 1 to
-//   ValueBlocks.SingleBlockLimit bytes, in chunks more than that and at most ValueBlocks.MostValueBytes; a
-//   List whose elements hold descriptors of kind Records, at most as many elements as such a List holds
-//   (StructureLayout.MostElements); no other kind. The location of a value out of line and of a List of
-//   records is 0 on the wire: nothing received is used as an address;
-// - the values inline: those of the root, and those of the records of one block of records, ordered by their
-//   locations, lie one after the other from the end of the fixed part or of the records, each beginning where
-//   the one before it ended, so that each byte after the fixed part or the records is named by exactly one
-//   value and the block ends with the last. A master lays them so, in the order it places them
-//   (Storage.Roots.ValueHolder), which need not be the order of their descriptors; so the rule is on their
-//   locations, not on their order (CheckInline);
-// - the lengths, before anything is read past them: the records of a List, a count times a stride counted in
-//   64 bits, are not more than the bytes left; each value out of line and each block of records is not more
-//   than the bytes left; and the bytes of the input are exactly the root and its values, so a root payload
-//   and a block of records fit one block.
-// Each failure is a LatticeException with ValidationFailed, and nothing is allocated, nor any managed memory
-// that grows with what the input announces. The child then reads the key of the root from what was
-// checked (FixedPart, Text), so that it knows whether the root is the state of a key it holds before it
-// takes anything for it (Engine.Child.Loading.ReceivedChanges).
+// Place makes prepared blocks with the same placement rules as RootWriter and NestedValues.
+// The descriptors of values still to place are pending until their local locations are known.
+// This lets the ownership walk free what was already placed if the operation stops. A budget
+// refusal returns the null address and a native allocation failure propagates, both after cleanup.
+// The caller decides how to handle a refusal and when to publish the root.
 //
-// Then Place places it through the placement a write of values goes through (Storage.Roots.ValueHolder,
-// NestedValues.PlaceRecords): the root block is allocated, prepared, and filled with the payload, and each
-// value out of line is stored as a writer stores it, which allocates its blocks and writes every header and
-// location itself; a List of records gets its blocks of records, each filled with the payload received and
-// then with the values of its records, at every depth (ReceivedRecords). The bytes of a Dictionary text
-// become a reference to the entry of the text table of this node that holds them, found or added with the
-// seed of this node (Storage.Text.TextTable.TryAcquire), so a node stores each distinct text once whatever
-// it receives. Place counts the slots it took as the root writer counts those of a write
-// (Storage.Roots.RootWriter.SlotBytes): the root block, the blocks of each value and of each List of
-// records and each entry it added, so that a root a child forwards has on its master the encoded size the
-// same write made there has (Engine.Writes.PreparedWrite.EncodedSize). The caller publishes the root.
-//
-// Pending, the one rule of a structure being placed from what was received. A structure is copied into its
-// block with the descriptor of each value that follows it on the wire pending: of kind Null, with the length
-// or the count it was received with and the location 0 (LeavePending). The check leaves the copy of the root
-// payload so, which Place copies into the root block; ReceivedRecords leaves each block of records so as it
-// copies it. PlaceValues takes a descriptor of kind Null with a length that is not 0 to be pending, a null
-// value having the descriptor of zeros, and writes the descriptor of each value it places over it. Until
-// then the descriptor names nothing to every walk over what a root owns, which takes a descriptor of kind
-// Null to name nothing (StructureWalk), and NestedValues.PlaceRecords names the block or the directory of a
-// List before it fills them, so a walk meets the pending records of a block not filled yet, and an entry of
-// the directory still zero for a chunk not allocated yet. So a root whose placement stops halfway, refused or
-// failed, is freed by the free of a root, whatever it had placed (Storage.Roots.RootStorage.Free), and a
-// List that stops halfway by the free of a List.
-//
-// A refusal of the arena for its budget returns the null address, and an OutOfMemoryException of the
-// native allocator passes through; either way nothing of the root is left allocated. The caller decides
-// what a refusal means (Engine.Child.Loading, Engine.Writes.WriteExecutor).
-//
-// The arena has one changing thread at a time: the caller holds the lock of the writes of its node.
+// The caller holds its node's writes lock through checking and placement. The layout, transfer
+// checks and pending rule are in docs/design/arena-protocol.md, "Stored structures and root
+// transfer."
 internal sealed class BlockImport
 {
     private readonly Arena _arena;
@@ -240,7 +187,7 @@ internal sealed class BlockImport
             var offset = at + place.Offset;
             var pending = ValueBlocks.Read(holder.At(offset, ValueBlocks.DescriptorSize));
 
-            if (pending.Kind != DescriptorKindEnum.Null || pending.Length == 0)
+            if (!ValueBlocks.IsPending(pending))
             {
                 continue;
             }
@@ -289,7 +236,7 @@ internal sealed class BlockImport
     {
         if (ValueBlocks.LiesOutOfLine(received) || (received.Kind == DescriptorKindEnum.Records && received.Length != 0))
         {
-            ValueBlocks.Write(place, new ValueDescriptor { Length = received.Length });
+            ValueBlocks.WritePending(place, received.Length);
         }
     }
 

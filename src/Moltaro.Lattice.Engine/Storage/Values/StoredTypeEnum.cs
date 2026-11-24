@@ -1,9 +1,8 @@
 namespace Moltaro.Lattice.Storage.Values;
 
-// How a root stores the value of one field, and with it which member of RootWriter and RootReader
-// serves the field (brief of S05, "Which member serves which field"). An Enum field is stored as an
-// integer of its underlying type, signed or unsigned, so it takes the kind of that integer; a
-// signed or unsigned integer has the width of its type, which StoredField keeps.
+// How a root or a record lays out a field. The kind selects the RootWriter and RootReader operations
+// for that field. An Enum takes the kind of its underlying integer. StoredField gives the width of
+// an integer. See docs/design/arena-protocol.md, "Stored structures and root transfer."
 internal enum StoredTypeEnum : byte
 {
     Boolean = 1,
@@ -30,7 +29,7 @@ internal enum StoredTypeEnum : byte
 
     TimeSpan = 11,
 
-    // A Plain String: a ValueDescriptor in the fixed part, the text in the database encoding.
+    // A String uses a ValueDescriptor in the fixed part and bytes in the database encoding.
     String = 12,
 
     // A ValueDescriptor in the fixed part, the bytes as they are.
@@ -43,6 +42,6 @@ internal enum StoredTypeEnum : byte
 
     // A List: a ValueDescriptor in the fixed part. When its elements hold no descriptor it lies as the bytes
     // of a Binary value do, of kind Inline, Block or Chunked; when they hold descriptors it is of kind
-    // Records (DescriptorKindEnum.Records). The layout of its elements is Roots.RootLayout.ElementOf.
+    // Records (DescriptorKindEnum.Records). StructureLayout.ElementOf gives the layout of its elements.
     List = 15,
 }

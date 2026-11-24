@@ -33,6 +33,131 @@ All addresses are internal. Relocation changes addresses, not keys, revisions or
 logical contents. Published dictionary text is immutable; an update acquires a
 reference to the replacement text. It never overwrites a string shared by roots.
 
+## Stored structures and root transfer
+
+The engine uses the same fixed structure for the fields of an entity and for an element
+of a List. A structure packs a null bitmap, the fixed-width fields and a consecutive run
+of 16-byte descriptors, without padding. Owned values are flattened into the structure
+that contains them. Each group follows the order of the paths of the field identities.
+A Reference occupies the form of its target's key. A List occupies one descriptor.
+The layout compiles a table of those places and the element layout of each List. It is
+immutable and shared by all threads that read or write roots of that type.
+
+The bitmap uses the low bit of its first byte for the first nullable position. A set bit
+means null. A nullable owned value has its own presence bit and every field underneath
+has a bit, including fields that would otherwise require a value. When the owned value
+is absent, every bit below it is set. Bits beyond the last position are clear. Local
+writers zero the fixed-width bytes under a null bit. On receipt those fixed-width bytes
+may have any contents, since readers consult the bit first and skip the bytes. A null
+descriptor must be all zero, including on receipt. This follows the
+[trust boundary for received roots](../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database)
+between structure validation and value validation.
+
+### Where the bytes lie
+
+```text
+root block              block payload begins
+                        v
+[32-byte header]        [bitmap | fixed-width fields | descriptors] [inline values]
+^                       ^ structure begins
+root place offsets and inline locations count from here
+
+block of records        block payload and first record begin
+                        v
+[32-byte header]        [bitmap | fixed | descriptors] [record 1] ... [inline values]
+^                       ^ record 0 place offsets count from here
+inline locations count from here, across all the records in this block
+```
+
+A record starts at its stride within the payload. Its field and descriptor offsets
+count from that record's start. An inline descriptor's location counts from the
+start of the block that holds it, with the header included. A reader
+uses the structure's bytes to find the descriptor and the whole containing payload to
+reach the inline value. For a root, place offsets also include the header, so subtract
+the header size when applying those offsets to the payload. The fixed part of a root,
+including the header, must fit in a block. The record of an element must fit in a chunk
+with room for the inline values it can describe. An invalid layout for a stored type
+fails open with `InvalidSchema`.
+
+A String, a Binary or a packed List is placed by its encoded length. A packed List
+holds records without descriptors, at a fixed stride. It can cross a chunk boundary
+in the middle of an element. Up to 64 bytes fit inline when the block has room, including
+an empty value at the current inline end. A value that goes out of line uses one block
+through 4 KiB and a directory of chunks above it. A chunk holds up to 65,504 payload
+bytes. The directory holds one descriptor per chunk, up to 4,094 chunks, so the byte
+limit for one value is 268,173,376. A larger value is refused with `ValidationFailed`.
+
+A List whose elements contain descriptors is stored as whole records, with an inline
+area after the last record of each block. A descriptor of kind Records carries the
+element count and names the block of records or, for a longer List, its directory of
+record blocks. An empty List of this form has location zero. One chunk reserves enough
+room for each record and up to 64 bytes for each of its descriptors. Every chunk except
+the last holds the resulting number of records per chunk. The maximum element count is
+that number times the capacity of a chunk directory. An out-of-line value block or
+directory is owned by the block containing the descriptor. A chunk is owned by its
+directory.
+
+Text keeps its encoded bytes as specified by the schema. A nonempty Dictionary text,
+or a text value longer than 64 encoded bytes used as a secondary index part, uses an
+entry of the text table. This also applies to an index path into an owned value.
+The descriptor of kind Text holds one reference to that entry. The entry owns its
+own blocks, allocated by the same length rule as other values out of line. An empty
+text is inline. Short Plain text, including indexed Plain text, follows the ordinary
+inline and out-of-line placement rule.
+
+### Transfer order and checks
+
+The transfer of a root starts with its layout version in little-endian order, then
+the root payload, then the values it holds out of line in descriptor order. Capture
+adds the type id and last mutation sequence before that body. A List of records is
+written in preorder. Each record block is sent first as its whole payload. The
+out-of-line values it names follow, record by record and descriptor by descriptor,
+recursively for a List of records. Inline bytes travel with their containing
+payload and keep their offsets. Each out-of-line location is sent as zero,
+including the locations of text entries and record blocks. Dictionary text is sent as
+bytes for each reference. Native headers, capacity slack and chunk directories never
+travel. The payload and value bytes use the machine's byte order, which nodes agree on
+in the handshake.
+
+The export writes the block payload when the walk enters it. The same walk visits a
+descriptor after any record blocks it names, so freeing can safely release children
+before their parent. The length calculation uses the same walk as writing. Capture
+protects the published root from reclamation while it copies. The delivery of a write
+can copy the new root under the writes lock.
+
+Before it allocates a root, a receiving node checks the complete body against the
+layout. It checks the layout version, the agreement of the null bits and the
+descriptors, descriptor kind and length or count, and that the wire uses zero for
+out-of-line locations. Packed sizes must give a whole number of elements and the
+element bitmaps have the same rules as other structures. The check accounts for every
+inline range after the fixed part of the root or after the records of one block. They
+must follow one another in location order, without gaps or overlaps, to the exact
+end of the payload. The order of the descriptors is independent of the order of the
+inline locations. Each block must fit its storage. The check bounds counts and lengths
+by the bytes remaining before reading them and consumes the whole input. Invalid
+structure is `ValidationFailed`. The check uses scratch storage bounded by the
+layout and block sizes. The receiver uses the checked representation to read the key,
+validating the encoding when the key is text. Other field values travel as bytes.
+
+### Pending placement
+
+The checked root payload and every copied record block leave the descriptors of
+values that follow them pending. A pending descriptor has kind Null, a nonzero
+length or element count and location zero. It names no storage. The walk therefore
+treats it like any other descriptor of kind Null and can free a root whose placement
+stopped partway through. Where a List directory is already allocated, entries of
+chunks not yet allocated are zero and name no chunk.
+
+Placement uses the local writer's allocation rules to replace pending descriptors
+with local locations, leaving the inline offsets intact. Record blocks are linked
+before their contents are placed, so a failure can free every block obtained so
+far. Each completed block of records ends where the last inline value ends. A local
+Dictionary entry is found or added by its bytes. Slot accounting includes the
+prepared root, its blocks and any added text entries, the same way the writer
+counts them. A memory budget refusal returns the null address and leaves no part of
+the root allocated. A native allocation failure propagates after the same cleanup.
+The caller publishes the prepared root when the write or load is ready.
+
 ## Lock and lifetime order
 
 1. Under the short catalog gate, look up a root and claim its entry lifetime.

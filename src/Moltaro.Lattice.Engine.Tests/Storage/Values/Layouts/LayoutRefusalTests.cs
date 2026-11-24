@@ -4,10 +4,9 @@ using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 
-// What RootLayout.Compile refuses (brief of S05, "The fixed part" and "What Compile does not lay
-// out yet"). A fixed part that does not fit one block, Arena.MaxBlockSize bytes with its header,
-// is refused with InvalidSchema and the entity type named, when the layout is compiled and so
-// before any data is admitted (milestone contract, "Native layout and allocation"). A field that holds
+// A fixed part that does not fit one block, Arena.MaxBlockSize bytes with its header, is refused
+// during layout compilation with InvalidSchema and the entity type named, before any data is admitted
+// (docs/design/arena-protocol.md, "Stored structures and root transfer"). A field that holds
 // a Map or a Set, at any depth, which the engine cannot store yet, is NotSupportedException with the
 // field named. An entity type that is not of the given schema is ArgumentException.
 public sealed class LayoutRefusalTests

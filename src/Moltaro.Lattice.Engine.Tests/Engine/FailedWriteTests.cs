@@ -3,22 +3,15 @@ using Moltaro.Lattice.TestSupport.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
-// After a write that failed validation or was refused, nothing of it is left in any counter (brief
-// of Epic 1, sprint S06, the planner's answer to Q30): the live bytes, the class slack, the prepared
-// and the retired bytes of the arena, the bytes of the primary index, retired and being built
-// included, the count of the table of root entries and the published sequence are as they were, and
-// the arena holds what the entities hold. The counters are compared after a drain (brief of S08,
-// "Counters and the drain, part 1"), so that what the replace before them retired is not taken for
-// something a failed write left.
-// The segments are not among them: a segment the arena obtained for a write that failed may stay in
-// its reserve, so Segments, ReservedSegments and FreeRegions may differ (brief of S05, "The size of
-// an entity").
+// A failed validation or refused write leaves the arena's live, slack, prepared and retired bytes,
+// the bytes of the primary index, the root entry count and the published sequence as they were.
+// The test drains retired memory before reading the counters so an earlier replacement contributes
+// nothing to them. A failed write may have obtained a segment that the arena kept in its reserve,
+// so Segments, ReservedSegments and FreeRegions can change (docs/design/arena-protocol.md).
 //
-// By decision O19 an entity has no size limit, so no write is refused for its size. What is left
-// of WriteRejected is the refusal for the memory budget of the database, which this database, with the
-// default budget of half of the memory the runtime reports, does not come near: the tests of the
-// memory budget state it on a small arena (MemoryBudget.RefusedWriteTests), with the same rule that
-// nothing of a refused write is left. A value above the bound of one value is ValidationFailed.
+// The memory budget covers the whole database. A value above the bound of one value is
+// ValidationFailed. A write refused by the budget is WriteRejected, an outcome that
+// MemoryBudget.RefusedWriteTests exercises with a small arena.
 public sealed class FailedWriteTests
 {
     [Fact]

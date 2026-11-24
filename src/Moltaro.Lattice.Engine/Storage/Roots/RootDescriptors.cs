@@ -2,16 +2,13 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The descriptors of a root, which name everything it holds outside its root block: one for each String,
-// Binary and List field and for each such field of its owned values, in the order of the layout, 16 bytes
-// each, closing the fixed part
-// (RootLayout.DescriptorOffset). It walks the payload of a root block, or of anything laid out as one — the
-// image of a writer, the copy of a root on the wire, a root received — so that the free, the publication,
-// the retirement and the byte counts of a root (RootStorage, RootWriter, Engine.Writes.WriteExecutor), its
-// export (Replication.Load.BlockExport) and its import (Replication.Load.BlockImport) walk it the same way.
-// Each step gives the descriptor (Current), the bytes it lies in (Place), its offset in the root block
-// (Offset), its field (Field) and its position (Index). A ref struct over the span, for foreach and for an
-// explicit loop: it allocates nothing and calls nothing virtual, and it reads the payload only.
+// The consecutive descriptors that close the fixed part of a root payload (RootLayout.DescriptorOffset).
+// RootWriter uses the sequence to adopt blocks when completing a root. BlockExport uses it to walk
+// the root's descriptors in their layout order and to zero addresses in the copy it sends. Ownership
+// operations and walks into the records of Lists use StructureWalk.
+//
+// A ref struct over a caller-owned span. Each step exposes the descriptor and the bytes it occupies,
+// along with its block-relative offset and layout position. The loop allocates nothing.
 internal ref struct RootDescriptors
 {
     private readonly RootLayout _layout;

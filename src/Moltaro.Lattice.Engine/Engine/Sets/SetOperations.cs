@@ -25,7 +25,7 @@ internal sealed class SetOperations
     // How long an operation waits for the position of its session when the session does not say.
     private readonly TimeSpan _synchronizationTimeout;
 
-    // The read limits of the database, which every enumeration and every search takes (Entities.ReadLimits).
+    // The read settings shared by the enumerations and searches of this entity type.
     private readonly ReadSettings _reads;
 
     // Whether the entity type is stored with a List at any depth, whose bound a write is checked against
@@ -91,14 +91,14 @@ internal sealed class SetOperations
         where TResult : class =>
         new SessionEnumeration<TCopy, TResult>(this, prototype, session, cancellationToken);
 
-    // A new pass of an enumeration of the entity type, under the read limits of the options.
+    // A new enumeration pass with the database's read limits.
     public EntityPass StartPass() => Table.StartPass(_reads);
 
-    // A new search of a lazy Find through the index by the key, under the read limits of the options.
+    // A forward search for a lazy Find, with the database's read limits.
     public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key) => new(_reads, index, key);
 
-    // A new search of FindAsync through the index by the key, in the direction given and past the matches
-    // of its Offset, under the read limits of the options.
+    // A search for FindAsync in the chosen direction, skipping Offset matches and applying the
+    // database's read limits.
     public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key, bool reverse, int offset) =>
         new(_reads, index, key, reverse, offset);
 

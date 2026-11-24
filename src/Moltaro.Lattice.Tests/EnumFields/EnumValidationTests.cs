@@ -1,8 +1,8 @@
 namespace Moltaro.Lattice.Tests.EnumFields;
 
 // Whether an integer is a value its enum type declares is checked by the validation of the core
-// (Q03.5, Q03.6; brief of Epic 1, sprint S07), with every other validation of a value and in the
-// order of Q25; LatticeEnumType.IsValid is the rule. A
+// (docs/decisions/schema-and-types.md, Q03.5 and Q03.6), with the other value validation before
+// write conditions are checked. LatticeEnumType.IsValid gives the rule. A
 // value that an ordinary enum type does not declare, and for a Flags type a bit that no member
 // declares, is ValidationFailed with the field named: by class, where a .NET enum property holds such
 // a value by a cast, and by name; through a set and when added to a batch; at any depth; before the

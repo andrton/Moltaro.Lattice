@@ -97,7 +97,11 @@ internal readonly ref struct RootReader
 
         CheckType(field, stored, StoredTypeEnum.Owned, nameof(GetOwned));
 
-        return (LatticeOwnedValue)NestedValues.Read(ArenaOfValues(), _layout.Structure, NotNullPayload(stored), BlockHeader.Size, 0, field.Ordinal, _layout.StringEncoding)!;
+        var arena = ArenaOfValues();
+        var structure = _layout.Structure;
+        var payload = NotNullPayload(stored);
+
+        return (LatticeOwnedValue)NestedValues.Read(arena, structure, payload[..structure.Size], payload, field.Ordinal, _layout.StringEncoding)!;
     }
 
     // The value of a List field, as a new List of the form a record holds, with every element at every depth
@@ -233,7 +237,8 @@ internal readonly ref struct RootReader
         return (int)ValueBlocks.Read(NotNull(stored)).Length;
     }
 
-    // The arena the values of String and Binary fields lie in; a reader of a copy has none of them.
+    // The arena needed to read a String, Binary, owned value or List. A reader of a fixed-part
+    // copy can inspect a descriptor but has no arena from which to read the value.
     private Arena ArenaOfValues() =>
         _arena ?? throw new InvalidOperationException($"A reader of a copy of the fixed part of a root of {_layout.EntityType.Name} holds no String or Binary value.");
 
@@ -295,6 +300,8 @@ internal readonly ref struct RootReader
     private struct Counting : IStructureVisitor
     {
         public long Bytes { get; private set; }
+
+        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
 
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {

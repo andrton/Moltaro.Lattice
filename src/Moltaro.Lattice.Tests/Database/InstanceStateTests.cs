@@ -3,16 +3,14 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Database;
 
-// The states of an instance of a MemoryOnly master and what an operation does in each (brief of
-// Epic 1, sprint S06, "States"): Created until the open, Ready after it, Closed after a close.
+// A MemoryOnly master is Created until it opens, Ready after opening and Closed after closing
+// (LatticeDatabaseStateEnum).
 // Before the open an operation is Unavailable; after a close it is ObjectDisposedException, also
 // through a set that was obtained before, a set through a class of an entity type with owned values and Lists
-// as well. Closing a closed database does nothing, and disposing
-// closes it in the same way. The close is one operation (brief of S09, part 2, the first finding of
-// the outside review it carries): a close or a dispose called while an earlier close has not
-// completed completes with it, without an error, and a token that cancels the wait of a close does
-// not stop the close. That a later call waits for the memory to be released is not visible here; the
-// tests of the engine state it (OneCloseTests).
+// as well. Closing a closed database does nothing, and disposing closes it in the same way.
+// Close and dispose share one operation. A call made while it is in progress completes with it.
+// A token can cancel that caller's wait while the close continues (ILatticeDatabase.CloseAsync).
+// OneCloseTests checks that the later call waits for memory to be released.
 public sealed class InstanceStateTests
 {
     [Fact]

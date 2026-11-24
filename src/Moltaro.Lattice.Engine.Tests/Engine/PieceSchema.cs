@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // The schema of the tests of the counters of the engine, and the class of its entity type Piece.
 //
 // Piece has the key Id, an Int64; Name, a String; Note, a nullable String; Data, a nullable Binary;
-// and Count, an Int32. By the formula of the brief of S05 ("The fixed part") its fixed part is the
+// and Count, an Int32. With the stored layout in docs/design/arena-protocol.md, its fixed part is the
 // 32 bytes of the header, a null bitmap of one byte for the two nullable fields, the 8 bytes of Id,
 // one descriptor of 16 bytes for each of the three String and Binary fields and the 4 bytes of
 // Count: 93 bytes. Holder has the key Id and a Map field: the engine cannot store it yet.

@@ -12,9 +12,9 @@ namespace Moltaro.Lattice.Storage.Roots;
 //
 // A descriptor of kind Records whose location is 0 names no block, as an empty List does; a directory entry
 // still zero names no chunk; a record whose writer stopped before it is zero and holds only descriptors of
-// kind Null; and a value that a node received and has not placed yet has a descriptor of kind Null too
-// (Replication.Load.BlockImport, "Pending"). So the walk serves a root its writer or its import left half
-// written as well as a whole one.
+// kind Null. A pending descriptor (ValueBlocks) has kind Null and location zero with the length or count
+// of a value still to be placed. It names no storage, so the walk needs no special case for it. The walk
+// serves a root its writer or its import left half written as well as a whole one.
 //
 // The caller holds what keeps the blocks of the root from being freed or changed while it walks: the lock of
 // the writes, or the protection of reads for a published root.
@@ -104,6 +104,8 @@ internal static class StructureWalk
         where TVisitor : struct, IStructureVisitor
     {
         var payload = arena.Payload(block);
+
+        visitor.EnterRecordBlock(payload, element, count);
 
         for (var record = 0; record < count; record++)
         {
