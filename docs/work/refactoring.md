@@ -101,8 +101,10 @@ Gone through by the planner and the coordinator on 18 November 2026.
      `following-children`. Done on 23 November 2026, in one round of review; its record is
      in the [epic](epic-1-core.md).
   6b. **S18R,** set by the planner on 24 November 2026 after the architect's review after
-     S18: Z3, Z8, Z6, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last. The first work of the next
-     coordinator; after it, the subsumed index tests as a change of the light track; the
+     S18: Z3, Z8, Z6, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last. The next work, in order (the
+     planner, 24 November 2026): the fix of the state of an instance behind its fault, form
+     (A), test first (the record of S18 in the epic); `kd` of K2; S18R; the subsumed index
+     tests as a change of the light track; then S19, its first structural commit first. The
      section of that review says the rest.
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
