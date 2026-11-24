@@ -98,6 +98,15 @@ in the meantime.
 | **Until answered** | Open, for the study of S19. The planner's recommendation: one that agrees with the comparison of the schema where .NET has it (text, with or without case), so that a lookup in what was read finds what a lookup in the database finds; and the remarks say so. What the code does today is named by the study |
 | **Decides** | The planner, in the study of S19, before its contract step |
 
+### Q61. Does "stable write inputs" allow a batch and an update to take their input when it is added?
+
+| | |
+| --- | --- |
+| **Found** | 23 November 2026, the document review of the contract of stage 5, part 2 |
+| **Question** | `docs/decisions/mutation-commands.md`, "Stable write inputs until completion", tells a caller to keep the input of an asynchronous write unchanged until it completes and says the public contract "does not expose early release in v1". A write batch takes each member as it is when it is added (`WriteBatchTests.Batch_saves_the_entity_as_it_was_when_added`, since the contract stage), and an update of S20 takes each value the same way. Is that a release the record did not want to promise? |
+| **Answer** | Taken by the planner, 23 November 2026, for the owner to read: no. The record speaks of the input of an asynchronous write between its start and its completion; adding to a batch or to an update is synchronous and starts no write, and what was added is the batch's own from then on. A write of a set, `SaveAsync` and the others, keeps the rule of the record |
+| **What the code does** | A member of a batch is encoded when it is added (S17) |
+| **Where the rule lives** | The remarks of `ILatticeWriteBatch`; the brief of S20 in the document of Epic 1 |
 ### Q62. Two rules of the schema language that the stored form of S18 brings
 
 | | |
@@ -107,15 +116,6 @@ in the meantime.
 | **Answer** | Taken by the planner, 24 November 2026, for the owner to read: yes, both are rules of the schema language, the same in every process, checked when a database compiles its layouts at its open (`InvalidSchema`, the entity type named) and stated in the remarks of `LatticeEntityType` and `LatticeOwnedType`; every node compiles them by the same code, so a schema means the same on every node; a schema would need thousands of fixed fields to meet them |
 | **What the code does** | As the brief of S18 says |
 | **Where the rule lives** | The brief of S18 in the [document of Epic 1](epic-1-core.md); the remarks named above |
-
-### Q63. Does a List have a bound of its own?
-
-| | |
-| --- | --- |
-| **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
-| **Question** | The stored form of S18 gives a List one directory level, so a List holds at most 268,173,376 bytes of packed elements (33,521,672 Int64) or about 3.3 million elements that hold text. The contract states no bound for a List; O19 names only String and Binary, and O20 allows a limit only where the engine cannot work without one |
-| **Until answered** | Open, for the owner. The planner's recommendation: state the bound, as the bound of a String is stated; a second directory level is built when an application needs a larger List. Until he answers, S18 is built with the bound stated |
-| **Decides** | The owner |
 
 ## Answered
 
@@ -607,3 +607,13 @@ in the meantime.
 | **Answer** | Taken by the planner, 22 and 23 November 2026, for the owner to read at the close of the sprint. A batch is judged in two phases. First each member against the state before the batch, in the batch's order: the first member that fails a condition of its own, a revision, a key that must be absent or present, is reported. Only when every member passes is the state the batch leaves judged for unique values, since that state does not exist before: the member with the lowest number among those that violate is reported, so of two members that claim one value the later, since the earlier alone would be accepted, and against a published owner that no member frees the member that claims; for one member that violates several indexes, the index declared first in its entity type. A refusal for memory is of the batch as a whole and names no member. Read and accepted by the owner, 23 November 2026 |
 | **What the code does** | As the brief of S17 says |
 | **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md) |
+
+### Q63. Does a List have a bound of its own?
+
+| | |
+| --- | --- |
+| **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
+| **Question** | The stored form of S18 gives a List one directory level, so a List holds at most 268,173,376 bytes of packed elements (33,521,672 Int64) or about 3.3 million elements that hold text. The contract states no bound for a List; O19 names only String and Binary, and O20 allows a limit only where the engine cannot work without one |
+| **Answer** | Decided by the owner, 24 November 2026: the bound is stated in the contract, as the bound of a String is; a second directory level is built when an application needs a larger List |
+| **What the code does** | As S18 built it: a List above its bound is refused with `ValidationFailed` |
+| **Where the rule lives** | The remarks of `LatticeFieldTypeEnum.List`; the brief of S18 in the [document of Epic 1](epic-1-core.md) |
