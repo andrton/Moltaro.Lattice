@@ -126,7 +126,7 @@ public sealed class OwnedPathIndexTests
         }
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Child_finds_by_a_path_and_by_null_as_its_master_does_and_follows_its_changes()
     {
         await using var master = await TestDatabases.OpenListeningMasterAsync(Schema);

@@ -41,7 +41,7 @@ public sealed class ForwardedAndBatchTests
         Assert.Null(byName.Get("deleted"));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Write_a_child_forwards_with_such_an_entity_is_written_whole_on_its_master_and_read_back_on_the_child()
     {
         await using var master = await NestedSchema.OpenListeningMasterAsync();

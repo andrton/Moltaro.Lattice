@@ -243,11 +243,6 @@ internal sealed class MasterLink : IDisposable
             case FrameKindEnum.Refuse:
                 var reason = FrameCodec.ReadRefuseBody(new ReadOnlySequence<byte>(reply.Payload));
 
-                if (reason == RefuseReasonEnum.NestedValues)
-                {
-                    throw new NotSupportedException($"The master at {masterUri} stores entities with owned values, Lists or references, which a child does not receive yet.");
-                }
-
                 throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master at {masterUri} refused this child, for its {reason}.");
 
             case FrameKindEnum.HelloReply:

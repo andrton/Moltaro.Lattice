@@ -14,12 +14,7 @@ internal sealed class EntityTables
     {
         InSchemaOrder = inSchemaOrder;
         _stored = inSchemaOrder.Where(table => table.Layout is not null).ToDictionary(table => (uint)table.EntityType.Id);
-        HoldsNestedValues = _stored.Values.Any(table => table.Layout!.Structure.HoldsNestedValues);
     }
-
-    // Whether the engine stores an entity type that holds an owned value, a List or a Reference, for which a
-    // master refuses every child (Children.ChildConnection).
-    public bool HoldsNestedValues { get; }
 
     // Every table, in the order of the entity types of the schema.
     public IReadOnlyList<EntityTable> InSchemaOrder { get; }

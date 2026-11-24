@@ -104,11 +104,11 @@ public enum LatticeFieldTypeEnum : byte
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet</b> for every use. An entity with owned values, Lists and
-    /// references is stored and read back by name and through a class, on a master, at every
-    /// depth, and found through an index over a field inside an owned value. Not yet: a write
-    /// batch with such an entity, whose commit reports <see cref="NotSupportedException"/>
-    /// through its task; and a child of a master that stores such an entity type, whose open
-    /// throws <see cref="NotSupportedException"/>.
+    /// references is stored and read back by name and through a class, at every depth, found
+    /// through an index over a field inside an owned value, and loaded and followed by a child,
+    /// which forwards its writes of such an entity to its master. Not yet: a write batch with
+    /// such an entity, whose commit reports <see cref="NotSupportedException"/> through its
+    /// task.
     /// </remarks>
     Owned = 21,
 
@@ -185,8 +185,8 @@ public enum LatticeFieldTypeEnum : byte
     /// </para>
     /// <para>
     /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name and
-    /// through a class; a write batch and a child are not built yet for an entity type that holds
-    /// one, as the remarks of <see cref="Owned"/> say.
+    /// through a class, on a master and on a child; a write batch is not built yet for an entity
+    /// type that holds one, as the remarks of <see cref="Owned"/> say.
     /// </para>
     /// </remarks>
     Reference = 25,
