@@ -4,11 +4,11 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Unicode;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // index under the seed of the instance, when two keys are one key, the key a root stores, and the form of a
 // key in the replication stream. Every key type of the catalog is stored; a String key is equal to
 // another, and hashed, under the comparison its field declares, by the comparison of the schema
-// (Comparison.ValueComparer). A String key may have Dictionary storage, as any String field may: the root
+// (ValueComparer). A String key may have Dictionary storage, as any String field may: the root
 // then names the entry of its text in the text table, and the comparison reads the text there, as a read
 // reads it.
 //
@@ -201,7 +201,7 @@ internal readonly struct PrimaryKeys
     }
 
     // Whether two keys of the entity type are one key, as the schema compares keys: an integer and a
-    // Guid by their value, a String by the comparison its field declares (Comparison.ValueComparer),
+    // Guid by their value, a String by the comparison its field declares (ValueComparer),
     // so that two spellings of a key compared without case are one entity for the order of the writes
     // (Writes.PendingWrite.SharesEntityWith).
     public bool KeysEqual(in EntityKey left, in EntityKey right) => KeyKind switch
@@ -250,7 +250,7 @@ internal readonly struct PrimaryKeys
     // The hash of a key in the index, under the seed the instance drew when it opened, so that nobody who
     // does not know the seed can choose keys that share a hash and lengthen one chain of the index, and the
     // index depends on nothing a process sets. For a String, the seeded hash of the comparison its field
-    // declares (Comparison.ValueComparer.TextHash), computed with the key. For an integer, held as a long,
+    // declares (ValueComparer.TextHash), computed with the key. For an integer, held as a long,
     // and for a Guid, all its bits mixed by the finalizer of MurmurHash3 (Mix), the seed mixed in by an
     // exclusive or before the finalizer, into the integer and into the second half of the Guid:
     // Int64.GetHashCode and Guid.GetHashCode are the exclusive or of the halves or the quarters of the value,
@@ -277,19 +277,19 @@ internal readonly struct PrimaryKeys
     }
 
     // The hash of an integer key in the index, of its 64 bits as EntityKey.Integer holds them (HashOf).
-    public uint IntegerHash(long integer) => (uint)Mix((ulong)integer ^ _seed);
+    public uint IntegerHash(long integer) => ValueComparer.IntegerHash(integer, _seed);
 
     // The hash of a Guid key in the index, of its two halves (HashOf).
-    public uint GuidHash(long low, long high) => (uint)Mix((ulong)low ^ Mix((ulong)high ^ _seed));
+    public uint GuidHash(long low, long high) => ValueComparer.GuidHash(low, high, _seed);
 
     // The hash of a String key in the index, of the text a caller gave (HashOf); for Sets.KeyArgument,
     // which computes it before the read enters the protection of reads.
-    public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(_entityType.Key, text, _seed);
+    public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(_entityType.Key.Declaration, text, _seed);
 
     // The hash of the key a root stores, as HashOf hashes that key, without allocating: for the keys a
     // search through a secondary index remembers (Entities.WalkProgress), which meets its roots through
     // that index and not through the primary one, so it has no hash of the primary index to take. A String
-    // key is read a piece at a time and hashed as its text is (Comparison.ValueComparer.TextHash). Inside
+    // key is read a piece at a time and hashed as its text is (ValueComparer.TextHash). Inside
     // the protection of reads.
     public uint StoredHash(in RootReader stored)
     {
@@ -307,22 +307,8 @@ internal readonly struct PrimaryKeys
                 return GuidHash(halves, Unsafe.Add(ref halves, 1));
 
             default:
-                return ValueComparer.TextHash(field, stored.ReadText(field), _seed);
+                return ValueComparer.TextHash(field.Declaration, stored.ReadText(field), _seed);
         }
-    }
-
-    // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
-    // domain: every bit of the value changes every bit of the result with a probability near one half,
-    // by its published constants. Two multiplications, a few nanoseconds.
-    private static ulong Mix(ulong value)
-    {
-        value ^= value >> 33;
-        value *= 0xFF51AFD7ED558CCD;
-        value ^= value >> 33;
-        value *= 0xC4CEB9FE1A85EC53;
-        value ^= value >> 33;
-
-        return value;
     }
 
     // The kind of key a key field needs: the schema allows the eight integers, String and Guid.

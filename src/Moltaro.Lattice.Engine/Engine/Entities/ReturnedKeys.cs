@@ -1,8 +1,8 @@
 using System.Runtime.CompilerServices;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -364,7 +364,7 @@ internal sealed class ReturnedKeys
                 return false;
             }
 
-            if ((uint)((ulong)head >> 32) == hash && ValueComparer.TextEquals(stored, _key, TextAt(head, location)))
+            if ((uint)((ulong)head >> 32) == hash && ValueComparer.TextEquals(stored.ReadText(_key), _key.Declaration, TextAt(head, location)))
             {
                 return true;
             }

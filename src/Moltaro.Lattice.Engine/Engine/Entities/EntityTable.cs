@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -9,6 +8,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -256,7 +256,7 @@ internal sealed class EntityTable
 
         var stored = new RootReader(_arena, Layout!, _roots.Entry(handle).Root);
 
-        if (!ValueComparer.SameText(stored, key, (string)values[key.Ordinal]!))
+        if (!ValueComparer.SameText(stored.ReadText(key), (string)values[key.Ordinal]!))
         {
             values[key.Ordinal] = stored.GetString(key);
         }
@@ -866,7 +866,7 @@ internal sealed class EntityTable
         {
             KeyKindEnum.Integer => Keys.StoredInteger(stored) == key.Integer,
             KeyKindEnum.Guid => stored.GetGuid(field) == key.Guid,
-            _ => ValueComparer.TextEquals(stored, field, key.Text),
+            _ => ValueComparer.TextEquals(stored.ReadText(field), field.Declaration, key.Text),
         };
     }
 

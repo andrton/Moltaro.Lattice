@@ -1,24 +1,20 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
-using Moltaro.Lattice.Storage.Roots;
-using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Engine.Comparison;
+namespace Moltaro.Lattice.Storage.Values;
 
 // The equality, the hash and the order of values by the rules the schema declares: the one comparison
 // and hash service of the schema that the milestone contract asks for ("Index preparation and
 // traversal"), across indexes, Map and Set and direct lookups. The primary index uses its equality and
-// its hash (TextHash, the seeded Marvin32 of the code units), the secondary indexes its order
-// (CompareStored, CompareText, CompareUtf8Ordinal; Indexes.IndexOrder), and nothing else in the engine
-// compares a key with stored text. A text compares the same in a UTF-8 and in a UTF-16 database, by the
-// comparison its field declares, Ordinal or OrdinalIgnoreCase by the case table of Lattice's own; a
+// its hash (TextHash, the seeded Marvin32 of the code units), and the secondary indexes its order
+// (CompareStored, CompareText, CompareUtf8Ordinal). The comparison knows only a value's bytes and
+// declaration, so it can serve placement as well as reading. A text compares the same in a UTF-8 and
+// in a UTF-16 database, by its declaration and the case table of Lattice's own; a
 // stored text is read a piece of PieceLength code units at a time (StoredTextReader), so a comparison
 // allocates nothing, whatever the length of the text and wherever it lies; its buffers on the stack are
 // not zeroed (SkipLocalsInit), since every code unit a comparison reads it wrote first. It has no state
-// of its own: the comparison comes from the declaration of the field and the encoding from what reads
-// the text, so one set of rules serves every database. The members of a Map and a Set are not stored yet.
+// of its own. The caller protects stored bytes for the operation.
 //
 // docs/design/arena-protocol.md, "The comparison of a key", says what equality is for each type of a
 // primary key, how a text is compared by pieces and its surrogate pairs whole, how the hash is seeded,
@@ -33,19 +29,19 @@ internal static class ValueComparer
     // The hash of a text in the primary index under the comparison the String field declares and the
     // seed (arena-protocol.md, "The comparison of a key"): texts that are equal under the comparison
     // have the same hash under every seed. Allocates nothing.
-    public static uint TextHash(LatticeField field, ReadOnlySpan<char> text, ulong seed) =>
-        ComparisonOf(field).IgnoresCase ? TextHashWithoutCase(text, seed) : Marvin.Hash(text, seed);
+    public static uint TextHash(LatticeValueDeclaration declaration, ReadOnlySpan<char> text, ulong seed) =>
+        declaration.TextComparison!.IgnoresCase ? TextHashWithoutCase(text, seed) : Marvin.Hash(text, seed);
 
     // The same hash of a stored text, read a piece at a time, so that the key a root stores is hashed as
     // the text of that key a caller gives is: for the keys a search through a secondary index remembers
     // (Entities.PrimaryKeys.StoredHash). The pieces are hashed one after the other as one text, and a
     // piece of a stored text never ends inside a surrogate pair, so a pair is mapped whole without case.
     // Allocates nothing.
-    public static uint TextHash(LatticeField field, StoredTextReader text, ulong seed)
+    public static uint TextHash(LatticeValueDeclaration declaration, StoredTextReader text, ulong seed)
     {
         Span<char> piece = stackalloc char[PieceLength];
         Span<char> mapped = stackalloc char[PieceLength];
-        var ignoresCase = ComparisonOf(field).IgnoresCase;
+        var ignoresCase = declaration.TextComparison!.IgnoresCase;
         var marvin = new Marvin(seed);
 
         while (true)
@@ -97,19 +93,16 @@ internal static class ValueComparer
         return marvin.Finish();
     }
 
-    // Whether the stored text of the String field of the root is the given text under the comparison
-    // the field declares. Allocates nothing.
-    public static bool TextEquals(in RootReader root, LatticeField field, ReadOnlySpan<char> text) =>
-        EqualsUnder(root, field, text, ComparisonOf(field));
+    // Whether the stored text is the given text under the comparison of its declaration.
+    public static bool TextEquals(StoredTextReader stored, LatticeValueDeclaration declaration, ReadOnlySpan<char> text) =>
+        EqualsUnder(stored, text, declaration.TextComparison!);
 
-    // Whether the stored text of the String field of the root is the given text code unit for code
-    // unit, whatever the field declares: whether it has the same spelling. Allocates nothing.
-    public static bool SameText(in RootReader root, LatticeField field, ReadOnlySpan<char> text) =>
-        EqualsUnder(root, field, text, TextComparison.Ordinal);
+    // Whether the stored text is the given text code unit for code unit, with the same spelling.
+    public static bool SameText(StoredTextReader stored, ReadOnlySpan<char> text) =>
+        EqualsUnder(stored, text, TextComparison.Ordinal);
 
-    private static bool EqualsUnder(in RootReader root, LatticeField field, ReadOnlySpan<char> text, TextComparison comparison)
+    private static bool EqualsUnder(StoredTextReader stored, ReadOnlySpan<char> text, TextComparison comparison)
     {
-        var stored = root.ReadText(field);
         Span<char> piece = stackalloc char[PieceLength];
 
         while (true)
@@ -128,6 +121,26 @@ internal static class ValueComparer
 
             text = text[length..];
         }
+    }
+
+    // The hash of the integer bits as a primary key holds them.
+    public static uint IntegerHash(long integer, ulong seed) => (uint)Mix((ulong)integer ^ seed);
+
+    // The hash of a Guid from its two halves.
+    public static uint GuidHash(long low, long high, ulong seed) => (uint)Mix((ulong)low ^ Mix((ulong)high ^ seed));
+
+    // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
+    // domain: every bit of the value changes every bit of the result with a probability near one half,
+    // by its published constants. Two multiplications, a few nanoseconds.
+    private static ulong Mix(ulong value)
+    {
+        value ^= value >> 33;
+        value *= 0xFF51AFD7ED558CCD;
+        value ^= value >> 33;
+        value *= 0xC4CEB9FE1A85EC53;
+        value ^= value >> 33;
+
+        return value;
     }
 
     // The order of two stored values of the fixed type given, from their places at the width of the type
@@ -259,9 +272,6 @@ internal static class ValueComparer
             right.Current = right.Current[length..];
         }
     }
-
-    // The comparison of a String field, as the schema gives it to the core and to the engine alike.
-    private static TextComparison ComparisonOf(LatticeField field) => field.Declaration.TextComparison!;
 
     // The code units of one text for the order, a piece at a time: of a stored text, read into a piece of
     // the stack, which ends between two characters; of a given text, as it is. Without case each piece is

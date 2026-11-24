@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
@@ -13,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // order of the index, each part by the comparison of its field, then by the identity, so that the entries
 // of one key are a run ordered by the identity of their root entries. Keys are compared by their values,
 // never by bytes in another order than theirs, through the one comparison service of the schema
-// (Comparison.ValueComparer; decisions on queries, Q07.3.6, and on strings, Q46); a null part comes after
+// (ValueComparer; decisions on queries, Q07.3.6, and on strings, Q46); a null part comes after
 // every value of its part and equals another null. Equal parts need not be the same bytes, as a text under
 // another case: they are one key. A text compared Ordinal in a UTF-8 database is compared by its bytes
 // where they lie, the copy in the entry or the text entry of a shared key, against the key of a search
@@ -35,7 +34,7 @@ internal sealed class IndexOrder
     // Whether the index has one part, never null, stored as a signed integer of 8 bytes in the byte order
     // of the machine, whose order is the order of that number: an Int64 or an Enum over one, a
     // DateTimeOffset as its UTC ticks, a TimeOnly or a TimeSpan as its ticks (Storage.Values.StoredScalars,
-    // Comparison.ValueComparer.CompareStored). Its entry is the identity and the number, with no null
+    // ValueComparer.CompareStored). Its entry is the identity and the number, with no null
     // bitmap, and a search key holds the number as its one fixed part (SearchKey.Number).
     private readonly bool _oneNumber;
 
@@ -153,7 +152,7 @@ internal sealed class IndexOrder
     }
 
     // The order of two String parts of entries: of their bytes, for an Ordinal part of a UTF-8 database
-    // whose texts lie in one place, and otherwise of their texts, a piece at a time (Comparison.ValueComparer).
+    // whose texts lie in one place, and otherwise of their texts, a piece at a time (ValueComparer).
     private int CompareTexts(in EntryPart part, ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
     {
         if (ComparesBytes(part)
@@ -193,7 +192,7 @@ internal sealed class IndexOrder
         return ValueComparer.CompareText(root.ReadText(part.Stored), key.TextAt(place), part.Comparison!);
     }
 
-    // Whether a String part is compared as bytes: Ordinal in a UTF-8 database (Comparison.ValueComparer).
+    // Whether a String part is compared as bytes: Ordinal in a UTF-8 database (ValueComparer).
     private bool ComparesBytes(in EntryPart part) => _layout.Encoding == LatticeStringEncodingEnum.Utf8 && !part.Comparison!.IgnoresCase;
 
     // Whether the layout is that of an index of one number (_oneNumber).

@@ -405,7 +405,7 @@ delete or a growth never ends the pass, and a replace changes no entry of the in
 ### The comparison of a key
 
 The equality, the hash and the order of values follow the rules the schema declares, in one
-service across the indexes and direct lookups (`Engine/Comparison/ValueComparer.cs`): the
+service across the indexes and direct lookups (`Storage/Values/ValueComparer.cs`): the
 primary index uses its equality and its hash, the secondary indexes its order, and nothing
 else in the engine compares a key with stored text.
 

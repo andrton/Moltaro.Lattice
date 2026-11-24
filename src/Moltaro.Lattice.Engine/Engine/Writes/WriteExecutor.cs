@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -577,8 +576,9 @@ internal sealed class WriteExecutor
         }
 
         var stored = new RootReader(_arena, table.Layout!, _roots.Entry(handle).Root);
+        var given = import.Text(received, key);
 
-        return !ValueComparer.SameText(stored, key, import.Text(received, key));
+        return !ValueComparer.SameText(stored.ReadText(key), given);
     }
 
     // Writes the placed root again from its values with the key as the entity stores it, and frees the
