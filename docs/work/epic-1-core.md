@@ -1297,7 +1297,7 @@ Why this order:
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts |
+| S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts; its Measured line taken after the close |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
@@ -8874,6 +8874,35 @@ owner. With it S18 is closed whole.
   public type and no public member added. Owed: every figure of time, to the one start of
   the machine (the plan in the notes of the coordinator), which the owner has been asked to
   start; Q63 for the owner.
+
+**The measured bytes of S18** (24 November 2026). S18 was closed with its own "Measured"
+owed: no scenario stored the full form of the fixture, which nobody said at the close. The
+scenarios came after it (PR 62): `root-bytes` with the user and the group of the fixture in
+their full form, an entity with an owned value present and absent, and Lists in each form;
+and `full-form-users`, a read and a replace by a class and by name of the full form against
+the scalar forms, in three rounds rotated. Bytes are the same on every machine and were
+taken on the workstation, as live and retained bytes an entity (retained adding the slack of
+the size classes), the entity's root, every block it owns and its share of its Dictionary
+text entries, by name and by a class alike:
+
+| Entity | Scalar form | Full form | The study's arithmetic |
+| --- | --- | --- | --- |
+| The fixture's user | 162 / 176 | 193.01 / 208.01 | 162 to 193 / 176 to 208 |
+| The fixture's group | 67 / 80 | 99 / 112 | 67 to 99 / 80 to 112 |
+
+An owned value (an Id and a nullable owned address of two Strings and an Int32, flattened):
+absent 77 / 80, present 99 / 112. A block for each owned value, by arithmetic, would hold
+57 / 64 absent and 153 / 160 with a hop present: the flattening costs 20 live bytes when the
+owned value is absent and saves 54 when it is present. Lists, every figure equal to its
+arithmetic: a packed List of Int64, empty or inline at 4 elements 56 and 88 live bytes, one
+block at 100 elements 888, two chunks at 10,000 elements 80,184 (82,048 retained); a List of
+records of 10-byte texts, empty 56, one block at 4 and 100 elements 192 and 2,688, two chunks
+at 1,000 elements 26,184 live and 41,088 retained. A List of records in chunks pays the slack
+of a size class for each chunk, since a chunk is allocated at its length: 14,904 bytes of
+slack against 26,184 live at 1,000 short texts; packed chunks fill their class but for the
+last. That is for the study of S23, with the shrink. Measured: the bytes on 24 November
+2026; the times of `full-form-users` in the start of the machine of the same day if it
+carried them, else owed.
 
 **Found after the close of S18, 24 November 2026: the state of an instance behind its fault.**
 A red check of `arm64` on a pull request of documents (PR 59, merged with it by the
