@@ -70,6 +70,11 @@ public sealed class LatticeUpdate
     /// <returns>The outcome of this command, available after successful completion.</returns>
     /// <exception cref="ArgumentException">The target or operand is invalid, or a scalar assignment already addresses the target.</exception>
     /// <exception cref="InvalidOperationException">The update is already submitted.</exception>
+    /// <example>
+    /// To clear a nullable Int32 field or a nullable List of Int32, use a compatible type
+    /// for the null operand, for example <c>update.Assign&lt;int?&gt;("Rank", null)</c> or
+    /// <c>update.Assign&lt;List&lt;int&gt;?&gt;("Scores", null)</c>.
+    /// </example>
     public LatticeCommandResult Assign<TValue>(string field, TValue value) =>
         Add(UpdateCommandKindEnum.Assign, field, 0, value, (object?)null);
 

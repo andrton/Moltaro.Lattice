@@ -121,6 +121,8 @@ public sealed class UpdateExecutionTests
     [InlineData("null collection", LatticeErrorEnum.UpdateTargetMissing)]
     [InlineData("negative position", LatticeErrorEnum.UpdateTargetMissing)]
     [InlineData("position at end", LatticeErrorEnum.UpdateTargetMissing)]
+    [InlineData("insert after end", LatticeErrorEnum.UpdateTargetMissing)]
+    [InlineData("remove at end", LatticeErrorEnum.UpdateTargetMissing)]
     public async Task A_missing_target_refuses_every_command_and_keeps_the_position(string target, LatticeErrorEnum error)
     {
         await using var database = await TestData.OpenMasterAsync(schema: UpdateSchema.Schema);
@@ -141,6 +143,8 @@ public sealed class UpdateExecutionTests
             "null collection" => update.MapRemove("Options", "absent"),
             "negative position" => update.ListInsert("Scores", -1, 0),
             "position at end" => update.ListReplace("Scores", 2, 0),
+            "insert after end" => update.ListInsert("Scores", 3, 0),
+            "remove at end" => update.ListRemove("Scores", 2),
             _ => throw new InvalidOperationException(target),
         };
         await TestData.ExpectErrorAsync(error, () => update.CommitAsync());
@@ -150,6 +154,7 @@ public sealed class UpdateExecutionTests
         Assert.True(items.TryGet("ada", out var stored, out var after));
         Assert.Equal(revision, after);
         Assert.Equal("ada", stored.Login);
+        Assert.Equal(new[] { 10, 20 }, stored.Scores);
         Assert.Empty(items.Index("ByLogin").Find(IndexKey.Equal("changed")));
         Assert.Throws<InvalidOperationException>(() => update.SetAdd("Tags", "later"));
     }
