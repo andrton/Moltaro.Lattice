@@ -554,9 +554,7 @@ internal static class NestedValues
     // values inline of the block count their Location from its start, as ValueBlocks.Contiguous reads them.
     private static ReadOnlySpan<byte> BlockPayload(ReadOnlySpan<byte> bytes, int origin) => bytes[(BlockHeader.Size - origin)..];
 
-    // Names the block of the holder as the parent of the blocks of a value placed out of line, when the block
-    // exists; the writer of a root names the root block when it completes the root.
-
+    // The refusal of a List of more elements than one List of its elements may hold.
     private static LatticeException AboveTheBound(in StoredField place, int count, StructureLayout element) =>
         new(LatticeErrorEnum.ValidationFailed, $"The List {place.Field.Name} holds {count} elements, more than the {element.MostElements} one List of its elements may hold.");
 }
