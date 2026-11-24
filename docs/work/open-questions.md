@@ -98,7 +98,6 @@ in the meantime.
 | **Until answered** | Open, for the study of S19. The planner's recommendation: one that agrees with the comparison of the schema where .NET has it (text, with or without case), so that a lookup in what was read finds what a lookup in the database finds; and the remarks say so. What the code does today is named by the study |
 | **Decides** | The planner, in the study of S19, before its contract step |
 
-<<<<<<< HEAD
 ### Q61. Does "stable write inputs" allow a batch and an update to take their input when it is added?
 
 | | |
@@ -108,7 +107,6 @@ in the meantime.
 | **Answer** | Taken by the planner, 23 November 2026, for the owner to read: no. The record speaks of the input of an asynchronous write between its start and its completion; adding to a batch or to an update is synchronous and starts no write, and what was added is the batch's own from then on. A write of a set, `SaveAsync` and the others, keeps the rule of the record |
 | **What the code does** | A member of a batch is encoded when it is added (S17) |
 | **Where the rule lives** | The remarks of `ILatticeWriteBatch`; the brief of S20 in the document of Epic 1 |
-=======
 ### Q62. Two rules of the schema language that the stored form of S18 brings
 
 | | |
@@ -619,4 +617,3 @@ in the meantime.
 | **Answer** | Decided by the owner, 24 November 2026: the bound is stated in the contract, as the bound of a String is; a second directory level is built when an application needs a larger List |
 | **What the code does** | As S18 built it: a List above its bound is refused with `ValidationFailed` |
 | **Where the rule lives** | The remarks of `LatticeFieldTypeEnum.List`; the brief of S18 in the [document of Epic 1](epic-1-core.md) |
->>>>>>> origin/main
