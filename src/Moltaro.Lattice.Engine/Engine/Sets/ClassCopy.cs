@@ -12,12 +12,12 @@ namespace Moltaro.Lattice.Engine.Sets;
 // returned object, its strings and arrays, and nothing else; one with them allocates besides the form a
 // record holds of each, from which the objects are made.
 //
-// What the pools keep of the entity (the coordinator's decision after the second review of S06). The
-// array of the values is cleared when it goes back: it references the strings and arrays the read
-// returned, up to 268,173,376 bytes each, and the owned values and Lists it made, and the pool would
-// keep them alive until the array is used again. The array of the fixed part goes back as it is: its bytes, the scalars of the entity, stay
-// in it until its next user overwrites them, but they reference nothing and keep no memory alive,
-// and the pool is the process's own, so clearing them would protect nothing.
+// What the pools keep of the entity. The array of the values is cleared when it goes back: it
+// references the strings and arrays the read returned, up to 268,173,376 bytes each, and the owned
+// values and Lists it made, and the pool would keep them alive until the array is used again. The
+// array of the fixed part goes back as it is: its bytes, the scalars of the entity, stay in it until
+// its next user overwrites them, but they reference nothing and keep no memory alive, and the pool is
+// the process's own, so clearing them would protect nothing.
 internal struct ClassCopy<TEntity> : IRootCopy<TEntity>
     where TEntity : class
 {

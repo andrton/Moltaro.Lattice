@@ -90,9 +90,10 @@ namespace Moltaro.Lattice.Access;
 /// such as a <c>uint[]</c> in an <c>int[]</c> property or an <c>sbyte[]</c> in a
 /// <c>byte[]</c> one, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not
 /// well-formed — a surrogate without its pair — is refused in the same way, at any depth, and
-/// is never stored and never replaced by another character. A String or Binary value of a field
-/// of the entity that is larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/>
-/// and <see cref="LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. An integer
+/// is never stored and never replaced by another character. A String or Binary value, at any
+/// depth, that is larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/>
+/// and <see cref="LatticeFieldTypeEnum.Binary"/> state, is refused in the same way, and so is a
+/// List, at any depth, of more elements than <see cref="LatticeFieldTypeEnum.List"/> states. An integer
 /// that the enum type of its field does not declare — for a Flags type, a bit that no member
 /// declares — is refused in the same way. Which arrays
 /// the runtime would read as other values, and that an array of a class derived from the

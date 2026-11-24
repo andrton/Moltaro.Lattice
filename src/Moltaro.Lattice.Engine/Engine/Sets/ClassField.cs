@@ -19,12 +19,16 @@ namespace Moltaro.Lattice.Engine.Sets;
 // protection. The set accessor is the application's code.
 //
 // An owned value or a List of the entity, a nested field, has a slot too, and is copied and set by
-// members of its own (CopyNested, SetNested), so that the members of the other fields stay as small as
-// the read of a class without nested fields needs them: under the protection the read makes it in the
-// form a record holds it, which only the types of the core and of .NET make (RootReader.GetOwned and
-// GetList), and after the protection its setter turns that form into the value of the property
-// (BoundProperty.FromRecord), which runs the constructors and the set accessors of the classes of the
-// owned values it holds.
+// members of its own (CopyNested, SetNested), in a pass of its own (ClassCopier): under the protection
+// the read makes it in the form a record holds it, which only the types of the core and of .NET make
+// (RootReader.GetOwned and GetList), and after the protection its setter turns that form into the value
+// of the property (BoundProperty.FromRecord), which runs the constructors and the set accessors of the
+// classes of the owned values it holds. The pass of its own is for a measured figure, the JIT listing of
+// a Release build: with the nested fields as arms of CopyValue and Set, CopyValue grew from 328 to 370
+// bytes and was no longer inlined into ClassCopier.Copy, which fell from 1,294 to 222 bytes and called
+// it for each String or Binary field of every read, and Set no longer inlined DateOnly.FromDayNumber;
+// with the pass, CopyValue is 328 bytes and inlined as before, and an entity type without nested fields
+// pays a test of an empty array in Copy and in Build.
 internal readonly struct ClassField<TEntity>
     where TEntity : class
 {

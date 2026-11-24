@@ -12,9 +12,11 @@ namespace Moltaro.Lattice.Engine.Sets;
 // protection, Build makes a new object by the public parameterless constructor and sets every field from
 // the scratch through a compiled setter (ClassField), which turns an owned value or a List into the
 // objects of the classes of the application first (BoundProperty.FromRecord): the constructors and the
-// set accessors are the application's code and run outside the protection of reads (the planner's word
-// on the first review of S06). Made once for a set of an entity type the engine stores, from the binding
-// of the core, which found the property of every field by the rules of ILatticeDatabase.Set<TEntity>().
+// set accessors are the application's code, which may wait or run long, and they run outside the
+// protection of reads, so that a read leaves the protection within one step whatever that code does
+// and memory retired meanwhile is not held back (IRootCopy; docs/design/arena-protocol.md, "Deferred
+// reclamation"). Made once for a set of an entity type the engine stores, from the binding of the core,
+// which found the property of every field by the rules of ILatticeDatabase.Set<TEntity>().
 internal sealed class ClassCopier<TEntity>
     where TEntity : class
 {

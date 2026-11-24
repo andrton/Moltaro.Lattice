@@ -111,7 +111,10 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     }
 
     // Checked before anything is kept, and encoded before the operation is kept: a refused operation leaves
-    // the batch as it was.
+    // the batch as it was. The refusals come in this order: the validation of the entity by the core,
+    // before Add (Save: a String or Binary value above its bound and every other check of the schema);
+    // then an operation for an entity the batch already addresses; then a List above its bound, which the
+    // engine refuses as it encodes the root (IWriteBatchExecutor.EncodeRoot).
     private void Add(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision)
     {
         ThrowIfSubmitted();
