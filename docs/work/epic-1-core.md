@@ -1297,7 +1297,7 @@ Why this order:
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S18 | Owned values, Lists and references | Full, critical | In progress |
+| S18 | Owned values, Lists and references | Full, critical | Part 1 done on 24 November 2026; parts 2 and 3 in progress |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
@@ -8633,6 +8633,68 @@ indexes over paths. The breaker's targets 1, 2, 4 and 6 belong to part 1, on ARM
 the start of the machine; target 2 is run again in part 2 for a read by a class and in part
 3 on a child; target 5 belongs to part 2, and 3 and 7 to part 3. The one start of the
 machine follows the review and the breaker of part 1 and carries what is owed from before.
+
+**The record of S18, part 1** (closed on 24 November 2026): the stored form and the walk.
+It was coordinated by the eighth coordinator of the epic, who stays for the sprints of the
+night by the owner's word in the planner's session.
+
+- *Step 1:* the internal contract and the tests of the whole sprint end at 799e03d (3e36413,
+  1e82cc3, 799e03d); the tests of parts 2 and 3 stay skipped with `SkipReason.NestedValues`.
+  One member of that contract went in the fixes, `RootLayout.ElementOf`, for
+  `StructureLayout.ElementOf` by the position of a field; the one step-1 test that used it
+  reaches the element that way, its assertion unchanged.
+- *Built:* `StructureLayout` for a root and for the record of an element; owned values
+  flattened into their holder; both forms of a List; references stored as a field of their
+  key's type; the two rules of the schema language at the open; the writer and the reader
+  by name; one walk (`StructureWalk`) for the free, the publication, the retirement, the
+  counts and `EntityBytes`; one placement of a String, a Binary and a packed List at every
+  depth (`ValueHolder`); `ReadSettings` with the timestamp source the tests replace, and L4
+  as `IndexSearch.RefuseForState`. Refused in part 1, each where it is refused: a child of a
+  master that stores such entity types, at the handshake; the commit of a batch that holds
+  one, through its task; a read through a class of a type with an owned value or a List,
+  through its task, and `Index` on such a set, at the call; an index over a path into an
+  owned value; a Map or a Set at any depth. Pre-sprint tests that asserted
+  `NotSupportedException` for owned values, Lists and references were edited where part 1
+  made them false, each replacement stating the stored behavior.
+- *The listings,* a Release driver over the public API with tiered PGO off, against the
+  build before part 1: `EntityTable.Step` 4,897 → 4,953 bytes over a record copy, frame
+  984 → 1,000, and 4,687 → 4,861 over a class copy; `TryReadNext` 2,050 → 2,284, frame
+  344 → 360; no call added on a read without a time limit, `StartStep` now inline, a round
+  one call as before, `TicksOf` no longer called each round. `TryPrepareInsert` 950 → 1,026,
+  frame 168 → 184; `RetiredMemory.Free` 259 → 324, frame 40 → 56; `Install` 136 → 175,
+  frame 32 → 40; `RootValues.Write` frame 328 unchanged; `TryStore` unchanged; per String
+  the same two calls as before. `StructureWalk.Walk` and `IndexSearch.CheckRound` are not
+  inlined, each for the figure written beside it. The figures of time are owed to the start
+  of the machine.
+- *Review:* three rounds. Round 1, at 5edfde9: 1 P1 (a native out-of-memory while the chunks
+  of a List of records were allocated left the directory and the chunks taken prepared for
+  good, about 4 MB in the probe; the breaker found it too, and its nested case), 1 P2 (the
+  sentences of part 1 held only by step-1 tests that also read by a class or commit a batch:
+  by-name tests added), 6 P3 (a class read refused at the call, the refusal of `Index` not
+  documented, a linear search on the read of a List, the placement written twice, stale
+  documents, comments) and P4s. Round 2: every finding closed; 2 P3 (a stale comment, a
+  second copy of the inline rule in the placement of a packed List). Round 3: both closed,
+  nothing new. The hardest part to follow, by the reviewer: `NestedValues`, its three frames
+  of offsets and a sizing pass that must agree with the writing pass.
+- *The breaker:* targets 1, 2, 4 and 6, 123 probes, each run in Debug and Release, the
+  concurrent ones twelve times more, three of them beside a full suite. One defect, the P1
+  above, deterministic; after its fix every probe passes. Held: churn by name with an audit
+  after every round and 41 to 46 refusals for memory a seed, 18 faults each followed by a
+  close, readers by key, by enumeration and by search beside writers replacing trees, no
+  read torn in about 2,000 a run, every chunk boundary of both forms at every place, a
+  refusal at every block a tree needs. Not reached here: ARM64, in the start of the machine.
+- *Found and left:* the ownership audit cannot audit an entity type with a secondary index,
+  since the indexes count no live nodes; the head of `OwnershipAudit` says what it would
+  take. No sentence of part 1 is left without a test by it, but part 3, whose index over a
+  path shares the text entry of a flattened String, needs an audit that counts the indexes,
+  or a test of the counters. After a close, a read through a class of a nested type reports
+  `NotSupportedException` where other reads report `ObjectDisposedException`; it goes with
+  the reads by a class of part 2. One full Debug run failed once in
+  `LevelBoundTests.Reservation_made_or_refused_takes_no_managed_room_for_its_nodes`, an
+  allocation counted on one thread, in code part 1 does not touch; it passed alone 25 times
+  and in every full run since, its output is kept, and its cause is not known.
+- *Every suite at the head* (e4fce78): 3,325 tests, 3,151 passing, 174 skipped, in Debug and
+  in Release.
 
 #### S19 · Maps and Sets
 
