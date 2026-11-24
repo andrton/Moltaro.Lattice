@@ -846,7 +846,10 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // has lost its data.
     private void Fault()
     {
-        _epochs.Fault();
+        if (_epochs.Fault())
+        {
+            Part(_parts).Publisher.OfferFaultSwitch();
+        }
 
         lock (_stateLock)
         {

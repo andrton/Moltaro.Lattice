@@ -774,6 +774,10 @@ internal sealed class ChangePublisher
         Volatile.Write(ref _publicationSwitch, action);
     }
 
+    // The fault of a publication is already visible to the reads. A test may hold the publishing
+    // thread there until it has observed the refusal, but must let the failure handling finish.
+    public void OfferFaultSwitch() => OfferPublicationSwitch(PublicationPointEnum.AfterFault);
+
     // The switch of the tests at a place of a publication, on the publishing thread under the lock of the
     // writes; an exception of the action fails the publication there. The test of the field is inlined and
     // the run of an armed switch is not, so that a publication no test armed carries only the tests (JIT

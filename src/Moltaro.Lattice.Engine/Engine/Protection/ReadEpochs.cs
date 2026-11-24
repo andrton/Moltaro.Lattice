@@ -236,8 +236,9 @@ internal sealed class ReadEpochs
     }
 
     // Marks the database faulted: a read that enters from now on reports Unavailable, and a read inside
-    // that retries on the mark of the write whose publication failed gives up (IsFaulted).
-    public void Fault() => Interlocked.Or(ref _state, Faulted);
+    // that retries on the mark of the write whose publication failed gives up (IsFaulted). Returns
+    // whether this call set the mark, so a test can hold the publishing thread once at that point.
+    public bool Fault() => (Interlocked.Or(ref _state, Faulted) & Faulted) == 0;
 
     // A slot taken by a compare-and-swap of the current epoch into it, when it is free. The full fence
     // of the exchange orders the read of the state and of everything the read reads after it (see the

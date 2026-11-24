@@ -362,13 +362,13 @@ internal sealed partial class EngineDatabase
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next publication that passes
-    // the place given runs the action, once, on the publishing thread and inside the lock of the writes, on
-    // a master for a write or a batch and on a child for a transaction it applies, so that a test reads
-    // while a publication stands between two of its steps. A test waits inside the action, with a bounded
-    // wait; an exception the action throws fails the publication there, as a fault point does, and the
-    // instance faults. A publication when no test has armed the switch pays one load of a field that is
-    // null at each place, and a read pays nothing. Unavailable before the open and once Faulted,
-    // ObjectDisposedException after the close.
+    // the place given runs the action, once, on the publishing thread, on a master for a write or a batch
+    // and on a child for a transaction it applies. The lock of the writes is held except at AfterFault
+    // on the master. A test waits inside the action, with a bounded wait. An exception the action throws
+    // fails the publication and faults the instance. At AfterFault the publication has already failed and
+    // the action must return normally. A publication when no test has armed the switch pays one load of a
+    // field that is null at each place, and a read pays nothing. Unavailable before the open and once
+    // Faulted, ObjectDisposedException after the close.
     public void ArmPublicationSwitch(PublicationPointEnum point, Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
