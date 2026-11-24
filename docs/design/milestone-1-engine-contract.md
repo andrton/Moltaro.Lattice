@@ -135,8 +135,7 @@ values add a power-of-two open-addressed bucket directory, linear probing, cache
 hashes, entry ordinals and explicit empty/deleted markers. Grow before occupancy
 including tombstones exceeds 70%; rebuild tombstones during bounded preparation.
 Shrink back to compact form at <=4 entries. Buckets point to owned entries, never
-managed objects. A table rebuild is staged before commit and installed under the
-root gate. Large collections remain chunked; payloads do not become one huge array.
+managed objects. A table rebuild is staged before commit and installed by the publication of the new root (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Large collections remain chunked; payloads do not become one huge array.
 List/Map/Set input and comparison semantics stay as already accepted.
 
 Plain strings preserve their original encoded bytes. Dictionary fields use one
@@ -162,8 +161,7 @@ a block, so no count changes. It is a limit of the structure, not an option, and
 array is never cut short.
 
 Shared text is not moved in this milestone unless S23 decides how; published text is
-immutable. Root-owned movement repairs its parent
-descriptor and child owner backlinks under the root gate. Scalar/location movement
+immutable. Root-owned movement repairs its parent descriptor and child owner backlinks under the lock of the writes (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Scalar/location movement
 does not change logical revisions or write a durable relocation record.
 
 ## Reader protection, publication and compaction
@@ -191,14 +189,9 @@ left, and a read never follows an old entry to a recreated key.
 Ordinary reads are inside the epoch only while evaluating/copying
 one root. Borrowed reads are synchronous, read-only scoped callbacks/ref-struct views;
 no await, retained native pointer or writable alias is supported. Generated and
-dynamic views use the same lifetime. The engine cannot safely preempt arbitrary
-user code inside a protected callback: prolonged borrowing can delay publication.
-Document this caller obligation and expose durations diagnostically. Fault/close
-cannot free an arena until outstanding protected scopes release it.
+dynamic views use the same lifetime. The engine cannot safely preempt arbitrary user code inside a protected callback: prolonged borrowing delays no publication; it keeps every state retired in the instance meanwhile from being freed, and so holds back a write that the memory budget cannot hold, a child's application in the same case, and the close. This caller obligation is documented; nothing bounds or reports it. A close frees nothing until the open views return; a fault frees nothing and refuses new views (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
 
-Enforce the accepted ban on nested public database calls during a borrowed callback
-with a thread-local scope guard checked before acquiring engine gates, cleared in
-finally. Copy reference keys and leave the scope before resolving another root.
+A nested public database call during a borrowed callback is forbidden to the caller and not checked: a guard would cost every public call, and the engine keeps no thread-local state (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Copy reference keys and leave the scope before resolving another root.
 Generated callbacks take a scoped ref-struct view and return a result type that
 cannot itself be a ref struct; expose borrowed bytes only as read-only scoped spans,
 not escapable Memory owners. Compiler/lifetime misuse tests and callback-exception
