@@ -84,7 +84,6 @@ internal sealed class StructureLayout
         int descriptorOffset,
         int size,
         LatticeValueDeclaration? list,
-        bool holdsNestedValues,
         bool holdsLists)
     {
         Start = start;
@@ -98,7 +97,6 @@ internal sealed class StructureLayout
         DescriptorOffset = descriptorOffset;
         Size = size;
         List = list;
-        HoldsNestedValues = holdsNestedValues;
         HoldsLists = holdsLists;
 
         if (list is not null && DescriptorCount > 0)
@@ -156,9 +154,6 @@ internal sealed class StructureLayout
 
     // For the record of an element that holds no descriptor: how a List of it becomes bytes and back.
     public PackedElements? Packed { get; }
-
-    // Whether the structure holds an owned value, a List or a Reference, at any depth.
-    public bool HoldsNestedValues { get; }
 
     // Whether it holds a List, in its owned values included, whose bound a write is checked against before
     // it is submitted (Engine.Entities.RootValues.CheckListBounds); for the record of an element, whether
@@ -332,7 +327,6 @@ internal sealed class StructureLayout
         var elements = new StructureLayout?[fields.Count];
         var descriptors = new List<int>();
         var offset = start + RootLayout.BitBytes(nullableCount);
-        var nested = false;
         var lists = false;
 
         foreach (var (position, _) in inPathOrder)
@@ -340,7 +334,6 @@ internal sealed class StructureLayout
             var (field, declaration) = fields[position];
             var (type, width) = TypeOf(entityType, field, declaration);
 
-            nested |= declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Reference;
             lists |= declaration.Type == LatticeFieldTypeEnum.List;
 
             if (type == StoredTypeEnum.Owned)
@@ -386,7 +379,6 @@ internal sealed class StructureLayout
             descriptorOffset,
             offset - start,
             list,
-            nested,
             lists);
     }
 

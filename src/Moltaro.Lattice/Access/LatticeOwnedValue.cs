@@ -32,10 +32,6 @@ namespace Moltaro.Lattice.Access;
 /// is submitted by a write. A read returns new ones with the record, at every depth. An owned
 /// value is not safe to change from several threads.
 /// </para>
-/// <para>
-/// <b>Not implemented yet</b> for every use: an owned value is stored and read back by name,
-/// and the rest is not built yet, as the remarks of <see cref="LatticeFieldTypeEnum.Owned"/> say.
-/// </para>
 /// </remarks>
 public sealed class LatticeOwnedValue
 {

@@ -296,8 +296,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="NotSupportedException">
     /// An operation is of an entity type whose writes are refused until a feature of its schema is
-    /// implemented, or of one that holds an owned value, a List or a reference, which a write batch
-    /// does not write yet.
+    /// implemented.
     /// </exception>
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
@@ -324,8 +323,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="NotSupportedException">
     /// An operation is of an entity type whose writes are refused until a feature of its schema is
-    /// implemented, or of one that holds an owned value, a List or a reference, which a write batch
-    /// does not write yet.
+    /// implemented.
     /// </exception>
     /// <exception cref="LatticeException">
     /// As for <see cref="CommitAsync(CancellationToken)"/>, and
