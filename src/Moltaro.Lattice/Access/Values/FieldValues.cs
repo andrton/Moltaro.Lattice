@@ -17,18 +17,14 @@ internal static class FieldValues
     // its target. Text that is not well-formed and an integer that an enum type does not allow are the
     // checks of the write. For the types a primary key may have, the integers, String and Guid, the rule is
     // that of a key given as an argument.
-    public static object Normalize(LatticeField field, object value, string parameterName)
-    {
-        var declaration = field.Declaration;
-        if (value.GetType() == declaration.ValueType)
-        {
-            return value;
-        }
+    public static object Normalize(LatticeField field, object value, string parameterName) =>
+        value.GetType() == field.Declaration.ValueType ? value : Converted(field, value, parameterName);
 
-        return IndexValue.Of(value).TryConvertTo(declaration.ScalarType, out var converted)
+    // A value of another type than that of the field, converted as a part of a search key is, or refused.
+    private static object Converted(LatticeField field, object value, string parameterName) =>
+        IndexValue.Of(value).TryConvertTo(field.Declaration.ScalarType, out var converted)
             ? converted.ToObject()!
             : throw CannotBeUsed(field, value, parameterName);
-    }
 
     // The refusal of a value, not null, that cannot be used for the field, for the parameter named: of a
     // value given by itself here, and of a value of an index key or a bound (IndexValue.Bind).
