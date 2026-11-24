@@ -95,7 +95,7 @@ public sealed class OwnershipOfIndexesAfterChurnTests
             }
 
             // Every way a write ends was met.
-            foreach (var outcome in new[] { "written", "deleted", "Memory", "DuplicateKey", "NotFound", "UniqueConstraintViolation", "batch written", "batch refused" })
+            foreach (var outcome in new[] { "written", "deleted", "Memory", "DuplicateKey", "NotFound", "UniqueConstraintViolation", "batch written", "batch Memory", "batch refused" })
             {
                 Assert.True(outcomes.GetValueOrDefault(outcome) > 0, $"No operation ended as {outcome}: {string.Join(", ", outcomes)}.");
             }
@@ -168,9 +168,10 @@ public sealed class OwnershipOfIndexesAfterChurnTests
 
             return "batch written";
         }
-        catch (LatticeException)
+        catch (LatticeException exception)
         {
-            return "batch refused";
+            // A batch refused for memory names the limit; one refused for its failing member does not.
+            return exception.Limit is { } limit ? $"batch {limit}" : "batch refused";
         }
     }
 
