@@ -109,9 +109,11 @@ Gone through by the planner and the coordinator on 18 November 2026.
   6c. **After S19,** no separate refactoring sprint. The planner and coordinator joined
      each entry to the sprint that changes its path. See the
      [architect's review after S19](#architects-review-after-s19-24-november-2026).
-  6d. **After S20 and before implementing S21,** do the bounded R2 work on packed Map
-     copies and whole writes. Fix its scope at the handoff. The common S21 ARM64
-     measurement queue also takes the two R1 experiments after their x64 preflight.
+  6d. **After S20,** finish the [S20I investigation](epic-1-core.md#s20i--investigate-the-debug-timeouts)
+     of the three earlier Debug timeouts. The owner placed it before S21.
+  6e. **Before implementing S21,** do the bounded R2 work on packed Map copies and whole
+     writes. Fix its scope at the handoff. The common S21 ARM64 measurement queue also
+     takes the two R1 experiments after their x64 preflight.
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
@@ -642,7 +644,9 @@ released. The master had committed the forwarded 5,000-member batch, and the chi
 missed the ten-second local application wait. The isolated base and head reruns and
 subsequent full runs passed. Keep the unchanged test in the S20 publication checks and
 report any recurrence or evidence that explains it. The coordinator's three isolated
-Release runs on the S20 baseline passed as well.
+Release runs on the S20 baseline passed as well. The later S20 Debug recurrence and
+two separate outer waits go to [S20I](epic-1-core.md#s20i--investigate-the-debug-timeouts)
+by the owner's disposition. S20 keeps the unchanged test in its final publication check.
 
 ## Found while measuring S19, 24 November 2026
 

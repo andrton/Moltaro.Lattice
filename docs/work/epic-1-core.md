@@ -1307,8 +1307,9 @@ Why this order:
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts; its Measured line taken after the close |
 | S19 | Maps and Sets | Full, critical | Done on 24 November 2026, in three parts |
-| S20 | Partial updates | Full, critical | In progress on 24 November 2026, Coordinator 11 |
-| S21 | Protected views by name | Full | Not started |
+| S20 | Partial updates | Full, critical | Done on 24 November 2026, Coordinator 11 |
+| S20I | Investigate the Debug timeouts | Investigation | Planned on 24 November 2026, before S21 |
+| S21 | Protected views by name | Full | Waiting for S20I |
 | S22 | Typed protected views | Full | Not started |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
@@ -9934,6 +9935,14 @@ logs, assembly hashes and load samples stay outside Git. None of the earlier thr
 failures recurred. The exact comparison did not reproduce the conditions of the
 earlier full Debug failure or establish its cause.
 
+At the owner's request the coordinator then ran one full Windows x64 Debug suite
+from the exact `d360951` source export, with completed builds and no concurrent
+builds or added workload. It passed 3,648 tests with 129 skips in 1:06.019. Commit
+charge before and after was 33,328/33,225 MiB against 86,770 MiB. All three
+earlier cases passed in that run. The owner assigned investigation of the
+historical failures to [S20I](#s20i--investigate-the-debug-timeouts) as the work
+after S20.
+
 ##### S19 controls on the S20 change
 
 The same serial shared Int64 writer driver produced fully optimized x64 listings
@@ -9964,9 +9973,35 @@ built it in Release and passed 54 targeted checks, including the unchanged
 still lists `map-lookup`. Its obsolete scenario is refused. The historical
 `3066ea63` tree and the isolated measurement source can reproduce the timing.
 
+#### S20I · Investigate the Debug timeouts
+
+The owner moved the three earlier Debug observations to this investigation on
+24 November 2026 and approved closing S20 with them recorded here. Finish S20I
+after S20 and before starting S21.
+
+- **Main question.** `PublisherScratchTests` received a committed position and
+  reached the child's ten-second application wait. Preserve that test, its
+  assertions and both the inner and outer waits. Compare exact builds under
+  comparable conditions. On recurrence, record the reply and wait start, target
+  position, the child's publication hold and release, position publication,
+  publication completion and Wake, and the observed position at failure and
+  after cleanup. Store monotonic events in a separate file. The existing
+  successful trace describes the normal sequence only.
+- **Separate symptoms.** `ReturnedKeysPagesTests` for Int64 and
+  `AcknowledgmentDuringARequestTests` each reached an outer test wait. Keep
+  separate evidence and conclusions for each scenario. Preserve exact build
+  identities, exceptions, stacks and load readings.
+- **Close.** Deliver a verified fix or establish a cause and the concrete
+  constraint that makes a fix impossible. A successful rerun is supporting
+  evidence. Closure requires the cause or correction above.
+
+[S20's tests-first and publication check](#tests-first-and-publication-check)
+records the historical failures and controls. S21 takes the resulting publication
+history when S20I closes.
+
 #### S21 · Protected views by name
 
-**Track:** full · **Needs:** S20 · **Decisions:** O6 · **Owners:** E08, E05
+**Track:** full · **Needs:** S20, S20I · **Decisions:** O6 · **Owners:** E08, E05
 
 - **Goal.** Short synchronous code reads fields and collections of one entity directly
   from the arena, by the names of the schema, without a copy and without a way to misuse
