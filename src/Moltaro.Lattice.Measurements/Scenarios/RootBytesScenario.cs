@@ -11,8 +11,8 @@ using Moltaro.Lattice.Storage.Roots;
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
 // The bytes the arena retains for one entity: the roots of the scalar form of the reference fixture
-// against their logical sizes, and beside them, in the same run, the users and groups of the
-// full form with their Lists of references, an owned value absent and present, and a List in each of its
+// against their logical sizes, and beside them, in the same run, the full fixture with its
+// Lists, Set and Map, an owned value absent and present, and a List in each of its
 // forms at a few sizes. It allocates and writes, and measures no time. The figures depend only on the data
 // and the layout, not on the machine, except through the manifest that says where they were produced.
 //
@@ -36,9 +36,9 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // index is in the figure; no text here is long enough for an index to change where it lies (RootLayout).
 // - The users and the groups of the fixture, in the scalar form without its Unique marks and in the full
 //   form, whose users hold Groups, a List of three references to groups, whose groups hold Roles, a List
-//   of two references to roles, and whose Region of a user is in Dictionary storage. The records are those
-//   of the fixture, copied into its descriptor without indexes and with the classes of the fixture named;
-//   the roles and the settings are not written.
+//   of two references to roles, and whose Region of a user is in Dictionary storage. The full form
+//   also measures the roles with their permission Sets and the settings with their translation Maps,
+//   both by name. The records are copied into the fixture descriptor without indexes.
 // - An entity with an owned value absent and present, of a schema of the scenario's own.
 // - An entity with a List in each of its two forms, packed, of Int64, and records, of String, at a few
 //   sizes, each chosen for where its List lies (StructureLayout, ValueBlocks).
@@ -172,6 +172,15 @@ internal static class RootBytesScenario
         {
             lines.Add(Line("User, by name", schema, "User", users.Count, Retained(database, () => Insert(database.Set("User"), users))));
             lines.Add(Line("Group, by name", schema, "Group", groups.Count, Retained(database, () => Insert(database.Set("Group"), groups))));
+
+            if (full)
+            {
+                foreach (var name in new[] { "Role", "Setting" })
+                {
+                    var rows = records.Where(record => record.EntityType.Name == name).Select(record => FixtureVariants.CopyInto(schema, record)).ToArray();
+                    lines.Add(Line($"{name}, by name", schema, name, rows.Length, Retained(database, () => Insert(database.Set(name), rows))));
+                }
+            }
         }
 
         using (var database = Open(schema))

@@ -13,7 +13,7 @@ internal sealed class EntityTables
     public EntityTables(EntityTable[] inSchemaOrder)
     {
         InSchemaOrder = inSchemaOrder;
-        _stored = inSchemaOrder.Where(table => table.Layout is not null).ToDictionary(table => (uint)table.EntityType.Id);
+        _stored = inSchemaOrder.ToDictionary(table => (uint)table.EntityType.Id);
     }
 
     // Every table, in the order of the entity types of the schema.

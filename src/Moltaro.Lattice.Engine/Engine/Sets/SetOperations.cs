@@ -29,8 +29,8 @@ internal sealed class SetOperations
     private readonly ReadSettings _reads;
 
     // Whether the entity type is stored with a List at any depth, whose bound a write is checked against
-    // before it is submitted (RootValues.CheckListBounds).
-    private readonly bool _checksLists;
+    // before it is submitted (RootValues.CheckCollectionBounds).
+    private readonly bool _checksCollections;
 
     public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
     {
@@ -40,7 +40,7 @@ internal sealed class SetOperations
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
         _reads = reads;
-        _checksLists = table.Layout is { Structure.HoldsLists: true };
+        _checksCollections = table.Layout.Structure.HoldsCollections;
     }
 
     public EntityTable Table { get; }
@@ -95,11 +95,11 @@ internal sealed class SetOperations
     public EntityPass StartPass() => Table.StartPass(_reads);
 
     // A forward search for a lazy Find, with the database's read limits.
-    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key) => new(_reads, index, key);
+    public IndexSearch StartSearch(SecondaryIndex index, in IndexKey key) => new(_reads, index, key);
 
     // A search for FindAsync in the chosen direction, skipping Offset matches and applying the
     // database's read limits.
-    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key, bool reverse, int offset) =>
+    public IndexSearch StartSearch(SecondaryIndex index, in IndexKey key, bool reverse, int offset) =>
         new(_reads, index, key, reverse, offset);
 
     // Waits for the position the session depends on, before the first step of an enumeration.
@@ -142,7 +142,7 @@ internal sealed class SetOperations
     // search before that entity and the next step reads it again, while what the step spent of the read
     // limits and a failure it recorded stay; null at the end, with the sequence of the end
     // (Entities.IndexSearch).
-    public TResult? Next<TCopy, TResult>(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
+    public TResult? Next<TCopy, TResult>(ref IndexSearch search, SecondaryIndex index, in IndexKey key, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
@@ -167,7 +167,7 @@ internal sealed class SetOperations
 
     // For FindAsync once it has returned its Limit: whether a match follows where the search stands
     // (Entities.EntityTable.SearchHasMore), with the sequence of that answer.
-    public bool HasMore(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, out ulong sequence, CancellationToken cancellationToken) =>
+    public bool HasMore(ref IndexSearch search, SecondaryIndex index, in IndexKey key, out ulong sequence, CancellationToken cancellationToken) =>
         Table.SearchHasMore(index, key, ref search, out sequence, cancellationToken);
 
     // For FindAsync, which holds its answer until it returns: what its result holds grows by the bytes given,
@@ -178,7 +178,7 @@ internal sealed class SetOperations
     // The check looks at the token first, as every look at a limit does (Entities.ReadLimits), so that a
     // cancellation is reported before the limit is, also one the code of the application made while it built
     // the entity just added.
-    public void Hold(ref IndexSearch search, SecondaryIndex? index, long bytes, CancellationToken cancellationToken)
+    public void Hold(ref IndexSearch search, SecondaryIndex index, long bytes, CancellationToken cancellationToken)
     {
         if (search.Progress is not { } progress || !search.Limits.LimitsMemory)
         {
@@ -186,17 +186,17 @@ internal sealed class SetOperations
         }
 
         progress.Hold(bytes);
-        search.CheckMemory(progress.Bytes + progress.Held, cancellationToken, Table.EntityType.Name, index?.Definition.Name);
+        search.CheckMemory(progress.Bytes + progress.Held, cancellationToken, Table.EntityType.Name, index.Definition.Name);
     }
 
-    // Refuses a List above its bound among the values a write took, with ValidationFailed
-    // (RootValues.CheckListBounds), for a set that validates them: before the write is submitted, and so
+    // Refuses a collection above its bound among the values a write took, with ValidationFailed
+    // (RootValues.CheckCollectionBounds), for a set that validates them: before the write is submitted, and so
     // before its conditions, as the set refuses what the validation of the core refuses.
-    public void CheckListBounds(object?[] values)
+    public void CheckCollectionBounds(object?[] values)
     {
-        if (_checksLists)
+        if (_checksCollections)
         {
-            RootValues.CheckListBounds(Table.Layout!, values);
+            RootValues.CheckCollectionBounds(Table.Layout, values);
         }
     }
 

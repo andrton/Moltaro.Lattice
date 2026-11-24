@@ -356,6 +356,10 @@ internal ref struct RootWriter
     // (NestedValues). An element given as null is null. The refusals are those of SetOwned.
     public void SetList(LatticeField field, object value) => SetNested(field, StoredTypeEnum.List, nameof(SetList), value);
 
+    public void SetMap(LatticeField field, object value) => SetNested(field, StoredTypeEnum.Map, nameof(SetMap), value);
+
+    public void SetSet(LatticeField field, object value) => SetNested(field, StoredTypeEnum.Set, nameof(SetSet), value);
+
     // Sets the value of a Binary field: the bytes as they are, in their order, placed by their
     // length as RootLayout says. More than the 268,173,376 bytes of one value is refused with
     // LatticeException, ValidationFailed, with the field named, at the call: nothing is allocated

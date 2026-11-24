@@ -1,17 +1,9 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// By the planner's answer to Q41 (brief of Epic 1, sprint S06; the remarks of ILatticeSet<TEntity>
-// and ILatticeWriteBatch): text that is not well-formed, a surrogate without its pair, in a String
-// value is refused by the validation of a write like every other invalid value: ValidationFailed with
-// the field named, for an object and for a record, at every depth, before the conditions of the write
-// are looked at and before the write is refused as not implemented. The validation of the core makes
-// the check, at a write and when an operation is added to a batch, so it holds also for an entity type
-// the engine does not store yet. Such text is never
-// stored and never replaced by another character, and a stored entity stays as it was.
-//
-// No entity type with an owned value or a collection is written yet, so there the tests state that the
-// validation comes before the refusal. The cases of a UTF-16 schema and of an enum field are stated by
-// Utf16DatabaseTests and EnumFieldTests.
+// A String with an unpaired surrogate is refused with ValidationFailed and the field named
+// (docs/decisions/strings.md, "Input validity and preservation"). Validation precedes the
+// conditions of a write in both API forms at every depth. The same check runs when an
+// operation is added to a batch. A refused write leaves the stored entity as it was.
 public sealed class MalformedTextWriteTests
 {
     // A surrogate without its pair, in its forms.
@@ -111,7 +103,7 @@ public sealed class MalformedTextWriteTests
 
     [Theory]
     [MemberData(nameof(DepthCases))]
-    public async Task Text_that_is_not_well_formed_at_any_depth_is_refused_before_the_write_is_refused_as_not_implemented(string depth)
+    public async Task Text_that_is_not_well_formed_at_any_depth_refuses_a_write(string depth)
     {
         await using var database = await TestDatabases.OpenMasterAsync(HolderSchema());
         var holders = database.Set<Holder>();
@@ -126,14 +118,13 @@ public sealed class MalformedTextWriteTests
         TestData.ExpectValidationFailed(field, () => database.CreateWriteBatch().Insert(record(database.Schema, bad)));
         TestData.ExpectValidationFailed(field, () => database.CreateWriteBatch().Upsert(entity(bad)));
 
-        // The same entity with well-formed text passes the validation and is refused as not
-        // implemented.
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await holderRecords.InsertAsync(record(database.Schema, "well-formed")));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await holders.InsertAsync(entity("well-formed")));
+        // The same entity with well-formed text passes validation in both API forms.
+        Assert.True((await holderRecords.InsertAsync(record(database.Schema, "well-formed"))).Changed);
+        Assert.True((await holders.ReplaceAsync(entity("well-formed"))).Changed);
     }
 
     // Holder holds text at every depth: in a List, a Map, a Set, an owned value of Address, a List
-    // in it, and a List of owned values. The engine does not store it yet.
+    // in it, and a List of owned values.
     private static LatticeSchema HolderSchema() => LatticeSchema.Compile($$"""
         {
           "OwnedTypes": [

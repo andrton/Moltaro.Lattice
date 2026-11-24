@@ -12,6 +12,7 @@
     <!-- The arena keeps its blocks in native memory from NativeMemory and reaches them through
          pointers: it writes a header in place and returns a reference or a span into a segment. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefineConstants Condition="'$(LatticeCollectionTimings)' == 'true'">$(DefineConstants);LATTICE_COLLECTION_TIMINGS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <!-- The contract is the engine's one dependency: the engine references no package, and its

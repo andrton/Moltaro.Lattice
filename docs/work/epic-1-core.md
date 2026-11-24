@@ -63,10 +63,11 @@ text policies and the string encoding, owned values, Lists, Maps, Sets and refer
 index parts that are paths into owned values; binary save and load with a digest; both
 fingerprints; the optional .NET class, bound by one table for every position, with a .NET
 enum that has to agree with its enum type. Records and owned values that hold nested
-values and copy what is set into them. Sets by class and by name, for
-entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
-and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
-replace, upsert, delete, expected revisions. Search through a declared secondary index
+values and copy what is set into them. Sets by class and by name support reading,
+enumeration, insertion, replacement, upsert, deletion and expected revisions for scalar
+and Enum fields, owned values, Lists, Maps, Sets and references. All declared key types,
+both text comparisons, both encodings, and Plain and Dictionary text storage are supported.
+Search through a declared secondary index
 by its full key, by its leading fields and with a range, in either direction and in pages
 with Offset and Limit, within the read limits, by class and by name, on a master and on a
 child (S15, part 1). A write batch across entity types, committed on a master or through a
@@ -154,7 +155,13 @@ violation it would have to apply. From S17 a write batch is one write at one pos
 changes are reserved and checked together on the state they leave, its members are stored
 before the position is published, so no read sees a member in its new state before every
 member is visible, and a child applies it through the same publisher and acknowledges only
-its position; a batch committed through a child reaches the master as one request.
+its position; a batch committed through a child reaches the master as one request. Since
+S18, owned values and Lists live in the root's storage tree and references are keys. S19
+adds compact Map and Set storage through eight entries and a local hash lookup above eight.
+Placement checks collection uniqueness under the declaration, as does a child skipping a
+received state during catch-up. Wire format 6 carries the
+entries, and the receiving node builds its own lookup. The layout version stays at 2.
+Whole-entity operations support the collections through either API.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -162,7 +169,6 @@ tests are written and skipped; samples are written.
 | Feature | Contract | Tests waiting | Sprint |
 | --- | --- | --- | --- |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
-| Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
 and tests in the sprint named.
@@ -436,6 +442,8 @@ documentation before this document is removed.
 | S17 | How long ordinary reads are held by the publication of a batch of 1, 32, 1,000 and 10,000 entities, readers of its members on the master, the start of part 2 | none over 100 µs for 1 and 32; up to the commit for 1,000 (1.8 ms, the longest read 2.1 to 2.6 ms); for 10,000 at most 2.1 to 3.2 ms against a commit of 17.7 ms; readers of other entities are not held | rented-arm64-1 | 23 November 2026 |
 | S17 | The pool of a waiting batch against what its publication takes, batch-writes, the bound by levels, batches of 1, 32, 1,000 and 10,000; the check on the final state | random keys 4.67, 1.07, 1.28, 1.05; ascending keys 14.00, 3.06, 3.06, 1.38; the fixture's users 6.57, 3.69, 2.85, 1.85, 58.7 MiB at 10,000 where the linear bound of part 1 held 341.8 MiB; the check 1.75 to 1.80 µs a member for one unique index, 5.2 to 5.45 µs for three | rented-arm64-1 | 23 November 2026 |
 | S17 | Writes at the close, unique-writes, index-writes, write-callers and following-children, nine trees rotating, against b9a9074 (`main` before S17) and the gauge of f6d9cf3 | the sum of S17, the head (cb70b9f) against b9a9074, on index-writes 0.910 to 0.981 on 8 of 24 lines and on unique-writes 0.933 to 0.958 on 5 of 17 with one gain of 1.082 (K2); to the write path (f6d9cf3) 0.916 to 0.954 on 7 index-writes lines; the write path no fall and no gain on index-writes; following-children 0.953 to 1.014, none called; the users inserted and deleted by name, one caller, the head 0.990 of 57be01b, none called (K1 closed); at the head single writes 652 to 696 k a second and the upkeep of one index 1,396 ns, against 1,298 at b9a9074 | rented-arm64-1 | 23 November 2026 |
+| S18, part 3 | Historical comparison of `following-children` and `forwarding-costs` against part 2 | [Paired results, measured during S19](#s19-arm64-results) | rented-arm64-1 | 24 November 2026 |
+| S19 | Full fixture retention, Map lookup and write-lock cost, and the scalar and nested index controls | [Bytes, timings and paired controls](#s19-arm64-results) | rented-arm64-1 | 24 November 2026 |
 
 The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
 and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
@@ -1298,7 +1306,7 @@ Why this order:
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts; its Measured line taken after the close |
-| S19 | Maps and Sets | Full | Not started |
+| S19 | Maps and Sets | Full, critical | Done on 24 November 2026, in three parts |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
 | S22 | Typed protected views | Full | Not started |
@@ -9111,7 +9119,7 @@ three paired rounds beyond it on that side.
 **Carried from S10:** what travels to a child holds no address and no block number; the
 child stores received bytes through its own allocation.
 
-**Track:** full · **Needs:** S18 · **Owners:** E01, E04
+**Track:** full, critical · **Needs:** S18 · **Owners:** E01, E04
 
 - **Goal.** Maps and Sets are stored compactly when small and hashed when large, with
   the accepted input rules, on every node.
@@ -9199,6 +9207,46 @@ the checklist of the sprint with the reviewer's list of S18, part 1. Measured an
 as well: the time a write holds the lock of the writes while it builds the lookup of a Map
 of 1,000, 100,000 and 1,000,000 entries, which joins what Q52 asks.
 
+*Internal contract.*
+
+- A collection's compiled entry layout describes one member for List or Set, and the key
+  and value for Map, both in the same record. It gives the stored stride and entry count
+  bound. The Map and Set bound is the lesser of the entry bound and the number of
+  entries the lookup holds at 70 percent load. The layout of every entity is compiled at
+  open. A fixed part of 65,536 bytes fits, including with a root Map. A larger fixed part
+  fails the open with InvalidSchema naming the entity type and leaves the instance Closed.
+- RootReader.FindEntry(LatticeField, in IndexValue) takes a probe already bound to the
+  Map key or Set member declaration. It returns the zero-based entry ordinal or -1.
+  An ordinal is valid only for that root while the caller protects it. Internal
+  placement and lookup use the same stored-value comparison and hash service as the
+  indexes. EngineDatabase passes its seed to Arena.HashSeed. All lookup slots are built
+  and searched with that seed.
+- A compact Map or Set uses its entries' List descriptor. A hashed one uses
+  DescriptorKindEnum.Lookup with the entry count and the address of its lookup block.
+  The block holds the entries descriptor first, at offset 32 including the header.
+  Its slots each hold a 32-bit hash above a 32-bit ordinal plus one. Zero denotes empty.
+  A contiguous lookup fills a size class with slots, up to 8,186. Above that, the
+  block holds up to 4,094 eight-byte arena addresses of slot chunks. A full chunk
+  holds 8,188 slots. The final chunk fills its chosen size class. The lookup block
+  owns its entry storage through the descriptor at offset 32 and a slot chunk
+  through its address at offset 48 plus eight times its zero-based chunk index.
+  EntityBytes includes the lookup payloads once, at their stored lengths.
+- Placement initializes the entries descriptor and chunk positions before exposing the
+  lookup to its holder. Every installed child is reachable by an ownership walk.
+  An unwind frees those children before the lookup, clears the holder descriptor
+  and restores prepared byte accounting. The root writer gives the lookup its actual
+  parent at Complete. An importer has the parent before it places its children.
+- Wire format 6 carries only List-shaped entries. The root layout version stays 2.
+  Both live export and direct forwarding use an out-of-line Block descriptor for a
+  short packed hashed collection. A receiving node checks descriptor structure
+  before placement and builds the lookup and checks uniqueness once, including
+  compact inline entries. When catch-up skips a state because it already holds
+  a newer one, it checks the same uniqueness invariant directly from the validated
+  wire slices. This check leaves the transaction cursor alone and takes no arena
+  memory. Scratch is sized from the validated entries and releases any references
+  when returned. A duplicate refuses the transaction and rolls back every effect
+  prepared for it.
+
 *Tests, committed before the implementation,* a string key in the public ones.
 - By name and by a class, every permitted type of key and of member, value types nested,
   nullable positions, null against empty, in both forms and both forms of the entries,
@@ -9246,6 +9294,156 @@ block the root owns that does not travel. The 37 `Layout!` and the 21 checks of 
 stored yet" in 11 files, and `ClassBinder.NotRead`, go in this sprint, not after it; and
 the bound of a key and a value of a Map is checked in `RecordValues.CopyMap` and
 `ClassBinder.BindMap`.
+
+**Implementation and local verification, Coordinator 10.** The tests-first commit is
+`11c687c`. The three parts landed on the sprint branch as `9cdaf8d` for shared
+comparison and binding below placement, `36a3a4b` for resident layout and lookup,
+and `4e816daa` for entries-only transfer and public enablement. The coordinator
+approved correcting the two Enum and Flags fixtures to use the catalog property
+`Enum`. The enum declarations and expected lookup results were preserved. The approved access
+for prebound test and measurement probes is recorded in [X3](exceptions.md#x3-tests-of-engine-mechanisms).
+
+The Q35 regression derives the fixed part from a 32-byte header, an 8-byte key, a
+16-byte Map descriptor, 4,092 Decimal fields at 16 bytes each, and eight or nine
+one-byte fields. At 65,536 bytes the instance opens and stores and reads a nonempty
+Map. At 65,537 bytes it names the entity in `InvalidSchema` and stays Closed. The
+test replaces the open-time case written for the earlier unsupported type.
+
+The tests-first review took two passes. The structural move took one, resident storage
+took three, and wire transfer and public enablement took two. Product documentation took
+one pass. There is no open P1 or P2.
+Refusal now unwinds both collection forms,
+restores the writer's accounting and leaves an unset nullable field absent. The
+transfer review took two passes. Read and lookup agree on replacement decoding at
+the end of chunked UTF-8, and a malformed split can fail with a managed decoding
+error under the accepted trust rule. The part of the review hardest to follow was
+the walk of a received root skipped during catch-up, where a record's inline bytes
+and its cursor over out-of-line values have different bounds. The public stale
+revision case runs validation before its condition. The receiving master retains
+S12's condition order on a request that it rejects before placement.
+
+At `3066ea63`, both Windows x64 suites passed 3,369 tests with 129 skipped.
+Release and Debug builds and format verification passed. The sample runner completed all
+16 examples, including the expected Identity stop. The
+independent breaker ran 13 public probes on that tree. The replication tests and
+independent source review checked the receiving paths. Twelve complete UTF-8 and
+UTF-16 bodies, 14,632,479 bytes in total, matched `e863f688` byte for byte. The
+initial full run on `4e816daa` observed one position timeout in
+`PublisherScratchTests` during overlapping verification. The test passed three
+isolated runs on each of the base and feature builds, and both subsequent full
+Release runs passed. The test and its timeout were unchanged.
+
+<a id="s19-arm64-results"></a>
+
+**Rented ARM64 measurements, 24 November 2026.** On the 16-core machine with SDK
+10.0.404 and runtime 10.0.15, the `rented-arm64-1` queue ran from 16:18:28 to
+17:01:24 UTC. All eight builds and 47 measurement runs completed. The Release suite
+passed 3,369 tests with 129 skipped. The ordering case passed 20 of 20 runs, and
+all 13 public probes passed in each of three runs. The raw timings, test output and
+queue log are kept outside the repository. These are early comparisons on the
+measurement manifest. The release gates keep their scheduled workloads.
+
+`root-bytes` at `3066ea63` measured all four full fixture types. The values include
+the root's owned blocks and its share of Dictionary text.
+
+| Entity | Live bytes per entity | Retained bytes per entity including size-class slack |
+| --- | ---: | ---: |
+| User | 193.01 | 208.01 |
+| Group | 99.00 | 112.00 |
+| Role, with a compact Set | 243.88 | 259.07 |
+| Setting, with a compact Map | 473.07 | 496.08 |
+
+`map-lookup` used prebound probes on a protected root. The owned path used a read by
+primary key followed by `Dictionary.TryGetValue`. Timings and rates below are medians
+of three runs. Retention includes slack and is the increase over the same root with
+an empty Map.
+
+| Key | Entries | Native bytes per entry | Protected hit p50 / p99 (ns) | Protected miss p50 / p99 (ns) | Owned hit / miss (reads/s) | Managed bytes per owned read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Int64 | 8 | 20.0 | 200 / 2,000 | 280 / 320 | 1,432,899 / 1,416,899 | 920 |
+| Int64 | 9 | 37.3 | 120 / 160 | 120 / 160 | 1,295,982 / 1,293,772 | 968 |
+| Int64 | 1,000 | 32.8 | 160 / 200 | 120 / 160 | 21,010 / 21,005 | 79,112 |
+| String | 8 | 40.0 | 400 / 1,641 | 600 / 640 | 641,204 / 648,615 | 1,112 |
+| String | 9 | 58.7 | 320 / 360 | 120 / 160 | 576,396 / 581,214 | 1,184 |
+| String | 1,000 | 65.6 | 200 / 240 | 120 / 160 | 7,014 / 7,028 | 103,112 |
+
+Every protected probe allocated zero managed bytes. The owned copy of a packed Map
+boxes its fixed pair entries through the shared Map form. The instrumented
+`map-write-lock` build reports allocations on the caller of a whole replacement,
+including validation and placement. The lookup build is inside the measured
+admission lock interval. Each column reports the median of the three run medians.
+
+| Int64 Map entries | Whole call (ms) | Admission lock held (ms) | Lookup allocation and population (ms) | Managed bytes allocated on caller |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 1.500 | 0.975 | 0.425 | 198,496 |
+| 100,000 | 48.280 | 26.425 | 11.131 | 18,052,632 |
+| 1,000,000 | 320.584 | 238.680 | 177.427 | 171,596,424 |
+
+The scalar and nested index scenarios compared `3066ea63` with `e863f688` and an
+independent build of that base in three rotated rounds. In `nested-index-reads`,
+the ratios of median rates were 0.9977 without a limit and 0.9892 with a 2 MiB limit.
+These ratios were within the gauges of 0.9556–1.0465 and 0.9874–1.0128 respectively.
+The three paired ratios with the limit were 0.9711, 1.0151 and 0.9826, so the fall
+criterion did not hold. The head
+median rates were 22,392 and 20,233 searches/s. The S19-only
+`collection-index-reads` used compact and hashed collections in the nested records.
+It measured 7,341 searches/s without the limit and 7,079 with it. The result
+copies allocated 130,616 managed bytes per search in both cases.
+
+In the non-tiered x64 listings the scalar class copier went from 1,516 bytes to
+1,398. `RootValues.Read` and its former `Value` callee were 201 and 1,995 bytes
+on the base. The corresponding read and shared `NestedValues.Read` bodies were
+278 and 1,124 bytes on S19. These are code sizes from the listing.
+
+Of the 50 scalar `index-search` rates, one met the criterion for a fall.
+The writer that changes its indexed key beside eight typed readers taking the first
+of 16 shared Int64 keys ran at 0.9677 of base, 273,181 to 264,344 writes/s.
+The gauge was 0.9711–1.0297 and the three paired ratios were 0.9677, 0.9600 and
+0.9502. The corresponding read ratio 1.0266 was within its gauge of
+0.9059–1.1038. The other rates did not meet the three-round criterion for a gain or
+fall.
+
+The exact Release builds have the same resolved IL for the scalar write admission,
+replacement preparation, index reservation and primary lookup. In the Windows x64
+FullOpts listing the ownership walk inlines `WalkStructure` at the base and calls a
+separate method at S19 for publishing, retiring and freeing. Plain text placement
+also adds a fixed `allowInline` argument. The class write inlines `SubmitAsync` at S19.
+With default tiering on x64, the captured ownership callers were still at Tier 0,
+and both builds had a standalone Tier 1 `SubmitAsync`. The non-tiered changes give
+separate candidates for an ARM64 control.
+
+A Windows x64 control used four rotated runs at a fixed seed, an independent base
+build and a diagnostic S19 build with only `RootStorage.cs` and `StructureWalk.cs`
+restored to their base versions. With eight typed readers on the same index, the
+S19/base writer ratio was 0.9265 within a gauge of 0.2827–3.5370. Its paired ratios
+were 1.4681, 2.9570, 0.8571 and 0.8393. The restored-walk build gave 0.7882 of S19,
+with pairs 0.5202, 1.0920, 0.8466 and 0.3478. With readers on a separate index and
+with the writer alone, S19/base was 0.9149 and 0.9112, within the corresponding
+gauges of 0.6523–1.5331 and 0.7468–1.3391. Restoring the walk gave no consistent
+recovery in either case. The workstation control cannot resolve a 3.2 percent
+change. The specific cause of the ARM64 fall remains open, with the change in
+`WalkStructure` inlining a hypothesis. The S19 Acceptance was met. These
+development measurements do not judge the release gates. The architect and
+Coordinator 11 will place the [paired control](refactoring.md#found-while-measuring-s19-24-november-2026)
+in the next planned rented run.
+
+**S18 historical comparison.** The same queue compared `6f50194` with `6102bbe`
+and a second build of `6f50194` in three rotated rounds. This supplies the two
+owed series from the close of S18, part 3.
+
+- In `following-children` the first repeat with two in-process children and one
+  caller gave 0.9618 of base, against a gauge of 0.9723–1.0285. The three paired
+  ratios were 0.9618, 0.9677 and 0.9387. Median write p50 moved from 1.80 to
+  1.88 µs. The fall met the paired rule in the first repeat only.
+- In `forwarding-costs` the second repeat of the ordinary 100-byte forwarded
+  replace moved from a median p50 of 97.2 to 104.5 µs, a ratio of 1.0751. The
+  gauge was 0.9614–1.0401 and the pairs were 1.0588, 1.1039 and 1.0663. The
+  criterion held for that p50 only.
+
+The earlier listings show three additional checks of a received scalar root and
+another call level for placement of an out-of-line value. The measurements do
+not separate the cost of that work from the rest of delivery and application.
+Both lines go to the architect's review after S19 alongside K4.
 
 #### S20 · Partial updates
 

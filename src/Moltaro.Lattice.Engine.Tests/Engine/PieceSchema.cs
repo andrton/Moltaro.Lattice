@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // and Count, an Int32. With the stored layout in docs/design/arena-protocol.md, its fixed part is the
 // 32 bytes of the header, a null bitmap of one byte for the two nullable fields, the 8 bytes of Id,
 // one descriptor of 16 bytes for each of the three String and Binary fields and the 4 bytes of
-// Count: 93 bytes. Holder has the key Id and a Map field: the engine cannot store it yet.
+// Count: 93 bytes. Holder has the key Id and a Map field.
 internal static class PieceSchema
 {
     public const int FixedSize = 32 + 1 + 8 + (3 * 16) + 4;

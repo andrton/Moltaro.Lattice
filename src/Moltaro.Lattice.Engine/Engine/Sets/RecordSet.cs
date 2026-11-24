@@ -108,7 +108,7 @@ internal sealed class RecordSet : ILatticeSet
         return session;
     }
 
-    // The arguments are checked first and the record validated against the schema, its Lists against
+    // The arguments are checked first and the record validated against the schema, its collections against
     // their bound included, before anything else can refuse the write.
     private ValueTask<LatticeWriteResult> Save(WriteKindEnum kind, LatticeRecord record, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
     {
@@ -124,7 +124,7 @@ internal sealed class RecordSet : ILatticeSet
         try
         {
             values = record.ValuesForWrite();
-            _operations.CheckListBounds(values);
+            _operations.CheckCollectionBounds(values);
         }
         catch (LatticeException exception)
         {

@@ -1,3 +1,5 @@
+using System.Text;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
@@ -108,6 +110,49 @@ public sealed class MalformedTextTests
                 writer.Abandon();
             }
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_copy_of_chunked_Map_keys_preserves_the_terminal_replacement_or_reports_a_decode_failure(bool crossesChunks)
+    {
+        using var item = RootArena.Of("{ 'Id': 2, 'Name': 'Entries', 'Type': 'Map', 'Key': { 'Type': 'String' }, 'Value': { 'Type': 'Int32' } }");
+        var field = item.Field("Entries");
+        var prefixLength = crossesChunks ? ValueBlocks.ChunkPayload - 1 : ValueBlocks.ChunkPayload + 2;
+        var prefix = new string('x', prefixLength);
+        var writer = item.Writer();
+        writer.SetInteger(item.Field("Id"), 1);
+        writer.SetMap(field, new Dictionary<string, int> { [prefix] = 1, [prefix + (crossesChunks ? "az" : "z")] = 2 });
+        var root = writer.Complete();
+        var mapOffset = item.Layout.StoredFieldOf(field).Offset - BlockHeader.Size;
+        var map = ValueBlocks.Read(item.Layout.RootPayload(item.Arena, root)[mapOffset..]);
+        var entries = item.Arena.Payload(ValueBlocks.AddressOf(map));
+        var element = item.Layout.Structure.ElementOf(field.Ordinal);
+        var key = ValueBlocks.Read(entries[(element.Size + element.Place(0).Offset)..]);
+        var directory = ValueBlocks.Directory(item.Arena, key);
+        var chunk = ValueBlocks.Read(directory[(crossesChunks ? 0 : ValueBlocks.DescriptorSize)..]);
+
+        // A trusted peer can leave malformed text in otherwise checked storage. Recreate
+        // the two byte shapes here by damaging a key in a prepared root.
+        item.Arena.Payload(ValueBlocks.AddressOf(chunk))[^1] = 0xE2;
+        var replacement = prefix + (crossesChunks ? "\uFFFDz" : "\uFFFD");
+        var probe = IndexValue.Of(replacement).Bind(field.Declaration.Key!, field.Name, "key");
+        Assert.Equal(1, item.Reader(root).FindEntry(field, probe));
+
+        if (crossesChunks)
+        {
+            Assert.Throws<DecoderFallbackException>(() => item.Reader(root).GetNested(field));
+        }
+        else
+        {
+            var copied = Assert.IsType<Dictionary<string, int>>(item.Reader(root).GetNested(field));
+            Assert.Equal(2, copied.Count);
+            Assert.Equal(1, copied[prefix]);
+            Assert.Equal(2, copied[replacement]);
+        }
+
+        RootStorage.Free(item.Arena, item.Layout, root);
     }
 
     private static string WithoutLoneSurrogates(string text)

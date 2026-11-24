@@ -31,7 +31,9 @@ internal sealed class SequenceForm<T> : SequenceForm
         }
     }
 
-    public override object Create() => _isSet ? new HashSet<T>(_comparer) : new List<T>();
+    public override object Create(int capacity = 0) => _isSet ? new HashSet<T>(capacity, _comparer) : new List<T>(capacity);
+
+    public override int Count(object collection) => ((ICollection<T>)collection).Count;
 
     public override void Add(object collection, object? element) => ((ICollection<T>)collection).Add((T)element!);
 }

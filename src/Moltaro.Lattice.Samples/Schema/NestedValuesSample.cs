@@ -8,10 +8,8 @@ namespace Moltaro.Lattice.Samples.Schema;
 // position by position. A record holds them by name; a class holds them in its own types. An
 // index may cover a field inside an owned value.
 //
-// This shows the intended use. The engine stores owned values, Lists and references, reads them back by
-// name and through a class and finds them through an index over a field inside an owned value; the Maps
-// and Sets of Person are not built yet, so the engine does not store Person and the write at the end throws
-// NotSupportedException, which Program.cs reports.
+// The sample finds an entity through an index on an owned field, then writes a Person through
+// its class and reads the owned values, Map and Set in both API forms.
 internal static class NestedValuesSample
 {
     private static readonly string SchemaJson = $$"""
@@ -120,6 +118,9 @@ internal static class NestedValuesSample
         await people.InsertAsync(ada);
         var stored = database.Set("Person").Get(1L)!;
         Console.WriteLine($"Written as an object, read as a record: lives in {stored.Get<LatticeOwnedValue>("Home")!["City"]}");
+        var options = stored.Get<Dictionary<string, string?>>("Options")!;
+        var rights = people.Get(1L)!.Rights;
+        Console.WriteLine($"Theme {options["theme"]}, can write {rights.Contains("write")}");
 
         Console.WriteLine();
     }

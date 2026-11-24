@@ -57,10 +57,12 @@ public sealed class FailedWriteTests
         await ExpectNothingLeftAsync(LatticeErrorEnum.RevisionConflict, () => records.DeleteAsync(1L, stale));
         await ExpectNothingLeftAsync(LatticeErrorEnum.RevisionConflict, () => pieces.ReplaceAsync(PieceSchema.Of(404, name: 70_000), stale));
 
-        // Refused as not stored yet, and by the check of its arguments.
+        // A late entry in a collection has malformed text.
         var holder = new LatticeRecord(holders.EntityType) { ["Id"] = 1L, ["Lines"] = new Dictionary<string, string> { ["line"] = new string('l', 70_000) } };
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await holders.InsertAsync(holder));
-        ExpectAsBefore();
+        holder.Get<Dictionary<string, string>>("Lines")!.Add("second", "\uD800");
+        await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => holders.InsertAsync(holder));
+
+        // Refused by the check of the key argument.
         await Assert.ThrowsAsync<ArgumentException>(async () => await pieces.DeleteAsync("one"));
         ExpectAsBefore();
 

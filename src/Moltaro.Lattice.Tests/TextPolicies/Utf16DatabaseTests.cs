@@ -63,9 +63,6 @@ public sealed class Utf16DatabaseTests
         ExpectReadBack(samples, records, written);
     }
 
-    // Moved here from MalformedTextWriteTests, whose case on the engine stated that such text is refused
-    // before the write is refused as not implemented: the engine stores a UTF-16 schema from this sprint,
-    // so a write of well-formed text is stored.
     [Fact]
     public async Task Text_that_is_not_well_formed_in_a_UTF16_database_is_ValidationFailed_and_well_formed_text_is_stored()
     {

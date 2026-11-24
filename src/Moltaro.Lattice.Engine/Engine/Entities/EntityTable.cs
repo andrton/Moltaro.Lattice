@@ -1,6 +1,6 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -9,6 +9,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -30,10 +31,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 // MIT, which the project offers beside Apache-2.0, Copyright (c) 2019 The Crossbeam Project Developers
 // (THIRD-PARTY-NOTICES.md). The rest of the type is the engine's own.
 //
-// Whether the engine stores the entity type is decided once, when the database opens: an entity type
-// the engine cannot store yet gets no layout, every write of it is refused with NotSupportedException,
-// a read of it by key finds nothing and an enumeration of it is empty. How its keys are hashed and
-// compared, and read from a root, is the business of its primary keys (PrimaryKeys).
+// The database compiles the root and index layouts when it opens. How its keys are hashed,
+// compared and read from a root is the business of its primary keys (PrimaryKeys).
 internal sealed class EntityTable
 {
     // The sequence of the last mutation of a root entry while a write changes its root or its state,
@@ -72,8 +71,7 @@ internal sealed class EntityTable
 
     private readonly PositionClock _clock;
 
-    // The index of the entity type, when the engine stores it.
-    private readonly PrimaryIndex? _index;
+    private readonly PrimaryIndex _index;
 
     // The primary keys of the entity type: their kind, their hash in the index, their equality, the key a
     // root stores and their form in the replication stream. Held by value, so that its fields lie in the
@@ -83,8 +81,7 @@ internal sealed class EntityTable
 
     private EntityTable(
         LatticeEntityType entityType,
-        RootLayout? layout,
-        string? refusal,
+        RootLayout layout,
         PrimaryKeys keys,
         Arena arena,
         RootTable roots,
@@ -94,28 +91,22 @@ internal sealed class EntityTable
     {
         EntityType = entityType;
         Layout = layout;
-        Refusal = refusal;
         Keys = keys;
         _arena = arena;
         _roots = roots;
         _epochs = epochs;
         _clock = clock;
-        _index = layout is null ? null : new PrimaryIndex(retired);
-        _indexes = layout is null ? [] : [.. entityType.Indexes.Select(index => SecondaryIndex.Open(index, layout, arena, retired))];
+        _index = new PrimaryIndex(retired);
+        _indexes = [.. entityType.Indexes.Select(index => SecondaryIndex.Open(index, layout, arena, retired))];
         HasUniqueIndex = _indexes.Any(index => index.IsUnique);
     }
 
     public LatticeEntityType EntityType { get; }
 
-    // The layout of the roots of the entity type; null when the engine does not store it yet.
-    public RootLayout? Layout { get; }
+    public RootLayout Layout { get; }
 
-    // Why the engine does not store the entity type yet, for the NotSupportedException of a write;
-    // null when it stores it.
-    public string? Refusal { get; }
-
-    // The secondary indexes of the entity type, in the order the schema declares them; none when the
-    // engine does not store it. Declared after the properties above, because the runtime lays out the
+    // The secondary indexes of the entity type, in the order the schema declares them. Declared after
+    // the properties above, because the runtime lays out the
     // references of a class in the order of their declaration: so this one, which a read by key never
     // loads, lies after the references it loads, Layout among them, which keep their offsets in the table
     // (JIT listing at full optimization). Keys, held by value, lies after every reference wherever it is
@@ -124,21 +115,20 @@ internal sealed class EntityTable
 
     // What the primary index holds, in bytes, and what it is building while it grows. For the writer
     // and the counters.
-    public long IndexBytes => _index?.Bytes ?? 0;
+    public long IndexBytes => _index.Bytes;
 
-    public long ReplacementIndexBytes => _index?.ReplacementBytes ?? 0;
+    public long ReplacementIndexBytes => _index.ReplacementBytes;
 
     // The secondary indexes of the entity type, in the order the schema declares them, each kept with the
-    // data (Indexes.SecondaryIndex); none when the engine does not store the entity type.
+    // data (Indexes.SecondaryIndex).
     public ReadOnlySpan<SecondaryIndex> Indexes => _indexes;
 
     // Whether one of the secondary indexes is unique, so that a write that sets a value of it is checked
     // (Entities.ChangePublisher.TryReserve).
     public bool HasUniqueIndex { get; }
 
-    // The secondary index of the declaration, an index of this entity type; null when the engine does
-    // not store the entity type, which holds no entity.
-    public SecondaryIndex? IndexOf(LatticeIndex definition)
+    // The secondary index of the given declaration of this entity type.
+    public SecondaryIndex IndexOf(LatticeIndex definition)
     {
         foreach (var index in _indexes)
         {
@@ -148,24 +138,23 @@ internal sealed class EntityTable
             }
         }
 
-        return null;
+        throw new UnreachableException($"Index {definition.Name} does not belong to {EntityType.Name}.");
     }
 
     // The live entities of the type: the entries of its primary index. For the writer, under the lock
     // of the writes, which a master takes to register a child (Children.Capture).
-    public int Count => _index?.Count ?? 0;
+    public int Count => _index.Count;
 
     // For the loader of a child, before the first root of the type is placed: sizes the primary index
     // for the count of roots the master announced (Indexes.PrimaryIndex.Presize). Under the lock of the
     // writes.
-    public void Presize(long count) => _index!.Presize(count);
+    public void Presize(long count) => _index.Presize(count);
 
     // The table of an entity type of the schema, when the database opens, whose primary index hashes
     // with the seed of the instance. The root layout and the layout of each secondary index are compiled
     // here, before any data is admitted; an entity type whose fixed part does not fit one block, or one
     // that declares an index whose widest entries do not fit a node, fails the open with the
-    // LatticeException, InvalidSchema, of RootLayout.Compile or Ordered.IndexLayout.Compile. An entity
-    // type the engine cannot store yet is not compiled, so neither is checked.
+    // LatticeException, InvalidSchema, of RootLayout.Compile or Ordered.IndexLayout.Compile.
     public static EntityTable Open(
         LatticeEntityType entityType,
         LatticeSchema schema,
@@ -176,22 +165,10 @@ internal sealed class EntityTable
         PositionClock clock,
         ulong seed)
     {
-        string? refusal = null;
-        RootLayout? layout = null;
-
-        try
-        {
-            layout = RootLayout.Compile(entityType, schema);
-        }
-        catch (NotSupportedException exception)
-        {
-            // What the root layout cannot store yet: a Map or a Set, at any depth.
-            refusal = $"{exception.Message} The engine does not store the entity type {entityType.Name} yet, so it cannot be written.";
-        }
-
+        var layout = RootLayout.Compile(entityType, schema);
         var keys = new PrimaryKeys(entityType, schema.StringEncoding, seed);
 
-        return new EntityTable(entityType, layout, refusal, keys, arena, roots, epochs, retired, clock);
+        return new EntityTable(entityType, layout, keys, arena, roots, epochs, retired, clock);
     }
 
     // For a write being prepared, under the lock of the writes, whose holder is the only thread that
@@ -221,20 +198,20 @@ internal sealed class EntityTable
     // Makes room in the index for one more key before an insert is published, beside the inserts
     // prepared before it and not published yet, so that no publication allocates; the index grows
     // while reads go on (Indexes.PrimaryIndex). Under the lock of the writes.
-    public void Reserve(in EntityKey key) => _index!.Reserve(Keys.HashOf(key));
+    public void Reserve(in EntityKey key) => _index.Reserve(Keys.HashOf(key));
 
     // Gives back the room an insert reserved, when it is withdrawn. Under the lock of the writes.
-    public void ReleaseReservation() => _index!.Release();
+    public void ReleaseReservation() => _index.Release();
 
     // Maps an absent key to the root entry of its new root, after Reserve.
-    public void Add(in EntityKey key, RootHandle handle) => _index!.Add(Keys.HashOf(key), handle.Slot);
+    public void Add(in EntityKey key, RootHandle handle) => _index.Add(Keys.HashOf(key), handle.Slot);
 
     // Removes the key of the root entry from the index.
-    public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(Keys.HashOf(key), handle.Slot);
+    public void Remove(in EntityKey key, RootHandle handle) => _index.Remove(Keys.HashOf(key), handle.Slot);
 
     // Arms the switch of the tests on the primary index of an entity type the engine stores
     // (EngineDatabase.ArmGrowthSwitch).
-    public void ArmGrowthSwitch(Action action) => _index!.ArmGrowthSwitch(action);
+    public void ArmGrowthSwitch(Action action) => _index.ArmGrowthSwitch(action);
 
     // For a replace of a stored entity, and an upsert that replaces one: makes the key among the values
     // the key as it is stored. The primary key is immutable (decision on mutation commands, "Immutable
@@ -254,9 +231,9 @@ internal sealed class EntityTable
             return;
         }
 
-        var stored = new RootReader(_arena, Layout!, _roots.Entry(handle).Root);
+        var stored = new RootReader(_arena, Layout, _roots.Entry(handle).Root);
 
-        if (!ValueComparer.SameText(stored, key, (string)values[key.Ordinal]!))
+        if (!ValueComparer.SameText(stored.ReadText(key), (string)values[key.Ordinal]!))
         {
             values[key.Ordinal] = stored.GetString(key);
         }
@@ -274,14 +251,6 @@ internal sealed class EntityTable
 
         try
         {
-            if (Layout is null)
-            {
-                revision = default;
-                sequence = _clock.Sequence;
-
-                return false;
-            }
-
             var hash = Keys.HashOf(key);
             var found = TryFindSlot(key, hash, out var slot);
 
@@ -356,15 +325,8 @@ internal sealed class EntityTable
                 {
                     pass.CheckRound(started, cancellationToken);
 
-                    if (Layout is null)
-                    {
-                        sequence = _clock.Sequence;
-
-                        return false;
-                    }
-
                     var before = _clock.Sequence;
-                    var table = _index!.TableAndVersion(out var current);
+                    var table = _index.TableAndVersion(out var current);
 
                     // Step 1 of a round (arena-protocol.md, "An enumeration"): a grown table is walked
                     // from its start.
@@ -450,8 +412,7 @@ internal sealed class EntityTable
     // only a walk needs staged, which it commits then (IndexSearch.Commit); a build that fails takes neither,
     // so the next step reads that entity again (SetOperations.Next). False at the end, with the sequence under
     // which the index showed no more match.
-    // A search of an entity type the engine does not store, which has no index, finds nothing, as a read by
-    // key does. ObjectDisposedException after the close; LatticeException with ReadLimitExceeded from a
+    // ObjectDisposedException after the close, LatticeException with ReadLimitExceeded from a
     // step that would exceed a read limit and from every step after it (ReadLimits). The token ends the wait
     // of a round for a slot of the protection, and every look at a limit looks at it first (ReadLimits), so
     // a cancellation is reported before a limit is; OperationCanceledException then. Allocates nothing but
@@ -459,19 +420,19 @@ internal sealed class EntityTable
     //
     // docs/design/ordered-index.md, "How a range is walked", says what a step does and why it returns an
     // entity at most once, every entity that keeps its key, and its entities in the order of the walk.
-    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, out (RootHandle From, ulong EndsAt, FirstKey? First) next, CancellationToken cancellationToken)
+    public bool TrySearch<TCopy, TResult>(SecondaryIndex index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, out (RootHandle From, ulong EndsAt, FirstKey? First) next, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class =>
-        index is null || search.EndsAt != 0
+        search.EndsAt != 0
             ? StepWithoutWalk(index, ref search, out sequence, out next, cancellationToken)
             : Step<TCopy, TResult>(index, key, ref search, ref copy, copies: true, out sequence, out next, cancellationToken);
 
     // For FindAsync, once it has returned its Limit: whether a match follows where the search stands, by a
     // step that copies nothing and moves nothing; false without a descent when a step saw the end of the
     // search. The sequence is that of the answer, as for a step.
-    public bool SearchHasMore(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken)
+    public bool SearchHasMore(SecondaryIndex index, in IndexKey key, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken)
     {
-        if (index is null || search.EndsAt != 0)
+        if (search.EndsAt != 0)
         {
             return StepWithoutWalk(index, ref search, out sequence, out _, cancellationToken);
         }
@@ -482,13 +443,12 @@ internal sealed class EntityTable
     }
 
     // A step of a search that has nothing to walk: one whose step before saw its end, which ends at the
-    // sequence of that step, and one of an entity type the engine does not store, which has no index and finds
-    // nothing, as a read by key does. Kept apart from Step, whose frame holds the walk and the scratch of its
+    // sequence of that step. Kept apart from Step, whose frame holds the walk and the scratch of its
     // keys, which such a step needs neither of. It reads nothing of the arena, so it takes no slot of the
     // protection of reads; it looks at the state the protection refuses by, so that a step after the close or
     // the fault is refused as every step is and the search lets go of what it remembers, and it looks at the
     // limits as every round does.
-    private bool StepWithoutWalk(SecondaryIndex? index, ref IndexSearch search, out ulong sequence, out (RootHandle From, ulong EndsAt, FirstKey? First) next, CancellationToken cancellationToken)
+    private bool StepWithoutWalk(SecondaryIndex index, ref IndexSearch search, out ulong sequence, out (RootHandle From, ulong EndsAt, FirstKey? First) next, CancellationToken cancellationToken)
     {
         next = search.Place;
 
@@ -502,8 +462,8 @@ internal sealed class EntityTable
                 search.RefuseForState(_epochs);
             }
 
-            search.CheckRound(started, cancellationToken, EntityType.Name, index?.Definition.Name);
-            sequence = index is null ? _clock.Sequence : search.EndsAt;
+            search.CheckRound(started, cancellationToken, EntityType.Name, index.Definition.Name);
+            sequence = search.EndsAt;
 
             return false;
         }
@@ -628,7 +588,7 @@ internal sealed class EntityTable
                             continue;
                         }
 
-                        var reader = new RootReader(_arena, Layout!, root);
+                        var reader = new RootReader(_arena, Layout, root);
 
                         if (!(full ? index.HasKey(reader, walk.Key) : index.HasKeyOf(reader, entry)))
                         {
@@ -838,7 +798,7 @@ internal sealed class EntityTable
     // The slot of the root entry of the key: the first entry of its hash whose root stores the key.
     private bool TryFindSlot(in EntityKey key, uint hash, out uint slot)
     {
-        var probe = _index!.Find(hash);
+        var probe = _index.Find(hash);
 
         while (probe.Next(out slot))
         {
@@ -859,14 +819,14 @@ internal sealed class EntityTable
     // of line, behind the read of the root it inlines first.
     private bool KeyEquals(uint slot, in EntityKey key)
     {
-        var stored = new RootReader(_arena, Layout!, _roots.EntryOfSlot(slot).AcquireRoot());
+        var stored = new RootReader(_arena, Layout, _roots.EntryOfSlot(slot).AcquireRoot());
         var field = Keys.Field;
 
         return Keys.KeyKind switch
         {
             KeyKindEnum.Integer => Keys.StoredInteger(stored) == key.Integer,
             KeyKindEnum.Guid => stored.GetGuid(field) == key.Guid,
-            _ => ValueComparer.TextEquals(stored, field, key.Text),
+            _ => ValueComparer.TextEquals(stored.ReadText(field), field.Declaration, key.Text),
         };
     }
 
@@ -902,7 +862,7 @@ internal sealed class EntityTable
             return false;
         }
 
-        copy.Copy(new RootReader(_arena, Layout!, root));
+        copy.Copy(new RootReader(_arena, Layout, root));
         revision = RevisionOf(_clock.History, stamp, member);
         sequence = at;
 

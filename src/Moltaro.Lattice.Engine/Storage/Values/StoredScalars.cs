@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Values;
@@ -23,6 +24,50 @@ namespace Moltaro.Lattice.Storage.Values;
 // the values a record holds inside a List and an owned value, by the same writers and readers.
 internal static class StoredScalars
 {
+    // Writes a non-null probe in the same form as the stored value. Binding has already converted
+    // the probe to the declaration's scalar type, including the underlying integer of an enum.
+    public static void WriteBound(Span<byte> place, StoredTypeEnum type, in IndexValue value)
+    {
+        switch (type)
+        {
+            case StoredTypeEnum.Boolean:
+                WriteBoolean(place, value.As<bool>());
+                break;
+            case StoredTypeEnum.SignedInteger:
+                WriteInteger(place, (long)value.Integer);
+                break;
+            case StoredTypeEnum.UnsignedInteger:
+                WriteUnsigned(place, (ulong)value.Integer);
+                break;
+            case StoredTypeEnum.Float32:
+                WriteFloat32(place, value.As<float>());
+                break;
+            case StoredTypeEnum.Float64:
+                WriteFloat64(place, value.As<double>());
+                break;
+            case StoredTypeEnum.Decimal:
+                WriteDecimal(place, value.As<decimal>());
+                break;
+            case StoredTypeEnum.Guid:
+                WriteGuid(place, value.As<Guid>());
+                break;
+            case StoredTypeEnum.DateTimeOffset:
+                WriteDateTimeOffset(place, value.As<DateTimeOffset>());
+                break;
+            case StoredTypeEnum.DateOnly:
+                WriteDateOnly(place, value.As<DateOnly>());
+                break;
+            case StoredTypeEnum.TimeOnly:
+                WriteTimeOnly(place, value.As<TimeOnly>());
+                break;
+            case StoredTypeEnum.TimeSpan:
+                WriteTimeSpan(place, value.As<TimeSpan>());
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(type), type, "Not a fixed-width type.");
+        }
+    }
+
     // Writes an integer, signed or unsigned, at the width of the place.
     // Inlined, so that the switch on the width lies in RootWriter.SetInteger as it did before the stored
     // form moved here; out of line it is one more call for every integer and Enum field written (JIT

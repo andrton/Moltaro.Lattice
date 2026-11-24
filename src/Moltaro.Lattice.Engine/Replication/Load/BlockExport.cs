@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Replication.Load;
 // Writes one root to the wire and computes the exact length of what it writes. The capture adds
 // the type id and last mutation sequence. This type writes the layout version, root payload and
 // out-of-line values. The stored bytes are copied directly. Local addresses in the copied
-// descriptors are zeroed, while inline offsets stay valid.
+// descriptors are zeroed, while inline offsets stay valid. A Map or Set sends its entries;
+// the receiving node builds its own lookup.
 //
 // The root's descriptors are handled at the root level. For a List of records, the structure walk
 // enters each block before visiting its descriptors, which gives the preorder wire format. The
@@ -39,7 +40,7 @@ internal static class BlockExport
             {
                 length += descriptor.Length;
             }
-            else if (descriptor.Kind == DescriptorKindEnum.Records)
+            else if (descriptor.Kind is DescriptorKindEnum.Records or DescriptorKindEnum.Lookup)
             {
                 length += RecordsLengthOfRoot(arena, layout, root, descriptors.Index);
             }
@@ -69,10 +70,7 @@ internal static class BlockExport
         {
             var descriptor = copied.Current;
 
-            if (NamesBlocks(descriptor))
-            {
-                ValueBlocks.Write(copied.Place, descriptor with { Location = 0 });
-            }
+            WriteDescriptor(arena, copied.Place, descriptor);
         }
 
         output.Advance(payload.Length);
@@ -87,7 +85,7 @@ internal static class BlockExport
             {
                 WriteValue(output, arena, descriptor, payload);
             }
-            else if (descriptor.Kind == DescriptorKindEnum.Records)
+            else if (descriptor.Kind is DescriptorKindEnum.Records or DescriptorKindEnum.Lookup)
             {
                 WriteRecordsOfRoot(output, arena, layout, root, descriptors.Index);
             }
@@ -111,7 +109,7 @@ internal static class BlockExport
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void WriteRecordsOfRoot(IBufferWriter<byte> output, Arena arena, RootLayout layout, ArenaAddress root, int index)
     {
-        var visitor = new WritingRecords(output);
+        var visitor = new WritingRecords(output, arena);
 
         WalkRecordsOfRoot(arena, layout, root, index, ref visitor);
     }
@@ -125,10 +123,19 @@ internal static class BlockExport
         StructureWalk.WalkValue(arena, descriptor, layout.Structure.DescriptorElement(index), root, offset, ref visitor);
     }
 
-    // Whether the descriptor names blocks of this arena, whose address the wire carries as 0: a value out of
-    // line, or the records of a List that is not empty.
-    private static bool NamesBlocks(in ValueDescriptor descriptor) =>
-        ValueBlocks.LiesOutOfLine(descriptor) || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Location != 0);
+    private static void WriteDescriptor(Arena arena, Span<byte> place, ValueDescriptor descriptor)
+    {
+        if (descriptor.Kind == DescriptorKindEnum.Lookup)
+        {
+            descriptor = CollectionLookup.Entries(arena, descriptor);
+        }
+        else if (!ValueBlocks.LiesOutOfLine(descriptor) && descriptor.Kind != DescriptorKindEnum.Records)
+        {
+            return;
+        }
+
+        ValueBlocks.Write(place, descriptor with { Location = 0 });
+    }
 
     // The bytes of one value out of line, from its block or its chunks; the payload is that of the block that
     // holds its descriptor.
@@ -165,7 +172,7 @@ internal static class BlockExport
         }
     }
 
-    private readonly struct WritingRecords(IBufferWriter<byte> output) : IStructureVisitor
+    private readonly struct WritingRecords(IBufferWriter<byte> output, Arena arena) : IStructureVisitor
     {
         public void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count)
         {
@@ -181,12 +188,7 @@ internal static class BlockExport
                 for (var index = 0; index < element.DescriptorCount; index++)
                 {
                     var place = descriptors[(index * ValueBlocks.DescriptorSize)..];
-                    var descriptor = ValueBlocks.Read(place);
-
-                    if (NamesBlocks(descriptor))
-                    {
-                        ValueBlocks.Write(place, descriptor with { Location = 0 });
-                    }
+                    WriteDescriptor(arena, place, ValueBlocks.Read(place));
                 }
             }
 

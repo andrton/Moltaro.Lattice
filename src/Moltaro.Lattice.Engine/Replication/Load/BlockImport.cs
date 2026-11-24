@@ -33,7 +33,7 @@ internal sealed class BlockImport
     // payload of one block. Reused for every root, so a checked root is valid until the next check.
     private readonly byte[] _payload = new byte[Arena.MaxBlockSize - BlockHeader.Size];
 
-    // One record of a List of records, or the bits of one record of a packed List, as received, while it is
+    // One record of a collection, or the bits of one packed record, as received, while it is
     // checked: at most the payload of one chunk, by the rule of the schema language that a record fits one.
     private readonly byte[] _record = new byte[ValueBlocks.ChunkPayload];
 
@@ -84,14 +84,45 @@ internal sealed class BlockImport
     public RootReader FixedPart(in ReceivedRoot root) =>
         new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)));
 
+    // A newer local root makes placement unnecessary. Every supplied entry still has to
+    // be unique before any effect of its transaction can publish. The checked root and
+    // its slices are only borrowed, leaving the caller's cursor and the arena untouched.
+    public void CheckSkippedCollections(in ReceivedRoot root)
+    {
+        var layout = root.Layout;
+        var structure = layout.Structure;
+        if (!structure.HoldsCollections)
+        {
+            return;
+        }
+
+        var skipped = new SkippedCollections(layout.StringEncoding, _arena.HashSeed);
+        var block = new ReadOnlySequence<byte>(_payload, 0, root.PayloadLength);
+        for (var index = 0; index < structure.DescriptorCount; index++)
+        {
+            if (structure.DescriptorElement(index) is { } element)
+            {
+                ref readonly var place = ref structure.DescriptorField(index);
+                if (place.Type == StoredTypeEnum.List && !element.HoldsCollections)
+                {
+                    continue;
+                }
+
+                var descriptor = ValueBlocks.Read(_payload.AsSpan(place.Offset - BlockHeader.Size));
+                var values = root.OutOfLine.Slice(_starts[index]);
+                skipped.Check(place, element, descriptor, block, ref values);
+            }
+        }
+    }
+
     // The text of a String field of the root checked last, which is not null, as a new string decoded
     // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
-    // for the key of the root (Engine.Child.Loading.ReceivedChanges), the one text of a root that is
-    // decoded on receipt. ValidationFailed when it is not well-formed in that encoding, as a key
+    // for the key of the root (Engine.Child.Loading.ReceivedChanges). ValidationFailed when it is
+    // not well-formed in that encoding, as a key
     // received in a Delete is not (Engine.Entities.PrimaryKeys.ReadKey): a key that a master stores is
     // well-formed, since every write checks its text (docs/decisions/strings.md, "Input validity and
-    // preservation"), so such a root did not come from one. Every other text of a root is placed as the
-    // bytes it is and not decoded.
+    // preservation"), so such a root did not come from one. The text bytes of other fields are placed as
+    // received.
     public string Text(in ReceivedRoot root, LatticeField field)
     {
         var layout = root.Layout;
@@ -177,8 +208,8 @@ internal sealed class BlockImport
     // Places the values of the structure at the offset at of the block of the holder whose descriptors are
     // pending (see the class), from the values given, which begin with the first of them, and leaves the
     // values after the last; nothing more once the arena refused a block (ValueHolder.Refused). A null value,
-    // a value inline and an empty List of records came whole with the structure. For the root here, and for
-    // each record of a List of records (ReceivedRecords).
+    // a value inline and an empty collection of records came whole with the structure. Inline Map
+    // and Set entries still need the same uniqueness check as the placed entries.
     public static void PlaceValues(ref ValueHolder holder, StructureLayout structure, int at, ref ReadOnlySequence<byte> values)
     {
         for (var index = 0; index < structure.DescriptorCount && !holder.Refused; index++)
@@ -186,6 +217,16 @@ internal sealed class BlockImport
             ref readonly var place = ref structure.DescriptorField(index);
             var offset = at + place.Offset;
             var pending = ValueBlocks.Read(holder.At(offset, ValueBlocks.DescriptorSize));
+
+            if (place.Type is StoredTypeEnum.Map or StoredTypeEnum.Set)
+            {
+                if (pending.Kind != DescriptorKindEnum.Null || pending.Length != 0)
+                {
+                    PlaceCollection(ref holder, place, structure.DescriptorElement(index)!, offset, pending, ref values);
+                }
+
+                continue;
+            }
 
             if (!ValueBlocks.IsPending(pending))
             {
@@ -218,6 +259,14 @@ internal sealed class BlockImport
         }
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void PlaceCollection(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, in ValueDescriptor descriptor, ref ReadOnlySequence<byte> values)
+    {
+        var source = new ReceivedCollection(descriptor, values);
+        NestedValues.PlaceCollection(ref holder, place, element, offset, element.StoredEntryCount(descriptor), ref source);
+        values = source.Values;
+    }
+
     // A List of records of count elements (ReceivedRecords), the values standing at the first of its blocks.
     // Not inlined: inlined, the source of its records grows the frame of PlaceValues, which every root a node
     // receives goes through (JIT listing of a Release build).
@@ -231,7 +280,7 @@ internal sealed class BlockImport
     }
 
     // Leaves the descriptor at the place, received as given, pending (see the class) when it names a value that
-    // follows its structure on the wire: a value out of line, or a List of records that is not empty.
+    // follows its structure on the wire: a value out of line, or a nonempty collection of records.
     public static void LeavePending(Span<byte> place, in ValueDescriptor received)
     {
         if (ValueBlocks.LiesOutOfLine(received) || (received.Kind == DescriptorKindEnum.Records && received.Length != 0))
@@ -254,8 +303,11 @@ internal sealed class BlockImport
     private static LatticeException ValuesBeyondTheInput(RootLayout layout, long length, long left) =>
         Invalid(layout, $"its values out of line take {length} bytes, more than the {left} left.");
 
-    private static LatticeException NotAfterTheOneBefore(RootLayout layout, LatticeField? list, uint location, ulong end) =>
-        Invalid(layout, $"a value inline in {(list is null ? "the root payload" : $"a block of the records of the List {list.Name}")} lies at {location}, where the values before it end at {end}: values inline lie one after the other.");
+    private static LatticeException NotAfterTheOneBefore(RootLayout layout, StoredField? collection, uint location, ulong end)
+    {
+        var block = collection is { } place ? $"a block of the records of the {place.Type} {place.Field.Name}" : "the root payload";
+        return Invalid(layout, $"a value inline in {block} lies at {location}, where the values before it end at {end}: values inline lie one after the other.");
+    }
 
     // Reads the layout version and the root payload into _payload after checking the structure of the root
     // (see the class), and returns the length of the payload; the input stands at the first value out of line.
@@ -280,7 +332,7 @@ internal sealed class BlockImport
         _inlineCount = 0;
         CheckStructure(layout, layout.Structure, payload[..fixedPart]);
 
-        var payloadLength = CheckInline(layout, (ulong)layout.FixedSize, list: null) - BlockHeader.Size;
+        var payloadLength = CheckInline(layout, (ulong)layout.FixedSize, collection: null) - BlockHeader.Size;
 
         if (payloadLength > payload.Length || payloadLength > input.Remaining)
         {
@@ -311,7 +363,7 @@ internal sealed class BlockImport
 
         // The bytes of the values checked before the Strings and Binaries out of line since the input last
         // moved, and the bytes of those: they are passed over together, as all a root of scalar fields holds
-        // out of line, and a List is checked where it stands, with its records or its elements.
+        // out of line, and a collection is checked where it stands, with its entries.
         var checkedBytes = 0L;
         var passed = 0L;
 
@@ -323,7 +375,7 @@ internal sealed class BlockImport
 
             _starts[index] = checkedBytes + passed;
 
-            if (place.Type != StoredTypeEnum.List)
+            if (structure.DescriptorElement(index) is not { } element)
             {
                 if (!ValueBlocks.LiesOutOfLine(received))
                 {
@@ -336,7 +388,7 @@ internal sealed class BlockImport
             {
                 Pass(layout, passed, ref input);
                 passed = 0;
-                CheckValue(layout, place, structure.DescriptorElement(index), received, block, ref input);
+                CheckValue(layout, place, element, received, block, ref input);
                 checkedBytes = input.Consumed - start;
             }
 
@@ -358,9 +410,8 @@ internal sealed class BlockImport
     }
 
     // The value one descriptor of a structure names, its kind checked with the structure: a value out of line,
-    // at most the bytes left, passed over; a List of records, checked whole (CheckRecords). The records of a
-    // packed List whose elements have bits are held to them, inline in the block given, whose payload holds
-    // the structure, or out of line.
+    // at most the bytes left, passed over, or a collection of records checked whole (CheckRecords).
+    // Packed records with null bits are checked where they lie, inline or out of line.
     private void CheckValue(RootLayout layout, in StoredField place, StructureLayout? element, in ValueDescriptor descriptor, in ReadOnlySequence<byte> block, ref SequenceReader<byte> input)
     {
         switch (descriptor.Kind)
@@ -389,14 +440,14 @@ internal sealed class BlockImport
         }
     }
 
-    // The records of a List of records and what they hold, as the wire carries them: for each block of its
+    // The records of a collection and what they hold, as the wire carries them: for each block of its
     // records, the records, which are checked as a structure is and give the length of the block, then the
     // values of the records, in their order.
     private void CheckRecords(RootLayout layout, in StoredField place, StructureLayout element, int count, ref SequenceReader<byte> input)
     {
         if ((long)count * element.Size > input.Remaining)
         {
-            throw Invalid(layout, $"the List {place.Field.Name} has {count} records of {element.Size} bytes, more than the {input.Remaining} bytes left.");
+            throw Invalid(layout, $"the {place.Type} {place.Field.Name} has {count} records of {element.Size} bytes, more than the {input.Remaining} bytes left.");
         }
 
         Span<byte> descriptor = stackalloc byte[ValueBlocks.DescriptorSize];
@@ -408,7 +459,7 @@ internal sealed class BlockImport
 
             if (length > input.Remaining)
             {
-                throw Invalid(layout, $"a block of the records of the List {place.Field.Name} takes {length} bytes, more than the {input.Remaining} left.");
+                throw Invalid(layout, $"a block of the records of the {place.Type} {place.Field.Name} takes {length} bytes, more than the {input.Remaining} left.");
             }
 
             var block = input.UnreadSequence.Slice(0, length);
@@ -422,7 +473,7 @@ internal sealed class BlockImport
                     ref readonly var field = ref element.DescriptorField(index);
 
                     block.Slice((record * element.Size) + field.Offset, ValueBlocks.DescriptorSize).CopyTo(descriptor);
-                    CheckValue(layout, field, field.Type == StoredTypeEnum.List ? element.DescriptorElement(index) : null, ValueBlocks.Read(descriptor), block, ref input);
+                    CheckValue(layout, field, element.DescriptorElement(index), ValueBlocks.Read(descriptor), block, ref input);
                 }
             }
         }
@@ -435,7 +486,7 @@ internal sealed class BlockImport
     {
         if ((long)count * element.Size > input.Remaining)
         {
-            throw Invalid(layout, $"the List {place.Field.Name} has {count} records of {element.Size} bytes left to read, more than the {input.Remaining} bytes left.");
+            throw Invalid(layout, $"the {place.Type} {place.Field.Name} has {count} records of {element.Size} bytes left to read, more than the {input.Remaining} bytes left.");
         }
 
         var record = _record.AsSpan(0, element.Size);
@@ -449,15 +500,15 @@ internal sealed class BlockImport
             CheckStructure(layout, element, record);
         }
 
-        return CheckInline(layout, (ulong)(BlockHeader.Size + (count * element.Size)), place.Field) - BlockHeader.Size;
+        return CheckInline(layout, (ulong)(BlockHeader.Size + (count * element.Size)), place) - BlockHeader.Size;
     }
 
     // The values inline of the structures checked since _inlineCount was cleared (see the class): ordered by
     // their locations, each begins where the one before it ended, the first at the start given, where the
-    // values of the block begin, its header counted: the root block, or a block of the records of the List
-    // given. Returns the end of the last, where the block ends. An empty value lies where the values before it
+    // values of the block begin, its header counted. Returns the end of the last, where the block ends.
+    // An empty value lies where the values before it
     // end, as a master places it; it names no byte.
-    private long CheckInline(RootLayout layout, ulong start, LatticeField? list)
+    private long CheckInline(RootLayout layout, ulong start, StoredField? collection)
     {
         var spans = _inline.AsSpan(0, _inlineCount);
 
@@ -469,7 +520,7 @@ internal sealed class BlockImport
         {
             if (span >> 7 != end)
             {
-                throw NotAfterTheOneBefore(layout, list, span >> 7, end);
+                throw NotAfterTheOneBefore(layout, collection, span >> 7, end);
             }
 
             end += span & 0x7F;
@@ -478,8 +529,8 @@ internal sealed class BlockImport
         return (long)end;
     }
 
-    // The records of a packed List whose elements have bits, which the bytes given hold, each held to the bits
-    // of its record (CheckBits); the bytes are a whole number of records, as the kind of the List was checked.
+    // Checks the null bits of the packed records. The checked descriptor ensures the length
+    // holds a whole number of records.
     private void CheckPacked(RootLayout layout, StructureLayout element, in ReadOnlySequence<byte> bytes)
     {
         var reader = new SequenceReader<byte>(bytes);
@@ -517,7 +568,7 @@ internal sealed class BlockImport
                 continue;
             }
 
-            var element = place.Type == StoredTypeEnum.List ? structure.DescriptorElement(index) : null;
+            var element = structure.DescriptorElement(index);
 
             if (!Describes(place, element, descriptor))
             {
@@ -532,7 +583,7 @@ internal sealed class BlockImport
     }
 
     // Whether the descriptor of a value that is not null describes a value its place stores (see the class);
-    // the element is the layout of the records of a List place. Inlined into the check of a structure, which
+    // the element is the layout of the collection's entries. Inlined into the check of a structure, which
     // calls it for every descriptor (JIT listing of a Release build: called, one call a descriptor).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Describes(in StoredField place, StructureLayout? element, in ValueDescriptor descriptor)
@@ -544,8 +595,10 @@ internal sealed class BlockImport
             return descriptor.Kind == DescriptorKindEnum.Records && length <= element.MostElements && descriptor.Location == 0;
         }
 
-        // A packed List lies as the bytes of a Binary value, a whole number of its records.
-        if (element is not null && length % element.Size != 0)
+        // Packed entries have the Binary shape. A hashed collection always sends them out of line.
+        if (element is not null && (length % element.Size != 0 || length / element.Size > element.MostElements
+            || (place.Type != StoredTypeEnum.List && descriptor.Kind == DescriptorKindEnum.Inline
+                && length / element.Size > CollectionLookup.MostCompactEntries)))
         {
             return false;
         }

@@ -187,7 +187,7 @@ internal sealed class RequestReceiver
         }
 
         var rest = reader.UnreadSequence;
-        var received = _import.Check(ref reader, table.Layout!);
+        var received = _import.Check(ref reader, table.Layout);
 
         if (!HoldsKey(table, received, key))
         {

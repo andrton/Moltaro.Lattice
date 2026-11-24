@@ -9,9 +9,9 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Storage.Roots;
 
 // Writes and reads the values beneath a structure's members. Owned values are flattened into
-// their containing structure, and Lists are packed or stored in blocks of records as their element
-// layout requires. It serves both RootWriter and RootReader and uses the same operations inside
-// List records. It takes and returns the core's record forms, LatticeOwnedValue and List<T>.
+// their containing structure, and collection entries are packed or stored in blocks of records as
+// their layout requires. A large Map or Set also has a derived lookup. The same entry placement
+// and copy operations serve the root and its descendants.
 //
 // ValueHolder places the inline and out-of-line bytes. The placement of a List of records is
 // shared by a local write, a forwarded write and receipt. Its descriptor must name a whole List
@@ -46,10 +46,19 @@ internal static class NestedValues
     {
         ref readonly var place = ref layout.Place(position);
 
-        if (place.IsNullable)
+        if (place.Type is StoredTypeEnum.Map or StoredTypeEnum.Set)
         {
-            holder.At(at + layout.Start + (place.NullBit / 8), 1)[0] &= (byte)~(1 << (place.NullBit % 8));
+            // A refusal leaves a nullable field absent, so the writer can still complete.
+            PlaceCollection(ref holder, place, layout.ElementOf(position), at + place.Offset, value);
+            if (!holder.Refused)
+            {
+                MarkPresent(ref holder, layout, at, place);
+            }
+
+            return;
         }
+
+        MarkPresent(ref holder, layout, at, place);
 
         switch (place.Type)
         {
@@ -84,6 +93,14 @@ internal static class NestedValues
             default:
                 StoredScalars.WriteBoxed(holder.At(at + place.Offset, place.Width), value);
                 break;
+        }
+    }
+
+    private static void MarkPresent(ref ValueHolder holder, StructureLayout layout, int at, in StoredField place)
+    {
+        if (place.IsNullable)
+        {
+            holder.At(at + layout.Start + (place.NullBit / 8), 1)[0] &= (byte)~(1 << (place.NullBit % 8));
         }
     }
 
@@ -132,6 +149,8 @@ internal static class NestedValues
 
             case StoredTypeEnum.List:
                 return ReadList(arena, layout.ElementOf(position), ValueBlocks.Read(structure[offset..]), payload, encoding);
+            case StoredTypeEnum.Map or StoredTypeEnum.Set:
+                return ReadCollection(arena, layout.ElementOf(position), ValueBlocks.Read(structure[offset..]), payload, encoding);
 
             default:
                 return StoredScalars.ReadBoxed(structure.Slice(offset, place.Width), declaration.ScalarType);
@@ -140,14 +159,14 @@ internal static class NestedValues
 
     // The List a descriptor names, whose element has the layout given, as a new List of the form a record
     // holds; the payload is that of the block that holds the descriptor, where a List inline lies.
-    public static object ReadList(Arena arena, StructureLayout element, in ValueDescriptor descriptor, ReadOnlySpan<byte> payload, LatticeStringEncodingEnum encoding)
+    private static object ReadList(Arena arena, StructureLayout element, in ValueDescriptor descriptor, ReadOnlySpan<byte> payload, LatticeStringEncodingEnum encoding)
     {
         if (element.Packed is { } packed)
         {
             return ReadPacked(arena, packed, descriptor, payload);
         }
 
-        var list = (IList)element.List!.Sequence!.Create();
+        var list = (IList)element.Collection!.Sequence!.Create();
         var blocks = new RecordBlocks(arena, descriptor, element);
 
         while (blocks.MoveNext())
@@ -156,6 +175,45 @@ internal static class NestedValues
         }
 
         return list;
+    }
+
+    private static object ReadCollection(Arena arena, StructureLayout element, ValueDescriptor descriptor, ReadOnlySpan<byte> payload, LatticeStringEncodingEnum encoding)
+    {
+        if (descriptor.Kind == DescriptorKindEnum.Lookup)
+        {
+            payload = arena.Payload(ValueBlocks.AddressOf(descriptor));
+            descriptor = ValueBlocks.Read(payload);
+        }
+
+        if (element.Packed is { } packed)
+        {
+            return ReadPacked(arena, packed, descriptor, payload);
+        }
+
+        var map = element.Collection!.Map;
+        var set = element.Collection.Sequence;
+        var count = (int)descriptor.Length;
+        var result = map is null ? set!.Create(count) : map.Create(count);
+        var blocks = new RecordBlocks(arena, descriptor, element);
+        while (blocks.MoveNext())
+        {
+            var records = arena.Payload(blocks.Block);
+            for (var index = 0; index < blocks.Count; index++)
+            {
+                var record = records.Slice(index * element.Size, element.Size);
+                var key = Read(arena, element, record, records, position: 0, encoding);
+                if (map is null)
+                {
+                    set!.Add(result, key);
+                }
+                else
+                {
+                    map.TryAdd(result, key!, Read(arena, element, record, records, position: 1, encoding));
+                }
+            }
+        }
+
+        return result;
     }
 
     // Whether the records of a List of kind Records lie in chunks under a directory rather than in one block.
@@ -220,7 +278,7 @@ internal static class NestedValues
                 return;
             }
         }
-        catch (OutOfMemoryException)
+        catch
         {
             FreeRecords(ref holder, element, descriptorPlace, descriptor, slotBytes);
 
@@ -271,6 +329,16 @@ internal static class NestedValues
 
                 return LengthWhenInline(packed.Count(value) * packed.Stride);
 
+            case StoredTypeEnum.Map or StoredTypeEnum.Set:
+                var entry = layout.ElementOf(position);
+                if (entry.Packed is null)
+                {
+                    return 0;
+                }
+
+                var count = entry.CountEntries(value);
+                return count <= CollectionLookup.MostCompactEntries ? LengthWhenInline(count * entry.Size) : 0;
+
             default:
                 return 0;
         }
@@ -283,7 +351,13 @@ internal static class NestedValues
     {
         if (element.Packed is { } packed)
         {
-            PlacePacked(ref holder, place, element, packed, offset, list);
+            var count = packed.Count(list);
+            if (count > element.MostElements)
+            {
+                throw AboveTheBound(place, count, element);
+            }
+
+            PlacePacked(ref holder, place, packed, offset, list, count, allowInline: true);
 
             return;
         }
@@ -294,25 +368,148 @@ internal static class NestedValues
         PlaceRecords(ref holder, place, element, offset, records.Count, ref source);
     }
 
-    // A packed List: the records of its elements, placed as the bytes of a Binary value are (ValueHolder). Only
-    // the boundary of a chunk divides a record: inline and in one block, one place holds the whole List. So only
-    // a List that lies in chunks takes a record of scratch.
-    private static void PlacePacked(ref ValueHolder holder, in StoredField place, StructureLayout element, PackedElements packed, int offset, object list)
+    // A hashed resident collection installs its lookup owner before placing entries. Forwarded
+    // writes carry the same entries as a List, keeping short hashed entries out of line.
+    private static void PlaceCollection(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, object value)
     {
-        var count = packed.Count(list);
-
+        var count = element.CountEntries(value);
         if (count > element.MostElements)
         {
             throw AboveTheBound(place, count, element);
         }
 
+        var source = new ManagedCollection(value);
+        PlaceCollection(ref holder, place, element, offset, count, ref source);
+    }
+
+    public static void PlaceCollection<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, ref TSource source)
+        where TSource : struct, ICollectionEntrySource
+    {
+        if (holder.Refused)
+        {
+            return;
+        }
+
+        var compact = count <= CollectionLookup.MostCompactEntries;
+        if (holder.Exported is not null)
+        {
+            source.Place(ref holder, place, element, offset, count, allowInline: compact);
+            return;
+        }
+
+        var before = holder.SlotBytes;
+        var inline = holder.InlineEnd;
+        try
+        {
+            if (compact)
+            {
+                source.Place(ref holder, place, element, offset, count, allowInline: true);
+                if (!holder.Refused)
+                {
+                    CheckUnique(holder, place, element, offset);
+                    return;
+                }
+            }
+            else if (CollectionLookup.TryPrepare(ref holder, offset, count, out var entries))
+            {
+                source.Place(ref entries, place, element, CollectionLookup.EntriesOffset, count, allowInline: false);
+                if (!entries.Refused)
+                {
+                    holder.SlotBytes += entries.SlotBytes;
+                    CheckUnique(holder, place, element, offset);
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            DiscardCollection(ref holder, element, offset, before, inline);
+            throw;
+        }
+
+        DiscardCollection(ref holder, element, offset, before, inline);
+        holder.Refused = true;
+    }
+
+    private readonly struct ManagedCollection(object value) : ICollectionEntrySource
+    {
+        public void Place(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, bool allowInline)
+        {
+            if (element.Packed is PackedCollection packed)
+            {
+                using var cursor = packed.OpenEntries(value);
+                PlacePacked(ref holder, place, packed, offset, cursor, count, allowInline);
+                return;
+            }
+
+            var declaration = element.Collection!;
+            var entries = declaration.Map is { } map ? map.Entries(value) : Members(declaration.Sequence!, value);
+            using var source = entries.GetEnumerator();
+            var records = new CollectionRecords(source, Math.Min(count, element.RecordsPerChunk), holder.Encoding);
+            try
+            {
+                PlaceRecords(ref holder, place, element, offset, count, ref records);
+            }
+            finally
+            {
+                records.Dispose();
+            }
+        }
+    }
+
+    private static IEnumerable<KeyValuePair<object?, object?>> Members(SequenceForm form, object set)
+    {
+        foreach (var member in form.Elements(set))
+        {
+            yield return new(member, null);
+        }
+    }
+
+    public static void CheckUnique(in ValueHolder holder, in StoredField place, StructureLayout element, int offset)
+    {
+        var descriptor = ValueBlocks.Read(holder.At(offset, ValueBlocks.DescriptorSize));
+        var payload = holder.Bytes[(BlockHeader.Size - holder.Origin)..];
+        var keys = new CollectionKeys(holder.Arena, element, descriptor, payload, holder.Encoding);
+        var slots = new CollectionLookup(holder.Arena, descriptor);
+#if LATTICE_COLLECTION_TIMINGS
+        var populationStarted = CollectionWriteTimings.Start();
+#endif
+        var duplicate = CollectionLookup.AddEntries(ref keys, ref slots, keys.Count);
+#if LATTICE_COLLECTION_TIMINGS
+        CollectionWriteTimings.EndPopulation(populationStarted);
+#endif
+        if (duplicate >= 0)
+        {
+            throw Duplicate(place, element, duplicate);
+        }
+    }
+
+    public static LatticeException Duplicate(in StoredField place, StructureLayout element, int ordinal) =>
+        new(LatticeErrorEnum.ValidationFailed, $"The {element.Collection!.Type} {place.Field.Name} holds an equal entry more than once, at entry {ordinal + 1}.");
+
+    // Give back only this field and release its inline space. The writer may set the same field
+    // again, or abandon the root. Neither path should reach what this attempt owned.
+    public static void DiscardCollection(ref ValueHolder holder, StructureLayout element, int offset, long before, int inline)
+    {
+        var bytes = holder.At(offset, ValueBlocks.DescriptorSize);
+        var descriptor = ValueBlocks.Read(bytes);
+        RootStorage.FreeValue(holder.Arena, descriptor, element);
+        bytes.Clear();
+        holder.SlotBytes = before;
+        holder.InlineEnd = inline;
+    }
+
+    // Packed records use the Binary placement. Only the boundary of a chunk divides a record,
+    // so only entries in chunks need a scratch record.
+    private static void PlacePacked(ref ValueHolder holder, in StoredField place, PackedElements packed, int offset, object source, int count, bool allowInline)
+    {
         var length = count * packed.Stride;
 
         if (length <= ValueBlocks.SingleBlockLimit)
         {
-            var whole = new PackedSource(packed, list, default);
+            var whole = new PackedSource(packed, source, default);
 
-            holder.PlaceBytes(place, offset, length, ref whole);
+            holder.PlaceBytes(place, offset, length, ref whole, allowInline);
 
             return;
         }
@@ -321,9 +518,9 @@ internal static class NestedValues
 
         try
         {
-            var source = new PackedSource(packed, list, record.AsSpan(0, packed.Stride));
+            var packedSource = new PackedSource(packed, source, record.AsSpan(0, packed.Stride));
 
-            holder.PlaceBytes(place, offset, length, ref source);
+            holder.PlaceBytes(place, offset, length, ref packedSource, allowInline);
         }
         finally
         {
@@ -341,7 +538,7 @@ internal static class NestedValues
 
         if (count <= perChunk)
         {
-            if (!TryAllocate(ref holder, source.BlockLength(element, 0, count), BlockKindEnum.Value, holder.Address, offset, out var block))
+            if (!holder.TryAllocate(source.BlockLength(element, 0, count), BlockKindEnum.Value, holder.Address, offset, out var block))
             {
                 return false;
             }
@@ -354,7 +551,7 @@ internal static class NestedValues
 
         var chunks = (count + perChunk - 1) / perChunk;
 
-        if (!TryAllocate(ref holder, chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Address, offset, out var directory))
+        if (!holder.TryAllocate(chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Address, offset, out var directory))
         {
             return false;
         }
@@ -372,7 +569,7 @@ internal static class NestedValues
             var records = Math.Min(perChunk, count - first);
             var length = source.BlockLength(element, first, records);
 
-            if (!TryAllocate(ref holder, length, BlockKindEnum.Chunk, directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), out var block))
+            if (!holder.TryAllocate(length, BlockKindEnum.Chunk, directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), out var block))
             {
                 return false;
             }
@@ -384,19 +581,6 @@ internal static class NestedValues
                 return false;
             }
         }
-
-        return true;
-    }
-
-    // A prepared block of a List of records, of the root of the holder, counted in the holder.
-    private static bool TryAllocate(ref ValueHolder holder, int length, BlockKindEnum kind, ArenaAddress parent, int offset, out ArenaAddress block)
-    {
-        if (!ValueBlocks.TryAllocate(holder.Arena, length, kind, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out block))
-        {
-            return false;
-        }
-
-        holder.SlotBytes += Arena.BlockSizeFor(length);
 
         return true;
     }
@@ -521,5 +705,5 @@ internal static class NestedValues
 
     // The refusal of a List of more elements than one List of its elements may hold.
     private static LatticeException AboveTheBound(in StoredField place, int count, StructureLayout element) =>
-        new(LatticeErrorEnum.ValidationFailed, $"The List {place.Field.Name} holds {count} elements, more than the {element.MostElements} one List of its elements may hold.");
+        new(LatticeErrorEnum.ValidationFailed, $"The {element.Collection!.Type} {place.Field.Name} holds {count} elements, more than the {element.MostElements} one {element.Collection.Type} of its elements may hold.");
 }

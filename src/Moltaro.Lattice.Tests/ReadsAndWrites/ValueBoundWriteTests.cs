@@ -15,8 +15,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // the real size: through the class and by name, a write that would otherwise succeed and one that
 // would otherwise fail on a condition, and an operation added to a batch, all with text; a Binary
 // value once, judged by its length; and a value of exactly the bound once. That the validation of an entity comes before the conditions of every form of a write
-// and before a write is refused as not implemented, also for an entity type that is not stored yet
-// and in a schema of the UTF-16 encoding, and that adding to a batch validates in the same way, is
+// including at depth and in a schema of the UTF-16 encoding, and that adding to a batch validates in the same way, is
 // stated by MalformedTextWriteTests for text that is not well-formed, which the same capture of an
 // object and submission of a record refuse.
 //

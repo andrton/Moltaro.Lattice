@@ -58,11 +58,12 @@ is a read replica.
 
 ## Memory and strings
 
-Fixed fields stay together in the root, with those of its owned values: an owned value is
-flattened into the entity that holds it and takes no block of its own. Small strings and
-Lists can be inline; larger ones use separate blocks and bounded chunks, and a List whose
-elements hold strings, binaries or Lists lies as records, each whole in one block. This is
-the selected layout for the first milestone.
+Fixed fields stay together in the root, including fields flattened from its owned values.
+Small strings and packed collections can be inline. Larger values use separate blocks and
+bounded chunks. Collection entries with descriptors are stored as records, each whole in
+one chunk. Maps and Sets with up to eight entries scan their compact entries. Larger Maps
+and Sets use a hash lookup with entry ordinals. Each node builds its own lookup from the
+entries it receives. [Arena layout and transfer](arena-protocol.md#stored-structures-and-root-transfer)
 
 <!-- DIAGRAM:memory -->
 

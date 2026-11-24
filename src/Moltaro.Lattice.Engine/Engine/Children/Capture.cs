@@ -128,7 +128,7 @@ internal sealed class Capture
             var typeId = entry.TypeId;
 
             RootEnvelope.Write(buffer, typeId, lastMutation, member);
-            BlockExport.Write(buffer, _arena, _tables.Stored(typeId).Layout!, root);
+            BlockExport.Write(buffer, _arena, _tables.Stored(typeId).Layout, root);
 
             return true;
         }

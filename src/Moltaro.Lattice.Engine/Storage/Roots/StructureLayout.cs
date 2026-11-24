@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -6,17 +7,18 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The compiled layout of one structure, the fields of a root or the record of a List element. It packs
+// The compiled layout of one structure, the fields of a root or a collection entry. It packs
 // the bitmap, fixed-width fields and descriptors in order, with the fields of owned values flattened
 // into the same groups. The root's offsets include its block header. The offsets of a record count
 // from the start of that record.
 //
 // The places table starts with the top-level members, indexed by ordinal for an entity or position
-// zero for the element of a List. Each owned value's fields are in a run indexed by their ordinals
-// (ChildOf). A List place holds the layout of its element (ElementOf). The walk has a run of
+// zero for an element of a List or Set, or zero and one for the key and value of a Map. Each owned
+// value's fields are in a run indexed by their ordinals (ChildOf). A collection place holds its
+// entry layout (ElementOf). The walk has a run of
 // descriptors in their own order so it can reach each owned block without searching the places.
 //
-// An element layout determines the available List form and the maximum count. A packed record has
+// An entry layout determines the entries' form and maximum count. A packed record has
 // no descriptors. A record with descriptors must fit whole in a chunk with room for its inline
 // values. The layout checks these limits when compiled, before any data is written.
 //
@@ -53,8 +55,8 @@ internal sealed class StructureLayout
         int nullableCount,
         int descriptorOffset,
         int size,
-        LatticeValueDeclaration? list,
-        bool holdsLists)
+        LatticeValueDeclaration? collection,
+        bool holdsCollections)
     {
         Start = start;
         _places = places;
@@ -66,18 +68,28 @@ internal sealed class StructureLayout
         NullableCount = nullableCount;
         DescriptorOffset = descriptorOffset;
         Size = size;
-        List = list;
-        HoldsLists = holdsLists;
+        Collection = collection;
+        HoldsCollections = holdsCollections;
 
-        if (list is not null && DescriptorCount > 0)
+        if (collection is null)
+        {
+            return;
+        }
+
+        if (DescriptorCount > 0)
         {
             RecordsPerChunk = ValueBlocks.ChunkPayload / (size + (ValueBlocks.InlineLimit * DescriptorCount));
             MostElements = RecordsPerChunk * ValueBlocks.MostChunks;
         }
-        else if (list is not null)
+        else
         {
             MostElements = ValueBlocks.MostValueBytes / size;
-            Packed = PackedFor(list.Element!);
+            Packed = collection.Map is { } map ? new PackedMap(this, map) : PackedFor(collection.Element!);
+        }
+
+        if (collection.Type != LatticeFieldTypeEnum.List)
+        {
+            MostElements = Math.Min(MostElements, CollectionLookup.MostEntries);
         }
     }
 
@@ -118,17 +130,28 @@ internal sealed class StructureLayout
     // RecordsPerChunk times ValueBlocks.MostChunks.
     public int MostElements { get; }
 
-    // For the record of an element: the declaration of the List whose element it is, which makes the List a
-    // record holds (LatticeValueDeclaration.Sequence); null for a root.
-    public LatticeValueDeclaration? List { get; }
+    // The collection whose entries have this layout. Null for the fields of a root.
+    public LatticeValueDeclaration? Collection { get; }
 
-    // For the record of an element that holds no descriptor: how a List of it becomes bytes and back.
+    // For entries without descriptors: how their collection becomes packed bytes and back.
     public PackedElements? Packed { get; }
 
-    // Whether it holds a List, in its owned values included, whose bound a write is checked against before
-    // it is submitted (Engine.Entities.RootValues.CheckListBounds); for the record of an element, whether
-    // the element holds one.
-    public bool HoldsLists { get; }
+    // Whether the structure has a collection, including through an owned value. A write
+    // checks its count before submission.
+    public bool HoldsCollections { get; }
+
+    public int CountEntries(object value)
+    {
+        if (Packed is { } packed)
+        {
+            return packed.Count(value);
+        }
+
+        return Collection!.Sequence is { } sequence ? sequence.Count(value) : ((IDictionary)value).Count;
+    }
+
+    public int StoredEntryCount(in ValueDescriptor descriptor) =>
+        HoldsDescriptors ? (int)descriptor.Length : (int)descriptor.Length / Size;
 
     // The place at the position.
     public ref readonly StoredField Place(int position) => ref _places[position];
@@ -163,9 +186,9 @@ internal sealed class StructureLayout
     // places the paths indexed lead to, as LatticeIndexPart.Path gives them, are parts of a secondary index:
     // a field of an owned type that stands at two positions is indexed at the one its path names. Refuses,
     // with LatticeException, InvalidSchema and the entity type named, the record of an element of a List that
-    // does not fit one chunk; with NotSupportedException and the field named, a Map or a Set at any depth.
+    // does not fit one chunk.
     public static StructureLayout OfRoot(LatticeEntityType entityType, IReadOnlyList<IReadOnlyList<LatticeField>> indexed) =>
-        Compile(entityType, BlockHeader.Size, [.. entityType.Fields.Select(field => (field, field.Declaration))], indexed, list: null);
+        Compile(entityType, BlockHeader.Size, [.. entityType.Fields.Select(field => (field, field.Declaration))], indexed, collection: null);
 
     // The position of the place a path leads to, a path as LatticeIndexPart.Path gives one, from a member of
     // a root down through owned values; -1 when a step is not a field of the owned type of the step before it.
@@ -198,19 +221,21 @@ internal sealed class StructureLayout
         return position;
     }
 
-    // The layout of the element of a List, whose record has the element as its one member, the List field
-    // its place names.
-    private static StructureLayout OfElement(LatticeEntityType entityType, LatticeField list, LatticeValueDeclaration declaration)
+    // The layout of the entry of a collection. Both members of a Map name the enclosing field.
+    private static StructureLayout OfElement(LatticeEntityType entityType, LatticeField field, LatticeValueDeclaration declaration)
     {
-        // A path never passes through a List (LatticeIndexPart), so nothing in a record is indexed.
-        var element = Compile(entityType, 0, [(list, declaration.Element!)], [], declaration);
+        // An index path never crosses a collection.
+        (LatticeField Field, LatticeValueDeclaration Declaration)[] members = declaration.Map is null
+            ? [(field, declaration.Element!)]
+            : [(field, declaration.Key!), (field, declaration.Value!)];
+        var element = Compile(entityType, 0, members, [], declaration);
         var room = element.Size + (element.HoldsDescriptors ? ValueBlocks.InlineLimit * element.DescriptorCount : 0);
 
         if (room > ValueBlocks.ChunkPayload)
         {
             throw new LatticeException(
                 LatticeErrorEnum.InvalidSchema,
-                $"The record of an element of the List {entityType.Name}.{list.Name} takes {room} bytes with the room of its values inline, more than the {ValueBlocks.ChunkPayload} bytes of one chunk.");
+                $"The record of an element of the {declaration.Type} {entityType.Name}.{field.Name} takes {room} bytes with the room of its values inline, more than the {ValueBlocks.ChunkPayload} bytes of one chunk.");
         }
 
         return element;
@@ -221,7 +246,7 @@ internal sealed class StructureLayout
         int start,
         (LatticeField Field, LatticeValueDeclaration Declaration)[] members,
         IReadOnlyList<IReadOnlyList<LatticeField>> indexed,
-        LatticeValueDeclaration? list)
+        LatticeValueDeclaration? collection)
     {
         var fields = new List<(LatticeField Field, LatticeValueDeclaration Declaration)>();
         var children = new List<int>();
@@ -297,14 +322,14 @@ internal sealed class StructureLayout
         var elements = new StructureLayout?[fields.Count];
         var descriptors = new List<int>();
         var offset = start + RootLayout.BitBytes(nullableCount);
-        var lists = false;
+        var collections = false;
 
         foreach (var (position, _) in inPathOrder)
         {
             var (field, declaration) = fields[position];
-            var (type, width) = TypeOf(entityType, field, declaration);
+            var (type, width) = TypeOf(declaration);
 
-            lists |= declaration.Type == LatticeFieldTypeEnum.List;
+            collections |= IsCollection(type);
 
             if (type == StoredTypeEnum.Owned)
             {
@@ -322,7 +347,7 @@ internal sealed class StructureLayout
         foreach (var (position, _) in inPathOrder)
         {
             var (field, declaration) = fields[position];
-            var (type, width) = TypeOf(entityType, field, declaration);
+            var (type, width) = TypeOf(declaration);
 
             if (IsDescriptor(type))
             {
@@ -330,7 +355,7 @@ internal sealed class StructureLayout
                 descriptors.Add(position);
                 offset += width;
 
-                if (type == StoredTypeEnum.List)
+                if (IsCollection(type))
                 {
                     elements[position] = OfElement(entityType, field, declaration);
                 }
@@ -348,8 +373,8 @@ internal sealed class StructureLayout
             nullableCount,
             descriptorOffset,
             offset - start,
-            list,
-            lists);
+            collection,
+            collections);
     }
 
     // How the elements of a packed List of the element declared become bytes: by the .NET type a record holds
@@ -384,6 +409,11 @@ internal sealed class StructureLayout
     {
         Debug.Assert(typeof(TValue) == element.ValueType, "A record holds the element as the type its declaration names.");
 
+        if (Collection!.Type == LatticeFieldTypeEnum.Set)
+        {
+            return new PackedSet<TValue>(this);
+        }
+
         if (!element.IsNullable)
         {
             return new PackedScalars<TValue>(Size);
@@ -394,17 +424,19 @@ internal sealed class StructureLayout
         return new PackedNullableScalars<TValue>(Size, Start + (place.NullBit / 8), (byte)(1 << (place.NullBit % 8)), place.Offset);
     }
 
-    private static bool IsDescriptor(StoredTypeEnum type) => type is StoredTypeEnum.String or StoredTypeEnum.Binary or StoredTypeEnum.List;
+    private static bool IsDescriptor(StoredTypeEnum type) => type is StoredTypeEnum.String or StoredTypeEnum.Binary || IsCollection(type);
 
-    // The stored type and the width of a value of the declaration. A Map and a Set are not stored yet.
-    private static (StoredTypeEnum Type, int Width) TypeOf(LatticeEntityType entityType, LatticeField field, LatticeValueDeclaration declaration) => declaration.ScalarType switch
+    private static bool IsCollection(StoredTypeEnum type) => type is StoredTypeEnum.List or StoredTypeEnum.Map or StoredTypeEnum.Set;
+
+    // The stored type and the width of a value of the declaration.
+    private static (StoredTypeEnum Type, int Width) TypeOf(LatticeValueDeclaration declaration) => declaration.ScalarType switch
     {
         LatticeFieldTypeEnum.Owned => (StoredTypeEnum.Owned, 0),
         LatticeFieldTypeEnum.List => (StoredTypeEnum.List, ValueBlocks.DescriptorSize),
         LatticeFieldTypeEnum.String => (StoredTypeEnum.String, ValueBlocks.DescriptorSize),
         LatticeFieldTypeEnum.Binary => (StoredTypeEnum.Binary, ValueBlocks.DescriptorSize),
-        LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set =>
-            throw new NotSupportedException($"The field {entityType.Name}.{field.Name} holds a {declaration.ScalarType}, which a root cannot store yet."),
+        LatticeFieldTypeEnum.Map => (StoredTypeEnum.Map, ValueBlocks.DescriptorSize),
+        LatticeFieldTypeEnum.Set => (StoredTypeEnum.Set, ValueBlocks.DescriptorSize),
         LatticeFieldTypeEnum.Boolean => (StoredTypeEnum.Boolean, 1),
         LatticeFieldTypeEnum.Float32 => (StoredTypeEnum.Float32, 4),
         LatticeFieldTypeEnum.Float64 => (StoredTypeEnum.Float64, 8),

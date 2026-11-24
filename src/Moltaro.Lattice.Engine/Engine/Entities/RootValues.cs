@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Collections;
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Replication.Load;
@@ -22,7 +21,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // a List<T>, written and read at every depth by the writer and the reader of the root.
 //
 // The bound of a List is the engine's to check, since the core does not know the layout it follows from
-// (StructureLayout.MostElements): CheckListBounds, on the thread of the caller, before a write is
+// (StructureLayout.MostElements): CheckCollectionBounds, on the thread of the caller, before a write is
 // submitted and when a member is added to a write batch, so before the conditions of the write.
 internal static class RootValues
 {
@@ -31,7 +30,7 @@ internal static class RootValues
     // List, a fixed rule of the storage format as the bound of one String or Binary value is. The values
     // are those the core took and checked. The root writer refuses such a List again, as the guard of the
     // stored form (Storage.Roots.NestedValues).
-    public static void CheckListBounds(RootLayout layout, object?[] values)
+    public static void CheckCollectionBounds(RootLayout layout, object?[] values)
     {
         var entityType = layout.EntityType;
 
@@ -39,7 +38,7 @@ internal static class RootValues
         {
             if (values[field.Ordinal] is { } value)
             {
-                CheckListBounds(entityType, layout.Structure, entityType.Name, field.Ordinal, value);
+                CheckCollectionBounds(entityType, layout.Structure, entityType.Name, field.Ordinal, value);
             }
         }
     }
@@ -122,8 +121,13 @@ internal static class RootValues
                 case LatticeFieldTypeEnum.List:
                     writer.SetList(field, value);
                     break;
+                case LatticeFieldTypeEnum.Map:
+                    writer.SetMap(field, value);
+                    break;
+                case LatticeFieldTypeEnum.Set:
+                    writer.SetSet(field, value);
+                    break;
                 default:
-                    // A Map and a Set keep their entity type from being stored, so no write of one comes here.
                     throw new UnreachableException($"The field {entityType.Name}.{field.Name} is {field.Declaration.Type}, which the engine does not store.");
             }
         }
@@ -173,7 +177,7 @@ internal static class RootValues
     // The Lists of the value of the place at the position of the structure, the place itself and those
     // beneath it, whose field the type named owner declares. A List whose element holds none is counted and
     // not entered.
-    private static void CheckListBounds(LatticeEntityType entityType, StructureLayout layout, string owner, int position, object value)
+    private static void CheckCollectionBounds(LatticeEntityType entityType, StructureLayout layout, string owner, int position, object value)
     {
         ref readonly var place = ref layout.Place(position);
 
@@ -185,31 +189,48 @@ internal static class RootValues
             {
                 if (owned.Values[field.Ordinal] is { } fieldValue)
                 {
-                    CheckListBounds(entityType, layout, owned.OwnedType.Name, layout.ChildOf(position, field), fieldValue);
+                    CheckCollectionBounds(entityType, layout, owned.OwnedType.Name, layout.ChildOf(position, field), fieldValue);
                 }
             }
         }
-        else if (place.Type == StoredTypeEnum.List)
+        else if (place.Type is StoredTypeEnum.List or StoredTypeEnum.Map or StoredTypeEnum.Set)
         {
             var element = layout.ElementOf(position);
-            var list = (IList)value;
+            var count = element.CountEntries(value);
+            var declaration = element.Collection!;
 
-            if (list.Count > element.MostElements)
+            if (count > element.MostElements)
             {
                 throw new LatticeException(
                     LatticeErrorEnum.ValidationFailed,
-                    $"{entityType.Name}: field '{owner}.{place.Field.Name}' holds {list.Count:N0} elements, more than the {element.MostElements:N0} that one List of its elements may hold.");
+                    $"{entityType.Name}: field '{owner}.{place.Field.Name}' holds {count:N0} elements, more than the {element.MostElements:N0} that one {declaration.Type} of its elements may hold.");
             }
 
-            // The one place of the record of an element is the List field itself, declared by the same owner.
-            if (element.HoldsLists)
+            if (!element.HoldsCollections)
             {
-                foreach (var item in list)
+                return;
+            }
+
+            // Collection keys and Set members are scalars. Only a Map value or a List element
+            // can itself contain a collection.
+            if (declaration.Map is { } map)
+            {
+                foreach (var entry in map.Entries(value))
                 {
-                    if (item is not null)
+                    if (entry.Value is { } item)
                     {
-                        CheckListBounds(entityType, element, owner, 0, item);
+                        CheckCollectionBounds(entityType, element, owner, 1, item);
                     }
+                }
+
+                return;
+            }
+
+            foreach (var item in declaration.Sequence!.Elements(value))
+            {
+                if (item is not null)
+                {
+                    CheckCollectionBounds(entityType, element, owner, 0, item);
                 }
             }
         }
@@ -226,14 +247,21 @@ internal static class RootValues
     {
         foreach (var field in entityType.FieldsByOrdinal)
         {
-            values[field.Ordinal] = reader.IsNull(field) ? null : Value(field, reader);
+            var type = field.Declaration.ScalarType;
+            if (type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set)
+            {
+                values[field.Ordinal] = reader.GetNested(field);
+                continue;
+            }
+
+            values[field.Ordinal] = reader.IsNull(field) ? null : ScalarValue(field, type, reader);
         }
     }
 
-    // The value of a field that is not null, boxed in the exact type a record holds for it.
-    private static object Value(LatticeField field, in RootReader reader)
+    // The value of a scalar field that is not null, boxed in the exact type a record holds for it.
+    private static object ScalarValue(LatticeField field, LatticeFieldTypeEnum type, in RootReader reader)
     {
-        switch (field.Declaration.ScalarType)
+        switch (type)
         {
             case LatticeFieldTypeEnum.Boolean:
                 return reader.GetBoolean(field);
@@ -273,10 +301,6 @@ internal static class RootValues
                 return reader.GetString(field);
             case LatticeFieldTypeEnum.Binary:
                 return reader.GetBinary(field);
-            case LatticeFieldTypeEnum.Owned:
-                return reader.GetOwned(field);
-            case LatticeFieldTypeEnum.List:
-                return reader.GetList(field);
             default:
                 throw new UnreachableException($"The field {field.Name} is {field.Declaration.Type}, which the engine does not store.");
         }

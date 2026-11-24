@@ -35,4 +35,8 @@ internal enum DescriptorKindEnum : uint
     // the element count. Location gives the relative address of its block of records or directory.
     // An empty List has location zero. Each record lies whole in one block.
     Records = 5,
+
+    // A Map or Set with a derived hash table. Length gives the number of entries and Location
+    // names the lookup block. The first descriptor of that block names the entries.
+    Lookup = 6,
 }

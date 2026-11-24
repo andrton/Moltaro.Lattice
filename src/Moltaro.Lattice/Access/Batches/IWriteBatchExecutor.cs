@@ -10,11 +10,10 @@ namespace Moltaro.Lattice.Access.Batches;
 internal interface IWriteBatchExecutor
 {
     // The root of the values of a complete entity of the entity type, as the engine places it when it
-    // executes the batch; the batch keeps it as it is and does not read it. Empty for a delete, whose values
-    // are null, and for an entity type the engine does not store, whose batch the engine refuses when it is
-    // committed. Called for every operation added, so that each Add after the close of the database is
+    // executes the batch. The batch keeps it as it is. Empty for a delete, whose values are null.
+    // Called for every operation added, so that each Add after the close of the database is
     // ObjectDisposedException, whatever its kind. It refuses, with ValidationFailed and the place named, a
-    // List above its bound at any depth, which only the engine knows from the layout of the entity type, so
+    // collection above its bound at any depth, which the engine knows from the layout of the entity type, so
     // that the Add refuses it as a single write refuses it before its conditions.
     ReadOnlySequence<byte> EncodeRoot(LatticeEntityType entityType, object?[]? values);
 

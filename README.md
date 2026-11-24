@@ -19,15 +19,14 @@ order of the index or its reverse and in pages, each entity at most once. A chil
 the whole database from its master over TCP while the master keeps writing, builds its
 own indexes, then follows its changes, and forwards its own writes to the master. A
 unique index gives a value to one entity only, whichever node submits the write. An entity
-may hold owned values, Lists and references at every depth, which a master stores, reads back
-by name and through a class, finds through an index over a field inside an owned value and
-writes in a batch, and which a child loads, follows and forwards. Two rules of the schema
-language bound what one
-entity stores: its fixed part, the fields of its owned values included, fits one block, and the
-record of an element of a List fits one chunk; a database whose schema breaks one does not open
-(`LatticeEntityType`). A schema can already declare more than the engine stores: an entity
-type with a Map or a Set compiles, but cannot be written yet. A write batch is executed by the
-master, also one committed through a child. PostgreSQL persistence
+may hold owned values, Lists, Maps, Sets and references at every permitted depth. Both
+record and class access read them as owned copies. A write can include them in a batch, and
+a child loads them, follows their changes and forwards writes that contain them. An index
+can address a field inside an owned value. The fixed part of an entity fits in one block,
+including the fields of its owned values. A record for a collection entry fits in one chunk.
+A database whose schema breaks either layout rule fails to open with `InvalidSchema`,
+which names the entity type. The master executes every write batch, including one committed
+through a child. PostgreSQL persistence
 is not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
@@ -76,7 +75,10 @@ owned type does not contain itself, and a declaration nests at most 32 deep, cou
 through collections and owned types together. An index may cover a field inside an owned value: its
 part is then written as the path of field identities to it, such as `[5, 1]`. Without a
 .NET class such an entity is a `LatticeRecord` that holds `LatticeOwnedValue`s and
-collections; a record copies what is set into it.
+collections. A record copies what is set into it. A List preserves order and duplicates.
+A Map rejects duplicate keys. A Set keeps the first representation of equal members.
+The schema determines equality for Maps and Sets, including lookups in the copies returned
+by a read.
 
 ```json
 {
@@ -417,11 +419,9 @@ path, from simple to complex.
 | `Moltaro.Lattice.DependencyInjection` | `AddLattice` | Registration in a dependency injection container; a separate package |
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
-In the contract but not implemented yet: Durable persistence, a child that connects again after it lost its master,
-storing Maps and Sets, which a schema declares, a record and a class hold, and no write stores
-yet. Not in the contract yet: partial updates, safe retry
-of a write, schema migration and replication status. A query language is not planned for
-the first version.
+Durable persistence and automatic child reconnection are defined in the contract and await
+implementation. Partial updates, safe write retries, schema migration and replication
+status are planned. A query language is not planned for the first version.
 
 ## Repository layout
 
@@ -430,7 +430,7 @@ the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the public contract: the schema, and scenario tests of reads, writes, master and child, which run on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity into the arena with its owned values, Lists and references, and a database that inserts, reads, replaces and deletes entities in memory, by primary key and through their secondary indexes, and commits a write batch, on a master or forwarded by a child, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database. An entity type with a Map or a Set is not stored yet |
+| `src/Moltaro.Lattice.Engine` | The engine depends only on the core library and .NET. It includes the native arena, root table and layouts that store owned values, Lists, Maps, Sets and references. It serves reads by primary and secondary index, executes writes and batches on a master and handles the transport for child loading, replication and forwarding. `LatticeDatabase` opens an instance. |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |

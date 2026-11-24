@@ -35,12 +35,13 @@ reference to the replacement text. It never overwrites a string shared by roots.
 
 ## Stored structures and root transfer
 
-The engine uses the same fixed structure for the fields of an entity and for an element
-of a List. A structure packs a null bitmap, the fixed-width fields and a consecutive run
+The engine uses the same fixed structure for the fields of an entity and for a collection
+entry. A List or Set entry has one member. A Map entry has a key and a value. A structure
+packs a null bitmap, the fixed-width fields and a consecutive run
 of 16-byte descriptors, without padding. Owned values are flattened into the structure
 that contains them. Each group follows the order of the paths of the field identities.
-A Reference occupies the form of its target's key. A List occupies one descriptor.
-The layout compiles a table of those places and the element layout of each List. It is
+A Reference occupies the form of its target's key. A collection occupies one descriptor.
+The layout compiles a table of those places and each collection's entry layout. It is
 immutable and shared by all threads that read or write roots of that type.
 
 The bitmap uses the low bit of its first byte for the first nullable position. A set bit
@@ -75,27 +76,50 @@ start of the block that holds it, with the header included. A reader
 uses the structure's bytes to find the descriptor and the whole containing payload to
 reach the inline value. For a root, place offsets also include the header, so subtract
 the header size when applying those offsets to the payload. The fixed part of a root,
-including the header, must fit in a block. The record of an element must fit in a chunk
-with room for the inline values it can describe. An invalid layout for a stored type
-fails open with `InvalidSchema`.
+including the header, fits in at most 65,536 bytes. The record of an entry fits in a
+chunk with room for the inline values it can describe. The engine compiles the layout
+of every declared entity type at open. A layout beyond either limit fails open with
+`InvalidSchema`, which names the entity type. The failed instance is Closed.
 
-A String, a Binary or a packed List is placed by its encoded length. A packed List
-holds records without descriptors, at a fixed stride. It can cross a chunk boundary
-in the middle of an element. Up to 64 bytes fit inline when the block has room, including
+A String, a Binary or packed collection entries are placed by encoded length. Packed
+entries have a fixed stride and contain no descriptors. An entry can cross a chunk
+boundary. Up to 64 bytes fit inline when the block has room, including
 an empty value at the current inline end. A value that goes out of line uses one block
 through 4 KiB and a directory of chunks above it. A chunk holds up to 65,504 payload
 bytes. The directory holds one descriptor per chunk, up to 4,094 chunks, so the byte
 limit for one value is 268,173,376. A larger value is refused with `ValidationFailed`.
 
-A List whose elements contain descriptors is stored as whole records, with an inline
-area after the last record of each block. A descriptor of kind Records carries the
-element count and names the block of records or, for a longer List, its directory of
-record blocks. An empty List of this form has location zero. One chunk reserves enough
+A collection whose entries contain descriptors is stored as whole records, with an
+inline area after the last record of each block. A descriptor of kind Records carries
+the entry count and names the block of records or its directory of record blocks. An
+empty collection of this form has location zero. One chunk reserves enough
 room for each record and up to 64 bytes for each of its descriptors. Every chunk except
 the last holds the resulting number of records per chunk. The maximum element count is
 that number times the capacity of a chunk directory. An out-of-line value block or
 directory is owned by the block containing the descriptor. A chunk is owned by its
 directory.
+
+### Map and Set lookups
+
+A Map or Set of up to eight entries stores those entries under the same descriptor
+as a List. Lookup scans the entries with the comparison of the key or member
+declaration. A larger collection has a Lookup descriptor with the entry count and
+the address of its lookup block. The block begins with the entries descriptor at
+offset 32. Packed entries of a hashed collection use their own block or chunks.
+
+The rest of a contiguous lookup block is a sequence of eight-byte slots. Each
+occupied slot holds a 32-bit hash and the entry ordinal plus one. The all-zero slot
+is empty. To find the home slot, multiply the hash by the slot count and take the
+high 32 bits of the product.
+Collisions use linear probing. The allocation fills a size class and its occupancy
+is at most 70 percent. The largest contiguous lookup has 8,186 slots.
+
+Above that capacity, the lookup block contains the eight-byte relative addresses of
+its slot chunks. Full chunks have 8,188 slots and the last chunk fills its own size
+class. A lookup uses at most 4,094 slot chunks. This gives a bound of 23,465,170
+entries. The entry layout can impose a smaller bound. A slot chunk's backlink
+names its address position at offset 48 plus eight times its chunk ordinal.
+The lookup owns its entries through the descriptor at offset 32.
 
 Text keeps its encoded bytes as specified by the schema. A nonempty Dictionary text,
 or a text value longer than 64 encoded bytes used as a secondary index part, uses an
@@ -109,15 +133,21 @@ inline and out-of-line placement rule.
 
 The transfer of a root starts with its layout version in little-endian order, then
 the root payload, then the values it holds out of line in descriptor order. Capture
-adds the type id and last mutation sequence before that body. A List of records is
+adds the type id and last mutation sequence before that body. A collection of records is
 written in preorder. Each record block is sent first as its whole payload. The
 out-of-line values it names follow, record by record and descriptor by descriptor,
-recursively for a List of records. Inline bytes travel with their containing
+recursively for collections of records. Inline bytes travel with their containing
 payload and keep their offsets. Each out-of-line location is sent as zero,
 including the locations of text entries and record blocks. Dictionary text is sent as
 bytes for each reference. Native headers, capacity slack and chunk directories never
 travel. The payload and value bytes use the machine's byte order, which nodes agree on
-in the handshake.
+in the handshake. Wire format 6 carries a Map or Set through the descriptor and
+entries a List would use. Export substitutes the entries descriptor for the local
+Lookup descriptor in the containing payload. Both stored export and write forwarding
+use an out-of-line descriptor for short packed entries of a hashed collection. The
+receiver rejects an inline descriptor for a hashed collection. Existing List bodies
+retain their byte layout. The root layout version stays 2. A peer with a wire format
+below 6 is refused at the handshake, even when the database holds no Maps or Sets.
 
 The export writes the block payload when the walk enters it. The same walk visits a
 descriptor after any record blocks it names, so freeing can safely release children
@@ -137,7 +167,7 @@ inline locations. Each block must fit its storage. The check bounds counts and l
 by the bytes remaining before reading them and consumes the whole input. Invalid
 structure is `ValidationFailed`. The check uses scratch storage bounded by the
 layout and block sizes. The receiver uses the checked representation to read the key,
-validating the encoding when the key is text. Other field values travel as bytes.
+validating the encoding when the root key is text. Other field values travel as bytes.
 
 ### Pending placement
 
@@ -156,6 +186,15 @@ Dictionary entry is found or added by its bytes. Slot accounting includes the
 prepared root, its blocks and any added text entries, the same way the writer
 counts them. A memory budget refusal returns the null address and leaves no part of
 the root allocated. A native allocation failure propagates after the same cleanup.
+
+For a hashed collection, the new lookup payload is initialized before the holder
+receives its address. Each acquired chunk becomes reachable from the initialized
+directory. The lookup is built with the receiver's instance seed. Placement checks
+uniqueness for both forms, including compact packed entries already inline. A
+duplicate fails before publication and the transaction gives back every prepared
+effect. A child skipping an older effect checks the same invariant using validated
+wire slices and temporary scratch. That check uses its own cursor and leaves the
+arena unchanged.
 The caller publishes the prepared root when the write or load is ready.
 
 ## Lock and lifetime order
@@ -405,7 +444,7 @@ delete or a growth never ends the pass, and a replace changes no entry of the in
 ### The comparison of a key
 
 The equality, the hash and the order of values follow the rules the schema declares, in one
-service across the indexes and direct lookups (`Engine/Comparison/ValueComparer.cs`): the
+service across the indexes and direct lookups (`Storage/Values/ValueComparer.cs`): the
 primary index uses its equality and its hash, the secondary indexes its order, and nothing
 else in the engine compares a key with stored text.
 

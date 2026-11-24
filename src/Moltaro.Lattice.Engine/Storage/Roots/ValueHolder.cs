@@ -86,6 +86,19 @@ internal ref struct ValueHolder
     // The bytes of the block at the offset given, header counted, for the length given.
     public readonly Span<byte> At(int offset, int length) => Bytes.Slice(offset - Origin, length);
 
+    // Takes a prepared block for this root and accounts for its whole slot. The caller makes
+    // the initialized block reachable through its parent descriptor or chunk address.
+    public bool TryAllocate(int length, BlockKindEnum kind, ArenaAddress parent, int offset, out ArenaAddress address)
+    {
+        if (!ValueBlocks.TryAllocate(Arena, length, kind, Root, Layout.LayoutVersion, parent, (uint)offset, out address))
+        {
+            return false;
+        }
+
+        SlotBytes += Arena.BlockSizeFor(length);
+        return true;
+    }
+
     // Places a text of the place, its descriptor at the offset given (see the type). The whole text is checked
     // before anything is placed: a lone surrogate at its end must not be found after its first chunks were
     // allocated. Checking, counting and, in a UTF-8 database, encoding are three passes over the text, kept
@@ -123,7 +136,7 @@ internal ref struct ValueHolder
 
     // Places a value of length bytes of the place, which the source hands out, its descriptor at the offset
     // given: inline when it is short enough and the block has room, else in blocks of its own (see the type).
-    public void PlaceBytes<TSource>(in StoredField place, int offset, int length, ref TSource source)
+    public void PlaceBytes<TSource>(in StoredField place, int offset, int length, ref TSource source, bool allowInline = true)
         where TSource : IValueSource, allows ref struct
     {
         if (length > ValueBlocks.MostValueBytes)
@@ -138,7 +151,7 @@ internal ref struct ValueHolder
 
         var descriptor = At(offset, ValueBlocks.DescriptorSize);
 
-        if (length <= ValueBlocks.InlineLimit && InlineEnd + length <= End)
+        if (allowInline && length <= ValueBlocks.InlineLimit && InlineEnd + length <= End)
         {
             source.Fill(At(InlineEnd, length));
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)InlineEnd });

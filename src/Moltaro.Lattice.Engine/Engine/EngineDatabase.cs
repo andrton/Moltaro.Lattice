@@ -238,8 +238,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // empty database, listens at its ListenUri when it has one, and becomes Ready: its work is
     // synchronous and short, so it completes before it returns. A child loads the database of its
     // master (OpenChildAsync). The root layout of every entity type is compiled before any data is
-    // admitted: a fixed part larger than one block fails the open with InvalidSchema, and an entity type
-    // with a field the engine cannot store yet gets no layout. A failure, and a cancellation, close the
+    // admitted. A fixed part larger than one block fails the open with InvalidSchema. A failure or cancellation closes the
     // instance, and the call completes once the close has. Before the open an operation is Unavailable.
     public ValueTask OpenAsync(CancellationToken cancellationToken = default)
     {
@@ -318,23 +317,23 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     }
 
     // The root of a member of a write batch, encoded when it is added, on the thread of the caller and
-    // outside every lock (Entities.RootValues.Export), after the bound of its Lists (RootValues.CheckListBounds),
-    // so that a List above it is refused at the Add, as a single write refuses it before it is submitted;
-    // empty for a delete and for an entity type the engine does not store, which the commit refuses
-    // (Writes.WriteCoordinator.SubmitBatchAsync).
+    // outside every lock (Entities.RootValues.Export). A collection above its bound is refused at Add,
+    // as it is before a single write is submitted (RootValues.CheckCollectionBounds). A delete carries
+    // an empty root body.
     // ObjectDisposedException once the database is closed, for every kind of member.
     ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values)
     {
         var table = Part(_parts).Operations[entityType].Table;
 
-        if (values is null || table.Layout is not { } layout)
+        if (values is null)
         {
             return ReadOnlySequence<byte>.Empty;
         }
 
-        if (layout.Structure.HoldsLists)
+        var layout = table.Layout;
+        if (layout.Structure.HoldsCollections)
         {
-            RootValues.CheckListBounds(layout, values);
+            RootValues.CheckCollectionBounds(layout, values);
         }
 
         return RootValues.Export(layout, entityType, values);

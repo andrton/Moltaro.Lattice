@@ -150,25 +150,28 @@ internal readonly struct IndexValue
     // is taken first, with no call for a fixed-width value of a field that is not an Enum; anything else
     // is BindOther's. ArgumentException, for the parameter named, for a value the rules refuse. A null
     // given as an object is returned as it is: whether the part can be null is the caller's check.
-    public IndexValue Bind(LatticeField field, string parameterName)
-    {
-        var declaration = field.Declaration;
+    public IndexValue Bind(LatticeField field, string parameterName) =>
+        Bind(field.Declaration, field.Name, parameterName);
 
+    // The same binding for nested positions. The enclosing field gives the name for errors, while
+    // the key or member has its own declaration.
+    public IndexValue Bind(LatticeValueDeclaration declaration, string fieldName, string parameterName)
+    {
         if (_type == declaration.ScalarType)
         {
             if (_type == LatticeFieldTypeEnum.String)
             {
-                FieldValues.ThrowIfNotWellFormed(field, (string)_reference!, parameterName);
+                FieldValues.ThrowIfNotWellFormed(declaration, fieldName, (string)_reference!, parameterName);
             }
             else if (declaration.EnumType is { } enumType)
             {
-                ThrowIfNotAllowed(enumType, field, parameterName);
+                ThrowIfNotAllowed(enumType, declaration.Type, fieldName, parameterName);
             }
 
             return this;
         }
 
-        return BindOther(field, parameterName);
+        return BindOther(declaration, fieldName, parameterName);
     }
 
     // The value of a fixed-width type, read back from the bits.
@@ -254,9 +257,8 @@ internal readonly struct IndexValue
     // After the type of the field (Bind): a value of another type converted by the allowlist, and checked
     // when its part is an Enum; a null with a type accepted where a value of its type would be, and one
     // without a type as it is. ArgumentException for anything else.
-    private IndexValue BindOther(LatticeField field, string parameterName)
+    private IndexValue BindOther(LatticeValueDeclaration declaration, string fieldName, string parameterName)
     {
-        var declaration = field.Declaration;
         var expected = declaration.ScalarType;
 
         if (IsNull)
@@ -268,20 +270,20 @@ internal readonly struct IndexValue
 
             var givenAs = _typeOfNull == OtherType ? "a type no field has" : FieldTypes.ValueType(_typeOfNull).Name;
 
-            throw new ArgumentException($"Field '{field.Name}' is {declaration.Type}; a null given as {givenAs} cannot be used for it.", parameterName);
+            throw new ArgumentException($"Field '{fieldName}' is {declaration.Type}; a null given as {givenAs} cannot be used for it.", parameterName);
         }
 
         if (TryConvertTo(expected, out var converted))
         {
             if (declaration.EnumType is { } enumType)
             {
-                converted.ThrowIfNotAllowed(enumType, field, parameterName);
+                converted.ThrowIfNotAllowed(enumType, declaration.Type, fieldName, parameterName);
             }
 
             return converted;
         }
 
-        throw FieldValues.CannotBeUsed(field, ToObject()!, parameterName);
+        throw FieldValues.CannotBeUsed(declaration, fieldName, ToObject()!, parameterName);
     }
 
     // The value, of another type than the field type given, in that type when the allowlist takes it: a pair
@@ -324,12 +326,12 @@ internal readonly struct IndexValue
 
     // For an integer in the underlying type of the enum type of an Enum part: refused when the enum type
     // does not allow it, in the words of the validation of a write (EnumValues.Undeclared).
-    private void ThrowIfNotAllowed(LatticeEnumType enumType, LatticeField field, string parameterName)
+    private void ThrowIfNotAllowed(LatticeEnumType enumType, LatticeFieldTypeEnum type, string fieldName, string parameterName)
     {
         if (!enumType.IsValid(Integer))
         {
             throw new ArgumentException(
-                $"Field '{field.Name}' is {field.Declaration.Type}; {EnumValues.Undeclared(enumType, ToObject()!)}, cannot be used for it.",
+                $"Field '{fieldName}' is {type}; {EnumValues.Undeclared(enumType, ToObject()!)}, cannot be used for it.",
                 parameterName);
         }
     }

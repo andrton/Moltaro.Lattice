@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Diagnostics;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -37,9 +36,9 @@ namespace Moltaro.Lattice.Access.Binding;
 // accessor C# sees for it, null included; a List becomes a new List<T> or array of the type of the
 // property, each element converted, an empty array the one empty array of its type, and a List
 // property of the very type a record holds there is given the List the read made, which holds the same
-// values at every depth. A read made every value
-// it hands over for the object it builds, so nothing is copied again. A Map and a Set are never read:
-// an entity type that holds one is not stored.
+// values at every depth. Map keys and values and Set members are converted where the bound class uses
+// another .NET form. A Dictionary or HashSet keeps the schema comparer and its entry count.
+// A read can hand over a collection it already made in the form the class declares.
 internal sealed class ClassBinder
 {
     // The conversion of a value that a record holds as the class holds it: a scalar, a String, a Binary
@@ -195,8 +194,8 @@ internal sealed class ClassBinder
     {
         LatticeFieldTypeEnum.Owned => BindOwned(type, declaration.OwnedType!, place),
         LatticeFieldTypeEnum.List => BindList(type, declaration, place),
-        LatticeFieldTypeEnum.Set => new Conversion(BindSet(type, declaration, place), NotRead),
-        LatticeFieldTypeEnum.Map => new Conversion(BindMap(type, declaration, place), NotRead),
+        LatticeFieldTypeEnum.Set => BindSet(type, declaration, place),
+        LatticeFieldTypeEnum.Map => BindMap(type, declaration, place),
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
         LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place), Same),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
@@ -394,11 +393,22 @@ internal sealed class ClassBinder
             : throw ValidationFailed(entityTypeName, place.Holds($"a {Place.TypeName(value.GetType())} where {Place.TypeName(arrayType)} is declared"));
     }
 
-    private Func<object, object> BindSet(Type type, LatticeValueDeclaration declaration, Place place)
+    private Conversion BindSet(Type type, LatticeValueDeclaration declaration, Place place)
     {
         var elementType = GenericArgument(type, typeof(HashSet<>)) ?? throw place.Mismatch();
+        var element = ConversionOf(elementType, declaration.Element!, place);
+        var toRecord = BindSequence(element.ToRecord, declaration, place);
+        if (type == declaration.ValueType)
+        {
+            return new Conversion(toRecord, Same);
+        }
 
-        return BindSequence(ConversionOf(elementType, declaration.Element!, place).ToRecord, declaration, place);
+        var fromRecord = SequenceMethod(nameof(SetOf), elementType)
+            .CreateDelegate<Func<object, int, Func<object, object>, TextComparison?, object>>();
+        var form = declaration.Sequence!;
+        var comparison = declaration.Element!.TextComparison;
+
+        return new Conversion(toRecord, value => fromRecord(value, form.Count(value), element.FromRecord, comparison));
     }
 
     // An element that is a String or a Binary value is checked against the bound of one value before it is
@@ -465,6 +475,17 @@ internal sealed class ClassBinder
         return result;
     }
 
+    private static object SetOf<TElement>(object set, int count, Func<object, object> element, TextComparison? comparison)
+    {
+        var result = new HashSet<TElement>(count, comparison as IEqualityComparer<TElement>);
+        foreach (var value in (IEnumerable)set)
+        {
+            result.Add(value is null ? default! : (TElement)element(value));
+        }
+
+        return result;
+    }
+
     // Elements of the same type are copied without boxing each element.
     private static object CopyArray<TElement>(object list)
     {
@@ -496,7 +517,7 @@ internal sealed class ClassBinder
 
     // A Map is a Dictionary<K, V>. Its keys are added under the comparer of the key
     // declaration, not under the comparer of the Dictionary.
-    private Func<object, object> BindMap(Type type, LatticeValueDeclaration declaration, Place place)
+    private Conversion BindMap(Type type, LatticeValueDeclaration declaration, Place place)
     {
         if (!type.IsGenericType || type.GetGenericTypeDefinition() != typeof(Dictionary<,>))
         {
@@ -504,41 +525,79 @@ internal sealed class ClassBinder
         }
 
         var arguments = type.GetGenericArguments();
-        var keyToRecord = ConversionOf(arguments[0], declaration.Key!, place).ToRecord;
-        var valueToRecord = ConversionOf(arguments[1], declaration.Value!, place).ToRecord;
-        var valueIsNullable = declaration.Value!.IsNullable;
+        var keyDeclaration = declaration.Key!;
+        var valueDeclaration = declaration.Value!;
+        var key = ConversionOf(arguments[0], keyDeclaration, place);
+        var item = ConversionOf(arguments[1], valueDeclaration, place);
+        var boundedKey = ValueBound.Applies(keyDeclaration);
+        var boundedValue = ValueBound.Applies(valueDeclaration);
         var form = declaration.Map!;
         var entityTypeName = _entityType.Name;
+        var encoding = _entityType.StringEncoding;
 
-        return value =>
+        object ToRecord(object value)
         {
             var map = form.Create();
             foreach (DictionaryEntry entry in (IDictionary)value)
             {
-                object? item = null;
+                if (entry.Key is null)
+                {
+                    throw ValidationFailed(entityTypeName, place.Holds("a null key where a Map needs a key"));
+                }
+
+                if (boundedKey && !ValueBound.Holds(keyDeclaration, entry.Key, encoding))
+                {
+                    throw ValidationFailed(entityTypeName, place.Holds(ValueBound.Held));
+                }
+
+                object? itemValue = null;
                 if (entry.Value is not null)
                 {
-                    item = valueToRecord(entry.Value);
+                    if (boundedValue && !ValueBound.Holds(valueDeclaration, entry.Value, encoding))
+                    {
+                        throw ValidationFailed(entityTypeName, place.Holds(ValueBound.Held));
+                    }
+
+                    itemValue = item.ToRecord(entry.Value);
                 }
-                else if (!valueIsNullable)
+                else if (!valueDeclaration.IsNullable)
                 {
                     throw ValidationFailed(entityTypeName, place.Holds("a null value where its declaration does not allow one"));
                 }
 
-                if (!form.TryAdd(map, keyToRecord(entry.Key), item))
+                if (!form.TryAdd(map, key.ToRecord(entry.Key), itemValue))
                 {
                     throw ValidationFailed(entityTypeName, place.Holds($"the key '{entry.Key}' twice, as its key declaration compares keys"));
                 }
             }
 
             return map;
-        };
+        }
+
+        if (type == declaration.ValueType)
+        {
+            return new Conversion(ToRecord, Same);
+        }
+
+        var fromRecord = typeof(ClassBinder).GetMethod(nameof(MapOf), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(arguments).CreateDelegate<Func<object, Func<object, object>, Func<object, object>, TextComparison?, object>>();
+        var comparison = keyDeclaration.TextComparison;
+
+        return new Conversion(ToRecord, value => fromRecord(value, key.FromRecord, item.FromRecord, comparison));
     }
 
-    // What a read would give a Map or a Set property: a read never meets one, since an entity type that
-    // holds one is not stored (Storage.Roots.StructureLayout of the engine).
-    private static object NotRead(object value) =>
-        throw new UnreachableException($"A {value.GetType().Name} is never read: an entity type that holds a Map or a Set is not stored.");
+    private static object MapOf<TKey, TValue>(object map, Func<object, object> key, Func<object, object> value, TextComparison? comparison)
+        where TKey : notnull
+    {
+        var source = (IDictionary)map;
+        var result = new Dictionary<TKey, TValue>(source.Count, comparison as IEqualityComparer<TKey>);
+        foreach (DictionaryEntry entry in source)
+        {
+            result.Add((TKey)key(entry.Key), entry.Value is null ? default! : (TValue)value(entry.Value));
+        }
+
+        return result;
+    }
 
     private static Type? GenericArgument(Type type, Type definition) =>
         type.IsGenericType && type.GetGenericTypeDefinition() == definition ? type.GetGenericArguments()[0] : null;

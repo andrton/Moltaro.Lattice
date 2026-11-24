@@ -6,10 +6,10 @@ namespace Moltaro.Lattice.Access.Values;
 
 // The bound of one String or Binary value (the remarks of String and Binary of LatticeFieldTypeEnum;
 // decision O19 of Epic 1): one value takes at most Bytes bytes of its stored encoding, for text the
-// encoding the schema declares, at every position: a field of the entity, a field of an owned value,
-// an element of a List. A fixed rule of the storage format, the same on every node and not an
+// encoding the schema declares, at every position including within collections.
+// A fixed rule of the storage format, the same on every node and not an
 // option. The validation of the core checks it at a write and when an operation is added to a batch,
-// before the conditions of the write and before a refusal as not implemented, once for each value.
+// before the conditions of the write, once for each value.
 // The value of a field of the entity is checked before the rest of the validation of that field: for
 // a record, every field in a pass of its own before anything else of the entity is checked
 // (RecordValues.Submit); for an object, each property before it is taken, property by property in the

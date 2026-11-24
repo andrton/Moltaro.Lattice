@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -13,8 +13,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // String or a Binary field, and each other Get… member a field of the type it serves. A field of
 // another type, or of another entity type, is refused with ArgumentException. The overloads that take
 // an in StoredField, IsNull, StoredBytes and ReadText, check neither: they trust a field this layout
-// resolved (Ordered.EntryPart.Stored). A Get… member, and GetLength, of a field whose value is null is
-// InvalidOperationException: the caller asks IsNull first.
+// resolved (Ordered.EntryPart.Stored). A scalar Get… member, and GetLength, of a field whose value
+// is null is InvalidOperationException. GetNested gives an owned copy and can return null.
 //
 // A scalar is read from the root block where it lies and allocates nothing; GetString and GetBinary
 // allocate the value they return and nothing else. The reader finds its root block once, when it is
@@ -76,7 +76,8 @@ internal readonly ref struct RootReader
     // block of its own, in chunks with the 16 bytes its directory holds for each chunk, or in the entry of the
     // text table a Dictionary text lies in, which every root that refers to it counts; for a List of records,
     // the payload of each block of its records, with the 16 bytes its directory holds for each chunk, and what
-    // its records hold outside them, at every depth. What a search counts of an entity it holds in its answer
+    // its records hold outside them, at every depth. Each derived lookup also contributes the payloads
+    // of its own blocks. What a search counts of an entity it holds in its answer
     // (LatticeDatabaseOptions.ReadMemoryLimit): a measure from the lengths the descriptors hold and the blocks
     // of records report, read in one walk over the root (StructureWalk), not an account of the slots of the
     // arena. Not for a reader of a copy.
@@ -89,31 +90,33 @@ internal readonly ref struct RootReader
         return BlockHeader.Size + _payload.Length + counting.Bytes;
     }
 
-    // The value of an owned field, as a new LatticeOwnedValue of its owned type that holds every value
-    // beneath it, as a record holds it (NestedValues).
-    public LatticeOwnedValue GetOwned(LatticeField field)
+    // A probe already bound to the key or member declaration. Its ordinal is valid only while the
+    // caller protects this root. The lookup returns -1 when the collection has no matching entry.
+    public int FindEntry(LatticeField field, in IndexValue key)
     {
         ref readonly var stored = ref _layout.StoredFieldOf(field);
+        if (stored.Type is not (StoredTypeEnum.Map or StoredTypeEnum.Set))
+        {
+            throw new ArgumentException($"The field {Name(field)} is not a Map or a Set.", nameof(field));
+        }
 
-        CheckType(field, stored, StoredTypeEnum.Owned, nameof(GetOwned));
+        if (HoldsNull(stored))
+        {
+            return -1;
+        }
 
         var arena = ArenaOfValues();
-        var structure = _layout.Structure;
-        var payload = NotNullPayload(stored);
-
-        return (LatticeOwnedValue)NestedValues.Read(arena, structure, payload[..structure.Size], payload, field.Ordinal, _layout.StringEncoding)!;
+        var descriptor = ValueBlocks.Read(_payload[(stored.Offset - BlockHeader.Size)..]);
+        var keys = new CollectionKeys(arena, _layout.Structure.ElementOf(field.Ordinal), descriptor, _payload, _layout.StringEncoding);
+        return new CollectionLookup(arena, descriptor).Find(keys, key);
     }
 
-    // The value of a List field, as a new List of the form a record holds, with every element at every depth
-    // (NestedValues); the elements of a List whose elements hold no descriptor are read without a box.
-    public object GetList(LatticeField field)
+    // A new copy of a nested field in the form a record holds, or null according to its bitmap.
+    public object? GetNested(LatticeField field)
     {
-        ref readonly var stored = ref _layout.StoredFieldOf(field);
-
-        CheckType(field, stored, StoredTypeEnum.List, nameof(GetList));
-
-        // A field of the entity has its ordinal as its position in the structure of the root (StructureLayout).
-        return NestedValues.ReadList(ArenaOfValues(), _layout.Structure.ElementOf(field.Ordinal), ValueBlocks.Read(NotNull(stored)), _payload, _layout.StringEncoding);
+        _layout.StoredFieldOf(field);
+        var structure = _layout.Structure;
+        return NestedValues.Read(ArenaOfValues(), structure, _payload[..structure.Size], _payload, field.Ordinal, _layout.StringEncoding);
     }
 
     // The bytes of the fixed part of a root block of the layout after its header: what CopyFixedPart
@@ -272,18 +275,7 @@ internal readonly ref struct RootReader
         }
     }
 
-    // The payload of the root, after checking that the value of the field, which may be an owned value with
-    // no bytes of its own, is not null.
-    private ReadOnlySpan<byte> NotNullPayload(in StoredField stored)
-    {
-        if (HoldsNull(stored))
-        {
-            throw new InvalidOperationException($"The field {Name(stored.Field)} is null; ask IsNull first.");
-        }
-
-        return _payload;
-    }
-
+    // The bytes of the field at its fixed place, after checking its null bit.
     private ReadOnlySpan<byte> NotNull(in StoredField stored)
     {
         if (HoldsNull(stored))
@@ -301,7 +293,7 @@ internal readonly ref struct RootReader
     {
         public long Bytes { get; private set; }
 
-        public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
+        public void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) => Bytes += payload.Length;
 
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
@@ -317,23 +309,14 @@ internal readonly ref struct RootReader
 
                     break;
 
-                case DescriptorKindEnum.Records when descriptor.Location != 0:
-                    var address = ValueBlocks.AddressOf(descriptor);
+                case DescriptorKindEnum.Records when descriptor.Location != 0 && NestedValues.LiesInChunks(descriptor, element!):
+                    Bytes += arena.Header(ValueBlocks.AddressOf(descriptor)).PayloadLength;
+                    break;
 
-                    if (!NestedValues.LiesInChunks(descriptor, element!))
+                case DescriptorKindEnum.Lookup:
+                    foreach (var block in new LookupBlocks(arena, descriptor))
                     {
-                        Bytes += arena.Header(address).PayloadLength;
-
-                        break;
-                    }
-
-                    var entries = arena.Payload(address);
-
-                    Bytes += entries.Length;
-
-                    for (var entry = 0; entry < entries.Length; entry += ValueBlocks.DescriptorSize)
-                    {
-                        Bytes += ValueBlocks.Read(entries[entry..]).Length;
+                        Bytes += arena.Header(block).PayloadLength;
                     }
 
                     break;

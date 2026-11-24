@@ -59,11 +59,6 @@ public interface ILatticeIndex<TEntity>
     /// enumerated may be missing from them, even when that write completed before the
     /// enumeration ended.
     /// </para>
-    /// <para>
-    /// Of an entity type whose writes are refused until a feature of its schema is implemented,
-    /// a Map or a Set, the search finds nothing, as a read of it by key finds nothing and an
-    /// enumeration of it is empty: such a type holds no entity.
-    /// </para>
     /// </remarks>
     /// <param name="key">What to look for.</param>
     /// <exception cref="ArgumentException">
@@ -87,12 +82,6 @@ public interface ILatticeIndex<TEntity>
     /// Finds the entities that match the key, as the options say: after the position of a
     /// session, in the index order or its reverse, all of them or a part.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Of an entity type whose writes are refused until a feature of its schema is implemented,
-    /// the result has no item, as a read by key finds nothing: such a type holds no entity.
-    /// </para>
-    /// </remarks>
     /// <param name="key">What to look for.</param>
     /// <param name="options">Consistency, direction and paging of the search.</param>
     /// <param name="cancellationToken">Cancels the wait for the session's position and the search.</param>

@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -368,7 +367,7 @@ internal sealed class WriteExecutor
         if (reservation != ReservationEnum.Reserved)
         {
             prepared = null;
-            refusal = RootWriter.RefusalForMemory(write.Table.Layout!);
+            refusal = RootWriter.RefusalForMemory(write.Table.Layout);
 
             return reservation;
         }
@@ -417,14 +416,14 @@ internal sealed class WriteExecutor
         }
         catch
         {
-            RootStorage.Free(_arena, table.Layout!, root);
+            RootStorage.Free(_arena, table.Layout, root);
             throw;
         }
 
         if (reservation != ReservationEnum.Reserved)
         {
-            RootStorage.Free(_arena, table.Layout!, root);
-            refusal = reservation == ReservationEnum.RefusedForMemory ? RootWriter.RefusalForMemory(table.Layout!) : null;
+            RootStorage.Free(_arena, table.Layout, root);
+            refusal = reservation == ReservationEnum.RefusedForMemory ? RootWriter.RefusalForMemory(table.Layout) : null;
             prepared = null;
 
             return reservation;
@@ -441,7 +440,7 @@ internal sealed class WriteExecutor
     private ReservationEnum TryPrepareInsert(PendingWrite write, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
     {
         var table = write.Table;
-        var layout = table.Layout!;
+        var layout = table.Layout;
         var handle = _roots.Add((uint)table.EntityType.Id);
         var root = default(ArenaAddress);
 
@@ -495,7 +494,7 @@ internal sealed class WriteExecutor
     // writer has freed everything it allocated.
     private ArenaAddress Encode(EntityTable table, RootHandle handle, object?[] values, out long size, out LatticeException? refusal)
     {
-        var writer = new RootWriter(_arena, table.Layout!, handle);
+        var writer = new RootWriter(_arena, table.Layout, handle);
 
         refusal = null;
 
@@ -543,7 +542,7 @@ internal sealed class WriteExecutor
     // left allocated.
     private ArenaAddress Place(EntityTable table, RootHandle handle, in ReadOnlySequence<byte> bytes, bool replaces, out long size, out LatticeException? refusal)
     {
-        var layout = table.Layout!;
+        var layout = table.Layout;
         var import = _import ??= new BlockImport(_arena);
         var reader = new SequenceReader<byte>(bytes);
         var received = import.Check(ref reader, layout);
@@ -576,16 +575,17 @@ internal sealed class WriteExecutor
             return false;
         }
 
-        var stored = new RootReader(_arena, table.Layout!, _roots.Entry(handle).Root);
+        var stored = new RootReader(_arena, table.Layout, _roots.Entry(handle).Root);
+        var given = import.Text(received, key);
 
-        return !ValueComparer.SameText(stored, key, import.Text(received, key));
+        return !ValueComparer.SameText(stored.ReadText(key), given);
     }
 
     // Writes the placed root again from its values with the key as the entity stores it, and frees the
     // placed one; the null address with the refusal when the arena has no room for either.
     private ArenaAddress Respell(EntityTable table, RootHandle handle, ArenaAddress placed, out long size, out LatticeException? refusal)
     {
-        var layout = table.Layout!;
+        var layout = table.Layout;
 
         if (placed.IsNull)
         {

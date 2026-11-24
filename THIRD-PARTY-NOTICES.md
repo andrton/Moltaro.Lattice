@@ -117,7 +117,7 @@ SOFTWARE
 
 ## .NET runtime — Marvin32, the hash of text
 
-- **Where:** `src/Moltaro.Lattice.Engine`, the engine library, which is not packaged yet (its package comes with sprint S12 of Epic 1 and will carry this file): the seeded hash of the text of String keys in the primary index, `Engine/Comparison/Marvin.cs`, adapted from the code of this file; it names its source at its head
+- **Where:** `src/Moltaro.Lattice.Engine/Storage/Hashing/Marvin.cs` implements the seeded text hash for the primary index, collection lookups and text table. The file names the source it adapts, and the engine package carries this notice.
 - **Source:** <https://github.com/dotnet/runtime>, commit `2dada4c5d6fb82f9d7f274d7bd980e508cdf52e2`: `src/libraries/System.Private.CoreLib/src/System/Marvin.cs`
 - **License:** MIT
 

@@ -29,7 +29,10 @@ internal static class FieldValues
     // The refusal of a value, not null, that cannot be used for the field, for the parameter named: of a
     // value given by itself here, and of a value of an index key or a bound (IndexValue.Bind).
     public static ArgumentException CannotBeUsed(LatticeField field, object value, string parameterName) =>
-        new($"Field '{field.Name}' is {field.Declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.", parameterName);
+        CannotBeUsed(field.Declaration, field.Name, value, parameterName);
+
+    public static ArgumentException CannotBeUsed(LatticeValueDeclaration declaration, string fieldName, object value, string parameterName) =>
+        new($"Field '{fieldName}' is {declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.", parameterName);
 
     public static object NormalizeKey(LatticeEntityType entityType, object key)
     {
@@ -55,12 +58,15 @@ internal static class FieldValues
 
     // A String key given as an argument that is not well-formed text: ArgumentException, the
     // message of a value that cannot be used for the field.
-    public static void ThrowIfNotWellFormed(LatticeField field, string text, string parameterName)
+    public static void ThrowIfNotWellFormed(LatticeField field, string text, string parameterName) =>
+        ThrowIfNotWellFormed(field.Declaration, field.Name, text, parameterName);
+
+    public static void ThrowIfNotWellFormed(LatticeValueDeclaration declaration, string fieldName, string text, string parameterName)
     {
         if (!WellFormedText.IsWellFormed(text))
         {
             throw new ArgumentException(
-                $"Field '{field.Name}' is {field.Declaration.Type}; the value '{text}' is not well-formed text, it has a surrogate without its pair, and cannot be used for it.",
+                $"Field '{fieldName}' is {declaration.Type}; the value '{text}' is not well-formed text, it has a surrogate without its pair, and cannot be used for it.",
                 parameterName);
         }
     }

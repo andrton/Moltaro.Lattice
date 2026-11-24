@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Storage.Hashing;
 // computes; MIT licence, Copyright (c) .NET Foundation and Contributors (see THIRD-PARTY-NOTICES.md).
 //
 // The seeded hash of the engine: of the text of a key in the primary index
-// (Engine.Comparison.ValueComparer.TextHash), over its UTF-16 code units, and of the stored bytes of a
+// (Storage.Values.ValueComparer.TextHash), over its UTF-16 code units, and of the stored bytes of a
 // text entry in the text table (Storage.Text.TextTable), over the bytes of the database encoding. A seed
 // of 64 bits, the seed of the instance, is its state p0 and p1; every block of four bytes, read in the
 // order of the machine, is added to p0 and mixed by the block function; the bytes left at the end, with

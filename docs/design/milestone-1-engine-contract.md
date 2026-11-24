@@ -130,13 +130,18 @@ number of whole records. Indexing uses chunk arithmetic/directory lookup; insert
 prepare and shift the affected suffix. Never reorder elements to improve storage. Temporary
 work remains subject to the memory budget of the instance.
 
-Map/Set use packed entries and linear lookup up to 8 elements initially. Larger
-values add a power-of-two open-addressed bucket directory, linear probing, cached
-hashes, entry ordinals and explicit empty/deleted markers. Grow before occupancy
-including tombstones exceeds 70%; rebuild tombstones during bounded preparation.
-Shrink back to compact form at <=4 entries. Buckets point to owned entries, never
-managed objects. A table rebuild is staged before commit and installed by the publication of the new root (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Large collections remain chunked; payloads do not become one huge array.
-List/Map/Set input and comparison semantics stay as already accepted.
+Map and Set entries use the same packed or record storage as List elements. A Set entry
+holds one member. A Map entry holds a key and a value in one record. Whole writes and
+wire receipt select the form by count. Up to eight entries, lookup scans the compact
+entries using the schema comparison. A whole replacement with four entries therefore
+returns to compact storage. From nine entries, an open-addressed lookup uses linear
+probing, cached hashes and entry ordinals at up to 70 percent occupancy. Slot capacity
+fills a size class. Large lookups use bounded slot chunks under a directory.
+
+The lookup is derived from the entries before the root is published, using the
+instance's hash seed. Uniqueness is checked before publication. A prepared lookup and
+its entries have the same ownership and retirement rules as the rest of the root.
+[Arena layout and transfer](arena-protocol.md#stored-structures-and-root-transfer)
 
 Plain strings preserve their original encoded bytes. Dictionary fields use one
 database-wide content table with exact-text equality, preserving case/spelling even
@@ -509,21 +514,22 @@ cannot succeed until it catches up. PostgreSQL is never a child catch-up source.
 Initial transfer uses a fenced capture, registered in one hold of the lock of the
 writes: it takes S, the published sequence, the fence of root slots and its cursor into
 the tail. Copy each root coherently under its protection, one root at a time, including
-owned blocks and required shared text. Copy bytes into bounded send buffers, release
-gates, then perform I/O. Nothing is retained for a capture: no slot, no deleted root, no
-mark of a deletion (decided after the study of S11).
+owned blocks and required shared text. Copy bytes into bounded send buffers under read
+protection and release that protection before I/O. Capture retains no slot, deleted
+root or deletion mark (decided after the study of S11).
 No address and no block number travels: the child stores received bytes through its
-own allocation, which writes every location (decided after the study of S10). Shared text is transferred
-with capture IDs and remapped to local text handles. Do not pin old payloads for the
+own allocation, which writes every location (decided after the study of S10). Each
+Dictionary text reference carries the encoded text, which is resolved in the receiving
+node's text table. Do not pin old payloads for the
 entire snapshot or hold read locks over the network. R is read in a hold of the lock of
 the writes after the last root was copied, because a root can carry a sequence the
 published clock does not show yet; `LoadEnd` carries S, R and the number of roots sent.
 
-Process-local hash codes/buckets are derived state. Transfer Map/Set entries and
-rebuild their hash directories on the child, just as dictionary and search indexes
-are rebuilt. Never reuse randomized .NET hashes from another process. The block
-importer marks derived regions for reconstruction and repairs descriptors before
-readiness; its schema/layout metadata distinguishes entries from lookup acceleration.
+Wire format 6 transfers Map and Set entries in the List encoding. The receiving node
+chooses the resident form by count and builds its own lookup from the entries and its
+local seed before publication. Uniqueness is part of the transfer structure. A child
+checks it even for an effect it skips because it already holds a newer root.
+[Root transfer and checks](arena-protocol.md#transfer-order-and-checks)
 
 Each captured root carries the sequence of its last mutation. A loading child is sent
 its stream after `LoadEnd`, on the same connection, from S. A Write effect carries the

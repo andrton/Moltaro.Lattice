@@ -6,9 +6,8 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 
 // A fixed part that does not fit one block, Arena.MaxBlockSize bytes with its header, is refused
 // during layout compilation with InvalidSchema and the entity type named, before any data is admitted
-// (docs/design/arena-protocol.md, "Stored structures and root transfer"). A field that holds
-// a Map or a Set, at any depth, which the engine cannot store yet, is NotSupportedException with the
-// field named. An entity type that is not of the given schema is ArgumentException.
+// (docs/design/arena-protocol.md, "Stored structures and root transfer"). An entity type of a
+// different schema is refused with ArgumentException.
 public sealed class LayoutRefusalTests
 {
     [Fact]
@@ -35,28 +34,6 @@ public sealed class LayoutRefusalTests
 
         Assert.Equal(LatticeErrorEnum.InvalidSchema, exception.Error);
         Assert.Contains("Oversized", exception.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("Options", "Options", "'Type': 'Map', 'Key': { 'Type': 'String' }, 'Value': { 'Type': 'Int32' }")]
-    [InlineData("Rights", "Rights", "'Type': 'Set', 'Element': { 'Type': 'Int32' }")]
-    [InlineData("Settings", "Settings", "'Type': 'List', 'Element': { 'Type': 'Map', 'Key': { 'Type': 'String' }, 'Value': { 'Type': 'Int32' } }")]
-    [InlineData("Home", "Extras", "'Type': 'Owned', 'OwnedType': 'Bag'")]
-    public void A_field_that_holds_a_Map_or_a_Set_at_any_depth_is_not_supported_with_the_field_named(string name, string named, string declaration)
-    {
-        // The field stands among fields that are stored, so the message has to name the right one: the field
-        // that holds the Map or the Set, inside an owned value for Home, whose owned type Bag holds Extras.
-        const string OwnedTypes = """
-            { 'Id': 1, 'Name': 'Address', 'Fields': [ { 'Id': 1, 'Name': 'City', 'Type': 'String' } ] },
-            { 'Id': 2, 'Name': 'Bag', 'Fields': [ { 'Id': 1, 'Name': 'Extras', 'Type': 'Set', 'Element': { 'Type': 'Int32' } } ] }
-            """;
-        var fields = $"{{ 'Id': 2, 'Name': 'Login', 'Type': 'String' }}, {{ 'Id': 3, 'Name': '{name}', {declaration} }}, {{ 'Id': 4, 'Name': 'Count', 'Type': 'Int32' }}";
-        var schema = ItemSchema.Compile(fields, ownedTypes: OwnedTypes);
-        Assert.True(schema.TryGetEntityType(ItemSchema.EntityTypeName, out var item));
-
-        var exception = Assert.Throws<NotSupportedException>(() => RootLayout.Compile(item, schema));
-
-        Assert.Contains(named, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

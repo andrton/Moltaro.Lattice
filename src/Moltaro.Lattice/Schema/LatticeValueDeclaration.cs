@@ -266,7 +266,7 @@ public sealed class LatticeValueDeclaration
     // (TextComparison): Ordinal is the equality of the code units, OrdinalIgnoreCase the case table of
     // Lattice's own. The comparers of a Map key, a Set element and the key of an entity in a write
     // batch take it from here, and so does the comparison of stored text in the engine,
-    // Engine.Comparison.ValueComparer: the engine references the core, and the core cannot reference
+    // Storage.Values.ValueComparer: the engine references the core, and the core cannot reference
     // the engine.
     internal TextComparison? TextComparison { get; }
 

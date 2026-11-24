@@ -36,8 +36,8 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 //
 // A call, in its order:
 // 1. The checks that need no master. The set has checked the arguments and validated the entity against
-//    the schema, before it calls. An entity type the engine does not store is NotSupportedException;
-//    the session is bound to the history of the child, which is its master's, here, before anything is
+//    the schema, before it calls.
+//    The session is bound to the history of the child, which is its master's, before anything is
 //    queued (Positions.PositionClock.Bind): an empty one is bound, and one of another history, also one
 //    another database bound first, is HistoryMismatch, since no node can order a write after it
 //    (docs/decisions/session-consistency.md, "Facade handoff"); the master checks it again. So the session
@@ -127,7 +127,6 @@ internal sealed class Forwarder
 
         try
         {
-            ThrowIfNotStored(table);
             sender = Begin(session, cancellationToken);
             call = new ForwardedCall(Request(table, kind, key, values, expectedRevision, session?.MinPosition), table.EntityType);
         }
@@ -150,11 +149,6 @@ internal sealed class Forwarder
 
         try
         {
-            foreach (var member in members)
-            {
-                ThrowIfNotStored(member.Table);
-            }
-
             sender = Begin(session, cancellationToken);
             call = new ForwardedCall(BatchRequest(members, session?.MinPosition), EntityTypesOf(members));
         }
@@ -169,21 +163,13 @@ internal sealed class Forwarder
     private static LatticeException NoMaster() =>
         new(LatticeErrorEnum.Unavailable, "This child has no connection to its master: the write was not executed.");
 
-    private static void ThrowIfNotStored(EntityTable table)
-    {
-        if (table.Layout is null)
-        {
-            throw new NotSupportedException(table.Refusal);
-        }
-    }
-
     // A refusal before anything is queued, as the task of the call: cancelled for its token, failed otherwise.
     private static ValueTask<LatticeWriteResult> Refused(Exception exception, CancellationToken cancellationToken) =>
         exception is OperationCanceledException && cancellationToken.IsCancellationRequested
             ? ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken)
             : ValueTask.FromException<LatticeWriteResult>(exception);
 
-    // The checks of step 1 of a call, after those of its entity types (see the class): the token, the close
+    // The checks of step 1 of a call (see the class): the token, the close
     // and the fault, the session bound before anything is queued, and the sender of the connection, which
     // is looked for before the request is encoded.
     private ChildSender Begin(LatticeSession? session, CancellationToken cancellationToken)
@@ -246,7 +232,7 @@ internal sealed class Forwarder
     private static OutgoingMessage Request(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticePosition? minimumPosition)
     {
         var request = new OutgoingMessage();
-        var layout = table.Layout!;
+        var layout = table.Layout;
 
         ForwardEncoding.WriteRequestHead(request, kind, (uint)table.EntityType.Id, expectedRevision, minimumPosition);
         table.Keys.WriteKey(key, request);

@@ -125,11 +125,15 @@ internal sealed unsafe class Arena : IDisposable
         _memoryLimit = options.MemoryLimit;
         _reserveLimit = options.ReservedSegments;
         _allocator = allocator;
+        HashSeed = textSeed;
         Texts = new TextTable(this, textSeed, writes);
     }
 
     // The text entries of the database, in this arena (see the class).
     public TextTable Texts { get; }
+
+    // The instance's own seed for the text table and each derived collection lookup.
+    public ulong HashSeed { get; }
 
     // The size of one segment in bytes, as the options gave it.
     public int SegmentSize => _segmentSize;

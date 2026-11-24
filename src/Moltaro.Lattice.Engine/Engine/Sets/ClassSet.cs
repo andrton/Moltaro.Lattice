@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Sets;
 // a read by key converts its key without boxing it and copies the root into the object through
 // pooled scratch, without boxing a value of a field of the entity: a read allocates the returned
 // object, with what is reachable from it, and nothing else, but for the form a record holds of an
-// owned value or a List, from which their objects are made. The constructors and the set accessors of
+// owned value or a collection, from which their objects are made. The constructors and the set accessors of
 // the classes run after the read left the protection of reads (ClassCopier). A write takes the values of the object through the
 // binding of the core, which checks them against the schema at every depth and takes a byte array of a
 // field as the object holds it: the engine copies it once, into its own memory, while the write runs
@@ -23,20 +23,19 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
     private readonly EntityBinding<TEntity> _binding;
 
-    // Null for an entity type the engine does not store: nothing of it is ever read.
-    private readonly ClassCopier<TEntity>? _copier;
+    private readonly ClassCopier<TEntity> _copier;
 
     public ClassSet(SetOperations operations, EntityBinding<TEntity> binding)
     {
         _operations = operations;
         _binding = binding;
-        _copier = operations.Table.Layout is { } layout ? new ClassCopier<TEntity>(binding, layout) : null;
+        _copier = new ClassCopier<TEntity>(binding, operations.Table.Layout);
     }
 
     public LatticeEntityType EntityType => _binding.EntityType;
 
     public ILatticeIndex<TEntity> Index(string indexName) =>
-        SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(_copier!));
+        SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(_copier));
 
     public TEntity? Get<TKey>(TKey key)
         where TKey : notnull =>
@@ -51,7 +50,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         var entityKey = KeyArgument.Of(_operations.Table, key);
 
-        entity = _operations.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(_copier!), out revision, out _);
+        entity = _operations.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(_copier), out revision, out _);
 
         return entity is not null;
     }
@@ -61,17 +60,17 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(_copier!), session, cancellationToken);
+        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(_copier), session, cancellationToken);
     }
 
     public IEnumerable<TEntity> Enumerate() =>
-        _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!));
+        _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier));
 
     public IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!), session, cancellationToken);
+        return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier), session, cancellationToken);
     }
 
     public ValueTask<LatticeWriteResult> InsertAsync(TEntity entity, CancellationToken cancellationToken = default) =>
@@ -121,7 +120,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         return session;
     }
 
-    // The arguments are checked first and the entity validated against the schema, its Lists against
+    // The arguments are checked first and the entity validated against the schema, its collections against
     // their bound included, before anything else can refuse the write.
     private ValueTask<LatticeWriteResult> Save(WriteKindEnum kind, TEntity entity, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
     {
@@ -132,7 +131,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         try
         {
             values = _binding.ValuesForWrite(entity);
-            _operations.CheckListBounds(values);
+            _operations.CheckCollectionBounds(values);
         }
         catch (LatticeException exception)
         {

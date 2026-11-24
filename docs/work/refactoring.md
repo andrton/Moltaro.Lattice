@@ -559,9 +559,34 @@ stand as written in its brief.
 
 | Place | Simpler form | What it must keep | Status |
 | --- | --- | --- | --- |
-| `RootReader.Counting` | Count each record block payload once in `EnterRecordBlock`. Count the directory of a chunked List once in `Visit`. Do this with `EntityBytes` for Map and Set. | The byte sums for an S18 tree and both forms of Map and Set against the independent audit, including `ReadMemoryLimit`. Keep `index-search` on the scalar schema as the control and compare a search with nested records and an active memory limit in the S19 measurements. | joined (S19) |
-| `ClassField.CopyNested`, `RootValues.Value`, `RootReader` | Use one internal read path through `NestedValues.Read` for owned values, List, Map and Set as collection reads arrive. | The same values and independent copies by name and through a class, including null and empty collections. Keep property conversion in the same stage and compare the scalar read listings. | joined (S19) |
-| `BlockExport.Write`, `WritingRecords.EnterRecordBlock` | Share the rule that prepares an outgoing descriptor in the root and in a record when the wire uses the collection's entries descriptor. | Byte-for-byte compatibility for the existing forms, their inline offsets and the output order. A Map or Set sends its entries without local addresses or the lookup table. | joined (S19) |
+| `RootReader.Counting` | Count each record block payload once in `EnterRecordBlock`. Count the directory of a chunked List once in `Visit`. Do this with `EntityBytes` for Map and Set. | The byte sums for an S18 tree and both forms of Map and Set against the independent audit, including `ReadMemoryLimit`. Keep `index-search` on the scalar schema as the control and compare a search with nested records and an active memory limit in the S19 measurements. | done in S19. The ownership audit and read-limit boundary passed. The nested search with an active limit was 0.9892 of the base median, within its gauge. |
+| `ClassField.CopyNested`, `RootValues.Value`, `RootReader` | Use one internal read path through `NestedValues.Read` for owned values, List, Map and Set as collection reads arrive. | The same values and independent copies by name and through a class, including null and empty collections. Keep property conversion in the same stage and compare the scalar read listings. | done in S19. Both API suites passed. The x64 scalar class copier was 1,398 bytes against 1,516 in the base listing. |
+| `BlockExport.Write`, `WritingRecords.EnterRecordBlock` | Share the rule that prepares an outgoing descriptor in the root and in a record when the wire uses the collection's entries descriptor. | Byte-for-byte compatibility for the existing forms, their inline offsets and the output order. A Map or Set sends its entries without local addresses or the lookup table. | done in S19. Twelve full UTF-8 and UTF-16 bodies matched byte for byte, and collection transfer passed with local lookup rebuilt on receipt. |
+
+The [S19 historical comparison](epic-1-core.md#s19-arm64-results) also measured the
+two S18 receiving series that were still owed. With two following children, the first
+repeat was 0.9618 of the base write rate. For an ordinary 100-byte forwarded replace,
+the second repeat's write p50 was 1.0751 of base. Both met the rotated rule in the
+named repeat. The listings identify extra checks and a further placement call level
+without separating their costs. Review those paths alongside K4 after S19.
+
+## Found while measuring S19, 24 November 2026
+
+**Open, scalar `index-search` writer.** Beside eight typed readers taking the first
+match of shared Int64 keys, the writer fell from 273,181 to 264,344 writes/s on
+ARM64. The reader change was within its gauge. An x64 control restoring the old
+ownership walk gave no consistent recovery within workstation variation. Inlining
+of `WalkStructure` remains a hypothesis. [Measurements](epic-1-core.md#s19-arm64-results)
+
+The architect reviews this with K4 and the two S18 receiving lines. Coordinator 11
+assigns the control to the next planned rented ARM64 run. Use five rotated rounds
+of that one writer and reader series under the original tiering mode. Compare
+`e863f688`, an independent build of it for the gauge, `3066ea63`, and a scratch
+`3066ea63` with `AggressiveInlining` on `WalkStructure`. Check the hot ARM64
+listing before timing the scratch build. If the hint leaves the hot path unchanged,
+repeat the base and head comparison with the gauge and leave the hypothesis open.
+Attribute the fall to the call only if the paired rates recover and the listings
+match the timed code. No separate rental is scheduled for this control.
 
 ## Found while building S18, 24 November 2026
 
