@@ -8901,8 +8901,79 @@ at 1,000 elements 26,184 live and 41,088 retained. A List of records in chunks p
 of a size class for each chunk, since a chunk is allocated at its length: 14,904 bytes of
 slack against 26,184 live at 1,000 short texts; packed chunks fill their class but for the
 last. That is for the study of S23, with the shrink. Measured: the bytes on 24 November
-2026; the times of `full-form-users` in the start of the machine of the same day if it
-carried them, else owed.
+2026; the times of `full-form-users` in the start of the machine of the same day, one run
+without a gauge (its record).
+
+**The record of the start of the machine for S18** (24 November 2026, a rented ARM64
+machine, 16 cores). It ran in two chains, 05:33 to 07:42 and 07:44 to 08:46 UTC, every timed
+run with exit 0. It was not ready when the owner started the machine: the variants of K2 and
+the line of part 3 of S17 were prepared after it, so the first chain carried what needed no
+preparation and the second followed it. The plan of a start includes that everything the
+start needs is built and checked before the owner is asked. A fall or a gain is called where
+the ratio of medians lies beyond the band of the gauge, a second build of the base, and at
+least three rounds lie beyond it on that side; the scripts, the raw series and the listings
+are kept outside the repository. `kernel.perf_event_paranoid` was lowered from 4 to 2 for
+`perf stat`, on the owner's word, until the machine's next start.
+
+- *S17R* (8dc0e16 against 6b968b3, three rounds): no fall on `index-writes` with 1, 3 and 6
+  indexes (0.975 to 1.082), two gains (3 indexes, one caller, insert and delete 1.028; no
+  index, 8 callers, a replace that keeps every key 1.015), so the re-inlining of
+  `NodePool.AfterPublication` named as the first remedy is not needed; `unique-writes` lines
+  1 to 3 at 0.998, 1.014 and 1.023, none called, one gain (users without the unique index,
+  one caller, insert and delete 1.019). One called fall: `following-children`, no child, one
+  caller that replaces, 0.967 (band 0.982 to 1.018), only in the first of each run's two
+  repeats; the same operation in `unique-writes` is 1.014. It is run again in the next start,
+  which owes `following-children` for Z1 and Z4 of S18R.
+- *S18 on the scalar form* (6102bbe against 8dc0e16): no fall on the 98 lines of
+  `read-by-key-threads` and `write-callers` (0.939 to 1.061, none called); `root-bytes`
+  identical byte for byte. This is the judgement the implementation of S19 waited for.
+- *Reads by key* (`read-by-key-threads`, five rounds, ed81c76, 3e24ce4 and 6102bbe against
+  a gauge of ed81c76): no line of the reads falls at the head at any count of threads; the
+  reads scale, 16 threads at 12.08 times one at the head and 11.72 at ed81c76, the sums over
+  1 to 16 threads 28.25 M a second at the head against 28.61 M.
+- *K2*, its three lines:
+  - The first line, the variants: `kd` (the divisions of the pool skipped where they are
+    exact) gains beyond the gauge on four lines of `index-writes` (1.017 to 1.060) and falls
+    nowhere; `kbc` (`ChangeAt` split and `Targets` without `Need` when nothing waits) falls
+    3.1 to 5.4 % on six lines and is refused with those figures. `kd` is taken as a change of
+    the light track of its own; the first line closes when it is merged.
+  - The second line, part 2's insert that grows the primary index, does not stand with the
+    trees rotated (3e24ce4 against ed81c76 0.992 to 1.001, none called), and is closed.
+  - The third line, part 3's line of `unique-writes` (three indexes, none unique, a replace
+    that keeps every key): the 0.953 of S17 did not reproduce rotated (6b968b3 against
+    f6d9cf3 0.983 at two of five rounds; the line alone in the driver's bench 1.020). Of the
+    7 bodies that differ on its path, two add work: the guarded test of the scratch in
+    `ChangePublisher.PublishPositionAndAfter` at 6b968b3, and the larger zeroed frame of
+    `ClassSet<T>.Save` at f6d9cf3; `perf stat` gave 6b968b3 3.2 % fewer cycles and 2.7 % more
+    instructions, the whole process's counts too scattered to apply the rule of equal
+    instructions. It leaves K2 because it does not reproduce.
+- *K3, opened*: the writer that inserts while the primary index grows is 1.3 to 2.9 % slower
+  at 6102bbe than at ed81c76 on four lines (1 thread beside another database 0.971; 2 threads
+  0.974; 8 threads 0.972 and 0.987), called at three or four of five rounds and never at all
+  five, and the same against 3e24ce4, so it arrives after part 2: in part 3 of S17, S17R or
+  S18. No target is missed: the writes stay far above the targets of writes of the Acceptance
+  (G3 and G6). Its place is the next start, with the steps built apart (3e24ce4, 6b968b3,
+  8dc0e16, 6a4fb98, 6f50194, 6102bbe), the trees rotated, and the listing of that insert at
+  the two ends taken first on the workstation.
+- *S18's own line* (`full-form-users` at e96650c, one run without a gauge, the medians of
+  three rotated rounds, against the scalar form without the marks of unique indexes): the
+  full form reads 1.087 by a class and 1.158 by name, replaces 1.429 by a class and 1.485 by
+  name; the middle form (the unique marks and the region in Dictionary storage, no List)
+  replaces at 1.200 and 1.182 already. Not a fall: more data. What a replace pays for a
+  unique index and for Dictionary text when neither changes is a cost nobody has looked at:
+  an entry for the architect's next review, and the line run again with a gauge in the next
+  start. `root-bytes` on the machine: 18 figures of 18 equal to the workstation's.
+- *Correctness on ARM64* at 6102bbe: the ordering lane 20 of 20, the soak of form C 5 of 5
+  (12.7 million observations), the member revisions 10 of 10, the whole suite in Release and
+  in Debug with no failure. The probes of the breakers of S18 failed every run on three
+  probes, outdated by parts 2 and 3: part 2's probe of two reads of an empty array (the one
+  empty array of a type is shared by design since its review), and part 1's churn probe with
+  seeds 18 and 1818 (its model takes a batch of nested entities as refused, as it was in
+  part 1, and since part 3 such a batch commits). The two tests of a fault met while a read
+  waits (the cause found after the close of S18) ran 200 times alone and 100 beside the
+  engine suite with no failure. The one failure of that suite, run as the load, was the
+  way it was started (the native runner as `dotnet` with the test assembly, so a test that
+  starts `Environment.ProcessPath` started the dotnet host), not the test.
 
 **Found after the close of S18, 24 November 2026: the state of an instance behind its fault.**
 A red check of `arm64` on a pull request of documents (PR 59, merged with it by the
