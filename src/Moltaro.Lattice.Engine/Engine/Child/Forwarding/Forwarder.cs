@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
+using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
@@ -82,6 +83,7 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 internal sealed class Forwarder
 {
     private readonly PositionClock _clock;
+    private readonly ReadEpochs _epochs;
 
     // How long a write waits for its application when its session does not say.
     private readonly TimeSpan _synchronizationTimeout;
@@ -90,9 +92,10 @@ internal sealed class Forwarder
     // it (Following.Follower).
     private volatile ChildSender? _sender;
 
-    public Forwarder(PositionClock clock, TimeSpan synchronizationTimeout)
+    public Forwarder(PositionClock clock, ReadEpochs epochs, TimeSpan synchronizationTimeout)
     {
         _clock = clock;
+        _epochs = epochs;
         _synchronizationTimeout = synchronizationTimeout;
     }
 
@@ -180,13 +183,20 @@ internal sealed class Forwarder
             ? ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken)
             : ValueTask.FromException<LatticeWriteResult>(exception);
 
-    // The checks of step 1 of a call, after those of its entity types (see the class): the token, the close, the
-    // session bound before anything is queued, and the sender of the connection, which is looked for before the
-    // request is encoded.
+    // The checks of step 1 of a call, after those of its entity types (see the class): the token, the close
+    // and the fault, the session bound before anything is queued, and the sender of the connection, which
+    // is looked for before the request is encoded.
     private ChildSender Begin(LatticeSession? session, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _clock.ThrowIfClosed();
+
+        // The follower can still hold the connection while it unwinds a failed publication. A call that
+        // begins after the fault mark must leave before it can queue a request to the master.
+        if (_epochs.IsFaulted)
+        {
+            throw ReadEpochs.FaultedRefusal();
+        }
 
         if (session is not null)
         {
