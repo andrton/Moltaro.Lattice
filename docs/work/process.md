@@ -32,27 +32,31 @@ producing. Nobody checks their own work.
 
 ## Models and effort by role
 
-Which model and effort each agent runs at (the owner, 19 and 21 November 2026). The
-principle: the highest effort goes where the work is judgement and no later step catches
-its mistake; work that is mechanical, or that an independent check follows, runs lower.
+The owner set the Claude Code assignments on 19 and 21 November 2026 and the Codex
+assignments on 24 November 2026. Use the model and effort for the tool running the
+session or subagent. The highest effort goes to work that requires judgement and whose
+mistakes may survive later checks.
 
-| Role or work | Model, effort |
-| --- | --- |
-| Breaker | Opus 5.5, xhigh |
-| Independent reviewer of a sprint | Opus 5.5, xhigh |
-| Implementer of a critical sprint of the engine (concurrency, storage, the lifetime of memory, replication, durability) | Opus 5.5, xhigh |
-| Coordinator | Opus 5.5, xhigh |
-| Implementer of any other sprint of the full track | Opus 5.5, high |
-| Refactoring sprint: its implementer and its narrow reviewer | Opus 5.5, high |
-| Light track: documents, samples, comments, small fixes | Opus 5.5, high |
-| Preparing a measurement, variant patches, a comparison of listings | Opus 5.5, high |
-| Architect's review, a study before a critical sprint, the planner | Fable |
-| An investigation of read scaling in which three or four rounds found no cause | Fable, xhigh |
+| Role or work | Claude Code | OpenAI Codex |
+| --- | --- | --- |
+| Planner | Fable | `gpt-6.2-sol`, `ultra` |
+| Coordinator | Opus 5.5, xhigh | `gpt-6.2-sol`, `xhigh` |
+| Architect's review | Fable | `gpt-6.2-sol`, `ultra` |
+| Breaker | Opus 5.5, xhigh | `gpt-6.2-sol`, `xhigh` |
+| Independent reviewer of a sprint | Opus 5.5, xhigh | `gpt-6.2-sol`, `xhigh` |
+| Implementer of a critical sprint of the engine (concurrency, storage, the lifetime of memory, replication, durability) | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
+| Study before a critical sprint | Fable | `gpt-6.2-sol`, `ultra` |
+| Difficult performance investigation | Fable, xhigh for read scaling only, after three or four rounds without a cause | `gpt-6.2-sol`, `ultra` |
+| Implementer of any other sprint of the full track | Opus 5.5, high | `gpt-6.2-sol`, `high` |
+| Refactoring sprint: its implementer and its narrow reviewer | Opus 5.5, high | `gpt-6.2-sol`, `high` |
+| Light-track implementer (documents, samples, comments, small fixes) | Opus 5.5, high | `gpt-6.2-sol`, `high` |
+| Preparing a measurement, variant patches, a comparison of listings | Opus 5.5, high | `gpt-6.2-sol`, `high` |
 
-The rows at high effort began as a trial with S15, part 2 of Epic 1; after S15 to S17 the
-owner kept them as the standing rule (the owner, 23 November 2026). No agent or session of
-an epic runs above xhigh, whatever its role. An agent that stops on
-a usage limit is not retried in a loop; the owner is told.
+In Codex, set both the model ID and the effort explicitly when starting a role session
+or assigning a subagent. Claude Code sessions and agents run at most at xhigh. The
+Claude Code rows at high began as a trial with S15, part 2 of Epic 1, and became the
+standing rule after S15 to S17 (the owner, 23 November 2026). An agent that stops on a
+usage limit is not retried in a loop. The coordinator tells the owner.
 
 ## New sessions at a sprint boundary
 
@@ -349,10 +353,11 @@ reviewer of the sprint: the reviewers of a sprint look for defects in a change, 
 architect looks at what the system has become. Its concern is the cleanliness of the code
 and whether the system stays manageable and extensible.
 
-- **Who.** A separate agent that took no part in the sprint, on the strongest model in
-  use, with the whole repository to read and nothing to write. Its brief says, every
-  time, that KISS holds for a refactoring as for any change: its task is to remove
-  technical debt where it can — to keep the code clean, understandable and easy to
+- **Who.** A separate agent that took no part in the sprint, with the model and effort in
+  the [table above](#models-and-effort-by-role) and the whole repository to read and
+  nothing to write. Its brief says that KISS holds for a refactoring as for any change.
+  Its task is to remove technical debt where it can and keep the code clean,
+  understandable and easy to
   modify, and free of duplicates — and that this is always a balance. A refactoring that
   adds a type, an interface or a level of indirection has to remove more than it adds;
   one that only moves code around, or that a reader would not thank it for, is not
