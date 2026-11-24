@@ -1,14 +1,14 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model.Unstored;
+namespace Moltaro.Lattice.Tests.Indexes.Model.ReferencesAndPaths;
 
-// A search of an index of a part the engine stored last, on a master and a child alike, agrees with the model
-// of the order, as every other part does (ModelRun, ModelSearches):
+// A search of an index of a Reference part or a path into an owned value, on a master and a child alike,
+// agrees with the model of the order, as every other part does (ModelRun, ModelSearches):
 // - a Reference part is compared as the key of its target (LatticeIndex), here an Int64, nullable and never
 //   null; a reference is a key without integrity enforcement, so it may name a key no entity has;
 // - a part on a path into an owned value is the field at the end of the path, and null where the owned value
 //   is absent, here the City of the nullable owned value Home (IndexKey; LatticeIndexPart).
 // Each stores 400 entities and searches every value it stored and values it did not, ranges, both
 // directions and pages, through the class and by name, on a master and on a child.
-public sealed class UnstoredPartSearchModelTests
+public sealed class ReferenceAndPathSearchModelTests
 {
     private const int Count = 400;
 
@@ -29,7 +29,7 @@ public sealed class UnstoredPartSearchModelTests
             Equal = values => values.Count == 0 ? IndexKey.All : IndexKey.Equal((long?)values[0]),
         };
 
-        return RunAsync(table, UnstoredSchema.References, References(nullable: true), [NeverReferenced]);
+        return RunAsync(table, ReferenceAndPathSchema.References, References(nullable: true), [NeverReferenced]);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public sealed class UnstoredPartSearchModelTests
             Equal = values => values.Count == 0 ? IndexKey.All : IndexKey.Equal((long)values[0]!),
         };
 
-        return RunAsync(table, UnstoredSchema.References, References(nullable: false), [NeverReferenced]);
+        return RunAsync(table, ReferenceAndPathSchema.References, References(nullable: false), [NeverReferenced]);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public sealed class UnstoredPartSearchModelTests
         string?[] cities = [null, "", "Bergen", "bergen", "Oslo", "Tromsø", "Ålesund", "\U0001F600", new string('x', 300)];
         var given = Enumerable.Range(1, Count).Select(id => new ModelEntry(id, [cities[random.Next(cities.Length)]])).ToList();
 
-        return RunAsync(table, UnstoredSchema.OwnedPath, given, [["Molde", "\U0000FFFF"]]);
+        return RunAsync(table, ReferenceAndPathSchema.OwnedPath, given, [["Molde", "\U0000FFFF"]]);
     }
 
     // The entities of a reference: the key of another entity or, for a few, a key no entity has, the least

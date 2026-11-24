@@ -1,8 +1,8 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model.Unstored;
+namespace Moltaro.Lattice.Tests.Indexes.Model.ReferencesAndPaths;
 
-// The schemas of the parts the engine stored last (UnstoredPartSearchModelTests): References and
-// OwnedPath.
-internal static class UnstoredSchema
+// The schemas of the Reference parts and of the path into an owned value
+// (ReferenceAndPathSearchModelTests).
+internal static class ReferenceAndPathSchema
 {
     // The schema of the Reference parts, both to Colleague: Colleague, with ByManager over the nullable
     // Reference Manager, and Apprentice, with ByMentor over the Reference Mentor, never null; each bound to
