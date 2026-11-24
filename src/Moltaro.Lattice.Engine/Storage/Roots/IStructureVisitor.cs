@@ -1,16 +1,13 @@
 namespace Moltaro.Lattice.Storage.Roots;
 
-// What one walk over the descriptors of a root does with each of them (StructureWalk): the free of a root,
-// its publication, its retirement with the bytes of its text entries, the bytes of its slots, the bytes an
-// entity holds for a read (RootReader.EntityBytes), the export of a root, and the audit of the ownership of
-// blocks by the tests. Implemented by a struct and passed by reference, so that the walk is compiled for
-// each visitor and calls it without virtual dispatch, as a read calls its copy (Engine.Entities.IRootCopy).
+// The callbacks of StructureWalk. EnterRecordBlock runs before the block's descriptors, so export
+// can write the payload before the values it names. Visit runs for each descriptor of the root or
+// of a record, after visiting the descriptors of the record blocks it names. This lets a visitor
+// free a parent only after it has seen everything the parent owns.
 //
-// The walk calls Visit for every descriptor of the root and of the records of its Lists, at every depth, and
-// for each one after everything the value it names holds, children first: the descriptors of the records of
-// a List of kind Records are visited before the descriptor of that List, so that a free never reads a block
-// it freed. A descriptor of kind Null names nothing, and one of kind Inline lies in the block that holds it;
-// the visitor decides what each kind means to it.
+// Visitors are structs passed by reference. The walk specializes for each visitor and calls its
+// members without boxing or virtual dispatch. The caller holds the root's protection for the walk.
+// See docs/design/arena-protocol.md, "Stored structures and root transfer."
 internal interface IStructureVisitor
 {
     // The payload of a block of records, before any descriptor of its records is visited.

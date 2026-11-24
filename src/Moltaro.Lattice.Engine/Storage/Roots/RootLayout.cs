@@ -4,59 +4,22 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The compiled layout of the roots of one entity type: where each value of an entity stands in its root
-// block, and where a variable value goes (milestone contract, "Native layout and allocation"; Q16,
-// "Record-oriented layout with separate variable payloads"). RootWriter, RootReader and RootStorage take from
-// it where every value is. The fixed part of a root is its 32-byte header, BlockHeader, and after it the
-// structure of the fields of the entity type (StructureLayout): the null bitmap, the fixed-width fields and
-// the descriptors, packed without padding, the fields of its owned values flattened into it. FixedSize is the
-// sum of the header and the structure. An offset inside a root block, that of a field, of a descriptor and of
-// an inline value, is counted from the start of the block, the header included. A value of more than one byte
-// is stored in the byte order of the machine, as the block header and the descriptors are: native memory is
-// never a durable or a wire form, and each of those forms states its own byte order.
+// The compiled layout of the roots of one entity type. RootWriter, RootReader and RootStorage use
+// it to find a root's fields and descriptors. The fixed part includes the block header and the
+// entity's StructureLayout. Root field offsets and inline locations both count from the start of
+// the block, including its header. A payload span begins immediately after the header.
 //
-// A fixed-width field takes the width of its type in the scalar catalog (Q03.1, Q03.4.1): a small integer is
-// not widened, a Boolean is one byte, 0 or 1, an Enum field has the width of the underlying type of its enum
-// type, and a Reference that of the key of its target. A nullable field keeps its place when it is null. The
-// bytes of a fixed field that is null are zero, and so is the descriptor of a null String, Binary or List.
+// The fixed-width fields use the widths of their scalar types. A nullable field keeps its place.
+// The writer zeroes the fixed-width bytes under a null bit. Readers skip those bytes even if a
+// received root has other contents there. A null descriptor must be zero.
 //
-// A String or Binary value, and a List whose elements hold no descriptor, which lies as the bytes of a Binary
-// value, is placed by its encoded length, by the bounds of a value that Values.ValueBlocks sets, InlineLimit,
-// SingleBlockLimit and ChunkPayload; DescriptorKindEnum says what its descriptor holds in each case:
-// - at most InlineLimit bytes: inline, in the root block after the fixed part, when the root block
-//   still fits one block. An empty value is inline with length 0;
-// - any other value of at most SingleBlockLimit bytes: in one block of its own, of kind Value;
-// - beyond that: chunked, in chunks of kind Chunk of ChunkPayload bytes, every chunk but the last
-//   full, and one directory block of kind ChunkDirectory with one 16-byte descriptor for each
-//   chunk. A value has at most the chunks one directory block holds, ValueBlocks.MostChunks, so it
-//   takes at most 268,173,376 bytes; a larger one is ValidationFailed with the field named, refused
-//   by the validation of the core and, as the guard of the stored form, by RootWriter: a fixed rule
-//   of the format (decision O19 of Epic 1). A chunk boundary is not a boundary of the value: a character,
-//   or the record of an element of a List, may continue in the next chunk.
-// A List whose elements hold descriptors lies as records, never inline (DescriptorKindEnum.Records).
-// The parent of a value block, of a directory and of a block of records is the block that holds its
-// descriptor, the root block for a value of the root; the parent of a chunk is its directory. A null String,
-// Binary or List is null in the bitmap, and its descriptor is all zero.
+// ValueBlocks gives the placement bounds for variable-length values. StoredField.LiesInTextEntry
+// selects shared storage for nonempty Dictionary text and long text used in a secondary index.
+// Adding or dropping an index can therefore change where long texts of its fields are placed.
 //
-// Text is stored in the database encoding that the schema declares (LatticeSchema.StringEncoding,
-// Q04.1): in a UTF-8 database the UTF-8 of its characters, in a UTF-16 database its code units. A field
-// with Plain storage stores every value on its own, placed as above. A field with Dictionary storage
-// has the same descriptor, and a text that is not empty lies in an entry of the text table of the
-// database, shared by every block that holds the same exact bytes, which the descriptor names by the
-// kind Text, the length of the text and the relative address of the entry (Text.TextTable): never inline,
-// so it takes nothing of the root block but its descriptor, and the entry is placed as a value out of line
-// is, one block up to SingleBlockLimit bytes and chunks above. The empty text is inline with length 0, as in
-// a Plain field. So the layout of an entity type is the same whichever storage its String fields select.
-// A String field that is part of a secondary index, of the entity type or inside an owned value at the
-// position the path of the part names, stores a text longer than InlineLimit in an entry of
-// the text table as well, whatever its storage, so that the entry of the index can share it with its
-// root; such an entry is found by its bytes like any other, so equal long texts of an indexed Plain field
-// are stored once, and a text of InlineLimit bytes or less is placed as a Plain value is
-// (StoredField.LiesInTextEntry; decision on index structures, the note of 19 November 2026). Adding or
-// dropping an index therefore changes where the long texts of its fields lie.
-//
-// The layout is compiled once into plain tables and never changes afterwards, so one layout can
-// serve any number of writers and readers on any number of threads.
+// Compiled once into plain immutable tables for all readers and writers. The stored layout, offset
+// frames and transfer format are described in docs/design/arena-protocol.md, "Stored structures
+// and root transfer."
 internal sealed class RootLayout
 {
     // Every field by LatticeField.Ordinal, its position in the entity type: one array index finds it, without

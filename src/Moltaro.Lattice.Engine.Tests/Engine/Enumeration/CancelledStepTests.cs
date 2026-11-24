@@ -7,10 +7,9 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 
 // The token of an asynchronous enumeration is honored inside every wait of a step and between the
-// rounds of a step, and a cancellation is reported before a limit is (brief of Epic 1, sprint S09,
-// part 2, the second of the findings of the outside review it carries; exception X6: the wait for a
-// slot has the token wherever the caller gave one). The token given to EnumerateAsync and the one given
-// to GetAsyncEnumerator, which WithCancellation and await foreach pass, both cancel. The synchronous
+// rounds of a step. Cancellation takes precedence over a read limit. Both the token given to
+// EnumerateAsync and the token passed to GetAsyncEnumerator by WithCancellation and await foreach
+// can cancel the wait for a slot, as described by exception X6 in docs/work/exceptions.md. The synchronous
 // Enumerate has no token; its step waits for a slot as it does. That the wait for the position of the
 // session ends with the token is stated by ReadLimitsTests of Moltaro.Lattice.Tests.
 //

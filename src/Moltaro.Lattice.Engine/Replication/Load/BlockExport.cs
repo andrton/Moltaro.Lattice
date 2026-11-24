@@ -7,36 +7,18 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// Writes one root of the arena as it travels in a load: the stored bytes travel and no field is decoded
-// or encoded. A root travels as its type id, its last mutation sequence, its layout version, the bytes of
-// its root payload, then the values it holds out of line, in preorder: for each descriptor of the root, in
-// their order, the bytes of the value stored out of line that it names; for a List of records, the payload
-// of each block of its records, in their order, each followed by the values its records name, record by
-// record and descriptor by descriptor, a List of records among them in the same form, at every depth. The
-// type id and the last mutation sequence belong to the entry of the root, so the capture writes them
-// (Engine.Children); Write writes the rest, from the blocks of the root.
+// Writes one root to the wire and computes the exact length of what it writes. The capture adds
+// the type id and last mutation sequence. This type writes the layout version, root payload and
+// out-of-line values. The stored bytes are copied directly. Local addresses in the copied
+// descriptors are zeroed, while inline offsets stay valid.
 //
-// Nothing on the wire is an address or a block number: the location of a value in a block of its own, in
-// chunks or in blocks of records is the address of that block in this arena, so the copy of a root payload
-// and of a block of records carries 0 in its place, and the child stores the value through its own
-// allocation, which writes every location (BlockImport). A value inline keeps its location, an offset in the
-// block that holds it. Between two values nothing travels, no offset and no length but those the descriptors
-// hold, so a value can only follow the one before it. The text of a field with Dictionary storage travels
-// so too, as bytes with each root (docs/decisions/strings.md, "Q04.3: Where should identical strings share
-// storage?"): its descriptor of kind Text with its length and the location 0, and the bytes of its entry
-// among the values out of line, in their order; the child builds its own entries from them. No transfer id
-// and no state of a connection. The bytes of a slot that hold no value, the headers of the blocks and the
-// directories of chunks are not sent.
-// The numbers of the payload and of the values are in the byte order of this machine, which the
-// handshake announces (Protocol.LayoutFormat); the layout version is little-endian.
+// The root's descriptors are handled at the root level. For a List of records, the structure walk
+// enters each block before visiting its descriptors, which gives the preorder wire format. The
+// length calculation uses the same sequence of block and descriptor visits.
 //
-// The export visits each block of records in StructureWalk before visiting the descriptors it holds.
-//
-// The caller holds the protection of the root while Write reads it (Engine.Children.Capture): the
-// blocks of a published root never change, and those of a root that a write replaced stay allocated
-// until the reads that could reach them have left. A write of the master that is published while a child
-// is registered writes the root it publishes, under the lock of the writes, which nothing else changes
-// meanwhile (Engine.Delivery).
+// The caller protects the root until the export ends. Capture holds read protection for a
+// published root, and delivery holds the writes lock for a root it is publishing. See
+// docs/design/arena-protocol.md, "Stored structures and root transfer," for the wire format.
 internal static class BlockExport
 {
     // The bytes Write writes for the root: its layout version, its root payload and each value stored
@@ -215,6 +197,7 @@ internal static class BlockExport
         {
             if (ValueBlocks.LiesOutOfLine(descriptor))
             {
+                // This value is reached through its own location. It needs no bytes from the record block.
                 WriteValue(output, arena, descriptor, payload: default);
             }
         }

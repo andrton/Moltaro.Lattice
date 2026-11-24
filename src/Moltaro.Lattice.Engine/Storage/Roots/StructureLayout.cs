@@ -6,52 +6,22 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The compiled layout of one structure: the fields of an entity type in its root block, after the block
-// header, or the record of one element of a List. One stored form serves both: a null bitmap, the
-// fixed-width fields and the 16-byte descriptors that close it, packed without padding, Size bytes in all
-// (docs/design/milestone-1-engine-contract.md, "Native layout and allocation" and "Collections and
-// strings"). RootLayout lays the structure of a root after the 32 bytes of the header, and lays the records
-// of the elements of a List one after the other at the stride Size.
+// The compiled layout of one structure, the fields of a root or the record of a List element. It packs
+// the bitmap, fixed-width fields and descriptors in order, with the fields of owned values flattened
+// into the same groups. The root's offsets include its block header. The offsets of a record count
+// from the start of that record.
 //
-// The fields. An owned value is flattened into the structure that holds it: it takes no block and no hop,
-// and its fields stand among the fields of the structure, its fixed-width fields among the fixed-width
-// fields and its descriptors among the descriptors, each group in the order of the paths of the field
-// identities, the fields of an owned value at the place of the owned value. So the descriptors of a
-// structure are one run, whatever owned values it holds. A field of an owned type that stands at two
-// positions has a place at each. A Reference is a field of the type of its target's key: an integer at its
-// width, a Guid of 16 bytes, or the descriptor of a String; it is null by its null bit and never looked up.
-// A List is one descriptor (StoredTypeEnum.List).
+// The places table starts with the top-level members, indexed by ordinal for an entity or position
+// zero for the element of a List. Each owned value's fields are in a run indexed by their ordinals
+// (ChildOf). A List place holds the layout of its element (ElementOf). The walk has a run of
+// descriptors in their own order so it can reach each owned block without searching the places.
 //
-// The bits. Each bit of the bitmap is set while its value is null, in the order of the paths, the first in
-// the lowest bit of the first byte, and the bits after the last are zero. A nullable field has one. A
-// nullable owned value has one, its presence bit, set while it is absent, and every field beneath it has a
-// bit of its own whether it is nullable or not, set while it or an owned value above it is absent, as
-// LatticeIndexPart.CanBeNull says. An absent owned value keeps its width: every bit beneath it is set and
-// every byte of its fields is zero, its descriptors included. The record of an element that is nullable
-// has one bit for the element, as a nullable field has.
+// An element layout determines the available List form and the maximum count. A packed record has
+// no descriptors. A record with descriptors must fit whole in a chunk with room for its inline
+// values. The layout checks these limits when compiled, before any data is written.
 //
-// A List of these records. A record that holds no descriptor (fixed-width values, references by an integer
-// or a Guid, owned values of such fields, each with its bitmap in the record) is packed: the List lies as
-// the bytes of a Binary value do, Size bytes for each element, inline, in one block or in chunks, and a
-// record may continue in the next chunk (Packed). A record that holds descriptors lies whole in one block,
-// its List of kind DescriptorKindEnum.Records: RecordsPerChunk records a chunk, each with room for a value of
-// ValueBlocks.InlineLimit bytes inline for each of its descriptors. The bound of a List, MostElements, is
-// what one directory of chunks holds.
-//
-// Two rules of the schema language follow, the same in every process: the fixed part of a root, its owned
-// values included, fits one block (RootLayout); and the record of an element of a List fits one chunk, a
-// record that holds descriptors with the room of a value inline for each. A schema that breaks one fails
-// the open with InvalidSchema and the entity type named, as a fixed part beyond one block does.
-//
-// The places. Every value the structure holds has a place, a position in one plain table: the members of the
-// structure first, the fields of an entity type by LatticeField.Ordinal or the one element of a record, and
-// for every owned value among them the fields of its owned type in a run of their own, by their ordinals
-// (ChildOf), so that a path is followed by one index a step. A List place has the layout of its element
-// (ElementOf). The descriptors are also listed in their order, with the layouts of their elements, for the
-// walk over what a structure owns (StructureWalk).
-//
-// Compiled once with its RootLayout and never changed afterwards, so one layout serves any number of
-// writers and readers on any number of threads.
+// Compiled with its RootLayout and then immutable. See docs/design/arena-protocol.md,
+// "Stored structures and root transfer," for the bitmap, offsets and both List forms.
 internal sealed class StructureLayout
 {
     // The place at each position, and the declaration of what it holds: of its field, or of the element for

@@ -237,7 +237,8 @@ internal readonly ref struct RootReader
         return (int)ValueBlocks.Read(NotNull(stored)).Length;
     }
 
-    // The arena the values of String and Binary fields lie in; a reader of a copy has none of them.
+    // The arena needed to read a String, Binary, owned value or List. A reader of a fixed-part
+    // copy can inspect a descriptor but has no arena from which to read the value.
     private Arena ArenaOfValues() =>
         _arena ?? throw new InvalidOperationException($"A reader of a copy of the fixed part of a root of {_layout.EntityType.Name} holds no String or Binary value.");
 

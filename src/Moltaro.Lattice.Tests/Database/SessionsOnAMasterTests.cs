@@ -1,10 +1,9 @@
 namespace Moltaro.Lattice.Tests.Database;
 
-// On a master every member that takes a session is served, and so is WaitForPositionAsync: a master
-// has applied every position it gave out (brief of Epic 1, sprint S06, "Sessions and the write
-// batch"). A write with a session moves the session to the position of the write, a read to the
-// position of its answer; waiting for a position the master gave out completes at once; a position
-// of another database history is HistoryMismatch.
+// A master has already applied the positions it gives out and can serve a wait for any of them
+// at once (docs/decisions/replication-and-hosting.md, "Read consistency boundaries"). A write
+// moves the session to the position of the write, and a read moves it to the position of its
+// answer. Waiting for a position from another database history is HistoryMismatch.
 //
 // A position of the history of the database that is ahead of it, which only a caller can make up, is
 // what WaitForPositionAsync describes: the wait lasts until the instance has applied the position,

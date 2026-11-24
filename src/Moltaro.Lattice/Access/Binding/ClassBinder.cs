@@ -89,7 +89,7 @@ internal sealed class ClassBinder
     // hides is not considered, whatever it is; a member that is not public does not hide one, as C#
     // does not see it from outside. The member found has to be an instance property, not a field or
     // anything else: a public field that hides a property of a base class is refused, and the
-    // hidden property is not bound in its place (the owner's answer to Q29).
+    // hidden property is not bound in its place.
     //
     // The accessors are those C# sees for that property on the class: its own, and, when it
     // overrides a virtual property and declares only one accessor, the other one of the property it
