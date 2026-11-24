@@ -6,7 +6,8 @@ namespace Moltaro.Lattice.Tests.NestedValues.Copies;
 // in a List and in an owned value; the integer for an Enum whose property is its integer; an object of the
 // class of an owned type in a property, in an array and in an array inside a List. A null is set as null,
 // also where the constructor of the class gives the property another value: Spare, and the Grade of a Label.
-// Two reads share none of these objects (FormSchema).
+// Two reads share none of these objects, but for an empty array, which is the one empty array of its type on
+// every path (FormSchema).
 public sealed class ClassFormsTests
 {
     [Fact]
@@ -56,6 +57,30 @@ public sealed class ClassFormsTests
         Assert.NotSame(read.Main.Codes, again.Main.Codes);
         Assert.NotSame(read.Labels[0], again.Labels[0]);
         Assert.NotSame(read.LabelRows[1][0], again.LabelRows[1][0]);
+    }
+
+    [Fact]
+    public async Task Empty_array_read_through_a_class_is_the_one_empty_array_of_its_type_on_every_path()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(FormSchema.Schema);
+        var forms = database.Set<Form>();
+
+        await forms.InsertAsync(new Form { Id = 1, Matrix = [[]], Blobs = [[]], LabelRows = [[]], Main = new Label { Data = [] } });
+
+        // Of elements a record holds as the array does (Numbers, Main.Codes), of converted ones (Matrix,
+        // MaybeGrades, Labels), inside a List (Matrix, LabelRows), and the Binary values (Blobs, Main.Data);
+        // the same in two reads.
+        foreach (var read in new[] { forms.Get(1L)!, forms.Get(1L)! })
+        {
+            Assert.Same(Array.Empty<long>(), read.Numbers);
+            Assert.Same(Array.Empty<int>(), read.Matrix[0]);
+            Assert.Same(Array.Empty<Grade?>(), read.MaybeGrades);
+            Assert.Same(Array.Empty<Label>(), read.Labels);
+            Assert.Same(Array.Empty<Label>(), read.LabelRows[0]);
+            Assert.Same(Array.Empty<byte>(), read.Blobs[0]);
+            Assert.Same(Array.Empty<int>(), read.Main.Codes);
+            Assert.Same(Array.Empty<byte>(), read.Main.Data);
+        }
     }
 
     // A Label as one text, its Grade and its Codes included.

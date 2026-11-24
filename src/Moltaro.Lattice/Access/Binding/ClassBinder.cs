@@ -35,8 +35,9 @@ namespace Moltaro.Lattice.Access.Binding;
 // protection, and it is there that the constructors and the set accessors of the classes of owned
 // types run. An owned value becomes a new object of its class, every property set through the set
 // accessor C# sees for it, null included; a List becomes a new List<T> or array of the type of the
-// property, each element converted, and a List property of the very type a record holds there is
-// given the List the read made, which holds the same values at every depth. A read made every value
+// property, each element converted, an empty array the one empty array of its type, and a List
+// property of the very type a record holds there is given the List the read made, which holds the same
+// values at every depth. A read made every value
 // it hands over for the object it builds, so nothing is copied again. A Map and a Set are never read:
 // an entity type that holds one is not stored.
 internal sealed class ClassBinder
@@ -459,8 +460,17 @@ internal sealed class ClassBinder
         return result;
     }
 
+    // An empty List is the one empty array of the element type, Array.Empty, as an empty Binary value is:
+    // no caller can change it, so every read gives the same one.
     private static object ArrayOf<TElement>(object list, Func<object, object> element)
     {
+        var source = (IList)list;
+
+        if (source.Count == 0)
+        {
+            return Array.Empty<TElement>();
+        }
+
         // Elements that the record holds as the array holds them are copied as they are, without a box
         // for each.
         if (ReferenceEquals(element, Same))
@@ -468,7 +478,6 @@ internal sealed class ClassBinder
             return ((List<TElement>)list).ToArray();
         }
 
-        var source = (IList)list;
         var result = new TElement[source.Count];
 
         for (var index = 0; index < result.Length; index++)
