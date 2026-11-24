@@ -105,12 +105,10 @@ public enum LatticeFieldTypeEnum : byte
     /// <remarks>
     /// <b>Not implemented yet</b> for every use. An entity with owned values, Lists and
     /// references is stored and read back by name and through a class, on a master, at every
-    /// depth. Not yet: a write batch with such an entity, whose commit reports
-    /// <see cref="NotSupportedException"/> through its task; an index over a field inside an
-    /// owned value, which keeps its entity type from being stored, so that every write of it
-    /// throws <see cref="NotSupportedException"/> after the checks of its arguments and of the
-    /// entity; and a child of a master that stores such an entity type, whose open throws
-    /// <see cref="NotSupportedException"/>.
+    /// depth, and found through an index over a field inside an owned value. Not yet: a write
+    /// batch with such an entity, whose commit reports <see cref="NotSupportedException"/>
+    /// through its task; and a child of a master that stores such an entity type, whose open
+    /// throws <see cref="NotSupportedException"/>.
     /// </remarks>
     Owned = 21,
 

@@ -61,9 +61,8 @@ public interface ILatticeIndex<TEntity>
     /// </para>
     /// <para>
     /// Of an entity type whose writes are refused until a feature of its schema is implemented,
-    /// such as a Map, a Set or an index over a field inside an owned value, the search finds
-    /// nothing, as a read of it by key finds nothing and an enumeration of it is empty: such a
-    /// type holds no entity.
+    /// a Map or a Set, the search finds nothing, as a read of it by key finds nothing and an
+    /// enumeration of it is empty: such a type holds no entity.
     /// </para>
     /// </remarks>
     /// <param name="key">What to look for.</param>

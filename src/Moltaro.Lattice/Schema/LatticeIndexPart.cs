@@ -32,12 +32,6 @@ namespace Moltaro.Lattice.Schema;
 /// <see langword="null"/>, with the rules of a component without a value: a search for
 /// <see langword="null"/> will find the entity, and a unique index will not compare it.
 /// </para>
-/// <para>
-/// <b>Not implemented yet.</b> An entity type with an index over a part inside an owned value
-/// cannot be written yet, so a search through such a part finds nothing yet, see
-/// <see cref="LatticeIndex"/>. What this documentation says of such a part describes how it
-/// will work.
-/// </para>
 /// </remarks>
 public sealed class LatticeIndexPart
 {

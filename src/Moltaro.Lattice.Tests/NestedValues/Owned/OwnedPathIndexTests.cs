@@ -44,7 +44,7 @@ public sealed class OwnedPathIndexTests
         }
         """);
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Index_over_a_field_inside_an_owned_value_finds_the_entity_by_that_field()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
@@ -61,7 +61,7 @@ public sealed class OwnedPathIndexTests
         Assert.Equal(["ada", "grace"], CodesOf((await members.Index("ByHomeCity").FindAsync(IndexKey.Equal("Oslo"), new LatticeFindOptions())).Items));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Entity_whose_owned_value_is_absent_is_found_by_a_search_for_null()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
@@ -79,7 +79,7 @@ public sealed class OwnedPathIndexTests
         Assert.Equal(["with geo", "without geo"], CodesOf(members.Index("ByHomeCity").Find(IndexKey.Equal("Oslo"))));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Unique_index_over_a_path_does_not_compare_entities_whose_owned_value_is_absent()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
@@ -105,7 +105,7 @@ public sealed class OwnedPathIndexTests
         Assert.Equal(["fourth"], CodesOf(members.Index("ByHomeZip").Find(IndexKey.Equal(150))));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Owned_value_that_appears_and_disappears_moves_the_entity_between_its_value_and_null()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);

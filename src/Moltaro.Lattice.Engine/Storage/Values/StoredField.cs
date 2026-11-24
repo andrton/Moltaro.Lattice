@@ -17,12 +17,13 @@ internal readonly struct StoredField
     // A String field with Dictionary storage.
     private readonly bool _shared;
 
-    // A String field that is part of a secondary index of its entity type.
+    // A String place that is part of a secondary index of its entity type.
     private readonly bool _indexed;
 
     // A place of the type given that holds a value of the declaration: the declaration of the field, or of
     // the element of a List for the one place of the record of such an element, whose Field is the List that
-    // holds it. Indexed when it is a field of the entity type that is part of a secondary index.
+    // holds it. Indexed when the place is part of a secondary index: a field of the entity type, or a
+    // field inside an owned value at the position the path of the part names.
     public StoredField(LatticeField field, LatticeValueDeclaration declaration, StoredTypeEnum type, int width, int offset, int nullBit, bool indexed)
     {
         Field = field;
