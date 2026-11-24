@@ -17,8 +17,8 @@ namespace Moltaro.Lattice.Measurements;
 // Dictionary strings and its unique indexes; the gates are judged on it only. The scalar form has the
 // same entity types and keeps every index, without the collection fields and with every String
 // Plain. A sprint before S19 measures the scalar form, because the Set of a role and the Map of a
-// setting cannot be stored yet (its Dictionary strings can, from S13, and the Lists of its users and
-// groups from S18, which root-bytes and full-form-users measure beside the scalar form), and before S16
+// setting cannot be stored yet (its Dictionary strings can, from S13; the Lists of its users and groups
+// can, and root-bytes and full-form-users measure them beside the scalar form), and before S16
 // it measures that form without its Unique marks, because an entity type with a unique index cannot be
 // written yet. A brief that says "the fixture's users" means the form its sprint can store.
 //

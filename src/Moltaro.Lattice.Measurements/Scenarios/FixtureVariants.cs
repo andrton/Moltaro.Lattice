@@ -47,7 +47,7 @@ internal static class FixtureVariants
 
         if (first < 0)
         {
-            throw new InvalidOperationException("The descriptor of the fixture declares no indexes as this scenario expects.");
+            throw new InvalidOperationException("The descriptor of the fixture does not declare the indexes this scenario expects.");
         }
 
         var result = new StringBuilder();

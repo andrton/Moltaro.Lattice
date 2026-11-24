@@ -10,9 +10,10 @@ using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
-// The bytes the arena retains for one entity: the figure that Epic 1, sprint S05 reports ("Measured"), and
-// beside it, in the same run, the figures of the owned values, Lists and references that sprint S18
-// reports ("Measured"). It allocates and writes, and measures no time. The figures depend only on the data
+// The bytes the arena retains for one entity: the roots of the scalar form of the reference fixture
+// against their logical sizes, and beside them, in the same run, the users and groups of the
+// full form with their Lists of references, an owned value absent and present, and a List in each of its
+// forms at a few sizes. It allocates and writes, and measures no time. The figures depend only on the data
 // and the layout, not on the machine, except through the manifest that says where they were produced.
 //
 // The roots of the scalar form. The bytes the arena retains for one user and for one setting of the

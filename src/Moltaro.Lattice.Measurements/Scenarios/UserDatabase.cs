@@ -52,8 +52,8 @@ internal sealed class UserDatabase : IDisposable
 
     // Generates the fixture, opens the database, under the read limits given or none and accepting
     // children at the address given or at none, and inserts the users by name; with Region in Dictionary
-    // storage when dictionaryRegion is true; without the three indexes of User when withoutIndexes is
-    // true, the same users of a type that declares none; with the Unique marks of the scalar form when
+    // storage when dictionaryRegion is true; without any index of any entity type when withoutIndexes
+    // is true, the same users of a type that declares none, only users being written; with the Unique marks of the scalar form when
     // unique is true, so that ByLogin of User is unique; with the inputs of the engine given (exception X3)
     // or none.
     public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false, bool withoutIndexes = false, bool unique = false, EngineTestInputs? inputs = null)
@@ -92,7 +92,7 @@ internal sealed class UserDatabase : IDisposable
         return new UserDatabase(
             database,
             users,
-            $"Fixture: the scalar form {(unique ? "with" : "without")} its Unique marks{(dictionaryRegion ? ", Region in Dictionary storage" : "")}{(withoutIndexes ? ", User without its indexes" : "")}, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
+            $"Fixture: the scalar form {(unique ? "with" : "without")} its Unique marks{(dictionaryRegion ? ", Region in Dictionary storage" : "")}{(withoutIndexes ? ", without any index of any type; only users are written" : "")}, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
             $"Database: the engine, MemoryOnly; {ReadSeries.Number(users.Count)} users inserted by name in {ReadSeries.Seconds(loading.Elapsed)} s");
     }
 
