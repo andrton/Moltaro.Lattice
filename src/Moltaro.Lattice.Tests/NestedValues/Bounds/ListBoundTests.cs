@@ -38,7 +38,7 @@ public sealed class ListBoundTests
         }
         """);
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Packed_List_of_its_bound_passes_the_validation_and_one_element_more_is_ValidationFailed()
     {
         Assert.Equal(33_521_672, MostInt64);
@@ -50,7 +50,7 @@ public sealed class ListBoundTests
         await TestData.ExpectValidationFailedAsync("Values", () => series.ReplaceAsync(new Series { Code = "absent", Values = Zeros(MostInt64 + 1) }));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task List_of_records_of_its_bound_passes_the_validation_and_one_element_more_is_ValidationFailed()
     {
         Assert.Equal(3_348_892, MostStrings);

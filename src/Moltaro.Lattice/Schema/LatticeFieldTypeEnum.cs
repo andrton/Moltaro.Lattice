@@ -121,8 +121,22 @@ public enum LatticeFieldTypeEnum : byte
     /// another collection included.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// A List holds at most what one directory of 4,094 chunks of 65,504 bytes holds, a fixed rule
+    /// of the storage format, the same on every node and not an option, as the bound of one String
+    /// or Binary value is. It follows from what one element stores at a fixed width, as
+    /// <see cref="LatticeEntityType"/> counts it: a List whose elements hold no String, Binary or
+    /// List holds 268,173,376 bytes of them, 33,521,672 elements of Int64; one whose elements hold
+    /// one holds 4,094 times the elements one chunk holds whole, each with room for 64 bytes of each
+    /// String, Binary and List it holds, 3,348,892 elements of String. A write of a larger List, at
+    /// any depth, and adding an entity with one to a write batch, is refused with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named as for a String, before
+    /// the conditions of the write are looked at.
+    /// </para>
+    /// <para>
     /// <b>Not implemented yet</b> for every use: a List is stored and read back by name and through
     /// a class, and the rest is not built yet, as the remarks of <see cref="Owned"/> say.
+    /// </para>
     /// </remarks>
     List = 22,
 

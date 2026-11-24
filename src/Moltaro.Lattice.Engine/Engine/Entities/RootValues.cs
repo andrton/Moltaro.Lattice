@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections;
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Replication.Load;
@@ -19,8 +20,30 @@ namespace Moltaro.Lattice.Engine.Entities;
 // type, and is written as that integer type, and a Reference holds the key of its target, written as the
 // type of that key (LatticeValueDeclaration.ScalarType); an owned value is a LatticeOwnedValue and a List
 // a List<T>, written and read at every depth by the writer and the reader of the root.
+//
+// The bound of a List is the engine's to check, since the core does not know the layout it follows from
+// (StructureLayout.MostElements): CheckListBounds, on the thread of the caller, before a write is
+// submitted and when a member is added to a write batch, so before the conditions of the write.
 internal static class RootValues
 {
+    // Refuses, with ValidationFailed and its place named as the validation of the core names one, a List
+    // among the values, at any depth, of more elements than one List of its elements holds: the bound of a
+    // List, a fixed rule of the storage format as the bound of one String or Binary value is. The values
+    // are those the core took and checked. The root writer refuses such a List again, as the guard of the
+    // stored form (Storage.Roots.NestedValues).
+    public static void CheckListBounds(RootLayout layout, object?[] values)
+    {
+        var entityType = layout.EntityType;
+
+        foreach (var field in entityType.FieldsByOrdinal)
+        {
+            if (values[field.Ordinal] is { } value)
+            {
+                CheckListBounds(entityType, layout.Structure, entityType.Name, field.Ordinal, value);
+            }
+        }
+    }
+
     // The writer is passed by reference: it is never copied (RootWriter).
     public static void Write(ref RootWriter writer, LatticeEntityType entityType, object?[] values)
     {
@@ -144,6 +167,51 @@ internal static class RootValues
         {
             writer.Abandon();
             throw;
+        }
+    }
+
+    // The Lists of the value of the place at the position of the structure, the place itself and those
+    // beneath it, whose field the type named owner declares. A List whose element holds none is counted and
+    // not entered.
+    private static void CheckListBounds(LatticeEntityType entityType, StructureLayout layout, string owner, int position, object value)
+    {
+        ref readonly var place = ref layout.Place(position);
+
+        if (place.Type == StoredTypeEnum.Owned)
+        {
+            var owned = (LatticeOwnedValue)value;
+
+            foreach (var field in owned.OwnedType.FieldsByOrdinal)
+            {
+                if (owned.Values[field.Ordinal] is { } fieldValue)
+                {
+                    CheckListBounds(entityType, layout, owned.OwnedType.Name, layout.ChildOf(position, field), fieldValue);
+                }
+            }
+        }
+        else if (place.Type == StoredTypeEnum.List)
+        {
+            var element = layout.ElementOf(position);
+            var list = (IList)value;
+
+            if (list.Count > element.MostElements)
+            {
+                throw new LatticeException(
+                    LatticeErrorEnum.ValidationFailed,
+                    $"{entityType.Name}: field '{owner}.{place.Field.Name}' holds {list.Count:N0} elements, more than the {element.MostElements:N0} that one List of its elements may hold.");
+            }
+
+            // The one place of the record of an element is the List field itself, declared by the same owner.
+            if (element.HoldsLists)
+            {
+                foreach (var item in list)
+                {
+                    if (item is not null)
+                    {
+                        CheckListBounds(entityType, element, owner, 0, item);
+                    }
+                }
+            }
         }
     }
 

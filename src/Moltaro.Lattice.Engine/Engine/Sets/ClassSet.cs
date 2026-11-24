@@ -121,8 +121,8 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         return session;
     }
 
-    // The arguments are checked first and the entity validated against the schema, before anything
-    // else can refuse the write.
+    // The arguments are checked first and the entity validated against the schema, its Lists against
+    // their bound included, before anything else can refuse the write.
     private ValueTask<LatticeWriteResult> Save(WriteKindEnum kind, TEntity entity, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entity);
@@ -132,6 +132,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         try
         {
             values = _binding.ValuesForWrite(entity);
+            _operations.CheckListBounds(values);
         }
         catch (LatticeException exception)
         {
