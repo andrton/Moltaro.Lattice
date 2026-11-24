@@ -260,7 +260,9 @@ internal sealed class ClassBinder
 
         object ToInteger(object value) => Convert.ChangeType(value, stored, CultureInfo.InvariantCulture);
 
-        return new Conversion(value => Allowed(ToInteger(value)), toEnum, new UpdateValueBinding(ValueType: dotNetEnum, EnumToInteger: ToInteger));
+        var update = new UpdateValueBinding(ValueType: dotNetEnum, EnumToInteger: ToInteger,
+            NullableEnumType: declaration.IsNullable ? type : null);
+        return new Conversion(value => Allowed(ToInteger(value)), toEnum, update);
     }
 
     // An owned value is an object of the class its owned type names. An owned type without a

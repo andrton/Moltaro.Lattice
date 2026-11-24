@@ -34,7 +34,7 @@ internal static class UpdateValues
     }
 
     private static bool IsBoundEnum(Type type, UpdateValueBinding? binding) =>
-        binding?.EnumToInteger is not null && (Nullable.GetUnderlyingType(type) ?? type) == binding.ValueType;
+        binding is { EnumToInteger: not null } && (type == binding.ValueType || type == binding.NullableEnumType);
 
     private static bool AcceptsType(LatticeValueDeclaration declaration, UpdateValueBinding? binding, Type type) => declaration.Type switch
     {

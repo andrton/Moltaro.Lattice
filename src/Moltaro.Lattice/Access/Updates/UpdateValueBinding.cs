@@ -9,6 +9,7 @@ namespace Moltaro.Lattice.Access.Updates;
 internal sealed record UpdateValueBinding(
     Type? ValueType = null,
     Func<object, object>? EnumToInteger = null,
+    Type? NullableEnumType = null,
     BoundProperty[]? OwnedFields = null,
     UpdateValueBinding? Element = null,
     UpdateValueBinding? Key = null,
