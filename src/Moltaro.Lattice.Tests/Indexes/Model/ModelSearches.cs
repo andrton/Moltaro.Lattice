@@ -64,8 +64,14 @@ internal static class ModelSearches
         return [.. BothWays([], null, null), .. BothWays([], RangeEnd.Including(middle), null), .. BothWays([mostFrequent], null, null)];
     }
 
-    private static IEnumerable<ModelSearch> BothWays(IReadOnlyList<object?> values, RangeEnd? from, RangeEnd? to) =>
+    public static IEnumerable<ModelSearch> BothWays(IReadOnlyList<object?> values, RangeEnd? from, RangeEnd? to) =>
         [new ModelSearch(values, from, to, Reverse: false), new ModelSearch(values, from, to, Reverse: true)];
+
+    public static IEnumerable<(RangeEnd? From, RangeEnd? To)> OneSidedRanges(object value) =>
+    [
+        (RangeEnd.Including(value), null), (RangeEnd.Excluding(value), null),
+        (null, RangeEnd.Including(value)), (null, RangeEnd.Excluding(value)),
+    ];
 
     // The values of the leading parts of the searches: the distinct keys of the entities in those parts, at
     // most mostKeys of them spread over the order, and for each value never stored of the last leading part
@@ -131,12 +137,9 @@ internal static class ModelSearches
 
     private static IEnumerable<(RangeEnd? From, RangeEnd? To)> Ranges(IndexModel model, int part, List<object> bounds)
     {
-        foreach (var value in bounds)
+        foreach (var range in bounds.SelectMany(OneSidedRanges))
         {
-            yield return (RangeEnd.Including(value), null);
-            yield return (RangeEnd.Excluding(value), null);
-            yield return (null, RangeEnd.Including(value));
-            yield return (null, RangeEnd.Excluding(value));
+            yield return range;
         }
 
         var low = bounds[Math.Min(1, bounds.Count - 1)];

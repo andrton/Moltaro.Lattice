@@ -522,7 +522,44 @@ It needs no word of the owner: a reviewed commit that removes a test is brought 
 revert, and the rule that a deletion waits for him is about what cannot be brought back;
 the change is reported to him in its record.
 
+**The index-test cleanup** (24 November 2026, light track, coordinator 9). The first
+commit, `660e53b`, added nullable Float32 and Float64 model rows with both infinities,
+distinct NaNs, both zeros and null stored together. `7b7cc4b` then removed six legacy
+floating-point rows and named the holder of each assertion. The model checks exact
+searches and all four one-sided bounds for each special value, and walks the whole
+index in both directions. `IndexModel.Expect` checks the returned identities.
+`IndexModel.ExpectStored` compares the raw floating-point bits for each identity,
+including the zero sign and each NaN representation. These cases run by name and
+through a class, on the master and on a child.
+
+The planner kept all 15 rows of `RangeOfEveryFamilyTests` for the joint behavior of
+two bounds at stored extrema and the intermediate value. The numeric-order method of
+`EnumAndFlagsTests` also stays for the bounded range through unnamed combinations of
+Flags, including `(1, 5]`. The remaining bound, boxed-value and read-by-key cases kept
+their coverage. The focused model and value-binding run went from 224 to 220 passing
+rows, two added and six removed.
+
+Independent review took one round. The hardest part was tracing exact searches and
+bounds through their separate binders to the checks of identities and stored bits.
+The full Windows x64 Release suite passed 3,287 tests with 129 skipped. Build, format
+and all 16 samples passed.
+
 Y1 and Y2 of "Found while building S18" are closed into Z6 and Z1.
+
+## Architect's review after S18R, 24 November 2026
+
+Read at `main` `5635f74`. The shared descent serves both the wire order and the
+ownership walks. Storage owns the pending descriptor rule, class binding chooses the
+List conversion once, and test access keeps the same order for readiness, validation
+and the writes lock. The planner joined all three entries below to the S19 changes
+that already touch these paths. The first structural commit and the Acceptance of S19
+stand as written in its brief.
+
+| Place | Simpler form | What it must keep | Status |
+| --- | --- | --- | --- |
+| `RootReader.Counting` | Count each record block payload once in `EnterRecordBlock`. Count the directory of a chunked List once in `Visit`. Do this with `EntityBytes` for Map and Set. | The byte sums for an S18 tree and both forms of Map and Set against the independent audit, including `ReadMemoryLimit`. Keep `index-search` on the scalar schema as the control and compare a search with nested records and an active memory limit in the S19 measurements. | joined (S19) |
+| `ClassField.CopyNested`, `RootValues.Value`, `RootReader` | Use one internal read path through `NestedValues.Read` for owned values, List, Map and Set as collection reads arrive. | The same values and independent copies by name and through a class, including null and empty collections. Keep property conversion in the same stage and compare the scalar read listings. | joined (S19) |
+| `BlockExport.Write`, `WritingRecords.EnterRecordBlock` | Share the rule that prepares an outgoing descriptor in the root and in a record when the wire uses the collection's entries descriptor. | Byte-for-byte compatibility for the existing forms, their inline offsets and the output order. A Map or Set sends its entries without local addresses or the lookup table. | joined (S19) |
 
 ## Found while building S18, 24 November 2026
 
