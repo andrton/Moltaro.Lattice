@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.Replication;
 // on the child. The child connects to its master over loopback TCP.
 public sealed class ChildTreeTests
 {
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Child_loads_entities_with_owned_values_Lists_and_references_as_its_master_holds_them()
     {
         await using var master = await NestedSchema.OpenListeningMasterAsync();
@@ -24,7 +24,7 @@ public sealed class ChildTreeTests
         ExpectSameTrees(master, child);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Child_applies_the_replacement_and_the_delete_of_such_entities()
     {
         await using var master = await NestedSchema.OpenListeningMasterAsync();

@@ -115,6 +115,10 @@ internal sealed class NodePool
     // The inserts reserved and not published or withdrawn, from which the tree sizes the path of its writer.
     public int Inserts => _inserts;
 
+    // How many nodes the pool holds reserved, for the audit of the ownership of blocks by the tests of the
+    // engine (EngineDatabase.ReservedNodeBytes).
+    public int Count => _count;
+
     // The credits of a leaf and of an inner node of this index (the constructor).
     public int LeafCredit => _leafCredit;
 

@@ -26,7 +26,7 @@ public sealed class OwnershipAfterChurnTests
 
     private const int Keys = 8;
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Ownership_audit_after_churn_with_refusals_and_withdrawals_finds_every_block_owned_by_exactly_one_live_entity()
     {
         var storage = new HeldPersistence(holding: false);
@@ -56,7 +56,7 @@ public sealed class OwnershipAfterChurnTests
             }
 
             // Every way a write ends was met.
-            foreach (var outcome in new[] { "written", "deleted", "Memory", "DuplicateKey", "NotFound", "RevisionConflict", "ValidationFailed", "batch written", "batch refused" })
+            foreach (var outcome in new[] { "written", "deleted", "Memory", "DuplicateKey", "NotFound", "RevisionConflict", "ValidationFailed", "batch written", "batch Memory", "batch refused" })
             {
                 Assert.True(outcomes.GetValueOrDefault(outcome) > 0, $"No operation ended as {outcome}: {string.Join(", ", outcomes)}.");
             }
@@ -140,9 +140,10 @@ public sealed class OwnershipAfterChurnTests
 
             return "batch written";
         }
-        catch (LatticeException)
+        catch (LatticeException exception)
         {
-            return "batch refused";
+            // A batch refused for memory names the limit; one refused for its failing member does not.
+            return exception.Limit is { } limit ? $"batch {limit}" : "batch refused";
         }
     }
 

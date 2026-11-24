@@ -102,16 +102,6 @@ public enum LatticeFieldTypeEnum : byte
     /// see <see cref="LatticeValueDeclaration.ValueType"/>, and a bound class as an object of
     /// the class that its owned type names, see <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </summary>
-    /// <remarks>
-    /// <b>Not implemented yet</b> for every use. An entity with owned values, Lists and
-    /// references is stored and read back by name and through a class, on a master, at every
-    /// depth. Not yet: a write batch with such an entity, whose commit reports
-    /// <see cref="NotSupportedException"/> through its task; an index over a field inside an
-    /// owned value, which keeps its entity type from being stored, so that every write of it
-    /// throws <see cref="NotSupportedException"/> after the checks of its arguments and of the
-    /// entity; and a child of a master that stores such an entity type, whose open throws
-    /// <see cref="NotSupportedException"/>.
-    /// </remarks>
     Owned = 21,
 
     /// <summary>
@@ -134,10 +124,6 @@ public enum LatticeFieldTypeEnum : byte
     /// String, before the conditions of the write are looked at; the bound follows from the layout of
     /// the entity type, so a write of an entity type the engine does not store ends in
     /// <see cref="NotSupportedException"/> without it.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet</b> for every use: a List is stored and read back by name and through
-    /// a class, and the rest is not built yet, as the remarks of <see cref="Owned"/> say.
     /// </para>
     /// </remarks>
     List = 22,
@@ -179,17 +165,10 @@ public enum LatticeFieldTypeEnum : byte
     /// deleting the target does not change the reference.
     /// </summary>
     /// <remarks>
-    /// <para>
     /// A reference whose target has a String key holds text, and a write validates it as a String
     /// value: text that is not well-formed, with a surrogate without its pair, and text above the
     /// bound of one value, see <see cref="String"/>, are refused with
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named, at every depth.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name and
-    /// through a class; a write batch and a child are not built yet for an entity type that holds
-    /// one, as the remarks of <see cref="Owned"/> say.
-    /// </para>
     /// </remarks>
     Reference = 25,
 }

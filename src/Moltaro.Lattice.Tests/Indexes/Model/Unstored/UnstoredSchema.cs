@@ -1,6 +1,6 @@
 namespace Moltaro.Lattice.Tests.Indexes.Model.Unstored;
 
-// The schemas of the parts the engine cannot store yet (UnstoredPartSearchModelTests): References and
+// The schemas of the parts the engine stored last (UnstoredPartSearchModelTests): References and
 // OwnedPath.
 internal static class UnstoredSchema
 {

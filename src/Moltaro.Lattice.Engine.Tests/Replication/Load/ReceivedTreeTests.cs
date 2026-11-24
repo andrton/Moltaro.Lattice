@@ -63,7 +63,7 @@ public sealed class ReceivedTreeTests
         "one byte less than the root describes",
     ];
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public void The_wire_carries_the_root_its_records_and_its_values_out_of_line_in_preorder_and_is_received_whole()
     {
         using var item = new RootArena(Schema);
@@ -93,7 +93,7 @@ public sealed class ReceivedTreeTests
         RootStorage.Free(item.Arena, item.Layout, root);
     }
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public void Root_received_with_a_tree_that_is_not_valid_is_refused_before_anything_is_allocated(string damage)
     {

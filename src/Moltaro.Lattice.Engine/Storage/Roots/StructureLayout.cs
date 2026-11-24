@@ -69,6 +69,9 @@ internal sealed class StructureLayout
     // The positions of the places that are descriptors, in the order of their descriptors.
     private readonly int[] _descriptors;
 
+    // Each place beneath a nullable owned value, with the null bit of the owned value right above it.
+    private readonly (int Position, int Above)[] _beneath;
+
     private StructureLayout(
         int start,
         StoredField[] places,
@@ -76,11 +79,11 @@ internal sealed class StructureLayout
         int[] children,
         StructureLayout?[] elements,
         int[] descriptors,
+        (int Position, int Above)[] beneath,
         int nullableCount,
         int descriptorOffset,
         int size,
         LatticeValueDeclaration? list,
-        bool holdsNestedValues,
         bool holdsLists)
     {
         Start = start;
@@ -89,11 +92,11 @@ internal sealed class StructureLayout
         _children = children;
         _elements = elements;
         _descriptors = descriptors;
+        _beneath = beneath;
         NullableCount = nullableCount;
         DescriptorOffset = descriptorOffset;
         Size = size;
         List = list;
-        HoldsNestedValues = holdsNestedValues;
         HoldsLists = holdsLists;
 
         if (list is not null && DescriptorCount > 0)
@@ -152,9 +155,6 @@ internal sealed class StructureLayout
     // For the record of an element that holds no descriptor: how a List of it becomes bytes and back.
     public PackedElements? Packed { get; }
 
-    // Whether the structure holds an owned value, a List or a Reference, at any depth.
-    public bool HoldsNestedValues { get; }
-
     // Whether it holds a List, in its owned values included, whose bound a write is checked against before
     // it is submitted (Engine.Entities.RootValues.CheckListBounds); for the record of an element, whether
     // the element holds one.
@@ -182,11 +182,19 @@ internal sealed class StructureLayout
     // The layout of the element of the descriptor at the index when it is a List; null otherwise.
     public StructureLayout? DescriptorElement(int index) => _elements[_descriptors[index]];
 
+    // Every place beneath a nullable owned value, by its position, with the null bit of the owned value right
+    // above it, which has one since it lies beneath a nullable owned value too or is one: what the bits of a
+    // structure agree on (see the class). The bit of such a place is set while that owned value is absent, and
+    // when it is present the bit of a place that is not nullable is clear. Empty for a structure that holds no
+    // nullable owned value, a root of scalar fields among them.
+    public ReadOnlySpan<(int Position, int Above)> Beneath => _beneath;
+
     // The layout of the structure of the fields of an entity type, after the header of its root block. The
-    // fields in the set indexed are part of a secondary index. Refuses, with LatticeException, InvalidSchema
-    // and the entity type named, the record of an element of a List that does not fit one chunk; with
-    // NotSupportedException and the field named, a Map or a Set at any depth.
-    public static StructureLayout OfRoot(LatticeEntityType entityType, IReadOnlySet<LatticeField> indexed) =>
+    // places the paths indexed lead to, as LatticeIndexPart.Path gives them, are parts of a secondary index:
+    // a field of an owned type that stands at two positions is indexed at the one its path names. Refuses,
+    // with LatticeException, InvalidSchema and the entity type named, the record of an element of a List that
+    // does not fit one chunk; with NotSupportedException and the field named, a Map or a Set at any depth.
+    public static StructureLayout OfRoot(LatticeEntityType entityType, IReadOnlyList<IReadOnlyList<LatticeField>> indexed) =>
         Compile(entityType, BlockHeader.Size, [.. entityType.Fields.Select(field => (field, field.Declaration))], indexed, list: null);
 
     // The position of the place a path leads to, a path as LatticeIndexPart.Path gives one, from a member of
@@ -224,7 +232,8 @@ internal sealed class StructureLayout
     // its place names.
     private static StructureLayout OfElement(LatticeEntityType entityType, LatticeField list, LatticeValueDeclaration declaration)
     {
-        var element = Compile(entityType, 0, [(list, declaration.Element!)], new HashSet<LatticeField>(), declaration);
+        // A path never passes through a List (LatticeIndexPart), so nothing in a record is indexed.
+        var element = Compile(entityType, 0, [(list, declaration.Element!)], [], declaration);
         var room = element.Size + (element.HoldsDescriptors ? ValueBlocks.InlineLimit * element.DescriptorCount : 0);
 
         if (room > ValueBlocks.ChunkPayload)
@@ -241,15 +250,18 @@ internal sealed class StructureLayout
         LatticeEntityType entityType,
         int start,
         (LatticeField Field, LatticeValueDeclaration Declaration)[] members,
-        IReadOnlySet<LatticeField> indexed,
+        IReadOnlyList<IReadOnlyList<LatticeField>> indexed,
         LatticeValueDeclaration? list)
     {
         var fields = new List<(LatticeField Field, LatticeValueDeclaration Declaration)>();
         var children = new List<int>();
+        var parents = new List<int>();
+        var paths = new List<LatticeField[]>();
 
         // The positions: the members in a run, then the fields of every owned value among them in a run of
-        // their own, recursively.
-        int Allocate(IReadOnlyList<(LatticeField Field, LatticeValueDeclaration Declaration)> run)
+        // their own, recursively, each with the owned place it lies in, -1 for a member, and the path that
+        // leads to it.
+        int Allocate(IReadOnlyList<(LatticeField Field, LatticeValueDeclaration Declaration)> run, int parent, LatticeField[] above)
         {
             var first = fields.Count;
 
@@ -257,20 +269,24 @@ internal sealed class StructureLayout
             {
                 fields.Add(member);
                 children.Add(-1);
+                parents.Add(parent);
+                paths.Add([.. above, member.Field]);
             }
 
             for (var index = 0; index < run.Count; index++)
             {
                 if (run[index].Declaration.Type == LatticeFieldTypeEnum.Owned)
                 {
-                    children[first + index] = Allocate([.. run[index].Declaration.OwnedType!.Fields.Select(field => (field, field.Declaration))]);
+                    children[first + index] = Allocate([.. run[index].Declaration.OwnedType!.Fields.Select(field => (field, field.Declaration))], first + index, paths[first + index]);
                 }
             }
 
             return first;
         }
 
-        Allocate(members);
+        Allocate(members, -1, []);
+
+        var indexedPositions = Enumerable.Range(0, fields.Count).Where(position => indexed.Any(path => path.SequenceEqual(paths[position]))).ToHashSet();
 
         // The positions in the order of the paths of the field identities, each with whether a nullable owned
         // value lies above it.
@@ -301,12 +317,16 @@ internal sealed class StructureLayout
             nullBits[position] = fields[position].Declaration.IsNullable || beneathNullable ? nullableCount++ : StoredField.NoNullBit;
         }
 
+        var beneath = inPathOrder
+            .Where(entry => entry.BeneathNullable)
+            .Select(entry => (entry.Position, Above: nullBits[parents[entry.Position]]))
+            .ToArray();
+
         // The fixed-width places from the end of the bitmap, then the descriptors, each in the order of the paths.
         var places = new StoredField[fields.Count];
         var elements = new StructureLayout?[fields.Count];
         var descriptors = new List<int>();
         var offset = start + RootLayout.BitBytes(nullableCount);
-        var nested = false;
         var lists = false;
 
         foreach (var (position, _) in inPathOrder)
@@ -314,7 +334,6 @@ internal sealed class StructureLayout
             var (field, declaration) = fields[position];
             var (type, width) = TypeOf(entityType, field, declaration);
 
-            nested |= declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Reference;
             lists |= declaration.Type == LatticeFieldTypeEnum.List;
 
             if (type == StoredTypeEnum.Owned)
@@ -323,7 +342,7 @@ internal sealed class StructureLayout
             }
             else if (!IsDescriptor(type))
             {
-                places[position] = new StoredField(field, declaration, type, width, offset, nullBits[position], indexed.Contains(field));
+                places[position] = new StoredField(field, declaration, type, width, offset, nullBits[position], indexedPositions.Contains(position));
                 offset += width;
             }
         }
@@ -337,7 +356,7 @@ internal sealed class StructureLayout
 
             if (IsDescriptor(type))
             {
-                places[position] = new StoredField(field, declaration, type, width, offset, nullBits[position], indexed.Contains(field));
+                places[position] = new StoredField(field, declaration, type, width, offset, nullBits[position], indexedPositions.Contains(position));
                 descriptors.Add(position);
                 offset += width;
 
@@ -355,11 +374,11 @@ internal sealed class StructureLayout
             [.. children],
             elements,
             [.. descriptors],
+            beneath,
             nullableCount,
             descriptorOffset,
             offset - start,
             list,
-            nested,
             lists);
     }
 

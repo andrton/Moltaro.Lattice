@@ -2,8 +2,9 @@ namespace Moltaro.Lattice.Storage.Roots;
 
 // What one walk over the descriptors of a root does with each of them (StructureWalk): the free of a root,
 // its publication, its retirement with the bytes of its text entries, the bytes of its slots, the bytes an
-// entity holds for a read (RootReader.EntityBytes), the export of a root to a child, and the audit of the
-// ownership of blocks by the tests. Implemented by a struct and passed by reference, so that the walk is
+// entity holds for a read (RootReader.EntityBytes), and the audit of the ownership of blocks by the tests. The
+// export of a root to a child is not among them: the wire carries a root in preorder, and the walk visits
+// children first (Replication.Load.BlockExport). Implemented by a struct and passed by reference, so that the walk is
 // compiled for each visitor and calls it without virtual dispatch, as a read calls its copy (Engine.Entities
 // .IRootCopy).
 //

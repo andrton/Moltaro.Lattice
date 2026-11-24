@@ -12,7 +12,9 @@ namespace Moltaro.Lattice.Storage.Roots;
 //
 // A descriptor of kind Records whose location is 0 names no block, as an empty List does; a directory entry
 // still zero names no chunk; a record whose writer stopped before it is zero and holds only descriptors of
-// kind Null. So the walk serves a root its writer left half written as well as a whole one.
+// kind Null; and a value that a node received and has not placed yet has a descriptor of kind Null too
+// (Replication.Load.BlockImport, "Pending"). So the walk serves a root its writer or its import left half
+// written as well as a whole one.
 //
 // The caller holds what keeps the blocks of the root from being freed or changed while it walks: the lock of
 // the writes, or the protection of reads for a published root.
@@ -61,11 +63,7 @@ internal static class StructureWalk
             return;
         }
 
-        if (descriptor.Location != 0)
-        {
-            WalkRecords(arena, descriptor, element!, ref visitor);
-        }
-
+        WalkRecords(arena, descriptor, element!, ref visitor);
         visitor.Visit(arena, descriptor, holder, offset, element);
     }
 
@@ -89,30 +87,15 @@ internal static class StructureWalk
     }
 
     // The records of a List of kind Records: in one block, or in the chunks of its directory, every chunk but
-    // the last holding RecordsPerChunk of them.
+    // the last holding RecordsPerChunk of them (RecordBlocks).
     private static void WalkRecords<TVisitor>(Arena arena, in ValueDescriptor descriptor, StructureLayout element, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor
     {
-        var address = ValueBlocks.AddressOf(descriptor);
-        var count = (int)descriptor.Length;
+        var blocks = new RecordBlocks(arena, descriptor, element);
 
-        if (!NestedValues.LiesInChunks(descriptor, element))
+        while (blocks.MoveNext())
         {
-            WalkBlock(arena, element, address, count, ref visitor);
-
-            return;
-        }
-
-        var entries = arena.Payload(address);
-
-        for (var chunk = 0; chunk * element.RecordsPerChunk < count; chunk++)
-        {
-            var entry = ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]);
-
-            if (entry.Location != 0)
-            {
-                WalkBlock(arena, element, ValueBlocks.AddressOf(entry), Math.Min(element.RecordsPerChunk, count - (chunk * element.RecordsPerChunk)), ref visitor);
-            }
+            WalkBlock(arena, element, blocks.Block, blocks.Count, ref visitor);
         }
     }
 

@@ -1297,7 +1297,7 @@ Why this order:
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S18 | Owned values, Lists and references | Full, critical | Parts 1 and 2 done on 24 November 2026; part 3 in progress |
+| S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
@@ -8805,6 +8805,75 @@ coordinated by the eighth coordinator of the epic, by the same word of the owner
   which a viewer will reach.
 - *Every suite at the head* (15ee84d): 3,403 tests, 3,258 passing, 145 skipped, in Debug and
   in Release.
+
+**The record of S18, part 3, and the close of S18** (closed on 24 November 2026): children
+and paths. It was coordinated by the eighth coordinator of the epic, by the same word of the
+owner. With it S18 is closed whole.
+
+- *Built:* the wire of a tree to a child: the version of the layout, the root with its
+  locations zeroed, then the values in preorder with no offset between them, a List of
+  records as each block's payload followed by its records' values; the check that walks the
+  whole input by the layout before anything is allocated, one `CheckStructure` for the root
+  and every record, with the inline values of a structure required to lie one after the
+  other from the end of its fixed part or of its records, the last ending the block, in
+  whatever order a master wrote them; one placement for what a child received, a forwarded
+  write, a member of a batch and a local write; a received descriptor left pending, kind
+  Null with its length, until its value is placed, so that a half-placed root is freed by
+  `RootStorage.Free`, the rule stated once in the head of `BlockImport`; children of a
+  master that stores owned values, Lists and references; write batches with them; an index
+  over a path into an owned value, its stored field resolved once, an absent owned value a
+  null part that a unique index does not compare, the entry part still 48 bytes; and an
+  ownership audit that counts the nodes of the indexes and the text references their
+  entries hold. Every refusal of parts 1 and 2 that part 3 makes false went with the
+  sentences that stated it; `SkipReason.NestedValues` went with its last use, and no test
+  of S18 is skipped. `NestedValuesSample` stops where its entity type holds a Map, which S19
+  stores.
+- *A departure from the brief:* item 3 named the export among the users of the one walk.
+  The export descends on its own, since the wire is in preorder and the walk visits the
+  children first; the head of `BlockExport` says so. It is for the architect's review after
+  S18, with the cost that S19 extends two recursions beside the walk.
+- *The listings,* against be8bca3, a Release driver over the public API with tiered PGO off,
+  each driver's engine compared with its build: the read path, `RootValues.Write`,
+  `TryPrepareInsert` and `TryPrepareReplace`, the writers of the delivery and a child's
+  `TryApply` unchanged; the check of a received scalar root makes three calls more
+  (`CheckStructure`, `CheckBits`, `CheckValuesOfRoot`, one `CheckInline`) and placing an
+  out-of-line value one call level more, through the one placement; `BlockImport.Place`
+  1,736 → 591 bytes with `PlaceValues` 1,368 beside it; `ReadPayload` 5,239 → 3,672. The
+  figures of time on the workstation scattered too widely to state one; they are owed to
+  the start of the machine, with `following-children` and the forwarded writes.
+- *Review:* three rounds. Round 1: no P1, no P2; 4 P3 (the walk's comment still naming the
+  export, the README's row of the engine, the head of `EntryPart`, and the names `Unstored`
+  of the tests of the model of the search by index, which now test stored parts: the
+  comment corrected, the rename a move for the refactoring sprint after S18) and P4s, among
+  them two churn tests that did not assert the refusals for memory they claimed, now
+  asserted. Round 2: all closed or rightly left; nothing new. After it the breaker found the
+  P2 below, which the reviewer had ranked P4 in round 1 without reading the values back.
+  Round 3: its fix right, its tests sufficient, nothing new. The hardest part to follow, by
+  the reviewer: the rule of pending descriptors, which five places rely on.
+- *The breaker:* targets 3, 7, 2 on a child and 1 with batches, 61 probes in Debug and
+  Release, the concurrent ones eight times, twice beside a full suite. One P2, deterministic:
+  the check accepted a value inline at the location of another, an overlap and a gap of the
+  same size passing as an exact total, in a block of records and, since S10, in the root;
+  a child read "ab, ab" for ["ab", "cd"], and a forwarded write of it was executed by the
+  master. Fixed test first (045e1ad, 2b2c803). Held: 230,439 damaged inputs, each refused
+  with the counters unchanged or placed, read, exported to the same bytes and freed whole;
+  damages through a link in a load, a transaction and a forwarded write; refusals and
+  native out-of-memory in the middle of a received tree; an index over a path while the
+  owned value appears and disappears, 195,000 writes and 29.7 million entities returned,
+  38,661 refusals of the unique index, none for an absent owned value; 21,372 reads on a
+  child with no tree torn; churn with 2,834 batches, 636 refusals for memory and 132 native
+  out-of-memory outcomes, the audit exact on both nodes after every round and every native
+  byte returned at the close. Recorded and left: bytes under a null bit are not checked to
+  be zero on the wire; no reader, entry of an index or comparison reads them.
+- *Every suite at the head* (2b2c803): 3,416 tests, 3,287 passing, 129 skipped (the stores of
+  the Identity package, the ordering lane and one filter), in Debug and in Release.
+- *The sprint as a whole:* the Acceptance of S18 is held by tests that run, every sentence;
+  no step-1 assertion was changed but one added on the coordinator's decision (the refusals
+  for memory of a batch in `OwnershipAfterChurnTests`); three parts, each with three rounds
+  of review and a breaker; one P1 and one P2 found by breakers and fixed test first; no
+  public type and no public member added. Owed: every figure of time, to the one start of
+  the machine (the plan in the notes of the coordinator), which the owner has been asked to
+  start; Q63 for the owner.
 
 #### S19 · Maps and Sets
 

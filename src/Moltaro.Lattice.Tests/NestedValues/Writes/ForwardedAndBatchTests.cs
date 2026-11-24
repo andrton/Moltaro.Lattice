@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.Writes;
 // class (NestedSchema).
 public sealed class ForwardedAndBatchTests
 {
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Members_of_a_write_batch_with_such_entities_are_written_whole_at_its_commit()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -41,7 +41,7 @@ public sealed class ForwardedAndBatchTests
         Assert.Null(byName.Get("deleted"));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Write_a_child_forwards_with_such_an_entity_is_written_whole_on_its_master_and_read_back_on_the_child()
     {
         await using var master = await NestedSchema.OpenListeningMasterAsync();
@@ -65,7 +65,7 @@ public sealed class ForwardedAndBatchTests
         Assert.Equal(NestedSchema.Describe(child.Schema, replacement), NestedSchema.Describe((await child.Set("Person").GetAsync("forwarded", session)).Entity));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Write_batch_a_child_forwards_with_such_entities_is_written_whole_on_its_master_and_its_child()
     {
         await using var master = await NestedSchema.OpenListeningMasterAsync();

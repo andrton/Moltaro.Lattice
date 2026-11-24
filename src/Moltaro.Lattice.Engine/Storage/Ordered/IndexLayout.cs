@@ -133,7 +133,8 @@ internal sealed class IndexLayout
     public LatticeStringEncodingEnum Encoding { get; }
 
     // Compiles the layout of a declared index of the entity type whose root layout is given. The parts
-    // come from the root layout: the stored type, width and place of each field. An index whose
+    // come from the root layout: the stored type, width and place of the field each path leads to, a field
+    // of the entity type or one inside an owned value. An index whose
     // LeastEntriesPerNode widest entries do not fit the largest block, Arena.MaxBlockSize, is refused with
     // LatticeException, InvalidSchema, naming the index, before any data is admitted, as RootLayout refuses
     // a fixed part beyond one block: a rule of the schema language, which LatticeIndex states with the
@@ -150,8 +151,11 @@ internal sealed class IndexLayout
 
         for (var place = 0; place < parts.Length; place++)
         {
+            // The place the path leads to, a field of the root or a field inside an owned value flattened into
+            // it, resolved once: an entry part is that place, whatever its depth, and beneath a nullable owned
+            // value it has a null bit of its own, set while the owned value is absent (StructureLayout).
             var part = index.Parts[place];
-            ref readonly var stored = ref root.StoredFieldOf(part.Field);
+            ref readonly var stored = ref root.StoredFieldOf(part.Path);
             var isText = stored.Type == StoredTypeEnum.String;
             var nullBit = part.CanBeNull ? nullable++ : EntryPart.NoNullBit;
 

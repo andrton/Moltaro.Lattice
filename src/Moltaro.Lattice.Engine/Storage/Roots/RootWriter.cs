@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
@@ -87,7 +88,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // (Replication.Forwarding.ForwardEncoding), and writes it without its arena: a writer made with
 // ExportedValues places the fixed part and the values inline in its image as always, keeps each value
 // that does not lie inline in managed memory instead of blocks, with the descriptor of the blocks it
-// would take and the location 0, as Replication.Load.BlockExport writes a stored root, and writes the
+// would take and the location 0, as Replication.Load.BlockExport writes a stored root, a List of records
+// as the blocks of its records with the values of their descriptors, at every depth, and writes the
 // whole root in that form with Export instead of Complete. It allocates nothing in an arena and needs
 // no lock: what it holds is its own. Every check of a value is the same, so the root is the one a
 // master would store for the values.
@@ -346,8 +348,7 @@ internal ref struct RootWriter
     // null; the validation of the core has checked that it may be. Text that is not well-formed, and a value or
     // a List above its bound, at any depth, is refused with ValidationFailed as by SetString, and an
     // OutOfMemoryException of the native allocator passes through; then what the owned value placed before
-    // is the writer's, so a caller abandons the writer, which frees it. Not for a root for a forwarded write,
-    // which does not carry nested values yet: NotSupportedException.
+    // is the writer's, so a caller abandons the writer, which frees it.
     public void SetOwned(LatticeField field, LatticeOwnedValue value) => SetNested(field, StoredTypeEnum.Owned, nameof(SetOwned), value);
 
     // Sets a List of the entity, the List<T> a record holds for it, placed in the form of its element: as the
@@ -445,7 +446,8 @@ internal ref struct RootWriter
 
     // Ends a root for a forwarded write (see the class) and writes it into the output as BlockExport writes
     // a stored one: the layout version (UInt32, little-endian), the root payload, and each value out of
-    // line in the order of its descriptor. Refuses with ValidationFailed, as Complete does, a field that is
+    // line in the order of its descriptor, a List of records as each block of its records followed by the
+    // values of its records. Refuses with ValidationFailed, as Complete does, a field that is
     // not nullable and was not set; the writer has ended either way.
     public void Export(IBufferWriter<byte> output)
     {
@@ -467,10 +469,7 @@ internal ref struct RootWriter
         payload.CopyTo(output.GetSpan(payload.Length));
         output.Advance(payload.Length);
 
-        for (var index = 0; index < _layout.DescriptorCount; index++)
-        {
-            exported.WriteTo(index, output);
-        }
+        exported.WriteTo(output);
 
         End(WriterStateEnum.Completed);
     }
@@ -492,14 +491,15 @@ internal ref struct RootWriter
 
     // An owned value or a List of the entity, written into the image of the root by NestedValues, with what it
     // takes counted here.
+    //
+    // Not inlined. Inlined into the write of the values of a root (Engine.Entities.RootValues.Write), it grows
+    // that method for every write of an entity of scalar fields: in the JIT listing of a Release build,
+    // inlined, 4,767 bytes with a frame of 344; called, 4,672 bytes with a frame of 328, as before a root for a
+    // forwarded write carried nested values.
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private void SetNested(LatticeField field, StoredTypeEnum type, string member, object value)
     {
         ref readonly var stored = ref Take(field, type, member);
-
-        if (_values.Exported is not null)
-        {
-            throw new NotSupportedException($"The field {Name(field)} is {field.Declaration.Type}, which a root for a forwarded write does not carry yet.");
-        }
 
         NestedValues.Write(ref _values, _layout.Structure, 0, field.Ordinal, value);
         MarkSet(stored, isNull: false);

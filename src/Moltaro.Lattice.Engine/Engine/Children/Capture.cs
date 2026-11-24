@@ -81,9 +81,6 @@ internal sealed class Capture
     // The Hello of the master, which a child it accepts receives as its HelloReply.
     public HelloBody Hello { get; }
 
-    // Whether the master stores entities a child does not receive yet (EntityTables.HoldsNestedValues).
-    public bool RefusesChildren => _tables.HoldsNestedValues;
-
     // The schema in its compiled form (Replication.Load.SchemaTransfer).
     public byte[] SavedSchema { get; }
 

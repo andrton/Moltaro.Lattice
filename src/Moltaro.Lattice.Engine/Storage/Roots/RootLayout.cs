@@ -47,7 +47,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // so it takes nothing of the root block but its descriptor, and the entry is placed as a value out of line
 // is, one block up to SingleBlockLimit bytes and chunks above. The empty text is inline with length 0, as in
 // a Plain field. So the layout of an entity type is the same whichever storage its String fields select.
-// A String field that is part of a secondary index stores a text longer than InlineLimit in an entry of
+// A String field that is part of a secondary index, of the entity type or inside an owned value at the
+// position the path of the part names, stores a text longer than InlineLimit in an entry of
 // the text table as well, whatever its storage, so that the entry of the index can share it with its
 // root; such an entry is found by its bytes like any other, so equal long texts of an indexed Plain field
 // are stored once, and a text of InlineLimit bytes or less is placed as a Plain value is
@@ -88,7 +89,7 @@ internal sealed class RootLayout
     // alone does not, such as its string encoding and its enum types. Refuses:
     // - an entity type that is not of the schema, with ArgumentException;
     // - an entity type the engine cannot store yet, with NotSupportedException that names what it holds: a
-    //   Map or a Set at any depth, or an index over a field inside an owned value;
+    //   Map or a Set at any depth;
     // - an entity type whose FixedSize would exceed Arena.MaxBlockSize, its owned values included, or that
     //   holds a List whose record of an element does not fit one chunk, with LatticeException,
     //   InvalidSchema, that names the entity type: two rules of the schema language, which the milestone
@@ -104,16 +105,9 @@ internal sealed class RootLayout
             throw new ArgumentException($"The entity type {entityType.Name} is not an entity type of the given schema.", nameof(entityType));
         }
 
-        foreach (var index in entityType.Indexes)
-        {
-            if (index.Parts.Any(part => part.Path.Count > 1))
-            {
-                throw new NotSupportedException($"The index {entityType.Name}.{index.Name} is over a field inside an owned value, which a root cannot index yet.");
-            }
-        }
-
-        // The fields that are part of an index: a part of an entity type that is stored is one of its fields.
-        var indexed = entityType.Indexes.SelectMany(index => index.Parts).Select(part => part.Field).ToHashSet();
+        // The places that are part of an index, by their paths: a field of the entity type, or a field inside
+        // an owned value of it.
+        var indexed = entityType.Indexes.SelectMany(index => index.Parts).Select(part => part.Path).ToList();
         var requiredFields = new byte[BitBytes(entityType.Fields.Count)];
 
         foreach (var field in entityType.Fields)

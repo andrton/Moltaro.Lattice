@@ -95,7 +95,7 @@ public sealed class BatchCommitFailureTests
         Assert.Null(database.Set<User>().Get(1L));
     }
 
-    // Item holds an owned value, which the engine does not store yet; Plain is stored.
+    // Item holds a Map, which the engine does not store yet; Plain is stored.
     [Theory]
     [InlineData("insert")]
     [InlineData("delete")]
@@ -103,9 +103,8 @@ public sealed class BatchCommitFailureTests
     {
         var schema = LatticeSchema.Compile("""
             {
-              "OwnedTypes": [ { "Id": 1, "Name": "Stamp", "Fields": [ { "Id": 1, "Name": "Text", "Type": "String" } ] } ],
               "EntityTypes": [
-                { "Id": 1, "Name": "Item", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Value", "Type": "Owned", "OwnedType": "Stamp" } ], "PrimaryKey": [1] },
+                { "Id": 1, "Name": "Item", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Value", "Type": "Map", "Key": { "Type": "String" }, "Value": { "Type": "String" } } ], "PrimaryKey": [1] },
                 { "Id": 2, "Name": "Plain", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] }
               ]
             }
@@ -113,7 +112,6 @@ public sealed class BatchCommitFailureTests
         await using var database = await TestData.OpenMasterAsync(schema: schema);
         var items = database.Set("Item");
         var plain = database.Set("Plain");
-        Assert.True(schema.TryGetOwnedType("Stamp", out var stamp));
         var before = database.Position;
 
         var batch = database.CreateWriteBatch();
@@ -121,7 +119,7 @@ public sealed class BatchCommitFailureTests
 
         if (kind == "insert")
         {
-            batch.Insert(new LatticeRecord(items.EntityType) { ["Id"] = 1L, ["Value"] = new LatticeOwnedValue(stamp!) { ["Text"] = "a" } });
+            batch.Insert(new LatticeRecord(items.EntityType) { ["Id"] = 1L, ["Value"] = new Dictionary<string, string> { ["Text"] = "a" } });
         }
         else
         {

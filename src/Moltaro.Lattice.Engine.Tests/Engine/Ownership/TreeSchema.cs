@@ -8,7 +8,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 // nullable owned Address, whose City has Dictionary storage, whose Lines is a List of String and whose Geo a
 // nullable owned Point; Tags, a List of String; Scores, a List of Int64; Places, a List of owned Addresses;
 // Grid, a List of Lists of Int32; Photo, a nullable Binary; Files, a List of Binary. It declares no secondary
-// index, so that every block of the arena belongs to a root or to an entry of the text table (OwnershipAudit).
+// index, so every block of the arena belongs to a root or to an entry of the text table; the audit of the
+// indexes has a schema of its own (OwnershipOfIndexesAfterChurnTests).
 //
 // The trees of the tests come in shapes, each a number: 0 is bare, with nothing beside its Name; 1 small, every
 // value inline or in one block; 2 with every List in chunks of both forms, values above 64 bytes in blocks of
