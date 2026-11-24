@@ -13,5 +13,8 @@
   <ItemGroup>
     <!-- The engine implements the contract and uses its internal members. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine" />
+    <!-- The unshipped lookup tests and measurements bind probes with the same IndexValue as the engine. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
+    <InternalsVisibleTo Include="Moltaro.Lattice.Measurements" />
   </ItemGroup>
 </Project>

@@ -171,6 +171,10 @@ internal readonly struct IndexValue
         return BindOther(field, parameterName);
     }
 
+    // Binds a caller's value to a collection's key or member declaration.
+    public IndexValue Bind(LatticeValueDeclaration declaration, string fieldName, string parameterName) =>
+        throw new NotSupportedException("Maps and Sets are not stored yet.");
+
     // The value of a fixed-width type, read back from the bits.
     public TValue As<TValue>()
         where TValue : unmanaged

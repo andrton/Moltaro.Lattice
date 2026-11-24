@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -33,6 +34,11 @@ namespace Moltaro.Lattice.Storage.Roots;
 // GetString, GetBinary and ReadText with InvalidOperationException.
 internal readonly ref struct RootReader
 {
+    // A probe already bound to the key or member declaration. Its ordinal is valid only while the
+    // caller protects this root. The lookup returns -1 when the collection has no matching entry.
+    public int FindEntry(LatticeField field, in IndexValue key) =>
+        throw new NotSupportedException("Maps and Sets are not stored yet.");
+
     // Null for a reader of a copy.
     private readonly Arena? _arena;
 

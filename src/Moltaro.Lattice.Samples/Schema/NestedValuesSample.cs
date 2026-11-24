@@ -120,6 +120,9 @@ internal static class NestedValuesSample
         await people.InsertAsync(ada);
         var stored = database.Set("Person").Get(1L)!;
         Console.WriteLine($"Written as an object, read as a record: lives in {stored.Get<LatticeOwnedValue>("Home")!["City"]}");
+        var options = stored.Get<Dictionary<string, string?>>("Options")!;
+        var rights = people.Get(1L)!.Rights;
+        Console.WriteLine($"Theme {options["theme"]}, can write {rights.Contains("write")}");
 
         Console.WriteLine();
     }

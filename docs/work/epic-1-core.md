@@ -9199,6 +9199,46 @@ the checklist of the sprint with the reviewer's list of S18, part 1. Measured an
 as well: the time a write holds the lock of the writes while it builds the lookup of a Map
 of 1,000, 100,000 and 1,000,000 entries, which joins what Q52 asks.
 
+*Internal contract.*
+
+- A collection's compiled entry layout describes one member for List or Set, and the key
+  and value for Map, both in the same record. It gives the stored stride and entry count
+  bound. The Map and Set bound is the lesser of the entry bound and the number of
+  entries the lookup holds at 70 percent load. The layout of every entity is compiled at
+  open. A fixed part of 65,536 bytes fits, including with a root Map. A larger fixed part
+  fails the open with InvalidSchema naming the entity type and leaves the instance Closed.
+- RootReader.FindEntry(LatticeField, in IndexValue) takes a probe already bound to the
+  Map key or Set member declaration. It returns the zero-based entry ordinal or -1.
+  An ordinal is valid only for that root while the caller protects it. Internal
+  placement and lookup use the same stored-value comparison and hash service as the
+  indexes. EngineDatabase passes its seed to Arena.HashSeed. All lookup slots are built
+  and searched with that seed.
+- A compact Map or Set uses its entries' List descriptor. A hashed one uses
+  DescriptorKindEnum.Lookup with the entry count and the address of its lookup block.
+  The block holds the entries descriptor first, at offset 32 including the header.
+  Its slots each hold a 32-bit hash above a 32-bit ordinal plus one. Zero denotes empty.
+  A contiguous lookup fills a size class with slots, up to 8,186. Above that, the
+  block holds up to 4,094 eight-byte arena addresses of slot chunks. A full chunk
+  holds 8,188 slots. The final chunk fills its chosen size class. The lookup block
+  owns its entry storage through the descriptor at offset 32 and a slot chunk
+  through its address at offset 48 plus eight times its zero-based chunk index.
+  EntityBytes includes the lookup payloads once, at their stored lengths.
+- Placement initializes the entries descriptor and chunk positions before exposing the
+  lookup to its holder. Every installed child is reachable by an ownership walk.
+  An unwind frees those children before the lookup, clears the holder descriptor
+  and restores prepared byte accounting. The root writer gives the lookup its actual
+  parent at Complete. An importer has the parent before it places its children.
+- Wire format 6 carries only List-shaped entries. The root layout version stays 2.
+  Both live export and direct forwarding use an out-of-line Block descriptor for a
+  short packed hashed collection. A receiving node checks descriptor structure
+  before placement and builds the lookup and checks uniqueness once, including
+  compact inline entries. When catch-up skips a state because it already holds
+  a newer one, it checks the same uniqueness invariant directly from the validated
+  wire slices. This check leaves the transaction cursor alone and takes no arena
+  memory. Scratch is sized from the validated entries and releases any references
+  when returned. A duplicate refuses the transaction and rolls back every effect
+  prepared for it.
+
 *Tests, committed before the implementation,* a string key in the public ones.
 - By name and by a class, every permitted type of key and of member, value types nested,
   nullable positions, null against empty, in both forms and both forms of the entries,

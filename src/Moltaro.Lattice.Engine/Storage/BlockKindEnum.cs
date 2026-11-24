@@ -24,4 +24,7 @@ internal enum BlockKindEnum : ushort
     // A node of the ordered tree of a secondary index (Ordered.IndexNode). It belongs to the index:
     // the root handle of its header is default, and it has no parent.
     IndexNode = 6,
+
+    // A collection's entries descriptor followed by its lookup slots or the addresses of their chunks.
+    Lookup = 7,
 }

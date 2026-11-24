@@ -5,4 +5,5 @@ namespace Moltaro.Lattice.TestSupport.Skips;
 // of the sprint that implements a feature removes its skips and its constant.
 internal static class SkipReason
 {
+    public const string MapsAndSets = "The engine does not store Maps and Sets yet.";
 }
