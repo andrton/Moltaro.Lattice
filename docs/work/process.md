@@ -127,13 +127,15 @@ internal types its tests address; they are named in the brief and put into code 
 same way.
 
 **A brief names its boundary tests.** Where the Acceptance states a limit, the brief names
-the case one under it and the case one over it, the figure computed from the layout and
-not from the code, for an entity in every storage form, and the token cancelled at each
-place where the limit is looked at, not only before the call. Where it states a composite
-key, the brief names a null in every position of the key. A check or a counter that is
-kept only for a test compares two independent things, never a value with itself. In S14,
-part 2 and in S15, part 1 a blocking defect passed the tests written from the brief,
-because another mechanism decided the cases those tests set.
+the exact boundary and both adjacent cases and derives the limit from the layout
+independently of the code under test. It names each representation that reaches a
+different mechanism, and a token cancelled at each place where cancellation is checked.
+For a new nullable input or result it names a successful null case and any applicable
+refusal as separate conditions. Where
+it states a composite key, the brief names a null in every position of the key. One case
+can cover a shared path. A check or a counter kept only for a test compares two independent
+things, never a value with itself. In S14, part 2 and in S15, part 1 a blocking defect
+passed the tests written from the brief because another mechanism decided their cases.
 
 **A platform call is named as a source only after it was checked.** A brief or a decision
 says that a value is what a call returns only when the documentation of the call was read
@@ -164,7 +166,10 @@ stops and has the plan corrected before the next sprint.
    `NotSupportedException`. It writes the tests against that contract from the brief and
    marks those that cannot pass yet as skipped, with one shared reason. The sample of
    intended use is written too. The build is green and nothing fails. These commits come
-   before any implementation; the record of the sprint names the last of them.
+   before implementation. An independent reviewer checks the latest tests-first commit
+   against the Acceptance under [Review](#review). Before assigning the related
+   implementation, the coordinator sees that every gap in an accepted guarantee is
+   closed and records the exact tests-first SHA and review outcome in the sprint record.
 2. **Implementation.** The same agent removes the skips and makes the tests pass. It may
    add tests. It does not change the assertions of the tests of step 1, and it does not
    change the contract. If either looks wrong, it stops and reports to the coordinator.
@@ -172,7 +177,12 @@ stops and has the plan corrected before the next sprint.
    samples. An agent's report that the checks passed is not a check. It builds every head
    before it hands it to a reviewer, to a breaker or to a start of the machine. It runs no
    check while an agent builds in the same checkout, and agents that write at the same
-   time work in worktrees of their own.
+   time work in worktrees of their own. An independent reviewer checks a measurement
+   before its figure is used to choose an implementation or decide Acceptance. State the
+   criterion for a comparative result before looking at the results. Carry a measured
+   effect over from an older base only if the current head against the exact parent of
+   the change confirms it. A neutral control stays neutral. Until there is confirmation,
+   report the observed difference and its original base and head.
 4. **Review.** The coordinator reviews, and an independent reviewer reviews; on a sprint
    that changes behavior the breaker works beside it.
 5. **Fixes.** The implementer fixes every P1, P2 and P3 finding. The next review covers
@@ -183,13 +193,18 @@ stops and has the plan corrected before the next sprint.
    the sprint delivered: what exists and what is planned, names, limits, described
    behavior. What no longer holds is corrected and committed with the sprint. A
    disagreement between the code and an accepted decision is not corrected in the text;
-   it goes to the owner.
+   it goes to the owner. Give every observed speed or memory tradeoff and every temporary
+   diagnostic insertion a disposition in the existing report. An item left for later has
+   a place and a closing condition in the backlog. Any departure from `AGENTS.md` has an
+   approved entry in the exceptions register.
 7. **Close.** With no P1, P2 or P3 open and the documents current, the coordinator marks
    the sprint done in the epic document. A finding is no longer open when an independent
    review found its fix sufficient, when the owner accepted it or moved it to a named
    sprint, as [Review](#review) describes, or when it is a P3 that the limits on review
    sent elsewhere: to the refactoring backlog after the third round of code, or, for a
-   document, to the open questions. The next sprint starts, with another implementer.
+   document, to the open questions. An isolated pass after a recurring failure is a
+   separate observation. Closure needs a verified explanation or correction, or a
+   disposition accepted under Review. The next sprint starts, with another implementer.
 
 **Small changes during a sprint.** A change that comes up while a sprint is open and is
 small — an answer of the owner that touches a rule, a document, a file of the
@@ -263,8 +278,17 @@ refactoring sprint, which changes no behavior, and the light track have no break
 **What is checked:**
 
 - **The tests against the Acceptance, sentence by sentence.** For every sentence of the
-  Acceptance the reviewer names the test that holds it, or reports that none does. It
-  does this from the brief and the tests of step 1, before it reads the implementation.
+  Acceptance the reviewer names the test, line and mechanism it exercises, or reports the gap.
+  It does this before implementation, on the exact latest tests-first SHA. Check a
+  successful nullable case and any applicable refusal, the limit and its neighbors, and
+  the representations the brief names. A case counts when it reaches the mechanism it is
+  meant to hold. Keep the smallest set of cases that distinguishes the outcomes on a
+  shared path.
+- **Measurements used for a decision.** Check the pinned base and head, equivalent
+  workload, warm-up, run order or rotation, useful duration or operations per sample,
+  spread, and which conclusion the evidence supports. When the evidence is inconclusive,
+  say so in the existing report and assign the follow-up to a named sprint or run in the
+  existing plan.
 - **That no assertion moved after step 1,** on the full track. The reviewer compares the
   tests as they stood at the end of step 1 with the tests at the head. An assertion that
   the sprint's own commits changed, removed or loosened after step 1 without the
