@@ -9004,7 +9004,12 @@ listings of a read by key and of a search showing no load added, since neither r
 `State`; the two tests that use `held.Fail()` unchanged and passing with the pause; and the
 other way checked as well, that nothing reports work of a Ready instance done after `State`
 reads Faulted. The ordering lane and these tests run on ARM64 in the next start of the
-machine.
+machine. It was seen again on x64 the same day, on a pull request of documents (PR 63, run
+45362194937, the job `build`), in `WaitingReadTests.Read_that_waits_for_a_publication_that_fails_ends_with_Unavailable`
+with the child, as the reading said it could be: not a defect of ARM64. Until the fix is in,
+any pull request can fail on those three rows; its job is run again, and every sighting is
+counted here. The fix is the first work of the next coordinator, before anything else is
+merged.
 
 #### S19 · Maps and Sets
 
