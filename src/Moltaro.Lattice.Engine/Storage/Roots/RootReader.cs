@@ -97,7 +97,11 @@ internal readonly ref struct RootReader
 
         CheckType(field, stored, StoredTypeEnum.Owned, nameof(GetOwned));
 
-        return (LatticeOwnedValue)NestedValues.Read(ArenaOfValues(), _layout.Structure, NotNullPayload(stored), BlockHeader.Size, 0, field.Ordinal, _layout.StringEncoding)!;
+        var arena = ArenaOfValues();
+        var structure = _layout.Structure;
+        var payload = NotNullPayload(stored);
+
+        return (LatticeOwnedValue)NestedValues.Read(arena, structure, payload[..structure.Size], payload, field.Ordinal, _layout.StringEncoding)!;
     }
 
     // The value of a List field, as a new List of the form a record holds, with every element at every depth

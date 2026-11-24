@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections;
+using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
@@ -38,13 +39,14 @@ namespace Moltaro.Lattice.Storage.Roots;
 // protection of the root.
 internal static class NestedValues
 {
-    // Starts the structure at the offset at of the block of the holder, whose bytes are zero or are cleared
-    // here: every bit of its bitmap set, the bits after the last one clear.
+    // Starts the record at the offset at of the holder's block, with every bit of its bitmap set and
+    // the bits after the last one clear.
     public static void StartRecord(ref ValueHolder holder, StructureLayout layout, int at)
     {
-        holder.At(at, layout.Size).Clear();
+        var record = holder.At(at, layout.Size);
+        record.Clear();
 
-        var bitmap = holder.At(at + layout.Start, layout.NullBitmapLength);
+        var bitmap = record[..layout.NullBitmapLength];
 
         bitmap.Fill(byte.MaxValue);
 
@@ -101,19 +103,19 @@ internal static class NestedValues
         }
     }
 
-    // The value of the place at the position of the structure at the offset at of the block whose bytes are
-    // given, which lie at the offset origin of the block: null when its bit is set, else a new value in the
-    // form a record holds. The arena is that of the block; a packed record, which holds no descriptor, needs none.
-    public static object? Read(Arena arena, StructureLayout layout, ReadOnlySpan<byte> bytes, int origin, int at, int position, LatticeStringEncodingEnum encoding)
+    // The value of a place from the structure's bytes, in the form a record holds. Inline locations
+    // refer to the payload of the whole block. A packed record needs neither an arena nor a block payload.
+    public static object? Read(Arena arena, StructureLayout layout, ReadOnlySpan<byte> structure, ReadOnlySpan<byte> payload, int position, LatticeStringEncodingEnum encoding)
     {
         ref readonly var place = ref layout.Place(position);
 
-        if (place.IsNullable && (bytes[at + layout.Start + (place.NullBit / 8) - origin] & (1 << (place.NullBit % 8))) != 0)
+        if (place.IsNullable && (structure[place.NullBit / 8] & (1 << (place.NullBit % 8))) != 0)
         {
             return null;
         }
 
         var declaration = layout.DeclarationOf(position);
+        var offset = place.Offset - layout.Start;
 
         switch (place.Type)
         {
@@ -122,16 +124,16 @@ internal static class NestedValues
 
                 foreach (var field in owned.OwnedType.FieldsByOrdinal)
                 {
-                    owned.Values[field.Ordinal] = Read(arena, layout, bytes, origin, at, layout.ChildOf(position, field), encoding);
+                    owned.Values[field.Ordinal] = Read(arena, layout, structure, payload, layout.ChildOf(position, field), encoding);
                 }
 
                 return owned;
 
             case StoredTypeEnum.String:
-                return StoredText.Read(arena, DescriptorAt(bytes, origin, at + place.Offset), BlockPayload(bytes, origin), encoding);
+                return StoredText.Read(arena, ValueBlocks.Read(structure[offset..]), payload, encoding);
 
             case StoredTypeEnum.Binary:
-                var descriptor = DescriptorAt(bytes, origin, at + place.Offset);
+                var descriptor = ValueBlocks.Read(structure[offset..]);
 
                 if (descriptor.Length == 0)
                 {
@@ -140,15 +142,15 @@ internal static class NestedValues
 
                 var copy = GC.AllocateUninitializedArray<byte>((int)descriptor.Length);
 
-                ValueBlocks.CopyTo(arena, descriptor, BlockPayload(bytes, origin), copy);
+                ValueBlocks.CopyTo(arena, descriptor, payload, copy);
 
                 return copy;
 
             case StoredTypeEnum.List:
-                return ReadList(arena, layout.ElementOf(position), DescriptorAt(bytes, origin, at + place.Offset), BlockPayload(bytes, origin), encoding);
+                return ReadList(arena, layout.ElementOf(position), ValueBlocks.Read(structure[offset..]), payload, encoding);
 
             default:
-                return StoredScalars.ReadBoxed(bytes.Slice(at + place.Offset - origin, place.Width), declaration.ScalarType);
+                return StoredScalars.ReadBoxed(structure.Slice(offset, place.Width), declaration.ScalarType);
         }
     }
 
@@ -270,12 +272,10 @@ internal static class NestedValues
             case StoredTypeEnum.String:
                 var length = StoredText.EncodedLength((string)value, encoding);
 
-                return length <= ValueBlocks.InlineLimit && !place.LiesInTextEntry(length) ? length : 0;
+                return place.LiesInTextEntry(length) ? 0 : LengthWhenInline(length);
 
             case StoredTypeEnum.Binary:
-                var binaryLength = ((byte[])value).Length;
-
-                return binaryLength <= ValueBlocks.InlineLimit ? binaryLength : 0;
+                return LengthWhenInline(((byte[])value).Length);
 
             case StoredTypeEnum.List:
                 var packed = layout.ElementOf(position).Packed;
@@ -285,14 +285,14 @@ internal static class NestedValues
                     return 0;
                 }
 
-                var packedLength = packed.Count(value) * packed.Stride;
-
-                return packedLength <= ValueBlocks.InlineLimit ? packedLength : 0;
+                return LengthWhenInline(packed.Count(value) * packed.Stride);
 
             default:
                 return 0;
         }
     }
+
+    private static int LengthWhenInline(int length) => length <= ValueBlocks.InlineLimit ? length : 0;
 
     // Places a List of the place, its descriptor at the offset given, in the form its element has.
     private static void PlaceList(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, object list)
@@ -426,6 +426,7 @@ internal static class NestedValues
         var records = new ValueHolder(holder.Arena, holder.Layout, holder.Root, holder.Arena.Payload(block), BlockHeader.Size, block, BlockHeader.Size + (count * element.Size));
 
         source.Fill(ref records, element, first, count);
+        Debug.Assert(records.Refused || records.InlineEnd == records.End);
         holder.SlotBytes += records.SlotBytes;
 
         return !records.Refused;
@@ -459,6 +460,7 @@ internal static class NestedValues
             };
 
             source.Fill(ref holderOfBlock, element, first, records);
+            Debug.Assert(holderOfBlock.Refused || holderOfBlock.InlineEnd == holderOfBlock.End);
             holder.Exported!.StoreRecords(offset, block, holderOfBlock.Exported!);
         }
 
@@ -527,17 +529,11 @@ internal static class NestedValues
 
         for (var record = 0; record < count; record++)
         {
-            list.Add(Read(arena, element, payload, BlockHeader.Size, BlockHeader.Size + (record * element.Size), 0, encoding));
+            var structure = payload.Slice(record * element.Size, element.Size);
+
+            list.Add(Read(arena, element, structure, payload, 0, encoding));
         }
     }
-
-    // The descriptor at the offset given of the block whose bytes are given.
-    private static ValueDescriptor DescriptorAt(ReadOnlySpan<byte> bytes, int origin, int offset) =>
-        ValueBlocks.Read(bytes.Slice(offset - origin, ValueBlocks.DescriptorSize));
-
-    // The payload of a block whose bytes, given at the offset origin, are its payload or the whole block; the
-    // values inline of the block count their Location from its start, as ValueBlocks.Contiguous reads them.
-    private static ReadOnlySpan<byte> BlockPayload(ReadOnlySpan<byte> bytes, int origin) => bytes[(BlockHeader.Size - origin)..];
 
     // The refusal of a List of more elements than one List of its elements may hold.
     private static LatticeException AboveTheBound(in StoredField place, int count, StructureLayout element) =>

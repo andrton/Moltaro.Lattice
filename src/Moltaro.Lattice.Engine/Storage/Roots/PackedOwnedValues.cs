@@ -47,7 +47,7 @@ internal sealed class PackedOwnedValues : PackedElements
 
         for (var offset = 0; offset < records.Length; offset += Stride)
         {
-            elements.Add((LatticeOwnedValue?)NestedValues.Read(null!, _element, records.Slice(offset, Stride), origin: 0, at: 0, position: 0, encoding: default));
+            elements.Add((LatticeOwnedValue?)NestedValues.Read(null!, _element, records.Slice(offset, Stride), default, position: 0, encoding: default));
         }
     }
 }
