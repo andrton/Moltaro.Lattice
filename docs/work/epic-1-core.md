@@ -1297,7 +1297,7 @@ Why this order:
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S18 | Owned values, Lists and references | Full | Not started |
+| S18 | Owned values, Lists and references | Full, critical | Part 1 done on 24 November 2026; parts 2 and 3 in progress |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
@@ -8541,6 +8541,212 @@ number at every position. S18 checks and tests it for a field of an owned value 
 element of a List, at depth; S19 for a key, a value and a member of a Map and a Set. A
 value above it is refused as the write is refused today, and the refusal names the place
 of the value as the validation of a write names a place today.
+
+**The brief, as passed by the planner on 24 November 2026 after the study.** The study read
+Cap'n Proto, FlatBuffers, Tarantool and Apache Arrow at the commits its report names;
+nothing is adapted. The names below are the study's; the implementer commits its internal
+contract with the first step of implementation, for the planner to read.
+
+*What is built.*
+
+1. **One stored form for a structure.** A compiled layout, a null bitmap, the fixed
+   fields and the descriptors that close it, serves a root and the record of an element
+   of a List. An owned value is flattened into its holder: no block and no hop; a nullable
+   owned value has one presence bit and every field beneath it a null bit, and an absent
+   one keeps its width with every byte zero.
+2. **Lists in two forms.** A List whose elements hold no descriptor (fixed-width values,
+   references by an integer or a Guid, nullable ones with their bitmap in the record) is
+   stored as a Binary is: the Length of its descriptor is bytes, an element may continue
+   in the next chunk, and what places, frees, retires, exports and imports a Binary serves
+   it unchanged. A List whose elements hold descriptors (String, Binary, a nested List, an
+   owned value with such) is records at one stride, whole records in a block, under a
+   descriptor kind of its own whose Length is the count; its form is told by the kind,
+   never by the length. A value of at most 64 bytes is inline in the block that holds its
+   descriptor. Nothing sorts or merges.
+3. **One walk.** One recursive visitor over the descriptors of a structure serves the
+   free, the publication, the retirement with its text bytes, the counts, `EntityBytes`,
+   the export and the audit. It descends only into Lists whose elements hold descriptors,
+   and no deeper than the schema allows.
+4. **A Reference** is a field of the type of its target's key: an integer at its width, a
+   Guid, or text stored as a String is. It is null by its null bit and never looked up; a
+   missing target is not an error. A key that is text is validated by the core as a
+   String value is.
+5. **An index over a path** resolves its stored field once, when the layout of the index
+   is compiled; an absent owned value on the path gives a null part. The size of an
+   entry part does not change.
+6. **A child.** The wire carries the version of the layout, the root with its locations
+   zeroed, then the values in preorder, with no offset between values. The check walks
+   the whole input by the layout before anything is allocated: a count times a stride in
+   64 bits against the bytes left, a kind against a count, null bits that agree, zero
+   locations, inline spans inside their block, the total exact. One routine places what
+   a child received, a forwarded write, a member of a batch and a local write.
+7. **Copies.** A read by name gains owned values, Lists and references without a box for
+   each element. A read by a class gets the binding of a record to a class for nested
+   values, which does not exist today: under the protection the nested value is made in
+   the form of a record, and the object is built from it outside the protection, so that
+   no constructor and no setter of the application runs inside it.
+8. **The bound at depth, the rule of Q55, the time limit that tests can drive, and L4**,
+   as the notes above say. The refusals name a place as the validation names one today,
+   by the type that declares the field and the field.
+9. **Rules of the schema language**, checked when a database compiles its layouts at its
+   open, `InvalidSchema` with the entity type named: the fixed part of
+   an entity, its owned values included, fits one block; the record of an element of a
+   List fits one chunk; an entity type is refused as not stored yet only when it holds a
+   Map or a Set at any depth.
+
+*Decided by the planner on the study's findings.* A List has the bound its one directory
+level gives, and a List above it is refused as a String above its bound is, with tests at
+the boundary in both forms; whether the bound stays is the owner's (Q63), and a second
+directory level would be a task with a place of its own, not part of this sprint. A
+Reference whose key is text is refused as `ValidationFailed` by the write, never by the
+guard of the writer. The design page and the comment of `BlockKindEnum.Chunk` follow the
+code: a record with descriptors lies whole in one block. The flattening of an owned value
+is taken with its price said: an absent owned value keeps its width, and the record of the
+sprint reports the bytes of an entity with the owned value present and absent beside the
+arithmetic of a block for each owned value.
+
+*Corrected by this brief.* The paragraph carried from the architect's review after S13
+said that the length of a descriptor of a collection is the number of its elements. It is
+that only for a List whose elements hold descriptors; for the other form it is bytes, and
+`ValueBlocks.LiesInChunks` stays right as it is.
+
+*Tests, committed before the implementation,* in folders by area, a string key in the
+public ones.
+- A List: empty, of one element, at the boundary of a chunk in each form (the last
+  element that fits, the first that does not, an element that continues across the
+  boundary), with duplicates and the supplied order kept across it; of nullable
+  elements; of owned values; of Lists; of text at 64 and 65 bytes and above a chunk.
+- An owned value present and absent at every depth the schema allows, the deepest
+  included; an absent one replaced by a present one and back.
+- A Reference by each kind of key, null, and to a target that does not exist.
+- A complete write replaces the whole tree and frees everything the old one owned, by
+  the counters; the ownership audit after churn, with refusals and withdrawals in it,
+  finds every block owned by exactly one live entity.
+- Two reads share nothing at any depth, and nothing a caller changes after a write
+  returned changes what was written, by name and by a class.
+- An index over a field inside an owned value: found by the value, found by null when
+  the owned value is absent, not compared by a unique index then; the same on a child.
+- A child loads such entities and applies their replacement; each way the wire can be
+  wrong is refused before anything is allocated (a count that overflows, a kind that
+  does not fit its count, null bits that disagree, a location that is not zero, an
+  inline span outside its block, a total that is not exact).
+- A forwarded write and a member of a batch with such an entity.
+- The bounds: a String and a Binary at their bound at depth, in an owned value and as an
+  element; a List at its bound in each form; the two rules of the schema language at
+  their boundary.
+- The pairs of Q55 by name, the refused pairs, as the note of 21 November lists them.
+- The two timing tests driven by the source of the timestamp, their loops gone.
+
+*The breaker's targets, in order.* (1) Ownership: a block leaked, freed twice or owned
+by two entities, after churn with refusals for memory, withdrawals, faults and a close.
+(2) A reader that sees a tree half replaced, by key and by a search, on ARM64 as well.
+(3) The wire to a child: an input that makes the check read outside it, allocate before
+it has passed, or accept what a master could not have written. (4) The boundaries of a
+chunk in both forms of a List. (5) Copies that share memory at some depth. (6) A refusal
+for memory in the middle of a tree that leaves something behind. (7) An index over a
+path while the owned value on it appears and disappears.
+
+*Measured, in the one start of the machine, beside "Measured" above.* `root-bytes` for
+the user and the group of the fixture in their full form beside the scalar form; the
+bytes of an entity with an owned value present and absent; a read and a write of an
+entity with its Lists against the scalar form; and what the start owes from before: the
+figures of S17R, the two variant builds of K2, `read-by-key-threads` for `ed81c76`,
+`3e24ce4` and the head, the p3 line with the machine's listings, trees rotated, and the
+correctness lanes on ARM64 with the breaker's probes of this sprint.
+
+If the internal contract shows the sprint is too large for one review, the coordinator
+proposes its parts to the planner with the first step.
+
+**Decided by the planner on 24 November 2026, on the internal contract of step 1**
+(799e03d is the last commit of step 1). The bound of a List is checked by the engine where
+a write is encoded outside the lock, by the encoder a batch's `Add` uses, so it comes
+before the conditions; the core names no number. A record of an element fits one chunk
+when its stride and 64 bytes for each descriptor it holds come to at most 65,504, a packed
+element when its stride does. A List whose elements hold descriptors is never inline in its
+holder; one kind serves it, one block or a directory by its count. A flattened structure
+lays its fixed fields and then its descriptors, each in the order of their paths, and its
+null bits in that order. `RootLayout.Version` stays 2: no schema that compiles today
+changes its bytes, and a node without these forms refuses such a schema as not stored
+before it could meet one; it is raised at the first change of the bytes of a schema that is
+stored today. One test of `EntityBytes` for a tree, an entity with an owned value and both
+forms of a List, its figure equal to the sum the audit reaches. The sprint is carried out
+in three parts on one branch, a pull request for each, each with its review and its
+breaker: (1) the stored form and the walk: `StructureLayout`, the flattening, both forms of
+a List, references, the rules of the schema language, the writer and the reader by name,
+the walk for the free, the publication, the retirement, the counts and `EntityBytes`, with
+`ReadSettings` and L4; (2) copies and the core: the binding of a record to a class for
+nested values, Q55, the bound at depth, the bound of a List, the validation of a text key of
+a reference; (3) children and paths: the wire and its check, the one placement routine,
+indexes over paths. The breaker's targets 1, 2, 4 and 6 belong to part 1, on ARM64 too in
+the start of the machine; target 2 is run again in part 2 for a read by a class and in part
+3 on a child; target 5 belongs to part 2, and 3 and 7 to part 3. The one start of the
+machine follows the review and the breaker of part 1 and carries what is owed from before.
+
+**The record of S18, part 1** (closed on 24 November 2026): the stored form and the walk.
+It was coordinated by the eighth coordinator of the epic, who stays for the sprints of the
+night by the owner's word in the planner's session.
+
+- *Step 1:* the internal contract and the tests of the whole sprint end at 799e03d (3e36413,
+  1e82cc3, 799e03d); the tests of parts 2 and 3 stay skipped with `SkipReason.NestedValues`.
+  One member of that contract went in the fixes, `RootLayout.ElementOf`, for
+  `StructureLayout.ElementOf` by the position of a field; the one step-1 test that used it
+  reaches the element that way, its assertion unchanged.
+- *Built:* `StructureLayout` for a root and for the record of an element; owned values
+  flattened into their holder; both forms of a List; references stored as a field of their
+  key's type; the two rules of the schema language at the open; the writer and the reader
+  by name; one walk (`StructureWalk`) for the free, the publication, the retirement, the
+  counts and `EntityBytes`; one placement of a String, a Binary and a packed List at every
+  depth (`ValueHolder`); `ReadSettings` with the timestamp source the tests replace, and L4
+  as `IndexSearch.RefuseForState`. Refused in part 1, each where it is refused: a child of a
+  master that stores such entity types, at the handshake; the commit of a batch that holds
+  one, through its task; a read through a class of a type with an owned value or a List,
+  through its task, and `Index` on such a set, at the call; an index over a path into an
+  owned value; a Map or a Set at any depth. Pre-sprint tests that asserted
+  `NotSupportedException` for owned values, Lists and references were edited where part 1
+  made them false, each replacement stating the stored behavior.
+- *The listings,* a Release driver over the public API with tiered PGO off, against the
+  build before part 1: `EntityTable.Step` 4,897 → 4,953 bytes over a record copy, frame
+  984 → 1,000, and 4,687 → 4,861 over a class copy; `TryReadNext` 2,050 → 2,284, frame
+  344 → 360; no call added on a read without a time limit, `StartStep` now inline, a round
+  one call as before, `TicksOf` no longer called each round. `TryPrepareInsert` 950 → 1,026,
+  frame 168 → 184; `RetiredMemory.Free` 259 → 324, frame 40 → 56; `Install` 136 → 175,
+  frame 32 → 40; `RootValues.Write` frame 328 unchanged; `TryStore` unchanged; per String
+  the same two calls as before. `StructureWalk.Walk` and `IndexSearch.CheckRound` are not
+  inlined, each for the figure written beside it. The figures of time are owed to the start
+  of the machine.
+- *Review:* three rounds. Round 1, at 5edfde9: 1 P1 (a native out-of-memory while the chunks
+  of a List of records were allocated left the directory and the chunks taken prepared for
+  good, about 4 MB in the probe; the breaker found it too, and its nested case), 1 P2 (the
+  sentences of part 1 held only by step-1 tests that also read by a class or commit a batch:
+  by-name tests added), 6 P3 (a class read refused at the call, the refusal of `Index` not
+  documented, a linear search on the read of a List, the placement written twice, stale
+  documents, comments) and P4s. Round 2: every finding closed; 2 P3 (a stale comment, a
+  second copy of the inline rule in the placement of a packed List). Round 3: both closed,
+  nothing new. The hardest part to follow, by the reviewer: `NestedValues`, its three frames
+  of offsets and a sizing pass that must agree with the writing pass.
+- *The breaker:* targets 1, 2, 4 and 6, 123 probes, each run in Debug and Release, the
+  concurrent ones twelve times more, three of them beside a full suite. One defect, the P1
+  above, deterministic; after its fix every probe passes. Held: churn by name with an audit
+  after every round and 41 to 46 refusals for memory a seed, 18 faults each followed by a
+  close, readers by key, by enumeration and by search beside writers replacing trees, no
+  read torn in about 2,000 a run, every chunk boundary of both forms at every place, a
+  refusal at every block a tree needs. Not reached here: ARM64, in the start of the machine.
+- *Found and left:* the ownership audit cannot audit an entity type with a secondary index,
+  since the indexes count no live nodes; the head of `OwnershipAudit` says what it would
+  take. No sentence of part 1 is left without a test by it, but part 3, whose index over a
+  path shares the text entry of a flattened String, needs an audit that counts the indexes,
+  or a test of the counters. After a close, a read through a class of a nested type reports
+  `NotSupportedException` where other reads report `ObjectDisposedException`; it goes with
+  the reads by a class of part 2. One full Debug run failed once in
+  `LevelBoundTests.Reservation_made_or_refused_takes_no_managed_room_for_its_nodes`, an
+  allocation counted on one thread, in code part 1 does not touch; it passed alone 25 times
+  and in every full run since, its output is kept, and its cause is not known.
+  The merge of `main` brought the tests of the search by index against a model, whose
+  Reference and owned-path parts are skipped with a reason of their own,
+  `SkipReason.OwnedValuesAndReferences`; part 2 folds it into `SkipReason.NestedValues` and
+  takes the skip from the Reference parts that part 1 now stores.
+- *Every suite at the head* (e4fce78): 3,325 tests, 3,151 passing, 174 skipped, in Debug and
+  in Release.
 
 #### S19 · Maps and Sets
 

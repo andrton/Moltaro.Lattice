@@ -34,8 +34,8 @@ namespace Moltaro.Lattice.Schema;
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> What this documentation and that of
-/// <see cref="LatticeIndexPart"/> say of a part inside an owned value or of a Reference, whose
-/// entity types cannot be written yet, describes how they will work. The indexes of an entity
+/// <see cref="LatticeIndexPart"/> say of a part inside an owned value, whose entity type cannot
+/// be written yet, describes how it will work. The indexes of an entity
 /// type whose writes are refused until a feature of its schema is implemented are not checked
 /// for their width, as its fixed part is not, until it can be written.
 /// </para>

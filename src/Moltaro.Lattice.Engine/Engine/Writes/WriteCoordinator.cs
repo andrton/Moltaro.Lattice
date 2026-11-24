@@ -416,6 +416,14 @@ internal sealed class WriteCoordinator
             {
                 return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(member.Table.Refusal));
             }
+
+            // A member is placed from the bytes it was encoded into when it was added, as a forwarded write is,
+            // and that form does not carry nested values yet (EngineDatabase.EncodeRoot).
+            if (member.Table.Layout.Structure.HoldsNestedValues)
+            {
+                return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(
+                    $"The entity type {member.Table.EntityType.Name} holds owned values, Lists or references, which a write batch does not write yet."));
+            }
         }
 
         if (cancellationToken.IsCancellationRequested)

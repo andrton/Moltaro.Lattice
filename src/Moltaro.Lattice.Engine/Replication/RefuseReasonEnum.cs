@@ -19,4 +19,7 @@ internal enum RefuseReasonEnum : ushort
 
     // The peer is not a child.
     Role = 5,
+
+    // The master stores entities a child does not receive yet (Engine.Children.ChildConnection).
+    NestedValues = 6,
 }

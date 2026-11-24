@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
@@ -9,7 +10,10 @@ namespace Moltaro.Lattice.Storage.Roots;
 
 // Writes one root: collects the values of its fields, validates them and allocates in the arena
 // what they need, placed as its RootLayout says. A root is written and read field by field, so
-// that neither a class nor a record has to box its values. The blocks are the private blocks of a
+// that neither a class nor a record has to box its scalar values; an owned value and a List are
+// set whole, each with the tree beneath it (SetOwned, SetList), placed by NestedValues: the fields
+// of an owned value in the fixed part of its holder, the records of a List inline, in one block or
+// in chunks. The blocks are the private blocks of a
 // write that is not published yet (arena protocol, "Read and mutation paths").
 //
 // Every block the writer allocates belongs to the root that the handle root names: its header
@@ -66,8 +70,10 @@ namespace Moltaro.Lattice.Storage.Roots;
 // block or its chunks, because the span it comes in lives only for that call. A value is stored
 // whole or not at all (ValueBlocks.TryStore), so a descriptor in the image names a whole value or
 // nothing, and everything the writer holds is reachable from the image, where Complete or Abandon
-// frees it. Once the arena refused a block, the writer allocates nothing more: Complete refuses the
-// entity anyway.
+// frees it; the blocks of a List's records name, in their turn, what the records hold. Once the arena
+// refused a block, the writer allocates nothing more: Complete refuses the entity anyway. Every String,
+// Binary and packed List is placed by the one placement of ValueHolder, at every depth, the image of the
+// root being the holder of the values of its fixed part.
 //
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
@@ -93,14 +99,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // that nothing walks the blocks of a root to count them afterwards.
 internal ref struct RootWriter
 {
-    private readonly Arena _arena;
-
-    // The values out of line of a root for a forwarded write; null for a root of an arena.
-    private readonly ExportedValues? _exported;
-
     private readonly RootLayout _layout;
-
-    private readonly RootHandle _root;
 
     // The rented array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
     // the image of the root block, its header bytes unused, so that an offset of the layout is an
@@ -108,18 +107,18 @@ internal ref struct RootWriter
     // was set.
     private byte[]? _scratch;
 
-    // The bytes of the root block so far: the fixed part and the inline values placed.
-    private int _rootBytes;
-
-    // The arena refused a block for its budget: Complete refuses the entity, so nothing more is
+    // The image of the root as the block its values are placed into (ValueHolder): the arena and the root,
+    // the values out of line of a root for a forwarded write, the bytes of the root block so far as
+    // InlineEnd, its fixed part and the inline values placed, the slots the writer holds, and whether the
+    // arena refused a block for its budget, after which Complete refuses the entity, so nothing more is
     // allocated for it.
-    private bool _refusedByArena;
+    private ValueHolder _values;
 
     private WriterStateEnum _state;
 
     // The bytes of the slots of the blocks the writer allocated and holds (see the class): after a
     // Complete that returned, those of the whole root; 0 after Abandon or a failed Complete.
-    public long SlotBytes { get; private set; }
+    public readonly long SlotBytes => _values.SlotBytes;
 
     // Starts a root of the entity type of the layout, in the arena, for the root that the handle
     // names, in prepared blocks. Refuses a null arena or layout with ArgumentNullException.
@@ -128,11 +127,9 @@ internal ref struct RootWriter
         ArgumentNullException.ThrowIfNull(arena);
         ArgumentNullException.ThrowIfNull(layout);
 
-        _arena = arena;
         _layout = layout;
-        _root = root;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
-        _rootBytes = layout.FixedSize;
+        _values = new ValueHolder(arena, layout, root, Image, origin: 0, address: default, layout.FixedSize);
         Start();
     }
 
@@ -143,11 +140,9 @@ internal ref struct RootWriter
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(exported);
 
-        _arena = null!;
-        _exported = exported;
         _layout = layout;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
-        _rootBytes = layout.FixedSize;
+        _values = new ValueHolder(null!, layout, default, Image, origin: 0, address: default, layout.FixedSize) { Exported = exported };
         Start();
     }
 
@@ -324,7 +319,7 @@ internal ref struct RootWriter
     // database its code units, placed by its encoded length as RootLayout says for a field with Plain
     // storage; a text that lies in an entry of the text table (StoredField.LiesInTextEntry: one that is not
     // empty of a field with Dictionary storage, and one longer than ValueBlocks.InlineLimit of a field that
-    // is part of an index), in the entry that holds the same bytes, found or added (PlaceText). Only
+    // is part of an index), in the entry that holds the same bytes, found or added (ValueHolder.PlaceText). Only
     // well-formed text is stored, in both encodings (docs/decisions/strings.md, "Input validity and
     // preservation"): text that is not well-formed UTF-16, a surrogate without its pair, is refused
     // with LatticeException, ValidationFailed, at the call. Then nothing is allocated for the value,
@@ -341,37 +336,24 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.String, nameof(SetString));
 
-        // A code unit takes one byte at least in UTF-8 and two in UTF-16, so text of more code units
-        // than the bound has bytes is above it in either encoding: it is refused before it is
-        // scanned, and the text that is counted below has an encoded length that fits an int.
-        if (value.Length > ValueBlocks.MostValueBytes)
-        {
-            throw AboveTheBound(stored.Field);
-        }
-
-        // The whole text is checked before anything is placed: a lone surrogate at its end must not
-        // be found after its first chunks were allocated. Checking, counting and, in a UTF-8 database,
-        // encoding are three passes over the text, kept apart on purpose: the decision on input
-        // validity (docs/decisions/strings.md, "Input validity and preservation") asks to combine them
-        // where possible, and that is done when a measurement shows it is worth the code.
-        if (!WellFormedText.IsWellFormed(value))
-        {
-            throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The text for the field {Name(field)} is not well-formed: it has a surrogate without its pair.");
-        }
-
-        var length = StoredText.EncodedLength(value, _layout.StringEncoding);
-
-        if (stored.LiesInTextEntry(length))
-        {
-            PlaceText(stored, value, length);
-
-            return;
-        }
-
-        var source = ValueSource.Text(value, _layout.StringEncoding);
-
-        PlaceValue(stored, length, ref source);
+        _values.PlaceText(stored, stored.Offset, value);
+        MarkSet(stored, isNull: false);
     }
+
+    // Sets an owned value of the entity, of the owned type of the field, as a record holds it: its fields,
+    // flattened into the root (StructureLayout), each placed as a field of its type is, at every depth, those
+    // of its own owned values and Lists included (NestedValues). A field of the owned value without a value is
+    // null; the validation of the core has checked that it may be. Text that is not well-formed, and a value or
+    // a List above its bound, at any depth, is refused with ValidationFailed as by SetString, and an
+    // OutOfMemoryException of the native allocator passes through; then what the owned value placed before
+    // is the writer's, so a caller abandons the writer, which frees it. Not for a root for a forwarded write,
+    // which does not carry nested values yet: NotSupportedException.
+    public void SetOwned(LatticeField field, LatticeOwnedValue value) => SetNested(field, StoredTypeEnum.Owned, nameof(SetOwned), value);
+
+    // Sets a List of the entity, the List<T> a record holds for it, placed in the form of its element: as the
+    // bytes of a Binary value when its elements hold no descriptor, as records otherwise, whatever their depth
+    // (NestedValues). An element given as null is null. The refusals are those of SetOwned.
+    public void SetList(LatticeField field, object value) => SetNested(field, StoredTypeEnum.List, nameof(SetList), value);
 
     // Sets the value of a Binary field: the bytes as they are, in their order, placed by their
     // length as RootLayout says. More than the 268,173,376 bytes of one value is refused with
@@ -384,7 +366,8 @@ internal ref struct RootWriter
         ref readonly var stored = ref Take(field, StoredTypeEnum.Binary, nameof(SetBinary));
         var source = ValueSource.Bytes(value);
 
-        PlaceValue(stored, value.Length, ref source);
+        _values.PlaceBytes(stored, stored.Offset, value.Length, ref source);
+        MarkSet(stored, isNull: false);
     }
 
     // Ends the root and returns the address of its root block. A nullable field that was never set
@@ -398,14 +381,14 @@ internal ref struct RootWriter
     {
         ThrowIfEnded();
 
-        if (_exported is not null)
+        if (_values.Exported is not null)
         {
             throw new InvalidOperationException("A root for a forwarded write ends with Export.");
         }
 
         CheckRequiredFields();
 
-        if (_refusedByArena)
+        if (_values.Refused)
         {
             throw RefuseForMemory();
         }
@@ -415,13 +398,13 @@ internal ref struct RootWriter
 
         try
         {
-            var payloadLength = _rootBytes - BlockHeader.Size;
+            var payloadLength = _values.InlineEnd - BlockHeader.Size;
 
-            allocated = _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root);
+            allocated = _values.Arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _values.Root, out root);
 
             if (allocated)
             {
-                SlotBytes += Arena.BlockSizeFor(payloadLength);
+                _values.SlotBytes += Arena.BlockSizeFor(payloadLength);
             }
         }
         catch (OutOfMemoryException)
@@ -440,15 +423,16 @@ internal ref struct RootWriter
         }
 
         // TryAllocatePrepared wrote the root, the kind and the length; a root has no parent and the offset 0.
-        _arena.Header(root).LayoutVersion = _layout.LayoutVersion;
-        Image[BlockHeader.Size.._rootBytes].CopyTo(_arena.Payload(root));
+        _values.Arena.Header(root).LayoutVersion = _layout.LayoutVersion;
+        Image[BlockHeader.Size.._values.InlineEnd].CopyTo(_values.Arena.Payload(root));
 
-        // The value blocks and the directories were allocated before their parent existed.
+        // The value blocks, the directories and the blocks of records the root block holds the descriptors of
+        // were allocated before their parent existed.
         var descriptors = new RootDescriptors(_layout, Image[BlockHeader.Size..]);
 
         while (descriptors.MoveNext())
         {
-            RootStorage.AdoptValue(_arena, descriptors.Current, root, descriptors.Offset);
+            RootStorage.AdoptValue(_values.Arena, descriptors.Current, root, descriptors.Offset);
         }
 
         End(WriterStateEnum.Completed);
@@ -457,7 +441,7 @@ internal ref struct RootWriter
     }
 
     // The bytes Export writes for a root for a forwarded write, once its values are set.
-    public readonly long ExportLength => sizeof(uint) + (_rootBytes - BlockHeader.Size) + _exported!.Length;
+    public readonly long ExportLength => sizeof(uint) + (_values.InlineEnd - BlockHeader.Size) + _values.Exported!.Length;
 
     // Ends a root for a forwarded write (see the class) and writes it into the output as BlockExport writes
     // a stored one: the layout version (UInt32, little-endian), the root payload, and each value out of
@@ -467,14 +451,14 @@ internal ref struct RootWriter
     {
         ThrowIfEnded();
 
-        if (_exported is null)
+        if (_values.Exported is not { } exported)
         {
             throw new InvalidOperationException("Only a root for a forwarded write is exported.");
         }
 
         CheckRequiredFields();
 
-        var payload = Image[BlockHeader.Size.._rootBytes];
+        var payload = Image[BlockHeader.Size.._values.InlineEnd];
 
         BinaryPrimitives.WriteUInt32LittleEndian(output.GetSpan(sizeof(uint)), _layout.LayoutVersion);
         output.Advance(sizeof(uint));
@@ -485,7 +469,7 @@ internal ref struct RootWriter
 
         for (var index = 0; index < _layout.DescriptorCount; index++)
         {
-            _exported.WriteTo(index, output);
+            exported.WriteTo(index, output);
         }
 
         End(WriterStateEnum.Completed);
@@ -504,6 +488,21 @@ internal ref struct RootWriter
 
         FreeValues();
         End(WriterStateEnum.Abandoned);
+    }
+
+    // An owned value or a List of the entity, written into the image of the root by NestedValues, with what it
+    // takes counted here.
+    private void SetNested(LatticeField field, StoredTypeEnum type, string member, object value)
+    {
+        ref readonly var stored = ref Take(field, type, member);
+
+        if (_values.Exported is not null)
+        {
+            throw new NotSupportedException($"The field {Name(field)} is {field.Declaration.Type}, which a root for a forwarded write does not carry yet.");
+        }
+
+        NestedValues.Write(ref _values, _layout.Structure, 0, field.Ordinal, value);
+        MarkSet(stored, isNull: false);
     }
 
     // Every field that is not nullable was set; ValidationFailed for the first one that was not, with
@@ -570,93 +569,6 @@ internal ref struct RootWriter
     // The bytes of a fixed field in the image.
     private readonly Span<byte> Place(scoped in StoredField stored) => Image.Slice(stored.Offset, stored.Width);
 
-    // Places a String or Binary value of length encoded bytes: inline, in its blocks, or not at all
-    // when the arena refused a block before and Complete refuses the entity anyway. A value above the
-    // bound of one value is refused first, with ValidationFailed: nothing is allocated for it and the
-    // field is not set. Otherwise the field is set when the call returns; when an
-    // OutOfMemoryException passes through, the writer is as it was before the call.
-    private void PlaceValue(in StoredField stored, int length, ref ValueSource source)
-    {
-        if (length > ValueBlocks.MostValueBytes)
-        {
-            throw AboveTheBound(stored.Field);
-        }
-
-        var descriptor = Place(stored);
-
-        if (_refusedByArena)
-        {
-            // Nothing more is allocated for an entity that Complete refuses.
-        }
-        else if (length <= ValueBlocks.InlineLimit && _rootBytes + length <= Arena.MaxBlockSize)
-        {
-            source.Fill(Image.Slice(_rootBytes, length));
-            ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)_rootBytes });
-            _rootBytes += length;
-        }
-        else if (_exported is not null)
-        {
-            // Kept apart in the order of its descriptor, and described as the blocks that would hold it.
-            _exported.Store((stored.Offset - _layout.DescriptorOffset) / ValueBlocks.DescriptorSize, length, ref source);
-            ValueBlocks.Write(descriptor, new ValueDescriptor
-            {
-                Kind = length <= ValueBlocks.SingleBlockLimit ? DescriptorKindEnum.Block : DescriptorKindEnum.Chunked,
-                Length = (uint)length,
-                Location = 0,
-            });
-        }
-        else if (ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, length, ref source, descriptor))
-        {
-            SlotBytes += ValueBlocks.SlotBytesOf(length);
-        }
-        else
-        {
-            _refusedByArena = true;
-        }
-
-        MarkSet(stored, isNull: false);
-    }
-
-    // Places a text that lies in an entry of the text table, length bytes in the encoding of the database,
-    // at least one, which SetString has checked: the descriptor of kind Text names the entry of the text
-    // table that holds these bytes, which the root takes one reference to (Text.TextTable.TryAcquire), or
-    // nothing when the arena refused a block before or refuses a new entry now, since Complete refuses
-    // the entity then. A new entry counts in SlotBytes, as the blocks of a Plain value do: the write
-    // allocated it. For a forwarded write the bytes are kept out of line, as the wire carries them: a
-    // Text descriptor with location 0, its bytes after the root payload in the order of the descriptors.
-    // An OutOfMemoryException passes with nothing taken and the field not set.
-    private void PlaceText(in StoredField stored, ReadOnlySpan<char> value, int length)
-    {
-        if (length > ValueBlocks.MostValueBytes)
-        {
-            throw AboveTheBound(stored.Field);
-        }
-
-        var descriptor = Place(stored);
-
-        if (_refusedByArena)
-        {
-            // Nothing more is allocated for an entity that Complete refuses.
-        }
-        else if (_exported is not null)
-        {
-            var source = ValueSource.Text(value, _layout.StringEncoding);
-
-            _exported.Store((stored.Offset - _layout.DescriptorOffset) / ValueBlocks.DescriptorSize, length, ref source);
-            ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Text, Length = (uint)length, Location = 0 });
-        }
-        else if (_arena.Texts.TryAcquire(value, _layout.StringEncoding, length, descriptor, out var newBytes))
-        {
-            SlotBytes += newBytes;
-        }
-        else
-        {
-            _refusedByArena = true;
-        }
-
-        MarkSet(stored, isNull: false);
-    }
-
     // Records that the field was set; a value that is not null clears the field's null bit.
     private readonly void MarkSet(in StoredField stored, bool isNull)
     {
@@ -676,17 +588,14 @@ internal ref struct RootWriter
     private void FreeValues()
     {
         // A root for a forwarded write holds no block: its values out of line are managed memory.
-        if (_exported is not null)
+        if (_values.Exported is not null)
         {
             return;
         }
 
-        foreach (var descriptor in new RootDescriptors(_layout, Image[BlockHeader.Size..]))
-        {
-            RootStorage.FreeValue(_arena, descriptor);
-        }
+        RootStorage.FreeImage(_values.Arena, _layout, Image);
 
-        SlotBytes = 0;
+        _values.SlotBytes = 0;
     }
 
     // A failed Complete: everything the writer allocated is freed, and the writer has ended.
@@ -733,10 +642,6 @@ internal ref struct RootWriter
     }
 
     private readonly string Name(LatticeField field) => $"{_layout.EntityType.Name}.{field.Name}";
-
-    // The refusal of a String or Binary value above the bound of one value.
-    private readonly LatticeException AboveTheBound(LatticeField field) =>
-        new(LatticeErrorEnum.ValidationFailed, $"The value for the field {Name(field)} takes more than the {ValueBlocks.MostValueBytes} bytes one value may take.");
 
     private readonly LatticeException OutOfRange<TValue>(LatticeField field, TValue value) =>
         new(LatticeErrorEnum.ValidationFailed, $"The value {value} is outside the range of the field {Name(field)}, which is {field.Declaration.ScalarType}.");

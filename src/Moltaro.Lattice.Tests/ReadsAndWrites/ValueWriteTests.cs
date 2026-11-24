@@ -1,20 +1,17 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// Storing owned values, Lists, Maps, Sets and references is not implemented yet: until it is,
-// every write of an entity type that declares a field of one of these types throws
-// NotSupportedException, through records and through classes. Compiling, saving and loading
-// such a schema work, and so do records and the binding of classes. An entity type of the same
-// schema that declares none of these fields, also one that others refer to, is written as
-// before.
+// Storing Maps and Sets is not implemented yet: until it is, every write of an entity type that
+// declares a field of one of these types throws NotSupportedException, through records and through
+// classes. Compiling, saving and loading such a schema work, and so do records and the binding of
+// classes. An entity type of the same schema with an owned value, a List or a reference is written and
+// read back by name, and one that declares none of these fields, also one that others refer to, is
+// written as before.
 public sealed class ValueWriteTests
 {
     [Theory]
-    [InlineData("Resident")]
-    [InlineData("Roster")]
     [InlineData("Settings")]
     [InlineData("Badges")]
-    [InlineData("Membership")]
-    public async Task Entity_type_with_a_nested_value_or_a_reference_is_not_writable_yet_through_records(string entityTypeName)
+    public async Task Entity_type_with_a_Map_or_a_Set_is_not_writable_yet_through_records(string entityTypeName)
     {
         await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());
         var set = database.Set(entityTypeName);
@@ -28,15 +25,29 @@ public sealed class ValueWriteTests
     }
 
     [Fact]
-    public async Task Entity_type_with_a_nested_value_or_a_reference_is_not_writable_yet_through_classes()
+    public async Task Entity_type_with_a_Map_or_a_Set_is_not_writable_yet_through_classes()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());
 
-        await ExpectNotWritableAsync(database.Set<Resident>(), new Resident { Id = 1, Home = new Address { City = "Oslo" } });
-        await ExpectNotWritableAsync(database.Set<Roster>(), new Roster { Id = 1, Names = ["Ada"] });
         await ExpectNotWritableAsync(database.Set<Settings>(), new Settings { Id = 1, Values = new() { ["theme"] = "dark" } });
         await ExpectNotWritableAsync(database.Set<Badges>(), new Badges { Id = 1, Codes = [7] });
-        await ExpectNotWritableAsync(database.Set<Membership>(), new Membership { Id = 1, Club = 1 });
+    }
+
+    [Theory]
+    [InlineData("Resident")]
+    [InlineData("Roster")]
+    [InlineData("Membership")]
+    public async Task Entity_type_of_a_saved_and_loaded_schema_with_an_owned_value_a_List_or_a_reference_is_written_and_read_back_by_name(string entityTypeName)
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());
+        var set = database.Set(entityTypeName);
+
+        await set.InsertAsync(CompleteRecord(set.EntityType, database.Schema));
+
+        var read = set.Get(1L)!;
+        var written = CompleteRecord(set.EntityType, database.Schema);
+
+        Assert.All(set.EntityType.Fields, field => Assert.Equal(Show(written[field.Name]), Show(read[field.Name])));
     }
 
     [Fact]
@@ -59,6 +70,14 @@ public sealed class ValueWriteTests
         await Assert.ThrowsAsync<NotSupportedException>(async () => await set.DeleteAsync(1L));
         Assert.Empty(set.Enumerate());
     }
+
+    // A value of a record, its owned values field by field.
+    private static string Show(object? value) => value switch
+    {
+        LatticeOwnedValue owned => string.Join(", ", owned.OwnedType.Fields.Select(field => $"{field.Name} {Show(owned[field.Name])}")),
+        System.Collections.IEnumerable and not string => string.Join(", ", ((System.Collections.IEnumerable)value).Cast<object?>().Select(Show)),
+        _ => $"{value}",
+    };
 
     // A record with every field set to a value its declaration accepts.
     private static LatticeRecord CompleteRecord(LatticeEntityType entityType, LatticeSchema schema)

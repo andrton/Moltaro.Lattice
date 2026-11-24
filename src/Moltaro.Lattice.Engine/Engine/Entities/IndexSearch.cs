@@ -1,6 +1,8 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Indexes;
+using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Entities;
@@ -44,17 +46,17 @@ internal struct IndexSearch
 
     // The search of a lazy Find through the index, null for an entity type the engine does not store, by the
     // key, a full key or not: forward, skipping nothing, and holding nothing of its answer.
-    public IndexSearch(LatticeDatabaseOptions options, SecondaryIndex? index, in IndexKey key)
+    public IndexSearch(ReadSettings settings, SecondaryIndex? index, in IndexKey key)
     {
-        Limits = new ReadLimits(options);
+        Limits = new ReadLimits(settings);
         FullKey = index is not null && IndexWalk.IsFullKey(index.Layout, key);
         EndsAtItsEntity = FullKey && index!.IsUnique && !HasNull(key);
     }
 
     // The search of FindAsync through the index by the key, a full key or not, in the direction given, which
     // skips the matches of its Offset and holds its answer until it returns.
-    public IndexSearch(LatticeDatabaseOptions options, SecondaryIndex? index, in IndexKey key, bool reverse, int offset)
-        : this(options, index, key)
+    public IndexSearch(ReadSettings settings, SecondaryIndex? index, in IndexKey key, bool reverse, int offset)
+        : this(settings, index, key)
     {
         Reverse = reverse;
         Offset = offset;
@@ -115,6 +117,13 @@ internal struct IndexSearch
     // failure the search kept and the time limit. On a failure of a limit it lets go of what the search
     // remembers: a search that failed returns nothing more, and every later step fails at the failure the
     // read limits keep before it would read it.
+    //
+    // Not inlined. Inlined into the step of a search (EntityTable.Step) with the look of the read limits inside
+    // it, it takes the room the JIT gives to inlining there, and the look into the keys a lazy Find returned
+    // (ReturnedKeys.Contains), made for every entity it meets, becomes a call. In the JIT listing of a Release
+    // build of the step over RecordCopy, inlined: 5,372 bytes and a call of Contains; called: 4,953 bytes with
+    // Contains inline, and this one call for a round of the step.
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         if (Limits.FailureOfRound(started, cancellationToken, entityName, indexName) is { } failure)
@@ -123,6 +132,16 @@ internal struct IndexSearch
 
             throw failure;
         }
+    }
+
+    // The refusal of a step of the search when the database refuses every read, after the close or a fault
+    // (Protection.ReadEpochs.ThrowForState): the search is over for good and lets go of what it remembers,
+    // as when a read limit fails it.
+    [DoesNotReturn]
+    public void RefuseForState(ReadEpochs epochs)
+    {
+        Progress = null;
+        epochs.ThrowForState();
     }
 
     // The look at the memory (ReadLimits.FailureOfMemory): the token, then whether the search would hold more

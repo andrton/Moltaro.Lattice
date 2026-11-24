@@ -13,7 +13,8 @@ namespace Moltaro.Lattice.Engine.Children;
 // 1. The Hello. The peer has the OpenTimeout of the master to send a valid one; a peer that sends nothing,
 //    a frame that is not valid or not a Hello is disconnected, and nothing is sent to it.
 // 2. The check (Replication.HelloCheck). A peer the master does not accept is sent a Refuse with the
-//    reason and nothing else, and the connection is closed. Nothing has been registered for it.
+//    reason and nothing else, and the connection is closed. Nothing has been registered for it. A master
+//    that stores owned values, Lists or references refuses every child (see the check below).
 // 3. The registration of its capture (Capture.Register), under the lock of the writes: its start S, its
 //    fence and its cursor in the tail. The master goes on writing.
 // 4. The load: the HelloReply, the Schema frames, the roots in Blocks frames, and LoadEnd with S, R and the
@@ -127,7 +128,15 @@ internal sealed class ChildConnection
 
             var peer = FrameCodec.ReadHelloBody(new(hello.Payload));
 
-            if (HelloCheck.RefusalOfChild(_capture.Hello, peer) is { } reason)
+            // A master that stores entities of a type with an owned value, a List or a Reference refuses every
+            // child (Replication.RefuseReasonEnum.NestedValues): the load and the changes it sends a child do
+            // not carry such entities yet, and a child that loaded without them would serve less than the
+            // master holds. The child fails its open with NotSupportedException (Child.MasterLink).
+            var refusal = _capture.RefusesChildren
+                ? RefuseReasonEnum.NestedValues
+                : HelloCheck.RefusalOfChild(_capture.Hello, peer);
+
+            if (refusal is { } reason)
             {
                 _connection.AddRefuse(reason);
                 await _connection.SendAsync(finishing).ConfigureAwait(false);

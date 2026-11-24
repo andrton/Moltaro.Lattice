@@ -17,6 +17,14 @@ namespace Moltaro.Lattice.Access;
 /// are ignored.
 /// </para>
 /// <para>
+/// <b>Not implemented yet.</b> A read of an entity type that holds an owned value or a List, at
+/// any depth, is refused with <see cref="NotSupportedException"/> before it reads: building such
+/// an object from what is stored is not built yet. A synchronous read and <see cref="Index"/>,
+/// which selects an index for such reads, throw it at the call; <see cref="GetAsync"/> and
+/// <see cref="EnumerateAsync"/> report it through the returned task or enumeration. Its entities
+/// are written through the class and read by name, see <see cref="ILatticeSet"/>.
+/// </para>
+/// <para>
 /// There are two kinds of reads. The synchronous ones, <see cref="Get"/>,
 /// <see cref="TryGet{TKey}(TKey, out TEntity)"/> and <see cref="Enumerate"/>, return what
 /// this node has at the moment; on a child that can be older than the master. The
@@ -100,7 +108,7 @@ namespace Moltaro.Lattice.Access;
 /// which refuses such arrays in the same way. Both come before the conditions of the write are looked at, whether the
 /// key exists and whether the entity has the expected revision, and before a write is
 /// refused as not implemented, for every entity type whose writes are refused until a
-/// feature of its schema is implemented, such as an owned value: only a write that passes
+/// feature of its schema is implemented, such as a Map: only a write that passes
 /// them ends in <see cref="NotSupportedException"/>. Whether a unique index already holds a
 /// value of the entity is decided after the conditions of the write, by the master, as
 /// <see cref="LatticeIndex.IsUnique"/> states.

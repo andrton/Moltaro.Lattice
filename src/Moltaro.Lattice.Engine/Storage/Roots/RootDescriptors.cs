@@ -2,8 +2,9 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The descriptors of a root, which name everything it holds outside its root block: one for each String
-// and Binary field, in the order of the layout, 16 bytes each, closing the fixed part
+// The descriptors of a root, which name everything it holds outside its root block: one for each String,
+// Binary and List field and for each such field of its owned values, in the order of the layout, 16 bytes
+// each, closing the fixed part
 // (RootLayout.DescriptorOffset). It walks the payload of a root block, or of anything laid out as one — the
 // image of a writer, the copy of a root on the wire, a root received — so that the free, the publication,
 // the retirement and the byte counts of a root (RootStorage, RootWriter, Engine.Writes.WriteExecutor), its
@@ -38,7 +39,7 @@ internal ref struct RootDescriptors
     // descriptor names records it (BlockHeader.DescriptorOffset).
     public readonly int Offset => _layout.DescriptorOffset + (_index * ValueBlocks.DescriptorSize);
 
-    // The String or Binary field of the descriptor.
+    // The place of the descriptor: a String, Binary or List field, of the entity or of one of its owned values.
     public readonly ref readonly StoredField Field => ref _layout.DescriptorField(_index);
 
     // The position of the descriptor among those of the root, from 0; -1 before the first.

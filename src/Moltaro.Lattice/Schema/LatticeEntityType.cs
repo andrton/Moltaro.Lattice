@@ -6,6 +6,17 @@ namespace Moltaro.Lattice.Schema;
 /// An entity type declared in the schema: its name, fields, primary key and secondary
 /// indexes, and optionally the .NET class that represents its entities.
 /// </summary>
+/// <remarks>
+/// Two rules of the schema language bound what one entity stores, the same in every process,
+/// and a database checks them when it opens. What an entity stores at a fixed width, which is
+/// every scalar field at its width, the fields of its owned values at every depth, 16 bytes for
+/// each String, Binary and List among them, a null bitmap of one bit for each value that can be
+/// null and a header of 32 bytes, fits one block of 65,536 bytes. What one element of a List
+/// stores in the same way fits one chunk of 65,504 bytes, an element that holds a String, a
+/// Binary or a List with room for 64 bytes of each. A database whose schema breaks one does not
+/// open: the open fails with <see cref="LatticeErrorEnum.InvalidSchema"/>, with the entity type
+/// named. A schema would need thousands of fixed-width fields to meet either.
+/// </remarks>
 public sealed class LatticeEntityType
 {
     private readonly Dictionary<string, LatticeField> _fieldsByName;

@@ -29,15 +29,12 @@ namespace Moltaro.Lattice.Access;
 /// </para>
 /// <para>
 /// Changing an owned value changes nothing in the database until the record that holds it
-/// is submitted by a write. Once owned values are stored, a read will return new ones with
-/// the record; until then none is stored, as the part below says. An owned value is not safe
-/// to change from several threads.
+/// is submitted by a write. A read returns new ones with the record, at every depth. An owned
+/// value is not safe to change from several threads.
 /// </para>
 /// <para>
-/// <b>Not implemented yet.</b> Records hold owned values, but storing them is not
-/// implemented. Until then no write of an entity type that has an Owned field is carried
-/// out: after the checks every write makes of its arguments and of the entity against the
-/// schema, it throws <see cref="NotSupportedException"/>.
+/// <b>Not implemented yet</b> for every use: an owned value is stored and read back by name,
+/// and the rest is not built yet, as the remarks of <see cref="LatticeFieldTypeEnum.Owned"/> say.
 /// </para>
 /// </remarks>
 public sealed class LatticeOwnedValue

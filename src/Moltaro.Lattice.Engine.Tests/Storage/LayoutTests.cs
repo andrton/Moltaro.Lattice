@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage;
@@ -8,11 +9,19 @@ namespace Moltaro.Lattice.Engine.Tests.Storage;
 // compared with the milestone contract ("Native layout and allocation"), which asks that the
 // actual layout be asserted and not assumed: the 32-byte header at the start of every block in
 // native memory, the 48-byte root entry in the managed pages of the root table, and the 16-byte
-// descriptor of a String or Binary value in the fixed part of a root. The sizes are those the
-// runtime uses for a value of the type, and each offset is measured between a reference to a
-// value and a reference to its field, so nothing is taken from the declarations.
+// descriptor of a String or Binary value in the fixed part of a root. And the 48 bytes of a part of the
+// layout of an index (Ordered.EntryPart), which every reader of an entry reads in place and which a part
+// reached through owned values does not widen. The sizes are those the runtime uses for a value of the
+// type, and each offset is measured between a reference to a value and a reference to its field, so
+// nothing is taken from the declarations.
 public sealed class LayoutTests
 {
+    [Fact]
+    public void An_entry_part_of_the_layout_of_an_index_takes_48_bytes()
+    {
+        Assert.Equal(48, Unsafe.SizeOf<EntryPart>());
+    }
+
     [Fact]
     public void The_types_of_the_fields_have_the_widths_the_specification_gives()
     {

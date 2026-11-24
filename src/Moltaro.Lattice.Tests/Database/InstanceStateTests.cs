@@ -144,13 +144,13 @@ public sealed class InstanceStateTests
     [Fact]
     public async Task After_a_close_a_read_of_an_entity_type_the_engine_does_not_store_is_ObjectDisposedException()
     {
-        // Holder has a List field: the engine does not store it.
+        // Holder has a Map field: the engine does not store it.
         var schema = LatticeSchema.Compile($$"""
             {
               "EntityTypes": [
                 {
                   "Id": 1, "Name": "Holder", "ClrType": "{{typeof(Holder).FullName}}",
-                  "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Lines", "Type": "List", "Element": { "Type": "String" } } ],
+                  "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Lines", "Type": "Map", "Key": { "Type": "String" }, "Value": { "Type": "String" } } ],
                   "PrimaryKey": [1]
                 }
               ]
@@ -184,6 +184,6 @@ public sealed class InstanceStateTests
     {
         public long Id { get; set; }
 
-        public List<string> Lines { get; set; } = [];
+        public Dictionary<string, string> Lines { get; set; } = [];
     }
 }

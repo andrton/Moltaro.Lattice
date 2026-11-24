@@ -70,9 +70,10 @@ internal readonly struct ClassField<TEntity>
         return new ClassField<TEntity>(property.Field, slot, setValue, setNull);
     }
 
-    // Whether the field is a String or a Binary, whose value lies outside the fixed part of a root.
+    // Whether the field is a String or a Binary, a Reference whose key is a String included, whose value
+    // lies outside the fixed part of a root.
     public static bool HasSlot(LatticeField field) =>
-        field.Declaration.Type is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
+        field.Declaration.ScalarType is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
 
     // Under the protection of the root: makes the value of a String or Binary field into its slot,
     // the string or the array that the returned object will hold. Null for a null value.

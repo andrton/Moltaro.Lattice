@@ -33,10 +33,10 @@ namespace Moltaro.Lattice.Schema;
 /// <see langword="null"/> will find the entity, and a unique index will not compare it.
 /// </para>
 /// <para>
-/// <b>Not implemented yet.</b> An entity type with an owned value or a Reference field cannot
-/// be written yet, so a search through a part inside an owned value or of a Reference finds
-/// nothing yet, see <see cref="LatticeIndex"/>. What this documentation says of them describes
-/// how they will work.
+/// <b>Not implemented yet.</b> An entity type with an index over a part inside an owned value
+/// cannot be written yet, so a search through such a part finds nothing yet, see
+/// <see cref="LatticeIndex"/>. What this documentation says of such a part describes how it
+/// will work.
 /// </para>
 /// </remarks>
 public sealed class LatticeIndexPart
