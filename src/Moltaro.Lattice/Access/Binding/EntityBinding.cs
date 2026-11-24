@@ -57,10 +57,12 @@ internal sealed class EntityBinding<TEntity>
     }
 
     // Entity -> values to store, in the form a record holds and checked against the schema at
-    // every depth. The value of every field of the entity is checked against the bound of one value
-    // before anything else of the entity is checked and before it is copied; a String or Binary value
-    // inside a collection or an owned value is checked where the binding takes it, before it is copied
-    // (ClassBinder), as RecordValues.Submit does for a record. The result shares the byte arrays of
+    // every depth, property by property in the order of the fields. The value of each property is
+    // checked against the bound of one value before the rest of the validation of that property, so a
+    // value above it is refused before it is taken; a String or Binary value inside a collection or an
+    // owned value is checked where the binding descends into it, before it is copied (ClassBinder). A
+    // record is checked otherwise: every field against the bound first, then the rest
+    // (RecordValues.Submit). The result shares the byte arrays of
     // the fields of the entity, checked to be byte[] as a copy is: the engine copies each once, into
     // its own memory, while the write runs, and the caller keeps the entity unchanged until the write
     // completes (BoundProperty.Take; RecordValues.Submit says the same of a record).

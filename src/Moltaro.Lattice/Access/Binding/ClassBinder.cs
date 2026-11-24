@@ -197,46 +197,25 @@ internal sealed class ClassBinder
         LatticeFieldTypeEnum.Set => new Conversion(BindSet(type, declaration, place), NotRead),
         LatticeFieldTypeEnum.Map => new Conversion(BindMap(type, declaration, place), NotRead),
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
-        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, BindBinary(declaration, place), place), Same),
+        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place), Same),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
         LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Reference when declaration.ScalarType == LatticeFieldTypeEnum.String && type == typeof(string) =>
-            new Conversion(BindText(declaration, place), Same),
+            new Conversion(BindText(place), Same),
         _ when type == declaration.PositionType => new Conversion(Same, Same),
         _ => throw place.Mismatch(),
     };
 
-    // Text is taken as it is, after the bound of one value, and after one pass that refuses text that is
-    // not well-formed, a surrogate without its pair, at any depth (the planner's answer to Q41): a String,
-    // and the key of the target of a Reference whose target has a String key, which is validated as a
-    // String value is.
-    private Func<object, object> BindText(LatticeValueDeclaration declaration, Place place)
+    // Text is taken as it is, after one pass that refuses text that is not well-formed, a surrogate
+    // without its pair, at any depth: such text is never stored and never replaced by another
+    // character (docs/decisions/strings.md, "Input validity and preservation"). A String, and the key of
+    // the target of a Reference whose target has a String key, which is validated as a String value is.
+    private Func<object, object> BindText(Place place)
     {
         var entityTypeName = _entityType.Name;
-        var encoding = _entityType.StringEncoding;
 
-        return value =>
-        {
-            if (!ValueBound.Holds(declaration, value, encoding))
-            {
-                throw ValidationFailed(entityTypeName, place.Holds(ValueBound.Held));
-            }
-
-            return WellFormedText.IsWellFormed((string)value)
-                ? value
-                : throw ValidationFailed(entityTypeName, place.Holds("text that is not well-formed: it has a surrogate without its pair"));
-        };
-    }
-
-    // A byte array is copied, as a record holds its own, after the bound of one value, so that an array
-    // above it is never copied.
-    private Func<object, object> BindBinary(LatticeValueDeclaration declaration, Place place)
-    {
-        var entityTypeName = _entityType.Name;
-        var encoding = _entityType.StringEncoding;
-
-        return value => ValueBound.Holds(declaration, value, encoding)
-            ? ((byte[])value).Clone()
-            : throw ValidationFailed(entityTypeName, place.Holds(ValueBound.Held));
+        return value => WellFormedText.IsWellFormed((string)value)
+            ? value
+            : throw ValidationFailed(entityTypeName, place.Holds("text that is not well-formed: it has a surrogate without its pair"));
     }
 
     // An Enum is its underlying integer, as it is stored, or a .NET enum that agrees with the
@@ -310,7 +289,11 @@ internal sealed class ClassBinder
         var constructor = Constructor(type, $"the class of owned type '{ownedType.Name}'");
         var properties = ownedType.Fields.Select(field => Bind(type, field, ownedType.Name)).ToArray();
         var entityTypeName = _entityType.Name;
+        var encoding = _entityType.StringEncoding;
 
+        // A String or Binary value of the owned value is checked against the bound of one value before it is
+        // taken, so that an array above it is never copied; those of the entity are checked before
+        // (EntityBinding.ValuesForWrite).
         Func<object, object> toRecord = value =>
         {
             var owned = new LatticeOwnedValue(ownedType);
@@ -319,6 +302,11 @@ internal sealed class ClassBinder
                 var fieldValue = property.Get(value);
                 if (fieldValue is not null)
                 {
+                    if (!ValueBound.Holds(property.Field.Declaration, fieldValue, encoding))
+                    {
+                        throw ValidationFailed(entityTypeName, new Place(type, property.Property, property.Field, ownedType.Name).Holds(ValueBound.Held));
+                    }
+
                     owned.Values[property.Field.Ordinal] = property.ToRecord(fieldValue);
                 }
                 else if (!property.Field.Declaration.IsNullable)
@@ -407,11 +395,15 @@ internal sealed class ClassBinder
         return BindSequence(ConversionOf(elementType, declaration.Element!, place).ToRecord, declaration, place);
     }
 
+    // An element that is a String or a Binary value is checked against the bound of one value before it is
+    // taken.
     private Func<object, object> BindSequence(Func<object, object> elementToRecord, LatticeValueDeclaration declaration, Place place)
     {
         var element = declaration.Element!;
+        var bounded = ValueBound.Applies(element);
         var form = declaration.Sequence!;
         var entityTypeName = _entityType.Name;
+        var encoding = _entityType.StringEncoding;
 
         return value =>
         {
@@ -420,6 +412,11 @@ internal sealed class ClassBinder
             {
                 if (item is not null)
                 {
+                    if (bounded && !ValueBound.Holds(element, item, encoding))
+                    {
+                        throw ValidationFailed(entityTypeName, place.Holds(ValueBound.Held));
+                    }
+
                     form.Add(collection, elementToRecord(item));
                 }
                 else if (element.IsNullable)

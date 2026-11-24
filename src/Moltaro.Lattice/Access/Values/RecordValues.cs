@@ -47,8 +47,9 @@ internal static class RecordValues
     // The values of a record as a write takes them: copied and checked again at every depth. The value
     // of every field of the entity is checked against the bound of one value first, so that a value
     // above it is refused before anything else of the entity is checked and before it is copied; a
-    // String or Binary value inside a collection or an owned value is checked where the walk takes it,
-    // before it is copied (CopyText, TakeBinary).
+    // String or Binary value inside a collection or an owned value is checked where the walk descends
+    // into it, before it is copied (CopyFields of an owned value, CopySequence), so that each value is
+    // checked once.
     //
     // A Binary value of a field of the entity is taken as the record holds it, after the same check
     // that it is a byte[] and nothing else: the engine copies it once, into its own memory, while the
@@ -66,7 +67,7 @@ internal static class RecordValues
         }
 
         var submitted = new object?[values.Length];
-        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType, entityType.Name, copyBinary: false);
+        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType, entityType.Name, ofOwnedValue: false);
 
         return submitted;
     }
@@ -83,18 +84,12 @@ internal static class RecordValues
     };
 
     // Exactly a byte[]: the runtime also takes an sbyte[] for one, whose values are others. A copy of
-    // it, or the array itself when copy is false (Submit). A write refuses an array above the bound of
-    // one value before it is copied; a value set into a record is not checked for it.
+    // it, or the array itself when copy is false (Submit).
     private static object TakeBinary(LatticeValueDeclaration declaration, object value, Place place, bool copy)
     {
         if (value.GetType() != typeof(byte[]))
         {
             throw place.Fail(NotAccepted(declaration, value));
-        }
-
-        if (place.IsWrite && !ValueBound.Holds(declaration, value, place.EntityType!.StringEncoding))
-        {
-            throw place.Fail($"holds {ValueBound.Held}.");
         }
 
         return copy ? ((byte[])value).Clone() : value;
@@ -111,16 +106,18 @@ internal static class RecordValues
         }
 
         var copy = new LatticeOwnedValue(ownedType);
-        CopyFields(ownedType.FieldsByOrdinal, source.Values, copy.Values, place.EntityType, ownedType.Name, copyBinary: true);
+        CopyFields(ownedType.FieldsByOrdinal, source.Values, copy.Values, place.EntityType, ownedType.Name, ofOwnedValue: true);
 
         return copy;
     }
 
     // The fields of an entity type or of an owned type, the owner. A field without a value is
-    // refused only by a write, which names the entity type it writes. A Binary value of one of these
-    // fields is copied when copyBinary is true, as for the fields of an owned value (CopyOwned), and taken
-    // as the record holds it for the fields of an entity (Submit).
-    private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, LatticeEntityType? entityType, string owner, bool copyBinary)
+    // refused only by a write, which names the entity type it writes. The fields of an owned value
+    // (CopyOwned) and those of an entity (Submit) differ in two ways: a Binary value of an owned value
+    // is copied, and one of the entity taken as the record holds it; and a String or Binary value of an
+    // owned value is checked against the bound of one value here, where Submit checked those of the
+    // entity before.
+    private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, LatticeEntityType? entityType, string owner, bool ofOwnedValue)
     {
         foreach (var field in fields)
         {
@@ -128,8 +125,13 @@ internal static class RecordValues
             var value = values[field.Ordinal];
             if (value is not null)
             {
+                if (ofOwnedValue)
+                {
+                    ThrowIfAboveTheBound(field.Declaration, value, place);
+                }
+
                 into[field.Ordinal] = field.Declaration.Type == LatticeFieldTypeEnum.Binary
-                    ? TakeBinary(field.Declaration, value, place, copyBinary)
+                    ? TakeBinary(field.Declaration, value, place, copy: ofOwnedValue)
                     : Copy(field.Declaration, value, place);
             }
             else if (entityType is not null && !field.Declaration.IsNullable)
@@ -148,13 +150,37 @@ internal static class RecordValues
         }
 
         var element = declaration.Element!;
+        var bounded = ValueBound.Applies(element);
         var copy = form.Create();
         foreach (var item in form.Elements(value))
         {
-            form.Add(copy, item is null ? Null(element, place) : Copy(element, item, place));
+            if (item is null)
+            {
+                form.Add(copy, Null(element, place));
+
+                continue;
+            }
+
+            if (bounded)
+            {
+                ThrowIfAboveTheBound(element, item, place);
+            }
+
+            form.Add(copy, Copy(element, item, place));
         }
 
         return copy;
+    }
+
+    // A String or Binary value inside an owned value or a collection, which a write refuses above the
+    // bound of one value before it is taken or copied, naming the place that holds it; a value set into a
+    // record is not checked for it.
+    private static void ThrowIfAboveTheBound(LatticeValueDeclaration declaration, object value, Place place)
+    {
+        if (place.IsWrite && !ValueBound.Holds(declaration, value, place.EntityType!.StringEncoding))
+        {
+            throw place.Fail($"holds {ValueBound.Held}.");
+        }
     }
 
     // A key given twice in the input is refused, also with the same value: the input does not
@@ -188,20 +214,14 @@ internal static class RecordValues
     }
 
     // Text is held as it is given: a String, and the key of the target of a Reference whose target has a
-    // String key, which is validated as a String value is. A write refuses text above the bound of one
-    // value, and then text that is not well-formed, a surrogate without its pair, at any depth
-    // (docs/decisions/strings.md, "Input validity and preservation"); a value set into a record is not
-    // checked for either.
+    // String key, which is validated as a String value is. A write refuses text that is not well-formed, a
+    // surrogate without its pair, at any depth (docs/decisions/strings.md, "Input validity and
+    // preservation"); a value set into a record is not checked for it.
     private static object CopyText(LatticeValueDeclaration declaration, object value, Place place)
     {
         if (value is not string text)
         {
             throw place.Fail(NotAccepted(declaration, value));
-        }
-
-        if (place.IsWrite && !ValueBound.Holds(declaration, text, place.EntityType!.StringEncoding))
-        {
-            throw place.Fail($"holds {ValueBound.Held}.");
         }
 
         if (place.IsWrite && !WellFormedText.IsWellFormed(text))
