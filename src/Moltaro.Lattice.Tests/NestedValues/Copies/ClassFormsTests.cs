@@ -6,53 +6,13 @@ namespace Moltaro.Lattice.Tests.NestedValues.Copies;
 // in a List and in an owned value; the integer for an Enum whose property is its integer; an object of the
 // class of an owned type in a property, in an array and in an array inside a List. A null is set as null,
 // also where the constructor of the class gives the property another value: Spare, and the Grade of a Label.
-// Two reads share none of these objects.
-//
-// The schema: Form, whose key Id is an Int64, with Numbers, a List of Int64; Matrix, a List of Lists of
-// Int32; Grades, MaybeGrades and GradeValues, Lists of the Enum Grade, nullable in MaybeGrades; Blobs, a List
-// of Binary; Main and Spare, owned Labels, Spare nullable; Labels, a List of Labels; LabelRows, a List of
-// Lists of Labels. A Label holds Text, a String, Grade, a nullable Grade, and Codes, a List of Int32.
+// Two reads share none of these objects (FormSchema).
 public sealed class ClassFormsTests
 {
-    private static readonly LatticeSchema Schema = LatticeSchema.Compile($$"""
-        {
-          "Enums": [ { "Id": 1, "Name": "Grade", "UnderlyingType": "UInt8", "Members": [ { "Name": "Low", "Value": 0 }, { "Name": "High", "Value": 1 } ] } ],
-          "OwnedTypes": [
-            {
-              "Id": 1, "Name": "Label", "ClrType": "{{typeof(Label).FullName}}",
-              "Fields": [
-                { "Id": 1, "Name": "Text", "Type": "String" },
-                { "Id": 2, "Name": "Grade", "Type": "Enum", "Enum": "Grade", "Nullable": true },
-                { "Id": 3, "Name": "Codes", "Type": "List", "Element": { "Type": "Int32" } }
-              ]
-            }
-          ],
-          "EntityTypes": [
-            {
-              "Id": 1, "Name": "Form", "ClrType": "{{typeof(Form).FullName}}",
-              "Fields": [
-                { "Id": 1, "Name": "Id", "Type": "Int64" },
-                { "Id": 2, "Name": "Numbers", "Type": "List", "Element": { "Type": "Int64" } },
-                { "Id": 3, "Name": "Matrix", "Type": "List", "Element": { "Type": "List", "Element": { "Type": "Int32" } } },
-                { "Id": 4, "Name": "Grades", "Type": "List", "Element": { "Type": "Enum", "Enum": "Grade" } },
-                { "Id": 5, "Name": "MaybeGrades", "Type": "List", "Element": { "Type": "Enum", "Enum": "Grade", "Nullable": true } },
-                { "Id": 6, "Name": "GradeValues", "Type": "List", "Element": { "Type": "Enum", "Enum": "Grade" } },
-                { "Id": 7, "Name": "Blobs", "Type": "List", "Element": { "Type": "Binary" } },
-                { "Id": 8, "Name": "Main", "Type": "Owned", "OwnedType": "Label" },
-                { "Id": 9, "Name": "Spare", "Type": "Owned", "OwnedType": "Label", "Nullable": true },
-                { "Id": 10, "Name": "Labels", "Type": "List", "Element": { "Type": "Owned", "OwnedType": "Label" } },
-                { "Id": 11, "Name": "LabelRows", "Type": "List", "Element": { "Type": "List", "Element": { "Type": "Owned", "OwnedType": "Label" } } }
-              ],
-              "PrimaryKey": [1]
-            }
-          ]
-        }
-        """);
-
     [Fact]
     public async Task Read_through_a_class_gives_every_position_the_type_its_property_declares_at_every_depth()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(FormSchema.Schema);
         var forms = database.Set<Form>();
         var written = new Form
         {

@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Tests.NestedValues;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Database;
@@ -5,7 +6,8 @@ namespace Moltaro.Lattice.Tests.Database;
 // The states of an instance of a MemoryOnly master and what an operation does in each (brief of
 // Epic 1, sprint S06, "States"): Created until the open, Ready after it, Closed after a close.
 // Before the open an operation is Unavailable; after a close it is ObjectDisposedException, also
-// through a set that was obtained before. Closing a closed database does nothing, and disposing
+// through a set that was obtained before, a set through a class of an entity type with owned values and Lists
+// as well. Closing a closed database does nothing, and disposing
 // closes it in the same way. The close is one operation (brief of S09, part 2, the first finding of
 // the outside review it carries): a close or a dispose called while an earlier close has not
 // completed completes with it, without an error, and a token that cancels the wait of a close does
@@ -80,6 +82,21 @@ public sealed class InstanceStateTests
         // What was read before stays the caller's.
         Assert.Equal("Ada", user.Name);
         Assert.Equal("Ada", record["Name"]);
+    }
+
+    [Fact]
+    public async Task After_a_close_a_read_through_a_class_of_an_entity_type_with_nested_values_is_ObjectDisposedException()
+    {
+        var database = await NestedSchema.OpenMasterAsync();
+        var persons = database.Set<Person>();
+        await persons.InsertAsync(NestedSchema.Full("ada"));
+
+        await database.CloseAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => persons.Get("ada"));
+        Assert.Throws<ObjectDisposedException>(() => persons.Enumerate().ToList());
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await persons.GetAsync("ada", new LatticeSession()));
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await persons.EnumerateAsync(new LatticeSession()).ToListAsync());
     }
 
     [Fact]
