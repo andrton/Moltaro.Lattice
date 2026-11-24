@@ -9038,6 +9038,34 @@ merged.
   S17R and S18R `following-children` lines, the `kd` comparison with a gauge, and K3 and
   K4 in [refactoring.md](refactoring.md#found-while-measuring-s17-23-november-2026).
 
+#### S18R
+
+The ninth coordinator closed the refactoring sprint on 24 November 2026. Its eight
+commits follow [the order for S18R](refactoring.md#architects-review-after-s18-24-november-2026)
+from Z3 (`fc0de98`) through the comments and design in Z5 (`94ae55a`). The allocation
+test moved with its method body intact. The reference and path model moved with all
+three tests. The test access helper keeps the original order of readiness, declaration
+validation and taking the barrier. The root reader's explanation now names owned
+values and Lists, and the existing exception text is preserved as part of its behavior.
+
+- In Z1, `Length` agreed with the bytes written for every captured root. The two
+  Release builds exported the same 12 payloads byte for byte, 14,632,479 bytes across
+  UTF-8 and UTF-16, including packed and record Lists in chunks at depth. A child after
+  load and after following exported the same values as its master. The focused
+  forwarding, child and ownership suites passed.
+- The x64 Release listings agreed after normalizing process-specific addresses. Z2
+  checked `RootValues.Write` and `BlockImport.PlaceValues`. Z4 checked `BlockImport.Check`,
+  `Place` and `PlaceValues`, and `ReceivedChanges.TryApply`. Z1 checked the publishing,
+  freeing and retiring walks and their callers, and the scalar export with
+  `TransactionEncoder` and `Capture.TryCopy`. The next rented ARM64 run compares the
+  committed trees on either side of Z4 and Z1 with a second build of their base.
+- Independent review took one round. The hardest part was the two walk callbacks.
+  The export writes the record block before its descendants. The ownership visitors
+  still act on each descriptor after its descendants.
+- The full Windows x64 Debug and Release suites each passed the same 3,291 tests as
+  the baseline, with 129 skipped. Both builds, the format check and all 16 samples
+  passed.
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
