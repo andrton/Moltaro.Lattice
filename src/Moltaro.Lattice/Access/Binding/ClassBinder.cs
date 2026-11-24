@@ -358,20 +358,25 @@ internal sealed class ClassBinder
     // holds there the List the read made.
     private Conversion BindList(Type type, LatticeValueDeclaration declaration, Place place)
     {
-        if (type.IsSZArray)
-        {
-            var elementType = type.GetElementType()!;
-            var element = ConversionOf(elementType, declaration.Element!, place);
-            var toRecord = ReadAsTheyAre(type, BindSequence(element.ToRecord, declaration, place), place);
+        var isArray = type.IsSZArray;
+        var elementType = isArray ? type.GetElementType()! : GenericArgument(type, typeof(List<>)) ?? throw place.Mismatch();
+        var elementDeclaration = declaration.Element!;
+        var element = ConversionOf(elementType, elementDeclaration, place);
+        var toRecord = BindSequence(element.ToRecord, declaration, place);
+        var sameElements = elementType == elementDeclaration.PositionType;
 
-            return new Conversion(toRecord, SequenceFromRecord(nameof(ArrayOf), elementType, element.FromRecord));
+        if (isArray)
+        {
+            var fromArray = sameElements
+                ? SequenceMethod(nameof(CopyArray), elementType).CreateDelegate<Func<object, object>>()
+                : SequenceFromRecord(nameof(ArrayOf), elementType, element.FromRecord);
+
+            return new Conversion(ReadAsTheyAre(type, toRecord, place), fromArray);
         }
 
-        var listElementType = GenericArgument(type, typeof(List<>)) ?? throw place.Mismatch();
-        var listElement = ConversionOf(listElementType, declaration.Element!, place);
-        var fromRecord = type == declaration.ValueType ? Same : SequenceFromRecord(nameof(ListOf), listElementType, listElement.FromRecord);
+        var fromRecord = sameElements ? Same : SequenceFromRecord(nameof(ListOf), elementType, element.FromRecord);
 
-        return new Conversion(BindSequence(listElement.ToRecord, declaration, place), fromRecord);
+        return new Conversion(toRecord, fromRecord);
     }
 
     // A property of an array type, or an array element of one, may hold an array of another
@@ -439,13 +444,13 @@ internal sealed class ClassBinder
     // List of the record converted, a null kept. The generic method is made once, here.
     private static Func<object, object> SequenceFromRecord(string method, Type elementType, Func<object, object> element)
     {
-        var convert = typeof(ClassBinder)
-            .GetMethod(method, BindingFlags.NonPublic | BindingFlags.Static)!
-            .MakeGenericMethod(elementType)
-            .CreateDelegate<Func<object, Func<object, object>, object>>();
+        var convert = SequenceMethod(method, elementType).CreateDelegate<Func<object, Func<object, object>, object>>();
 
         return value => convert(value, element);
     }
+
+    private static MethodInfo SequenceMethod(string method, Type elementType) =>
+        typeof(ClassBinder).GetMethod(method, BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(elementType);
 
     private static object ListOf<TElement>(object list, Func<object, object> element)
     {
@@ -460,6 +465,14 @@ internal sealed class ClassBinder
         return result;
     }
 
+    // Elements of the same type are copied without boxing each element.
+    private static object CopyArray<TElement>(object list)
+    {
+        var source = (List<TElement>)list;
+
+        return source.Count == 0 ? Array.Empty<TElement>() : source.ToArray();
+    }
+
     // An empty List is the one empty array of the element type, Array.Empty, as an empty Binary value is:
     // no caller can change it, so every read gives the same one.
     private static object ArrayOf<TElement>(object list, Func<object, object> element)
@@ -469,13 +482,6 @@ internal sealed class ClassBinder
         if (source.Count == 0)
         {
             return Array.Empty<TElement>();
-        }
-
-        // Elements that the record holds as the array holds them are copied as they are, without a box
-        // for each.
-        if (ReferenceEquals(element, Same))
-        {
-            return ((List<TElement>)list).ToArray();
         }
 
         var result = new TElement[source.Count];
