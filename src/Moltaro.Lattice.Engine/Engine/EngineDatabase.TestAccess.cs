@@ -35,76 +35,41 @@ internal sealed partial class EngineDatabase
     // two changes of the engine, under the lock of the writes, so that no change, no publication and no
     // freeing of what was retired is half done; the counters of the coordinator are written under the
     // same lock.
-    public EngineCounters Counters
+    public EngineCounters Counters => InTestWriteLock(static parts =>
     {
-        get
+        var indexBytes = 0L;
+        var replacementBytes = 0L;
+
+        foreach (var operations in parts.Operations.Values)
         {
-            ThrowIfNotReady();
-            _barrier.Enter();
-
-            try
-            {
-                var parts = Part(_parts);
-
-                lock (parts.Writes)
-                {
-                    var indexBytes = 0L;
-                    var replacementBytes = 0L;
-
-                    foreach (var operations in parts.Operations.Values)
-                    {
-                        indexBytes += operations.Table.IndexBytes;
-                        replacementBytes += operations.Table.ReplacementIndexBytes;
-                    }
-
-                    return new EngineCounters(
-                        parts.Arena.Counters,
-                        indexBytes,
-                        parts.Retired.IndexBytes,
-                        replacementBytes,
-                        parts.Roots.Count,
-                        (long)parts.Clock.Sequence,
-                        parts.Coordinator.QueuedWrites,
-                        parts.Coordinator.LargestCommitGroup,
-                        parts.Coordinator.LargestCommitGroupBytes,
-                        parts.Arena.MemoryLimit,
-                        parts.Delivery.ActiveCaptures,
-                        parts.Delivery.PendingBytes,
-                        parts.Arena.Texts.Count,
-                        parts.Arena.Texts.Bytes);
-                }
-            }
-            finally
-            {
-                _barrier.Exit();
-            }
+            indexBytes += operations.Table.IndexBytes;
+            replacementBytes += operations.Table.ReplacementIndexBytes;
         }
-    }
+
+        return new EngineCounters(
+            parts.Arena.Counters,
+            indexBytes,
+            parts.Retired.IndexBytes,
+            replacementBytes,
+            parts.Roots.Count,
+            (long)parts.Clock.Sequence,
+            parts.Coordinator.QueuedWrites,
+            parts.Coordinator.LargestCommitGroup,
+            parts.Coordinator.LargestCommitGroupBytes,
+            parts.Arena.MemoryLimit,
+            parts.Delivery.ActiveCaptures,
+            parts.Delivery.PendingBytes,
+            parts.Arena.Texts.Count,
+            parts.Arena.Texts.Bytes);
+    });
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): every entry of the text table with
     // its exact stored bytes, in the encoding of the database, and its count of references, taken as Counters
     // is, under the lock of the writes between two changes of the engine, on a master and on a child. It does
     // not drain: what a root a write replaced or deleted holds until a drain frees it is counted. Unavailable
     // before the open and once Faulted, ObjectDisposedException after the close.
-    public List<(byte[] Text, long References)> TextReferences()
-    {
-        ThrowIfNotReady();
-        _barrier.Enter();
-
-        try
-        {
-            var parts = Part(_parts);
-
-            lock (parts.Writes)
-            {
-                return parts.Arena.Texts.References();
-            }
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
-    }
+    public List<(byte[] Text, long References)> TextReferences() =>
+        InTestWriteLock(static parts => parts.Arena.Texts.References());
 
     // For the tests of the layout invariants of the secondary indexes (exception X3, docs/work/exceptions.md):
     // every live node of the tree of the index of the entity type, in the order of a walk from the root, a
@@ -118,63 +83,54 @@ internal sealed partial class EngineDatabase
     public List<(int Level, List<(object?[] Key, object? Entity)> Items)> IndexNodes(LatticeEntityType entityType, string indexName)
     {
         ArgumentNullException.ThrowIfNull(entityType);
-        ThrowIfNotReady();
+        LatticeIndex? definition = null;
 
-        if (!entityType.TryGetIndex(indexName, out var definition))
+        return InTestWriteLock(parts =>
         {
-            throw new ArgumentException($"The entity type {entityType.Name} declares no index '{indexName}'.", nameof(indexName));
-        }
+            var declaredIndex = definition!;
+            var table = parts.Operations[entityType].Table;
+            var nodes = new List<(int Level, List<(object?[] Key, object? Entity)> Items)>();
 
-        _barrier.Enter();
-
-        try
-        {
-            var parts = Part(_parts);
-
-            lock (parts.Writes)
+            if (table.IndexOf(declaredIndex) is not { } index)
             {
-                var table = parts.Operations[entityType].Table;
-                var nodes = new List<(int Level, List<(object?[] Key, object? Entity)> Items)>();
-
-                if (table.IndexOf(definition) is not { } index)
-                {
-                    return nodes;
-                }
-
-                var values = new object?[entityType.FieldsByOrdinal.Length];
-
-                foreach (var (level, entries) in index.Tree.Nodes())
-                {
-                    var items = new List<(object?[] Key, object? Entity)>(entries.Count);
-
-                    foreach (var entry in entries)
-                    {
-                        var key = new object?[definition.Parts.Count];
-                        object? entity = null;
-
-                        index.Layout.ReadValues(parts.Arena, entry, key);
-
-                        if (level == 0)
-                        {
-                            var root = parts.Roots.Entry(IndexLayout.IdentityOf(entry)).Root;
-
-                            RootValues.Read(new RootReader(parts.Arena, table.Layout!, root), entityType, values);
-                            entity = values[entityType.Key.Ordinal];
-                        }
-
-                        items.Add((key, entity));
-                    }
-
-                    nodes.Add((level, items));
-                }
-
                 return nodes;
             }
-        }
-        finally
+
+            var values = new object?[entityType.FieldsByOrdinal.Length];
+
+            foreach (var (level, entries) in index.Tree.Nodes())
+            {
+                var items = new List<(object?[] Key, object? Entity)>(entries.Count);
+
+                foreach (var entry in entries)
+                {
+                    var key = new object?[declaredIndex.Parts.Count];
+                    object? entity = null;
+
+                    index.Layout.ReadValues(parts.Arena, entry, key);
+
+                    if (level == 0)
+                    {
+                        var root = parts.Roots.Entry(IndexLayout.IdentityOf(entry)).Root;
+
+                        RootValues.Read(new RootReader(parts.Arena, table.Layout!, root), entityType, values);
+                        entity = values[entityType.Key.Ordinal];
+                    }
+
+                    items.Add((key, entity));
+                }
+
+                nodes.Add((level, items));
+            }
+
+            return nodes;
+        }, () =>
         {
-            _barrier.Exit();
-        }
+            if (!entityType.TryGetIndex(indexName, out definition))
+            {
+                throw new ArgumentException($"The entity type {entityType.Name} declares no index '{indexName}'.", nameof(indexName));
+            }
+        });
     }
 
     // For the audit of the ownership of blocks by the tests of the engine (exception X3,
@@ -183,35 +139,20 @@ internal sealed partial class EngineDatabase
     // tree names (Indexes.NodePool), each node a block of the node size of its index. Taken as TextReferences
     // is, under the lock of the writes between two changes of the engine, on a master and on a child; it does
     // not drain. Unavailable before the open and once Faulted, ObjectDisposedException after the close.
-    public long ReservedNodeBytes()
+    public long ReservedNodeBytes() => InTestWriteLock(static parts =>
     {
-        ThrowIfNotReady();
-        _barrier.Enter();
+        var bytes = 0L;
 
-        try
+        foreach (var operations in parts.Operations.Values)
         {
-            var parts = Part(_parts);
-
-            lock (parts.Writes)
+            foreach (var index in operations.Table.Indexes)
             {
-                var bytes = 0L;
-
-                foreach (var operations in parts.Operations.Values)
-                {
-                    foreach (var index in operations.Table.Indexes)
-                    {
-                        bytes += (long)index.Tree.ReservedNodes * index.Layout.NodeBytes;
-                    }
-                }
-
-                return bytes;
+                bytes += (long)index.Tree.ReservedNodes * index.Layout.NodeBytes;
             }
         }
-        finally
-        {
-            _barrier.Exit();
-        }
-    }
+
+        return bytes;
+    });
 
     // For the audit of the ownership of blocks by the tests of the engine (exception X3,
     // docs/work/exceptions.md): calls the action once for every live root of every entity type the engine
@@ -225,30 +166,21 @@ internal sealed partial class EngineDatabase
     public void ForEachLiveRoot(Action<Arena, RootLayout, RootHandle, ArenaAddress> action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        ThrowIfNotReady();
-        _barrier.Enter();
 
-        try
+        InTestWriteLock<object?>(parts =>
         {
-            var parts = Part(_parts);
-
-            lock (parts.Writes)
+            for (var slot = 0u; slot < (uint)parts.Roots.SlotExtent; slot++)
             {
-                for (var slot = 0u; slot < (uint)parts.Roots.SlotExtent; slot++)
-                {
-                    ref var entry = ref parts.Roots.EntryOfSlot(slot);
+                ref var entry = ref parts.Roots.EntryOfSlot(slot);
 
-                    if (entry.State == RootStateEnum.Live)
-                    {
-                        action(parts.Arena, parts.Tables.Stored(entry.TypeId).Layout!, new RootHandle(entry.Generation, slot), entry.Root);
-                    }
+                if (entry.State == RootStateEnum.Live)
+                {
+                    action(parts.Arena, parts.Tables.Stored(entry.TypeId).Layout!, new RootHandle(entry.Generation, slot), entry.Root);
                 }
             }
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
+
+            return null;
+        });
     }
 
     // Frees every retired thing no read in progress can reach — an old root with its blocks, a replaced table
@@ -258,9 +190,18 @@ internal sealed partial class EngineDatabase
     // and a close drain in the same way (RetiredMemory.Drain, FreeAfterOperationsAsync). Unavailable before
     // the open and once Faulted, ObjectDisposedException after the close. It runs under the lock of the
     // writes, between two changes of the engine, because only that thread frees (RetiredMemory).
-    public void DrainRetired()
+    public void DrainRetired() => InTestWriteLock<object?>(static parts =>
+    {
+        parts.Retired.Drain();
+
+        return null;
+    });
+
+    // A declaration check, when needed, follows the state check and precedes taking the barrier.
+    private T InTestWriteLock<T>(Func<DatabaseParts, T> action, Action? checkDeclaration = null)
     {
         ThrowIfNotReady();
+        checkDeclaration?.Invoke();
         _barrier.Enter();
 
         try
@@ -269,7 +210,7 @@ internal sealed partial class EngineDatabase
 
             lock (parts.Writes)
             {
-                parts.Retired.Drain();
+                return action(parts);
             }
         }
         finally
