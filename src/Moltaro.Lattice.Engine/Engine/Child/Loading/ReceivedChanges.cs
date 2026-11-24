@@ -568,6 +568,7 @@ internal sealed class ReceivedChanges
         {
             _publicationFailed = true;
             _epochs.Fault();
+            _publisher.OfferFaultSwitch();
             throw;
         }
 

@@ -40,6 +40,8 @@ public enum LatticeDatabaseStateEnum
     /// overlaps the publication that failed returns the state before the write, the whole state of
     /// the write, or <see cref="LatticeErrorEnum.Unavailable"/>; a read that begins after the
     /// instance is Faulted reports <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// Once a read reports <see cref="LatticeErrorEnum.Unavailable"/> because the instance faulted,
+    /// <see cref="ILatticeDatabase.State"/> reports <see cref="Faulted"/> until the instance closes.
     /// </para>
     /// <para>
     /// The writes in progress end as follows. A write that was published before the failure

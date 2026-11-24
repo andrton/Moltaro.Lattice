@@ -9011,6 +9011,33 @@ any pull request can fail on those three rows; its job is run again, and every s
 counted here. The fix is the first work of the next coordinator, before anything else is
 merged.
 
+**The form (A) fix** (24 November 2026, light track, coordinator 9).
+
+- `State` checks the read fault mark before it reads the stored state, so a close still
+  takes precedence. `ThrowIfNotReady` uses `State`. The planner confirmed that the
+  existing guarantee covers a new write through a child set obtained earlier and the
+  commit of an already assembled batch. The child sender could forward both while the
+  follower unwound the failed publication. `Forwarder.Begin` now checks the same mark
+  after cancellation and close, before it binds a session or queues a request. Admitted
+  requests keep their existing outcomes.
+- The first test commit, `e7f0eb1`, reproduced `Ready` after two waiting reads reported
+  `Unavailable` on each role. The second, `70a6bf9`, showed a new entity on the master for
+  both forms of the child's write while the child was paused at the mark. Both commits
+  preceded the fix. Both original `held.Fail()` methods kept their assertions and passed
+  all three rows with a 50 ms pause at the mark in an isolated build.
+- The independent review took two rounds. The child write tests gained a fresh session
+  that must stay unbound, so they catch admission even if the sender has yet to run. Two
+  comments now describe the lock and retry rules. The hardest part to follow was the
+  order across the read mark, the stored lifecycle state, the position clock and the
+  sender. The second round closed every finding.
+- Windows x64 Debug and Release each passed 3,291 tests, with 129 skipped. Build, format
+  and all 16 samples passed. The workstation's x64 Release driver showed identical
+  instructions and code sizes in 20 listings of key-read and index-search paths after
+  normalizing process-specific addresses. The test rows and the ordering lane are owed
+  to the next rented ARM64 run, separately from standard CI. That run also carries the
+  S17R and S18R `following-children` lines, the `kd` comparison with a gauge, and K3 and
+  K4 in [refactoring.md](refactoring.md#found-while-measuring-s17-23-november-2026).
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the

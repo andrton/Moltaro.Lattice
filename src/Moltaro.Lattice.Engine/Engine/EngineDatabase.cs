@@ -87,7 +87,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // then until it has applied the transactions up to its readiness position R. Before Ready every
     // operation is Unavailable, after a close it is ObjectDisposedException, and once the instance is
     // Faulted (Fault) every operation, reads included, is Unavailable. Changed under the lock of the state,
-    // read without it.
+    // read without it. State also observes the fault mark of the reads before the transition is stored here.
     private volatile LatticeDatabaseStateEnum _state = LatticeDatabaseStateEnum.Created;
 
     // The close, once a call has begun it: completes when the arena has been freed. Set under the lock
@@ -146,7 +146,17 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         }
     }
 
-    public LatticeDatabaseStateEnum State => _state;
+    public LatticeDatabaseStateEnum State
+    {
+        get
+        {
+            // Read the fault mark first so a close that preceded the mark still takes precedence.
+            var faulted = _epochs.IsFaulted;
+            var state = _state;
+
+            return faulted && state == LatticeDatabaseStateEnum.Ready ? LatticeDatabaseStateEnum.Faulted : state;
+        }
+    }
 
     public LatticeSchema Schema
     {
@@ -785,7 +795,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 clock,
                 _options.SynchronizationTimeout,
                 Fault);
-            var forwarder = child ? new Forwarder(clock, _options.SynchronizationTimeout) : null;
+            var forwarder = child ? new Forwarder(clock, _epochs, _options.SynchronizationTimeout) : null;
             var reads = new ReadSettings(_options, _testInputs?.ReadTimestamps);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
@@ -837,16 +847,18 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     }
 
     // A publication failed (WriteCoordinator, "A fault"; on a child Child.Loading.ReceivedChanges): the
-    // instance is Faulted unless a close came first. The reads are marked first, so that a read that
-    // retries on the mark of the write that failed gives up at once, then the state, then the waits for
-    // a position end. Called after the lock of the writes, since it takes the lock of the state; a child
-    // marks the reads under the lock of the writes already (ReadEpochs.Fault, which takes no lock) and
-    // calls this after it. From then on every operation, reads included, is Unavailable, the writes in
-    // progress end as the write coordinator says, and a close works; a MemoryOnly instance that faulted
-    // has lost its data.
+    // instance is Faulted unless a close came first. The mark makes the fault visible to reads and to
+    // State at once. Then the stored state changes and the waits for a position end. Called after the
+    // lock of the writes, since it takes the lock of the state. A child marks the fault under the lock
+    // of the writes already (ReadEpochs.Fault, which takes no lock) and calls this after it. The writes
+    // in progress end as the write coordinator says, and a close works. A MemoryOnly instance that
+    // faulted has lost its data.
     private void Fault()
     {
-        _epochs.Fault();
+        if (_epochs.Fault())
+        {
+            Part(_parts).Publisher.OfferFaultSwitch();
+        }
 
         lock (_stateLock)
         {
@@ -879,7 +891,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     private void ThrowIfNotReady()
     {
-        var state = _state;
+        var state = State;
 
         ObjectDisposedException.ThrowIf(state == LatticeDatabaseStateEnum.Closed, this);
 

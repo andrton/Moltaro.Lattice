@@ -110,6 +110,45 @@ public sealed class WaitingReadTests
 
     [Theory]
     [MemberData(nameof(Nodes))]
+    public async Task Instance_is_Faulted_as_soon_as_its_reads_report_Unavailable_for_the_fault(string node)
+    {
+        await using var nodes = await BatchNodes.OpenAsync(node);
+        var items = nodes.Reader.Set<Item>();
+        var byTag = items.Index("ByTag");
+        var key = IndexKey.Equal("new");
+
+        using var held = HeldPublication.Arm(nodes.Reader, PublicationPointEnum.BeforePosition);
+        var commit = OwnThread.Run(() => OwnThread.Wait(Members(nodes.Master).CommitAsync(nodes.Session)));
+
+        await held.ReachedAsync();
+
+        var byKey = await StartAtTheRootAsync(nodes.Reader, () => items.Get(2L));
+        var search = await StartAtTheRootAsync(nodes.Reader, () => OwnThread.Wait(byTag.FindAsync(key, new LatticeFindOptions())));
+
+        using (var fault = HeldPublication.Arm(nodes.Reader, PublicationPointEnum.AfterFault))
+        {
+            held.Fail();
+            await fault.ReachedAsync();
+
+            Assert.Equal(LatticeErrorEnum.Unavailable, (await Assert.ThrowsAsync<LatticeException>(() => byKey.WaitAsync(Bound))).Error);
+            Assert.Equal(LatticeErrorEnum.Unavailable, (await Assert.ThrowsAsync<LatticeException>(() => search.WaitAsync(Bound))).Error);
+            Assert.Equal(LatticeDatabaseStateEnum.Faulted, nodes.Reader.State);
+
+            // Work started after observing the fault must see it even before failure handling finishes.
+            Assert.Equal(LatticeErrorEnum.Unavailable, Assert.Throws<LatticeException>(() => items.Get(Other)).Error);
+            Assert.Equal(LatticeErrorEnum.Unavailable, (await Assert.ThrowsAsync<LatticeException>(() => byTag.FindAsync(key, new LatticeFindOptions()).AsTask().WaitAsync(Bound))).Error);
+            Assert.Equal(LatticeErrorEnum.Unavailable, Assert.Throws<LatticeException>(() => nodes.Reader.Schema).Error);
+            Assert.Equal(LatticeErrorEnum.Unavailable, (await Assert.ThrowsAsync<LatticeException>(() => nodes.Reader.WaitForPositionAsync(new LatticeSession()).AsTask().WaitAsync(Bound))).Error);
+        }
+
+        if (node == "master")
+        {
+            Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, (await Assert.ThrowsAsync<LatticeException>(() => commit.WaitAsync(Bound))).Error);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Nodes))]
     public async Task Asynchronous_read_that_waits_for_the_position_of_a_batch_ends_with_its_token(string node)
     {
         await using var nodes = await BatchNodes.OpenAsync(node);

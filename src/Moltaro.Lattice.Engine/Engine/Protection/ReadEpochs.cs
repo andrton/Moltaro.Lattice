@@ -166,9 +166,9 @@ internal sealed class ReadEpochs
         }
     }
 
-    // Whether a read that retries on the mark of a write in progress has to give up: the database is
-    // faulted, and the write it waits for will never store its stamp (Entities.EntityTable). Loaded
-    // only on that retry, never on the ordinary path of a read.
+    // The mark of a fault, visible to the database state, a child about to forward a write and a read
+    // retrying while a publication is incomplete (Entities.EntityTable). The publication will never
+    // finish, so the read gives up. The ordinary path of a read does not call this.
     public bool IsFaulted => (Volatile.Read(ref _state) & Faulted) != 0;
 
     // Whether a read that entered now would be refused: the database is closed or faulted (ThrowForState).
@@ -236,8 +236,9 @@ internal sealed class ReadEpochs
     }
 
     // Marks the database faulted: a read that enters from now on reports Unavailable, and a read inside
-    // that retries on the mark of the write whose publication failed gives up (IsFaulted).
-    public void Fault() => Interlocked.Or(ref _state, Faulted);
+    // that retries on the mark of the write whose publication failed gives up (IsFaulted). Returns
+    // whether this call set the mark, so a test can hold the publishing thread once at that point.
+    public bool Fault() => (Interlocked.Or(ref _state, Faulted) & Faulted) == 0;
 
     // A slot taken by a compare-and-swap of the current epoch into it, when it is free. The full fence
     // of the exchange orders the read of the state and of everything the read reads after it (see the
