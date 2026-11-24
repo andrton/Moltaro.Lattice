@@ -95,19 +95,20 @@ nullable. Small strings, binaries and packed Lists <=64 bytes lie in the packed 
 the root still fits its block: the descriptor's Inline kind stores the root-relative offset and
 the logical length. An index entry never points into a root: it holds a copy of a key
 of 64 bytes or less and references the text entry of a longer one ("Index preparation
-and traversal"), so a root that moves repairs no index. A partial update that outgrows
-inline capacity prepares an external block; the old inline span becomes counted root
-slack. Repack that root under the same bounded compaction protocol; do not keep
-appending unused tail space. Dictionary text remains independently owned. No inline
-byte location escapes a gate.
+and traversal"), so a root that moves repairs no index. A partial update packs its inline
+bytes in a fresh holder and computes new offsets. The end of the new holder bounds the
+available capacity. Use the ordinary out-of-line placement when the value cannot fit.
+The previous holder keeps its payload until readers leave. Dictionary text remains
+independently owned. See [ownership across partial updates](arena-protocol.md#ownership-across-partial-updates).
 
 Other variable values <=4 KiB payload initially use one suitable block. Larger values
 use blocks with at most 65,504 payload bytes and a bounded directory of chunk
 descriptors. A chunk boundary is not a semantic string/collection boundary: a character, or
 the record of an element of a List whose elements hold no descriptor, may continue in the next
 chunk, and decoders carry it across; the record of an element that holds descriptors lies
-whole in one block, since a descriptor is never split. Only affected chunks are prepared for
-partial changes; full Save prepares a complete replacement without automatic diff.
+whole in one block, since a descriptor is never split. A partial update reuses unchanged
+out-of-line branches. Repacking an edited collection may prepare new record blocks or
+rebuild its local lookup. Full Save prepares a complete replacement without automatic diff.
 
 Use segmented managed arrays of 4,096 root entries. Initial logical entry fields:
 root address (8), last mutation position (8), key-descriptor address (8), stored-root
@@ -344,11 +345,12 @@ and prepares its write in place: it looks the key up, checks its conditions agai
 published state, encodes its values into prepared blocks and reserves everything its
 publication needs. No other write runs meanwhile, so nothing has to be reserved against
 another writer. A WriteBatch is prepared the same way, all of its entities in one hold,
-member by member in their order, each placed from the root it was encoded to when the
-application added it, and its changes are reserved and checked together on the state they
-leave; which member fails is judged in two phases
-([write path](write-path.md#a-write-batch)). A batch through a child reaches the master as one
-request and is prepared there the same way, each member placed from the root the child sent.
+member by member in their order. A complete member is placed from the root it was
+encoded to when it was added. An update checks its revision condition against the current
+root, then executes its commands in order and prepares a new root if any command changes
+it. Changes are reserved and checked together on the state they leave. Which member
+fails is judged in two phases. A batch through a child reaches the master as one request
+and is prepared the same way. [Write path](write-path.md#a-write-batch)
 
 The prepared write joins the open group. When no group is in the persistence step, the group
 is handed to it at once; when that step completes at once, as in MemoryOnly, the caller
@@ -525,11 +527,11 @@ entire snapshot or hold read locks over the network. R is read in a hold of the 
 the writes after the last root was copied, because a root can carry a sequence the
 published clock does not show yet; `LoadEnd` carries S, R and the number of roots sent.
 
-Wire format 6 transfers Map and Set entries in the List encoding. The receiving node
-chooses the resident form by count and builds its own lookup from the entries and its
-local seed before publication. Uniqueness is part of the transfer structure. A child
-checks it even for an effect it skips because it already holds a newer root.
-[Root transfer and checks](arena-protocol.md#transfer-order-and-checks)
+Wire format 7 keeps the existing frame envelope and whole-root layout version 2.
+Whole roots transfer Map and Set entries in the List encoding. The receiving node
+chooses the resident form by count and builds its own lookup with its local seed.
+Uniqueness is part of the transfer structure and is checked even if a newer local
+root already covers the effect. [Root transfer and checks](arena-protocol.md#transfer-order-and-checks)
 
 Each captured root carries the sequence of its last mutation. A loading child is sent
 its stream after `LoadEnd`, on the same connection, from S. A Write effect carries the
@@ -552,12 +554,35 @@ experiment tested the earlier state-selection model with deletion watermarks, wh
 owner withdrew on 17 November 2026; binary/shared-block integration remains a release
 test.
 
+A sparse committed effect names the type, key, original batch member, sequence of the
+root it extends and the ordered actions that changed the entity. Forwarded requests and
+sparse effects use the common checked lookup-key encoding. The lookup spelling can
+have a different byte length from an equal stored key. The stored-value limits
+apply to root values and command operands. Operands carry resolved List positions
+or Map and Set presence requirements where an edit needs them.
+A new hashed lookup is built for the resulting count and an unchanged lookup can be
+shared whole. Each child applies these effects in its own physical form, with the
+same compact-to-hashed and hashed-to-compact thresholds.
+
+During catch-up only, a root whose last mutation covers the effect's sequence can
+skip it, after the entire body has been validated. An older root must be the exact base.
+An absent root leaves a temporary type-and-key marker until a committed Delete, even
+if a whole Write appears before that Delete. The marker changes are applied with the
+whole transaction. Retained keys, table capacity and staging are bounded by the child's
+memory limit as a separate loading buffer. A child with unresolved markers at R or
+without space to finish the load fails before Ready. Both successful and failed loading
+release the temporary buffer.
+
+During live application a wrong base or an impossible resolved action is divergence.
+The child checks the rest of the transaction first. Invalid wire structure follows the
+protocol failure path. Verified divergence faults the child at its prior position
+without publishing any member of the transaction.
+
 **Decided by the owner on 14 November 2026:** children that start together are loaded
 in parallel, not one after another. A deployment of 5–10 children has to come up on
-default settings, and a queue of single captures would not let it. Each capture has its
-own S, its own catalog fence, its own watermarks (watermarks withdrawn on 17 November
-2026; a capture has its S, its fence of slots and its R) and its own R; all of them read the one
-shared live stream, which is retained from the earliest S still in use. The number of
+default settings. Each capture has its own S, its fence of slots and its R. All of
+them read the shared live stream, which is retained from the earliest S still in
+use. The owner withdrew deletion watermarks on 17 November 2026. The number of
 captures that run at once is an option, 10 by default. A child beyond the limit, or one
 whose capture cannot reserve its buffers within the memory budget, waits
 before its capture is registered; that wait is part of its open timeout. The earlier
@@ -571,11 +596,14 @@ and load one new arena. Requests may wait at the bounded readiness gate, initial
 Child restart always starts empty. Missing same-history RAM tail or a new history
 requires full reload; ordinary master restart preserves history but may lose the tail.
 
-A child forwards a write as a request on its one connection: the root it validated and
-encoded, which the master checks as a child checks a root of a load, and executes. A write
-batch is one request, which the master checks member by member and executes as one write.
-A forwarded batch of B bytes is held as about B bytes of managed memory on the child from
-its commit to the reply, 2B while its request is written from the encoded members, and on
+A child forwards a write as a request on its one connection. For a complete write it
+sends the encoded root. For an update it sends the key, condition and original ordered
+commands with schema-encoded operands. The master checks the request and executes it.
+A write batch is one request, checked member by member and executed as one write.
+For a forwarded batch of complete writes of B bytes, the child holds about B bytes
+of managed memory from commit to reply and 2B while writing the encoded members.
+An update holds object snapshots of its operands, whose size depends on their types
+and values. For complete writes the same batch is held on
 the master, outside the memory budget, as B for the request from its first frame to the
 outcome of the batch, B in the tail of the children and about 450 bytes a member of
 records — the member, its entry in the set of entities, the text of a String key, its
@@ -597,9 +625,16 @@ that was sent whole and not answered with an indeterminate outcome; an end in or
 the connection alone says nothing about execution (decided at the review of S12 of
 Epic 1, 18 November 2026).
 
-Save forwarded by a child returns only after its local application. Related requests
-carry an opaque minimum history/position; waits have a fixed target and finite timeout,
-not a moving master head. Explicit WaitForPosition is available; subsequent requests
+A successful reply for a request with updates includes a low-bit-first bitmap in
+original command order, including no-ops. The receiver checks its count, size and
+padding against the correlated request. Replies without updates keep their short form.
+An open child completes a forwarded write and exposes its command outcomes after the
+child applies the position. If the child closes after receiving success, the committed
+result and its command outcomes remain available. A timeout, fault or indeterminate
+outcome does not expose the bits.
+
+Related requests carry an opaque minimum history/position. Waits have a fixed target
+and finite timeout. Explicit WaitForPosition is available; subsequent requests
 retain the dependency and recheck lifecycle/history. No all-child barrier or snapshot.
 
 ## Schema identity, migration and facade integration

@@ -109,6 +109,9 @@ Gone through by the planner and the coordinator on 18 November 2026.
   6c. **After S19,** no separate refactoring sprint. The planner and coordinator joined
      each entry to the sprint that changes its path. See the
      [architect's review after S19](#architects-review-after-s19-24-november-2026).
+  6d. **After S20 and before implementing S21,** do the bounded R2 work on packed Map
+     copies and whole writes. Fix its scope at the handoff. The common S21 ARM64
+     measurement queue also takes the two R1 experiments after their x64 preflight.
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
@@ -601,9 +604,10 @@ fixed Release tree, with the same generated users, digest, indexes and inputs. R
 the four forms and balance the class and by-name row order in each. Check the schemas,
 trace and rotation on x64. In the first suitable independent rental, use the same ARM64
 platform for the four forms and report each switch with the other switch off and on,
-and their interaction, for both API forms. Name the accepting queue before S20 closes
-if set, or the nearest suitable protected-view comparison in S21 or S22 and its
-condition. There is no separate rental for K4.
+and their interaction, for both API forms. The receiving queue is the S21 protected
+view comparison of Replace during a held view and Replace without a view, if that queue
+runs on the same ARM64 platform with five minutes available for K4. Otherwise carry it
+to the first equivalent S22 queue. There is no separate rental for K4.
 
 The Windows x64 preflight at `7c6e09af` passed the four compiled schemas, both
 unchanged-replace paths and their complete input traces. The same seed 42 gives all
@@ -648,9 +652,10 @@ ARM64. The reader change was within its gauge. An x64 control restoring the old
 ownership walk gave no consistent recovery within workstation variation. Inlining
 of `WalkStructure` remains a hypothesis. [Measurements](epic-1-core.md#s19-arm64-results)
 
-Use the first independently justified rental. The candidate is the S20 publication
-and ownership comparison once its checks and queue estimate justify a rental, or the
-first suitable S21 or S22 protected-view comparison. No rental is booked. The original
+Use the first independently justified rental. S20 checks publication locally and in
+ARM64 ordering CI, and its encoded size is deterministic. The receiving candidate is
+the S21 held-view Replace comparison on the same platform with room for this control,
+then the first suitable S22 protected-view comparison. No rental is booked. The original
 ARM64 archive has timings but no hot listing. The saved tiered x64 listing comes from
 a serial driver and does not establish the call active in the ARM64 timing window.
 
@@ -665,6 +670,29 @@ outside the gauge band and at least three paired rounds on that side. Attribute 
 fall to the call only if the variant recovers to the gauge and the hot listings match
 the timed code. Otherwise the five rounds check the effect and the hypothesis stays
 open. There is no separate rental for this control.
+
+## Found while reviewing S19 after its merge, 24 November 2026
+
+Read at `main` `7c6e09af` by an independent review of the merged sprint. The coordinator
+checked the three remarks against the source and the archived ARM64 reports. The
+thresholds in the S20 Acceptance stay in force.
+
+| # | Place | What is wrong | The simpler form | What it must keep | Status |
+| --- | --- | --- | --- | --- | --- |
+| R1 | `src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs` (`MostCompactEntries`) | The [S19 lookup results](epic-1-core.md#s19-arm64-results) compare compact at 8 entries and hashed at 9. Shape and count change together. The reported clock frequency gives a nominal 1 ns tick, and many percentiles have a visible 40 ns step. The first small hit rows have long tails of unknown cause. | Compare both forms at the same count, key type and hit or miss pattern for 4, 8, 9 and 16 entries. Warm each form, time a batch of probes together, and record native bytes and creation cost with the read results. Put the figure beside the constant when it supports a decision. | The S20 transitions remain compact to hashed from 8 to 9 and hashed to compact from 5 to 4. A new threshold needs a separate decision. | x64 preflight in S20, measure in the common S21 ARM64 queue on the same platform |
+| R1, write-lock series | S19 `map-write-lock` | At 100,000 entries the admission interval starts at about 41 ms and ends at 17 to 19 ms in each run, with lookup around 11 ms. All three runs use the same size order. The run does not establish steady performance by size or identify which work caused the change. | Use a separate series with each size warmed and size order rotated. Keep lookup time beside admission and whole-write time, and keep raw rounds in order. | Equivalent inputs, placement and instrumentation across sizes. Establish a cause before attributing the change. | x64 preflight in S20, measure as its own series in the common S21 ARM64 queue |
+| R2 | `src/Moltaro.Lattice.Engine/Storage/Roots/PackedMap.cs` | A packed Map boxes its key and value in the owned copy and whole write paths. The S19 `79,112 B` figure is the entire Int64 Map owned read plus lookup at 1,000 entries. The protected lookup allocates zero. The whole replacement figure includes validation and placement as well as boxing. | Use the existing type-bound approach of `PackedSet` for the fixed pair where it fits. Measure the same owned read plus lookup and whole write before and after. | Independent owned copies with declared types, key spelling and comparison, the existing checks of null, duplicate and bound, and no reflection on the call path. Map enumeration order is unspecified. | taken after S20 and before S21 implementation. Set the exact scope in the handoff |
+| R3 | `src/Moltaro.Lattice.Engine/Storage/CollectionWriteTimings.cs` and the `LATTICE_COLLECTION_TIMINGS` sections in `WriteCoordinator.cs`, `NestedValues.cs` and `CollectionLookup.cs` | The default build excludes the cells. The source still places measurement code in the write path. The comment describes the special synchronous build that reads the cells on its calling thread. | After the affected-head control, remove the conditional product insertions and the obsolete scenario wiring from the current build in one commit. Exact lock timing needed by a later study belongs in its isolated measurement build. | The historical `3066ea63` build and archive remain reproducible. The default build has no timing cells or calls. | done in S20: affected-head control at `0f988e6`, removed in `c2aa7c5` |
+
+Both R1 preflights passed in Windows Git Bash in S20, on `3066ea63` with the isolated
+measurement variants. The lookup smoke matched both resident forms and both key types
+at 4, 8, 9 and 16 entries. It checked paired digests, hit and miss traces and zero
+managed allocation in 64 probe windows. The write smoke checked nested intervals and
+rotation on 1,000, 2,000 and 4,000 entries. The portable kit and full logs are archived
+outside Git. The ARM64 estimates are 30 to 65 seconds for lookup and 50 to 80 seconds
+for write lock, plus builds. The S21 queue reserves two minutes for each. It uses the
+predeclared paired and stationarity checks. The x64 results verify the recipe. Access
+to the rental follows the existing checked-queue and owner activation procedure.
 
 ## Found while building S18, 24 November 2026
 

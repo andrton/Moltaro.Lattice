@@ -9379,6 +9379,14 @@ admission lock interval. Each column reports the median of the three run medians
 | 100,000 | 48.280 | 26.425 | 11.131 | 18,052,632 |
 | 1,000,000 | 320.584 | 238.680 | 177.427 | 171,596,424 |
 
+The admission measurements for 100,000 entries are not stationary. In all three
+processes the early samples are about 41 ms and the last three are 17 to 19 ms,
+while lookup stays about 11 ms. Each process ran the sizes in the same order,
+1,000, 100,000 and 1,000,000, with one warm-up per size. These medians do not
+establish a steady effect of size or the cause of the change within a row. The
+[follow-up](refactoring.md#found-while-reviewing-s19-after-its-merge-24-november-2026)
+warms and rotates sizes separately from the compact and hashed lookup comparison.
+
 The scalar and nested index scenarios compared `3066ea63` with `e863f688` and an
 independent build of that base in three rotated rounds. In `nested-index-reads`,
 the ratios of median rates were 0.9977 without a limit and 0.9892 with a 2 MiB limit.
@@ -9611,6 +9619,15 @@ ideas from the following sources.
   [Acquire references](https://github.com/facebook/rocksdb/blob/410c5623195ecbe4699b9b5a5f622c7325cec6fe/db/version_builder.cc#L360-L417)
   [Release references](https://github.com/facebook/rocksdb/blob/410c5623195ecbe4699b9b5a5f622c7325cec6fe/db/version_set.cc#L799-L830)
 
+The planner independently compared LMDB 0.9.33 at
+`3a29a24777c82a0165de813ae696a5068b5add30`. It copies a changed page, records the prior
+page with a transaction and reuses retired pages only before its active reader boundary.
+It is a comparison for ordered reclamation. Lattice uses whole arena value blocks and
+tracks ownership by a backlink across successive versions of one entity.
+[OpenLDAP Public License 2.8](https://github.com/LMDB/lmdb/blob/3a29a24777c82a0165de813ae696a5068b5add30/libraries/liblmdb/LICENSE)
+[Page copy](https://github.com/LMDB/lmdb/blob/3a29a24777c82a0165de813ae696a5068b5add30/libraries/liblmdb/mdb.c#L2320-L2389)
+[Reuse boundary](https://github.com/LMDB/lmdb/blob/3a29a24777c82a0165de813ae696a5068b5add30/libraries/liblmdb/mdb.c#L2134-L2175)
+
 ##### Internal contract of S20
 
 Agreed by the planner and coordinator on 24 November 2026. One sprint and one branch.
@@ -9805,6 +9822,147 @@ head in Release and ran the default suite, format check and all 17 samples. The 
 passed with 3,375 succeeded and 168 skipped. The unchanged `PublisherScratchTests`
 passed. Its recurrence and the two other Debug timeouts remain separate observations.
 The next publication and final head checks include the unchanged test.
+
+After the first implementation commit `042cd5b`, the planner and coordinator added
+verification of existing guarantees. Cover typed null assignment from a populated
+nullable scalar and whole collection, including the refused incompatible type. Probe
+List insertion at count plus one and removal at count, beside the accepted insertion
+at count. Check growth through the maximum and refusal at the next entry for packed
+and record Lists, Maps and Sets, including append and insert where applicable. The
+public failures preserve values, revision and position. A boundary that is too large
+for the public scenario uses an X3 engine probe through the same decision with the
+real size formula. Record the supplemental test commit and its independent operand,
+representation and boundary review separately from tests-first.
+
+The local implementation checkpoints are `042cd5b` for command capture and validation
+and `58a4890` for preparation, ownership and publication on a local master. The
+supplemental tests and XML example are in `572b7e3`. The independent reviewer matched
+the two forms of typed null, refusal of an incompatible type, both List positions and
+their rollback to the public scenarios. The packed tests derive the List, Map and Set
+limits from their layouts and call the same count check that runs after each effective
+edit. The record List scenario reaches its actual limit before the final refused edit.
+The reviewer found that the packed probes used internal types of the core outside X3.
+`9f276a8` narrowed the count check's input to the path it reports. The probes now use
+the engine and the public schema, one row per physical layout. The independent reviewer
+closed the finding on `9f276a8`.
+
+After the workstation restart the coordinator rebuilt `572b7e3` independently in
+Release and ran the whole suite, format and all 17 samples. It passed with 3,607 tests
+and 148 skips. The corresponding checks on `9f276a8` passed with 3,606 tests and 148
+skips after removal of the repeated List row. `PublisherScratchTests` passed on both
+heads. The earlier Debug observations remain open.
+
+`01daa9e` added the public `ListInsert` count-boundary check to
+`ListBoundTests.Editing_a_List_at_its_count_limit_fails_at_execution_and_preserves_its_revision`.
+One physical record List has 3,348,892 elements. Each attempt removes one and uses
+Append to restore the bound. Both one more Append and `ListInsert` at the valid end
+position are refused for the resulting count. Both preserve the revision, position,
+stored values, original member index and unavailable command results. The coordinator
+built an exact source archive of `01daa9e` in Release and passed the targeted test.
+Independent review found no open issues on that commit.
+
+The breaker independently built an exact `01daa9e` export with its probes and passed
+three master cases. Held versions retained a hashed Map and Dictionary Text across
+ownership transfers and deletion and recreation. A late refusal rolled back an
+edited Map and left unique owners in place, then a valid batch transferred both
+claims. A controlled publication failure after repeated transfers kept the old
+position and close freed the native memory. The child cases run on the forwarding
+head.
+
+##### Forwarding and sparse replay
+
+`0f988e68865f62e6cb95440118194b3a05baaff2` enables forwarded updates, sparse
+effects and catch-up. Wire 7 keeps root layout 2, and the handshake rejects wire 6.
+The implementer passed 68 targeted cases, including the existing receiving and
+handshake controls. The coordinator independently built and ran the full Windows
+x64 Release suite on that commit. It passed 3,644 tests, with 129 skips. The
+unchanged `PublisherScratchTests` passed in the full suite.
+
+The coordinator independently reproduced the emitted effect sizes in Release.
+The compared operations changed `IsActive` on the same full fixture User, starting
+from equal entity values. The partial effect was 43 bytes and ordinary Replace was
+199 bytes. These are complete effect bodies, including the effect envelopes, before
+frame and transaction overhead. Both announced effect lengths matched the payload.
+The child applied both operations at their committed positions. The test verifies
+the S20 size criterion. The figure measures bytes on the wire. Independent review
+confirmed both captured lengths, the matched input and the byte count of the sparse
+envelope and its contents.
+
+The coordinator also verified format and ran all 17 samples from the exact Release
+source export, including the expected Identity stop. The breaker's six original
+cases passed on `0f988e6`. They covered retaining shared blocks through held versions
+and recreation, mixed-batch rollback and final-state uniqueness on both roles, a
+forwarded update with a different resident Map form and a gap left by a no-op, and
+fault and reclamation after ownership transfer on both roles.
+
+The first independent review found one blocking key-addressing issue. The update
+request and sparse effect applied a stored-value limit to their logical lookup
+key. A well-formed lookup key may exceed that limit. With the schema's
+case-insensitive comparison, equal spellings can also have different UTF-8
+lengths, so a valid effect could be refused on replay. `9736d87` uses the checked
+common key reader for forwarded single updates, update batch members and sparse
+effects. The stored-value limit still applies when validating stored values.
+The added Unicode case reaches both public forms and sparse replay with different
+equivalent spellings. It exercises the shared path. The source comparison checks
+the removal of the separate storage limit, without constructing a maximum-sized
+String. The reviewer also identified reflection on the enum operand path and
+outdated comments about collection ownership and effect kinds. `d360951` binds
+CLR enum types and their nullable form with the class and updates the effect
+comments. `9736d87` updates the ownership comments and the wire and layout test
+name. The second independent review checked the three wire lookup entry points
+and closed the blocking issue. It also closed the enum-path and documentation
+findings. Its P4 observation about a separate non-null Nullable enum assertion
+needs no additional case. A non-null Nullable enum reaches the checked boxed enum
+branch, and typed null already exercises the stored Nullable type.
+
+On `d360951` the coordinator independently built Release with zero warnings or
+errors, passed the full suite with 3,648 successes and 129 skips, verified format
+and ran all 17 samples. The unchanged PublisherScratch case also passed by
+itself. The captured effect sizes remained 43 and 199 bytes. The breaker independently
+rebuilt `d360951` and passed all six original cases with no skips. The documentation
+review closed three clarifications about the timing of update encoding, no-op
+publication and the scope of the complete-write memory figures.
+
+The coordinator built exact exports of `7c6e09af6d4bf830663e4e90bc69d508cce0bbf2`
+and `d360951c102ed0c4b1d011089433b1627c2205f9` in Windows x64 Debug with SDK
+10.0.404 and ran only Engine.Tests, one head at a time, with matching settings.
+The baseline passed 1,528 tests with two skips in 1:26.244. The head passed 1,576
+tests with two skips in 1:18.341. No other project worker was active before or
+after either run. The system commit charge before and after was 33,430/33,244 MiB
+at the baseline and 33,474/33,656 MiB at the head, each against 86,770 MiB. Full
+logs, assembly hashes and load samples stay outside Git. None of the earlier three
+failures recurred. The exact comparison did not reproduce the conditions of the
+earlier full Debug failure or establish its cause.
+
+##### S19 controls on the S20 change
+
+The same serial shared Int64 writer driver produced fully optimized x64 listings
+at `7c6e09af` and `0f988e6`, with tiering and ReadyToRun disabled. Each driver
+resolved the engine built from its exact source. Each lifecycle still calls one
+structure walk. In the publishing, retiring and freeing instantiations, the
+`WalkStructure` listing changes from 616 bytes and eight static call sites to 320
+bytes and four static call sites, with the per-descriptor call in `WalkValue`.
+Its publishing instantiation is 371 bytes and the retiring and freeing versions
+are 421 bytes each. `PublishBeforePosition` remains 713 bytes and 15 static call
+sites. An independent reviewer checked the lifecycle branch sites and the driver
+identity. These listings
+describe emitted code. The serial x64 driver does not identify the active tier in
+the original ARM64 run or measure writer throughput.
+
+Before removing the temporary write timing instrumentation, the coordinator built
+an exact `0f988e6` export with `LatticeCollectionTimings=true` and ran ordinary
+`map-write-lock` in Windows x64 Release. Replacements completed at 1,000, 100,000
+and 1,000,000 entries, and the scenario verified the nested lookup, admission and
+operation intervals. The raw order stays outside Git. This confirms the measurement
+path still works on the affected write path. The separate warmed and rotated R1
+series is the comparison for steady timings.
+
+`c2aa7c5d850868fa6da15cbc13336dc2d2275d01` removes the temporary timing cells,
+the build switch and the obsolete scenario from the product tree. The implementer
+built it in Release and passed 54 targeted checks, including the unchanged
+`PublisherScratchTests` and collection lookup and receiving. The measurement CLI
+still lists `map-lookup`. Its obsolete scenario is refused. The historical
+`3066ea63` tree and the isolated measurement source can reproduce the timing.
 
 #### S21 · Protected views by name
 

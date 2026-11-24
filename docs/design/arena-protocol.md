@@ -1,9 +1,8 @@
 # Arena access, publication and reclamation protocol
 
-Engineering specification for the bounded arena experiment, 13 November 2026.
-It implements the accepted ownership and protection contracts without selecting
-production field widths, allocation sizes or lock representations. Evidence and
-limitations belong to the experiment's README and the prototype evidence record.
+The engine's arena layout, ownership and publication protocol. The early gated arena
+experiment of 13 November 2026 is recorded below with its original scope. Evidence
+and limitations belong to the experiment's README and the prototype evidence record.
 
 [Engine foundation](engine-foundation.md) · [Allocation policy](../decisions/allocation-and-compaction.md) · [Read access](../decisions/memory-and-access.md)
 
@@ -141,13 +140,14 @@ payload and keep their offsets. Each out-of-line location is sent as zero,
 including the locations of text entries and record blocks. Dictionary text is sent as
 bytes for each reference. Native headers, capacity slack and chunk directories never
 travel. The payload and value bytes use the machine's byte order, which nodes agree on
-in the handshake. Wire format 6 carries a Map or Set through the descriptor and
+in the handshake. A whole-root body carries a Map or Set through the descriptor and
 entries a List would use. Export substitutes the entries descriptor for the local
 Lookup descriptor in the containing payload. Both stored export and write forwarding
 use an out-of-line descriptor for short packed entries of a hashed collection. The
 receiver rejects an inline descriptor for a hashed collection. Existing List bodies
-retain their byte layout. The root layout version stays 2. A peer with a wire format
-below 6 is refused at the handshake, even when the database holds no Maps or Sets.
+retain their byte layout. Wire format 7 adds sparse committed effects and preserves
+the whole-root layout version 2. Peers with older wire formats are refused at the
+handshake. [Replication transport](milestone-1-engine-contract.md#replication-transport-and-initial-loading)
 
 The export writes the block payload when the walk enters it. The same walk visits a
 descriptor after any record blocks it names, so freeing can safely release children
@@ -285,6 +285,37 @@ freed and waits for the reads that hold the rest before it is refused. The engin
 retired memory on the path of its own operations, as the mechanism it follows does; it
 starts no thread and no timer for it. A database nobody uses may therefore hold the last
 retired memory until its next operation or its close.
+
+### Ownership across partial updates
+
+Under the writes lock, a partial update prepares a fresh root from the published
+predecessor. Only one prepared version may target that key. In the new holder, inline
+bytes are packed again and their offsets are calculated there. A value the available
+inline area cannot hold goes through the usual out-of-line placement. The published
+predecessor's payload and inline offsets stay valid for protected readers.
+
+An unchanged out-of-line branch can be borrowed from the predecessor of the same
+root lifetime. The old holder's address and descriptor offset remain in the block
+header during preparation. Newly allocated blocks have the new holder as their
+owner, or the root image and descriptor offset before there is a final root address.
+On abort the free walk enters only owned edges. A new descriptor directly referring
+to Dictionary text acquires one reference. A shared subtree keeps the references
+already held by its physical descriptors.
+
+After all recoverable refusals, the publishing thread makes new prepared blocks live
+and transfers each borrowed backlink before storing the new root. The transfer of a
+whole branch changes its top backlink and leaves its descendants in place. Retirement
+and free descend only when both the parent address and descriptor offset match.
+Protected readers and export still follow every descriptor reachable from their root.
+They read the payload without consulting ownership metadata.
+
+Old versions may still refer to a transferred branch. The retirement queue frees its
+eligible prefix in retirement order. By the time a later version frees a shared block,
+the earlier versions have already followed or skipped their aliases while the block
+header still exists. A shared live slot counts once in the arena. Preparation counts
+its acquired slots and references. For the size of one entity, its reachable values
+still count even if a retained older version can also read them. Relocation must
+account for current readers, prepared writes and older aliases before it moves a block.
 
 ## The stamp of a root entry
 
@@ -495,6 +526,15 @@ case table.
 
 ## Read and mutation paths
 
+The current engine publishes new roots for complete writes and for partial updates
+that change an entity. [The root stamp](#the-stamp-of-a-root-entry) and the transaction
+position coordinate visibility with the indexes. An update that changes nothing
+publishes a position and keeps the current root and revision. The
+[partial update ownership rules](#ownership-across-partial-updates) cover sharing
+and cleanup of earlier versions.
+
+### Earlier bounded experiment
+
 An ordinary copy read claims the root, acquires protection, copies scalar fields,
 owned chunks and dictionary text, then releases all protection. The returned arrays
 and strings belong to the caller. A protected calculation reads the same bytes and
@@ -515,7 +555,7 @@ allocator resources must already exist; the production path must also reserve in
 resources before commit. If committed publication fails, use the accepted instance
 fault/reopen policy, not an attempted rollback of durable data.
 
-A fixed-field partial update modifies its fixed fields under exclusive root
+In the gated experiment, a fixed-field update modified its fixed fields under exclusive root
 protection, without replacing the root or its payload blocks. Delete removes the
 catalog mapping and marks the old lifetime dead under root protection, detaches its
 blocks and releases stored text references. A queued old lookup sees absence; a new
@@ -524,10 +564,10 @@ until they publish or abort, so slot reuse cannot change their target.
 
 ## Reclamation and relocation
 
-For this protocol's synchronous root reads, acquiring exclusive root protection
-already drains readers of owned data. Detached owned blocks can therefore be freed
-within that scope after descriptor publication; an epoch queue is unnecessary for
-these blocks. A queued lookup retains control metadata, not the removed payload.
+The current engine [defers reclamation](#deferred-reclamation-16-november-2026) with
+epochs. The prototype described below used synchronous root reads. Acquiring exclusive
+root protection drained readers of owned data, so a detached block could be freed in
+that scope after descriptor publication. A queued lookup retained control metadata.
 
 Shared text is freed only when root, prepared and index counts are all zero and
 exclusive dictionary protection excludes text readers. A root gate alone is
@@ -549,6 +589,8 @@ reserve; excess completely unused segments are returned to the native allocator.
 Releasing native allocations does not guarantee an immediate fall in process RSS.
 
 ## Required bounded checks and measurements
+
+These checks belong to the gated prototype.
 
 - Coherent copy/calculation reads across updates; detached copies remain unchanged.
 - A held reader delays mutation, while compaction skips that busy owner.

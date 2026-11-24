@@ -110,16 +110,17 @@ group, one position. A group never splits it, and it is never refused for its si
 any write, only a batch that does not fit into the memory beside the stored data is refused,
 as a whole, before anything is written.
 
-- **Members are encoded when they are added.** The batch of the contract asks the engine
-  to encode each entity to its root when the application adds it, on the thread of the
-  caller and outside every lock, in the form a child uses to forward a write. Later edits of
-  the object are not part of the batch; the cost is a managed copy of every root from its
-  Add to the outcome of the batch, when the record of the batch lets go of its members,
-  whoever still holds the task of the commit.
+- **Members are captured before commit.** The engine encodes a complete write to a
+  root when the application adds it, outside the writes lock. An update already holds
+  a snapshot of each command. The batch checks the copied content and the layout at
+  addition and consumes the update on success. A child encodes the commands when the
+  batch commits. The record of the batch releases its members when it records the
+  outcome.
 - **Prepared as a forwarded write is.** Member by member, in their order, the key is looked
-  up, the condition checked, and the root placed from the bytes of the member, as a master
-  places the root a child forwarded. Then all the changes reserve together, each index once
-  for their sum, and the unique indexes are checked on the state the batch leaves: two
+  up and the condition checked. The master places a complete root or prepares an
+  edited root from the current one and the member's ordered commands. Then all the
+  changes reserve together, each index once for their sum, and the unique indexes are
+  checked on the state the batch leaves: two
   members may exchange values, and a delete frees a value another member takes. Which member
   fails is judged in two phases
   ([Q58](../work/open-questions.md#q58-which-member-of-a-batch-is-the-failing-one-when-two-of-them-claim-one-unique-value)).
@@ -143,6 +144,9 @@ as a whole, before anything is written.
   (`Engine/Entities/UniqueClaims.cs`). The claims are sorted on the first question.
 - **Published whole.** Its changes are published at one sequence as one publication (below),
   and its transaction carries one effect for each change, with the number of its member.
+  A partial effect carries the commands that changed the entity and the sequence of the
+  root they extend. The successful result gives the outcome of every submitted command,
+  including no-ops.
 - **Revisions of their own.** The members share the position of the batch; the number of a
   member is part of its revision, from 1 in their order for a batch of two or more, 0 for a
   single write and for a batch of one, whose revision is then that of a single write
