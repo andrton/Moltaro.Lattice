@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Engine;
 
 // What the tests of the engine and the measurement program reach of an instance beside the public
 // contract (exception X3, docs/work/exceptions.md): the Create with their inputs, the counters, the
-// contents of the text table and of the trees of the indexes, the live roots, the drain, the switches that
+// contents of the text table and of the trees of the indexes, the nodes their pools hold, the live roots,
+// the drain, the switches that
 // hold a read, a growth, a refused write or the application of a child, the fault points, and the report of
 // a child's catch-up. Each member says what it costs an instance whose tests do not use it.
 internal sealed partial class EngineDatabase
@@ -168,6 +169,42 @@ internal sealed partial class EngineDatabase
                 }
 
                 return nodes;
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+    }
+
+    // For the audit of the ownership of blocks by the tests of the engine (exception X3,
+    // docs/work/exceptions.md): the bytes of the nodes the secondary indexes of every entity type the engine
+    // stores hold reserved for their publications and as their standing reserves, prepared blocks that no
+    // tree names (Indexes.NodePool), each node a block of the node size of its index. Taken as TextReferences
+    // is, under the lock of the writes between two changes of the engine, on a master and on a child; it does
+    // not drain. Unavailable before the open and once Faulted, ObjectDisposedException after the close.
+    public long ReservedNodeBytes()
+    {
+        ThrowIfNotReady();
+        _barrier.Enter();
+
+        try
+        {
+            var parts = Part(_parts);
+
+            lock (parts.Writes)
+            {
+                var bytes = 0L;
+
+                foreach (var operations in parts.Operations.Values)
+                {
+                    foreach (var index in operations.Table.Indexes)
+                    {
+                        bytes += (long)index.Tree.ReservedNodes * index.Layout.NodeBytes;
+                    }
+                }
+
+                return bytes;
             }
         }
         finally

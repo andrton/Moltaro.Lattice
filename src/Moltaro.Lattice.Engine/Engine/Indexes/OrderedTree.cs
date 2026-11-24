@@ -74,6 +74,9 @@ internal sealed class OrderedTree
         _pool = new NodePool(layout, arena, retired);
     }
 
+    // How many nodes the pool of the tree holds reserved, prepared blocks no reader reaches (NodePool.Count).
+    public int ReservedNodes => _pool.Count;
+
     // The levels of the tree: 0 when it is empty, 1 when its root is a leaf. The pool computes the bounds
     // of a reservation from it (NodePool); the tests of the engine hold that it is the height the nodes of
     // the tree have.
