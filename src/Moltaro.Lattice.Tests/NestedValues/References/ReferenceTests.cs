@@ -137,7 +137,7 @@ public sealed class ReferenceTests
         Assert.Equal(written.Names, record.Get<List<string>>("Names"));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Reference_whose_key_is_text_that_is_not_well_formed_is_ValidationFailed_with_the_field_named()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);

@@ -33,8 +33,10 @@ internal static class ValueBound
     public static string Held { get; } = string.Create(CultureInfo.InvariantCulture, $"a value that takes more than the {Bytes:N0} bytes of its stored encoding that one value may take");
 
     // Whether a value at a position of the declaration is within the bound: a String or a Binary value of
-    // a position of that type. Any other value is not judged here, and the rest of the validation checks it.
-    public static bool Holds(LatticeValueDeclaration declaration, object value, LatticeStringEncodingEnum encoding) => (declaration.Type, value) switch
+    // a position of that type, and the text of a Reference whose target has a String key, which is a String
+    // value (LatticeValueDeclaration.ScalarType). Any other value is not judged here, and the rest of the
+    // validation checks it.
+    public static bool Holds(LatticeValueDeclaration declaration, object value, LatticeStringEncodingEnum encoding) => (declaration.ScalarType, value) switch
     {
         (LatticeFieldTypeEnum.String, string text) => HoldsText(text, encoding),
         (LatticeFieldTypeEnum.Binary, byte[] bytes) => bytes.Length <= Bytes,

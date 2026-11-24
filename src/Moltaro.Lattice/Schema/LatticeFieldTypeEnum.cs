@@ -163,9 +163,17 @@ public enum LatticeFieldTypeEnum : byte
     /// deleting the target does not change the reference.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// A reference whose target has a String key holds text, and a write validates it as a String
+    /// value: text that is not well-formed, with a surrogate without its pair, and text above the
+    /// bound of one value, see <see cref="String"/>, are refused with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named, at every depth.
+    /// </para>
+    /// <para>
     /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name and
     /// through a class; a write batch and a child are not built yet for an entity type that holds
     /// one, as the remarks of <see cref="Owned"/> say.
+    /// </para>
     /// </remarks>
     Reference = 25,
 }

@@ -77,7 +77,7 @@ internal static class RecordValues
         LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set => CopySequence(declaration, value, place),
         LatticeFieldTypeEnum.Map => CopyMap(declaration, value, place),
         LatticeFieldTypeEnum.Binary => TakeBinary(declaration, value, place, copy: true),
-        LatticeFieldTypeEnum.String => CopyText(declaration, value, place),
+        LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Reference when declaration.ScalarType == LatticeFieldTypeEnum.String => CopyText(declaration, value, place),
         LatticeFieldTypeEnum.Enum => CopyEnum(declaration, value, place),
         _ => value.GetType() == declaration.ValueType ? value : throw place.Fail(NotAccepted(declaration, value)),
     };
@@ -187,9 +187,11 @@ internal static class RecordValues
         return copy;
     }
 
-    // Text is held as it is given. A write refuses text above the bound of one value, and then text that
-    // is not well-formed, a surrogate without its pair, at any depth (docs/decisions/strings.md, "Input
-    // validity and preservation"); a value set into a record is not checked for either.
+    // Text is held as it is given: a String, and the key of the target of a Reference whose target has a
+    // String key, which is validated as a String value is. A write refuses text above the bound of one
+    // value, and then text that is not well-formed, a surrogate without its pair, at any depth
+    // (docs/decisions/strings.md, "Input validity and preservation"); a value set into a record is not
+    // checked for either.
     private static object CopyText(LatticeValueDeclaration declaration, object value, Place place)
     {
         if (value is not string text)

@@ -199,13 +199,16 @@ internal sealed class ClassBinder
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
         LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, BindBinary(declaration, place), place), Same),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
-        LatticeFieldTypeEnum.String when type == typeof(string) => new Conversion(BindText(declaration, place), Same),
+        LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Reference when declaration.ScalarType == LatticeFieldTypeEnum.String && type == typeof(string) =>
+            new Conversion(BindText(declaration, place), Same),
         _ when type == declaration.PositionType => new Conversion(Same, Same),
         _ => throw place.Mismatch(),
     };
 
     // Text is taken as it is, after the bound of one value, and after one pass that refuses text that is
-    // not well-formed, a surrogate without its pair, at any depth (the planner's answer to Q41).
+    // not well-formed, a surrogate without its pair, at any depth (the planner's answer to Q41): a String,
+    // and the key of the target of a Reference whose target has a String key, which is validated as a
+    // String value is.
     private Func<object, object> BindText(LatticeValueDeclaration declaration, Place place)
     {
         var entityTypeName = _entityType.Name;
