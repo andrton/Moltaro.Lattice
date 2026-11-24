@@ -9,8 +9,4 @@ internal static class SkipReason
     // with them: the bound of a value at every depth, a value written by name bound as a part of a search
     // key, and the timestamps of a read from a source the tests drive.
     public const string NestedValues = "Storing owned values, Lists and references is not implemented yet.";
-
-    // A write of an entity type with an Owned or a Reference field is refused with NotSupportedException
-    // (LatticeFieldTypeEnum.Owned and LatticeFieldTypeEnum.Reference).
-    public const string OwnedValuesAndReferences = "Storing owned values and references is not implemented yet.";
 }
