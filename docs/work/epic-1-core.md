@@ -1297,7 +1297,7 @@ Why this order:
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts |
+| S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts; its Measured line taken after the close |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
@@ -8740,7 +8740,7 @@ night by the owner's word in the planner's session.
   the reads by a class of part 2. One full Debug run failed once in
   `LevelBoundTests.Reservation_made_or_refused_takes_no_managed_room_for_its_nodes`, an
   allocation counted on one thread, in code part 1 does not touch; it passed alone 25 times
-  and in every full run since, its output is kept, and its cause is not known.
+  and in every full run since, its output is kept; its cause, named by the architect's review after S18, is that it measures the allocation of its thread outside `ManagedAllocationCollection`, so a garbage collection inside its window moves the counter, and Z3 of S18R moves it there.
   The merge of `main` brought the tests of the search by index against a model, whose
   Reference and owned-path parts are skipped with a reason of their own,
   `SkipReason.OwnedValuesAndReferences`; part 2 folds it into `SkipReason.NestedValues` and
@@ -8875,6 +8875,142 @@ owner. With it S18 is closed whole.
   the machine (the plan in the notes of the coordinator), which the owner has been asked to
   start; Q63 for the owner.
 
+**The measured bytes of S18** (24 November 2026). S18 was closed with its own "Measured"
+owed: no scenario stored the full form of the fixture, which nobody said at the close. The
+scenarios came after it (PR 62): `root-bytes` with the user and the group of the fixture in
+their full form, an entity with an owned value present and absent, and Lists in each form;
+and `full-form-users`, a read and a replace by a class and by name of the full form against
+the scalar forms, in three rounds rotated. Bytes are the same on every machine and were
+taken on the workstation, as live and retained bytes an entity (retained adding the slack of
+the size classes), the entity's root, every block it owns and its share of its Dictionary
+text entries, by name and by a class alike:
+
+| Entity | Scalar form | Full form | The study's arithmetic |
+| --- | --- | --- | --- |
+| The fixture's user | 162 / 176 | 193.01 / 208.01 | 162 to 193 / 176 to 208 |
+| The fixture's group | 67 / 80 | 99 / 112 | 67 to 99 / 80 to 112 |
+
+An owned value (an Id and a nullable owned address of two Strings and an Int32, flattened):
+absent 77 / 80, present 99 / 112. A block for each owned value, by arithmetic, would hold
+57 / 64 absent and 153 / 160 with a hop present: the flattening costs 20 live bytes when the
+owned value is absent and saves 54 when it is present. Lists, every figure equal to its
+arithmetic: a packed List of Int64, empty or inline at 4 elements 56 and 88 live bytes, one
+block at 100 elements 888, two chunks at 10,000 elements 80,184 (82,048 retained); a List of
+records of 10-byte texts, empty 56, one block at 4 and 100 elements 192 and 2,688, two chunks
+at 1,000 elements 26,184 live and 41,088 retained. A List of records in chunks pays the slack
+of a size class for each chunk, since a chunk is allocated at its length: 14,904 bytes of
+slack against 26,184 live at 1,000 short texts; packed chunks fill their class but for the
+last. That is for the study of S23, with the shrink. Measured: the bytes on 24 November
+2026; the times of `full-form-users` in the start of the machine of the same day, one run
+without a gauge (its record).
+
+**The record of the start of the machine for S18** (24 November 2026, a rented ARM64
+machine, 16 cores). It ran in two chains, 05:33 to 07:42 and 07:44 to 08:46 UTC, every timed
+run with exit 0. It was not ready when the owner started the machine: the variants of K2 and
+the line of part 3 of S17 were prepared after it, so the first chain carried what needed no
+preparation and the second followed it. The plan of a start includes that everything the
+start needs is built and checked before the owner is asked. A fall or a gain is called where
+the ratio of medians lies beyond the band of the gauge, a second build of the base, and at
+least three rounds lie beyond it on that side; the scripts, the raw series and the listings
+are kept outside the repository. `kernel.perf_event_paranoid` was lowered from 4 to 2 for
+`perf stat`, on the owner's word, until the machine's next start.
+
+- *S17R* (8dc0e16 against 6b968b3, three rounds): no fall on `index-writes` with 1, 3 and 6
+  indexes (0.975 to 1.082), two gains (3 indexes, one caller, insert and delete 1.028; no
+  index, 8 callers, a replace that keeps every key 1.015), so the re-inlining of
+  `NodePool.AfterPublication` named as the first remedy is not needed; `unique-writes` lines
+  1 to 3 at 0.998, 1.014 and 1.023, none called, one gain (users without the unique index,
+  one caller, insert and delete 1.019). One called fall: `following-children`, no child, one
+  caller that replaces, 0.967 (band 0.982 to 1.018), only in the first of each run's two
+  repeats; the same operation in `unique-writes` is 1.014. It is run again in the next start,
+  which owes `following-children` for Z1 and Z4 of S18R.
+- *S18 on the scalar form* (6102bbe against 8dc0e16): no fall on the 98 lines of
+  `read-by-key-threads` and `write-callers` (0.939 to 1.061, none called); `root-bytes`
+  identical byte for byte. This is the judgement the implementation of S19 waited for.
+- *Reads by key* (`read-by-key-threads`, five rounds, ed81c76, 3e24ce4 and 6102bbe against
+  a gauge of ed81c76): no line of the reads falls at the head at any count of threads; the
+  reads scale, 16 threads at 12.08 times one at the head and 11.72 at ed81c76, the sums over
+  1 to 16 threads 28.25 M a second at the head against 28.61 M.
+- *K2*, its three lines:
+  - The first line, the variants: `kd` (the divisions of the pool skipped where they are
+    exact) gains beyond the gauge on four lines of `index-writes` (1.017 to 1.060) and falls
+    nowhere; `kbc` (`ChangeAt` split and `Targets` without `Need` when nothing waits) falls
+    3.1 to 5.4 % on six lines and is refused with those figures. `kd` is taken as a change of
+    the light track of its own; the first line closes when it is merged.
+  - The second line, part 2's insert that grows the primary index, does not stand with the
+    trees rotated (3e24ce4 against ed81c76 0.992 to 1.001, none called), and is closed.
+  - The third line, part 3's line of `unique-writes` (three indexes, none unique, a replace
+    that keeps every key): the 0.953 of S17 did not reproduce rotated (6b968b3 against
+    f6d9cf3 0.983 at two of five rounds; the line alone in the driver's bench 1.020). Of the
+    7 bodies that differ on its path, two add work: the guarded test of the scratch in
+    `ChangePublisher.PublishPositionAndAfter` at 6b968b3, and the larger zeroed frame of
+    `ClassSet<T>.Save` at f6d9cf3; `perf stat` gave 6b968b3 3.2 % fewer cycles and 2.7 % more
+    instructions, the whole process's counts too scattered to apply the rule of equal
+    instructions. It leaves K2 because it does not reproduce.
+- *K3, opened*: the writer that inserts while the primary index grows is 1.3 to 2.9 % slower
+  at 6102bbe than at ed81c76 on four lines (1 thread beside another database 0.971; 2 threads
+  0.974; 8 threads 0.972 and 0.987), called at three or four of five rounds and never at all
+  five, and the same against 3e24ce4, so it arrives after part 2: in part 3 of S17, S17R or
+  S18. No target is missed: the writes stay far above the targets of writes of the Acceptance
+  (G3 and G6). Its place is the next start, with the steps built apart (3e24ce4, 6b968b3,
+  8dc0e16, 6a4fb98, 6f50194, 6102bbe), the trees rotated, and the listing of that insert at
+  the two ends taken first on the workstation.
+- *S18's own line* (`full-form-users` at e96650c, one run without a gauge, the medians of
+  three rotated rounds, against the scalar form without the marks of unique indexes): the
+  full form reads 1.087 by a class and 1.158 by name, replaces 1.429 by a class and 1.485 by
+  name; the middle form (the unique marks and the region in Dictionary storage, no List)
+  replaces at 1.200 and 1.182 already. Not a fall: more data. What a replace pays for a
+  unique index and for Dictionary text when neither changes is a cost nobody has looked at:
+  an entry for the architect's next review, and the line run again with a gauge in the next
+  start. `root-bytes` on the machine: 18 figures of 18 equal to the workstation's.
+- *Correctness on ARM64* at 6102bbe: the ordering lane 20 of 20, the soak of form C 5 of 5
+  (12.7 million observations), the member revisions 10 of 10, the whole suite in Release and
+  in Debug with no failure. The probes of the breakers of S18 failed every run on three
+  probes, outdated by parts 2 and 3: part 2's probe of two reads of an empty array (the one
+  empty array of a type is shared by design since its review), and part 1's churn probe with
+  seeds 18 and 1818 (its model takes a batch of nested entities as refused, as it was in
+  part 1, and since part 3 such a batch commits). The two tests of a fault met while a read
+  waits (the cause found after the close of S18) ran 200 times alone and 100 beside the
+  engine suite with no failure. The one failure of that suite, run as the load, was the
+  way it was started (the native runner as `dotnet` with the test assembly, so a test that
+  starts `Environment.ProcessPath` started the dotnet host), not the test.
+
+**Found after the close of S18, 24 November 2026: the state of an instance behind its fault.**
+A red check of `arm64` on a pull request of documents (PR 59, merged with it by the
+coordinator's mistake: a merge needs every check green, though `build` is the only check the
+repository requires) showed
+`ChildPublicationTests.Read_that_waits_for_a_publication_of_a_child_that_fails_ends_with_Unavailable`
+fail once: both reads refused with `Unavailable`, then `State` read Ready, not Faulted. The
+log is kept outside the repository. The cause, by reading and by a delay: `EngineDatabase.Fault`
+marks the reads faulted first (`ReadEpochs.Fault`) and stores the state under the lock of
+the state after it, then ends the waits for a position; on a child the first mark is made
+under the lock of the writes in the publication's catch and the state is stored after the
+unwind, a window of 17 to 67 µs (median 27), on a master 7 to 12 µs. It is the same on x64;
+the runner was descheduled inside it. 800 runs on the workstation unchanged gave no failure;
+a pause at that point failed the test 30 of 30 at 50 ms, 12 of 30 at 5 ms and 1 of 30 at
+1 ms, always the same three rows (this test and both rows of
+`WaitingReadTests.Read_that_waits_for_a_publication_that_fails_ends_with_Unavailable`, the two
+tests that use `held.Fail()`); the eleven other assertions of `State == Faulted` follow an
+awaited write outcome, given after the store. The contract's letter holds, but an
+application told "the database is Faulted" by one call could read Ready on the next.
+Decided by the planner on 24 November 2026, form (A): one point decides the fault. `State`
+reads the fault mark of the reads as well as the stored state, and `ThrowIfNotReady` reads
+`State`; the remarks of the Faulted state gain the sentence that once a read has reported
+`Unavailable` for the fault, `State` is Faulted. It is a small change of behavior, of the
+light track, with one reviewer at xhigh, and the first work of the next coordinator, before
+S18R: the test first, with a pause at that point through the switch the engine tests
+already have, failing before the change on a master and on a child; then the change; the
+listings of a read by key and of a search showing no load added, since neither reads
+`State`; the two tests that use `held.Fail()` unchanged and passing with the pause; and the
+other way checked as well, that nothing reports work of a Ready instance done after `State`
+reads Faulted. The ordering lane and these tests run on ARM64 in the next start of the
+machine. It was seen again on x64 the same day, on a pull request of documents (PR 63, run
+45362194937, the job `build`), in `WaitingReadTests.Read_that_waits_for_a_publication_that_fails_ends_with_Unavailable`
+with the child, as the reading said it could be: not a defect of ARM64. Until the fix is in,
+any pull request can fail on those three rows; its job is run again, and every sighting is
+counted here. The fix is the first work of the next coordinator, before anything else is
+merged.
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
@@ -9007,6 +9143,15 @@ Map of 1,000, 100,000 and 1,000,000 entries; and whatever the start of S18 left 
 If the internal contract shows the sprint is too large for one review, the coordinator
 proposes its parts to the planner with the first step.
 
+**Added by the planner on 24 November 2026, from the architect's review after S18.** A record has one member today (the place 0 in `NestedValues.Write` and `Read`,
+`ListRecords`, `PackedOwnedValues`, `RootValues.CheckListBounds`), and `StructureLayout`
+carries four members of a List (`List`, `Packed`, `RecordsPerChunk`, `MostElements`); a
+Map's entry has two members and is a third kind of collection. The hash directory is a
+block the root owns that does not travel. The 37 `Layout!` and the 21 checks of "not
+stored yet" in 11 files, and `ClassBinder.NotRead`, go in this sprint, not after it; and
+the bound of a key and a value of a Map is checked in `RecordValues.CopyMap` and
+`ClassBinder.BindMap`.
+
 #### S20 · Partial updates
 
 **Carried from the study of S11:** how a partial update travels to a child is decided in
@@ -9135,6 +9280,10 @@ at the commit); and that an update of another database given to `batch.Update` i
 **Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
 given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
 a box that the keys of an index use, and its `Bind`; it does not write a second holder.
+
+**Added by the planner on 24 November 2026, from the architect's review after S18.** No routine copies an unchanged subtree from one root to another; a third
+`IRecordSource`, over stored blocks, fits the placement and would be a third user of the
+rule of pending descriptors.
 
 #### S21 · Protected views by name
 
@@ -9341,6 +9490,10 @@ scratch of a publication, the claims of a batch, the key set of a child, the str
 of a connection, V1 and V2 of [the refactoring backlog](refactoring.md)); the brief names
 each before the sprint starts.
 
+**Added by the planner on 24 November 2026, from the architect's review after S18.** A block of records has the kinds Value and Chunk, as a Binary has, so a move cannot
+tell from its header whether a block holds children without climbing to its root: kinds of
+their own are decided here, with the kinds of text entries already carried to this sprint.
+
 #### S24 · The memory budget
 
 **Carried from the outside review, 18 November 2026:** a child sizes its primary index
@@ -9395,6 +9548,11 @@ added holders of arena addresses and managed room that the budget does not count
 scratch of a publication, the claims of a batch, the key set of a child, the stream buffer
 of a connection, V1 and V2 of [the refactoring backlog](refactoring.md)); the brief names
 each before the sprint starts.
+
+**Added by the planner on 24 November 2026, from the architect's review after S18.** S18 added managed room the budget does not count: the buffers of `BlockImport`
+(about 145 KB an instance) and its starts, and the pieces `ExportedValues` keeps for a
+member of a batch from its `Add` to its commit; the brief names each before the sprint
+starts.
 
 #### S25 · Reference fixture, managed reference and the memory gate
 
