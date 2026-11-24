@@ -9758,6 +9758,54 @@ shared descendant of a copied holder, a direct Text reference, fault after trans
 both roles, and memory counters. Probe a late mixed batch refusal, independent physical
 forms, a reply bitmap larger than a frame, and malformed wire after detectable divergence.
 
+##### Tests first and publication check
+
+The first contract, sample and tests are at `0fbfa6d02fc305c921f93aac20dbb93d312f477e`.
+The independent review found four P2 gaps. The successful update needs a publication
+hold with root and index observers. The child tests need effective Map edits and two
+distinct update outcomes in the same mixed batch. Collection operands need the S15
+matrix across their applicable declaration types. The Map snapshot test must compare
+its contents without requiring enumeration order under Q03.3. The batch XML precedence
+and ownership are P3. `PartialCatchUpTests` was the hardest part to follow because the
+network fixture and the direct receiver fixture exercise different boundaries.
+
+The first full Debug run of the tests-first code failed `PublisherScratchTests` at
+the await on line 51. The output filter retained the test name, 52.196 seconds and
+stack lines 51 and 58. It did not retain the exception. A single-test rerun passed in
+2.752 seconds and the Engine.Tests module run passed with 1,528 succeeded and 21 skipped.
+
+On exact `7c6e09af` and `0fbfa6d` Debug builds, six single-test runs alternated the
+trees and all passed. The whole baseline passed with 3,369 succeeded and 129 skipped
+in 1:27. The whole tests-first tree ran in 5:37, with 3,372 succeeded, 164 skipped
+and three failures. The full log confirms that `PublisherScratchTests` again reached
+the ten-second synchronization timeout after the master had committed position
+`02583d08618f1805-b`. The stack goes through `PositionClock.WaitForLaterAsync` and
+`Forwarder.WaitForApplicationAsync` to line 51. `ReturnedKeysPagesTests` (Int64) and
+`AcknowledgmentDuringARequestTests` separately hit their outer test waits. The latter
+reported 78,904 of 89,390 MiB of system commit charge. The publication and test source
+are identical in the two trees. The controls ran serially. Their full-run durations
+differed, and the baseline lacks comparable system load readings. The recurrence
+remains open. Logs and temporary diagnostics stay outside Git.
+
+A detached instrumented `0fbfa6d` passed the isolated test and the full Debug suite
+with 3,375 succeeded, 164 skipped and no failures in 4:18. In the isolated trace for
+position 11, the child's wait began at 971.350 ms. The child's held publication was
+released at 1182.049 ms, exited the hold at 1182.075 ms, published at 1182.077 ms,
+finished the stores at 1255.958 ms, completed Wake at 1303.990 ms and returned the
+write at 1304.232 ms. The full runner did not display the successful test's buffered
+trace. The instrumented passes establish that sequence for a successful isolated
+case. They do not identify the cause of the uninstrumented failures.
+
+The second independent review closed all four P2s and the XML P3 at
+`021d093a86d0d2788b675d0bda10a1d941d5c896`. The Map test now compares exactly the
+keys and values without relying on enumeration order, with the correction named in
+the commit. The catch-up fixture member numbering and retained-frame probe are P4
+follow-ups to the wire implementation. The coordinator independently built that exact
+head in Release and ran the default suite, format check and all 17 samples. The suite
+passed with 3,375 succeeded and 168 skipped. The unchanged `PublisherScratchTests`
+passed. Its recurrence and the two other Debug timeouts remain separate observations.
+The next publication and final head checks include the unchanged test.
+
 #### S21 · Protected views by name
 
 **Track:** full · **Needs:** S20 · **Decisions:** O6 · **Owners:** E08, E05

@@ -605,6 +605,16 @@ and their interaction, for both API forms. Name the accepting queue before S20 c
 if set, or the nearest suitable protected-view comparison in S21 or S22 and its
 condition. There is no separate rental for K4.
 
+The Windows x64 preflight at `7c6e09af` passed the four compiled schemas, both
+unchanged-replace paths and their complete input traces. The same seed 42 gives all
+forms the same 100,000 users. Each warm-up visits the once-ordered fixture and each
+timed row visits it ten times. The plan balances all 32 visits across form, order
+position and first API. One timed smoke round exercised all eight rows. Its timings
+verify the runner only. The checked kit and preflight archive are kept outside Git.
+The ARM64 runner estimates three minutes timed and five minutes with build and checks.
+The fixed S19 tree and balanced write-only series isolate the costs there. The earlier
+`e96650c` combined ratio is historical context for this comparison.
+
 ### S18 receiving lines
 
 Keep the [two historical comparisons](epic-1-core.md#s19-arm64-results) separate. The
