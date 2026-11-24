@@ -63,6 +63,12 @@ IReadOnlyList<string>? results = scenario switch
     DictionaryMemoryScenario.Name => DictionaryMemoryScenario.Run(),
     DictionaryChildScenario.Name => DictionaryChildScenario.Run(),
     IndexSearchScenario.Name => IndexSearchScenario.Run(),
+    NestedIndexReadScenario.Name => NestedIndexReadScenario.Run(associative: false),
+    NestedIndexReadScenario.CollectionName => NestedIndexReadScenario.Run(associative: true),
+    MapLookupScenario.Name => MapLookupScenario.Run(),
+#if LATTICE_COLLECTION_TIMINGS
+    MapWriteScenario.Name => MapWriteScenario.Run(),
+#endif
     IndexWritesScenario.Name => IndexWritesScenario.Run(),
     IndexReadByKeyScenario.Name => IndexReadByKeyScenario.Run(),
     IndexBuildScenario.Name => IndexBuildScenario.Run(),
@@ -76,7 +82,12 @@ IReadOnlyList<string>? results = scenario switch
 
 if (results is null)
 {
-    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}, {ClockWaitersScenario.Name}, {ForwardingScenario.Name}, {ForwardingCostsScenario.Name}, {DictionaryReadsScenario.Name}, {DictionaryWritesScenario.Name}, {DictionaryMemoryScenario.Name}, {DictionaryChildScenario.Name}, {IndexSearchScenario.Name}, {IndexWritesScenario.Name}, {IndexReadByKeyScenario.Name}, {IndexBuildScenario.Name}, {IndexLongTextScenario.Name}, {UniqueWritesScenario.Name}, {BatchWritesScenario.Name}, {ReadsBesideBatchesScenario.Name}, {FullFormUsersScenario.Name}.");
+    if (scenario == "map-write-lock")
+    {
+        return Refuse("The map-write-lock scenario requires a Release build with -p:LatticeCollectionTimings=true.");
+    }
+
+    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}, {ClockWaitersScenario.Name}, {ForwardingScenario.Name}, {ForwardingCostsScenario.Name}, {DictionaryReadsScenario.Name}, {DictionaryWritesScenario.Name}, {DictionaryMemoryScenario.Name}, {DictionaryChildScenario.Name}, {IndexSearchScenario.Name}, {IndexWritesScenario.Name}, {IndexReadByKeyScenario.Name}, {IndexBuildScenario.Name}, {IndexLongTextScenario.Name}, {UniqueWritesScenario.Name}, {BatchWritesScenario.Name}, {ReadsBesideBatchesScenario.Name}, {FullFormUsersScenario.Name}, {NestedIndexReadScenario.Name}, {NestedIndexReadScenario.CollectionName}, {MapLookupScenario.Name}, map-write-lock.");
 }
 
 var finished = DateTimeOffset.UtcNow;

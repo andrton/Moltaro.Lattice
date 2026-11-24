@@ -687,6 +687,9 @@ internal sealed class WriteCoordinator
 
         lock (_writes)
         {
+#if LATTICE_COLLECTION_TIMINGS
+            var admissionStarted = CollectionWriteTimings.Start();
+#endif
             // After a fault a write is refused here, so that none enters the lists after the fault has
             // ended those in them.
             if (_faulted)
@@ -725,6 +728,9 @@ internal sealed class WriteCoordinator
                     _spare = write;
                 }
             }
+#if LATTICE_COLLECTION_TIMINGS
+            CollectionWriteTimings.EndAdmission(admissionStarted);
+#endif
         }
 
         CarryOutDecisions(ref hold);

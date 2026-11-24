@@ -6,6 +6,7 @@
          shipped. -->
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <DefineConstants Condition="'$(LatticeCollectionTimings)' == 'true'">$(DefineConstants);LATTICE_COLLECTION_TIMINGS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <!-- The engine, and through it the contract. -->

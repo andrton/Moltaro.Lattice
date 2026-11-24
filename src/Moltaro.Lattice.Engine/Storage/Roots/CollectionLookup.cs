@@ -68,6 +68,9 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     // then becomes reachable from that descriptor. The caller owns cleanup on a false return.
     public static bool TryPrepare(ref ValueHolder holder, int offset, int count, out ValueHolder entries)
     {
+#if LATTICE_COLLECTION_TIMINGS
+        var allocationStarted = CollectionWriteTimings.Start();
+#endif
         entries = default;
         var wanted = SlotsNeeded(count);
         var chunked = wanted > ContiguousSlots;
@@ -108,6 +111,9 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
         }
 
         entries = new ValueHolder(holder.Arena, holder.Layout, holder.Root, payload, BlockHeader.Size, address, BlockHeader.Size + payload.Length);
+#if LATTICE_COLLECTION_TIMINGS
+        CollectionWriteTimings.EndAllocation(allocationStarted);
+#endif
         return true;
     }
 
