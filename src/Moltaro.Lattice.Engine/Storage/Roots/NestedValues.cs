@@ -474,13 +474,7 @@ internal static class NestedValues
         var payload = holder.Bytes[(BlockHeader.Size - holder.Origin)..];
         var keys = new CollectionKeys(holder.Arena, element, descriptor, payload, holder.Encoding);
         var slots = new CollectionLookup(holder.Arena, descriptor);
-#if LATTICE_COLLECTION_TIMINGS
-        var populationStarted = CollectionWriteTimings.Start();
-#endif
         var duplicate = CollectionLookup.AddEntries(ref keys, ref slots, keys.Count);
-#if LATTICE_COLLECTION_TIMINGS
-        CollectionWriteTimings.EndPopulation(populationStarted);
-#endif
         if (duplicate >= 0)
         {
             throw Duplicate(place, element, duplicate);
