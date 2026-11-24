@@ -100,6 +100,9 @@ Gone through by the planner and the coordinator on 18 November 2026.
      of S18, on `index-writes` with 3 and 6 indexes, `unique-writes` lines 1 to 3 and
      `following-children`. Done on 23 November 2026, in one round of review; its record is
      in the [epic](epic-1-core.md).
+  6b. **S18R,** set by the planner on 24 November 2026 after the architect's review after
+     S18: Z3, Z8, Z6, the subsumed index tests, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last. The
+     first work of the next coordinator; the section of that review says the rest.
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
@@ -437,12 +440,74 @@ a child that would refuse a valid swap.
 | --- | --- | --- | --- | --- | --- |
 | K2 | The write path of a type with several indexes after S17: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`, `TopUpIndexes`), `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `LeftAfterMove`, `Trim`), `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `AfterPublication`) | S17 costs a write that reserves in a secondary index. By listing, an insert into one Int64 index makes 25 + 2n calls at the head where it made 21 + n at b9a9074, n being the nodes refilled, the same on x64 and on ARM64 call for call. By ratio, the head against b9a9074 on `index-writes` down to 0.910; the ratios of part 1, of the bound by levels with what it bought, and of the write path, which bought nothing this method can see, are in the table of falls of the record of the start of the machine before the close of S17 in `epic-1-core.md`. The second line: part 2's insert that grows the primary index, 2 to 4 % by the start of part 2, owed, since no series of the last start grew the primary index; the next start carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated. The third line: part 3's `unique-writes` line, 0.953 against f6d9cf3, not explained by its listing, run again in the next start with the machine's listings (the same record) | Not known. The question to the architect's review after S17: what of the cost per index and per reservation can go without giving up the bound by levels or the check on the final state | The bound by levels: a batch whose take fits is not refused for its bound, and a refused or withdrawn reservation gives back exactly what it took; the check of unique values on the state a publication leaves; every guarantee of S17; no added load on a read | open. Gone through with the architect's review after S17, below: (a) is W1, done (S17R); (b) and (c) one variant build and (d) a second, in the start of S18; (e) and (f) recorded and not run; the second and third lines as that section says |
 
+## Architect's review after S18, 24 November 2026
+
+Read at `main` 6102bbe, nothing run. S18 landed in the right folders and the direction of
+dependencies holds: `Storage` uses nothing of `Engine` or `Replication` in code, `Roots`
+uses `Values` and not the reverse, and `ExportedValues` in `Storage.Roots` follows that
+order. The debt is of one kind: a tree is descended by hand in eleven places of the
+product, two of them the export's; `NestedValues` holds two jobs; and the rules of the
+stored form of a tree live in five heads of types with no design section that owns them.
+Gone through by the planner and the coordinator on the same day. Found sound and left: one
+stored form for a root and a record with `SharedPlaces`; `StructureWalk` with struct
+visitors; `ValueHolder` as the one placement of bytes; `PackedSource` apart from
+`ValueSource` with its figure; `IRecordSource` with two real sources; `RecordBlocks`; the
+check of `BlockImport` before its placement, one `CheckStructure` for a root and a record,
+the rule of inline values on their locations; the rule of pending descriptors as a design;
+the allowlist through one member of `IndexValue`; `ValueBound` in one place; the second pass
+of `ClassCopier` with its figure; `ReadSettings`. Left with their reasons: the three loops
+over `RecordsPerChunk` (two lines each over a fixed rule of the format); `RootWriter.Start`
+beside `NestedValues.StartRecord` and the typed switch of `RootValues` beside the boxed one
+of `NestedValues` (merging puts a chain of type tests on every scalar field of every write);
+the three visitors of `RootStorage` with the same arms (on the publication and the free of
+every write; S19 decides with its kinds); `ValueHolder`'s `Arena` and `Layout`, null in two
+of three uses. Not examined: `docs/design` and the README beyond names, the samples, the
+scenarios, most tests of S18 beyond the audit and the model.
+
+**S18R, the order** (set by the planner on 24 November 2026): Z3, Z8, Z6, the subsumed index
+tests, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last; one entry a commit; implementer and narrow
+reviewer at Opus 5.5 high, no breaker. Z1 and Z4 lie on measured paths: their listings are
+taken on the workstation, and their line of `following-children` is owed to the next start
+of the machine. It is the first work of the next coordinator.
+
+| # | Place | What is wrong | The simpler form | What must be shown unchanged | Status |
+| --- | --- | --- | --- | --- | --- |
+| Z1 | `Replication/Load/BlockExport.cs` (`RecordsLength`, `WriteRecords`, `RecordDescriptor`, `RecordOffset`); `Storage/Roots/StructureWalk.cs` (`WalkBlock`), `IStructureVisitor.cs` | The export repeats the walk's descent in two recursions, because it needs a block before its records and the walk has no such step (Y2) | One member on `IStructureVisitor`, called by `WalkBlock` before the records of a block; the export's two recursions become two small visitors through `StructureWalk.WalkValue`; the root level of the export as it is; the other visitors, the audit's included, get an empty member written out, not a default member of the interface, which would box a struct | The bytes of the wire, and `Length` equal to what `Write` writes, by a comparison of the old and the new export over trees with both forms of a List at depth, and the suites of children and forwarding. The listings of `StructureWalk.Walk` over the publication, the free and the retirement with `ChangePublisher.Install` and `RetiredMemory.Free`, and of `BlockExport.Length` and `Write` of a scalar root with `TransactionEncoder` and `Capture`, which must be identical; `following-children` owed | taken (S18R) |
+| Z2 | `Storage/Roots/NestedValues.cs`, `ListRecords.cs`, `PackedOwnedValues.cs`, `RootReader.cs` | One class converts the form of a record and also places, links, fails and frees the blocks of a List of records, and its sizing must agree with its writing with nothing to check it | (a) a Debug assertion after each fill that a block not refused ends at its last inline value; (b) the rule of inline values once, in one private member; (c) the read side takes a structure's own bytes and the payload of its block, as `BlockImport.CheckStructure` does; (d) `StartRecord` in one frame of offsets. (e), the placement of a List of records as a type of its own, refused: it adds a type and removes no line; open to the study of S19 if its placement needs it | Every guarantee of S18; the listings of `RootValues.Write` (frame 328) and `BlockImport.PlaceValues` | (a) to (d) taken (S18R); (e) refused |
+| Z3 | `Moltaro.Lattice.Engine.Tests/Engine/Indexes/Reservation/LevelBoundTests.cs`, `ManagedAllocationCollection.cs` | A test measures the allocation of its thread outside the collection made for that, so a garbage collection inside its window moves the counter: the cause of the failure seen once in S18, part 1 | The one fact in a class of its own in the same folder, in `ManagedAllocationCollection`; not the whole class, whose theories build large trees | No assertion changed | taken (S18R) |
+| Z4 | `Replication/Load/BlockImport.cs` (the head, `LeavePending`), `ReceivedRecords.cs`; the comments of `StructureWalk`, `RootStorage` and `NestedValues` that point to it | The rule that a descriptor of kind Null with a length names nothing yet lives in the import and is relied on by `Storage` | The rule named once in `Storage` (`ValueBlocks`: write a pending descriptor, ask whether one is pending) and stated in the head of `StructureWalk`; the import keeps only which received descriptors become pending | The tests of loading, forwarding and the audit; the listings of `BlockImport.Check`, `Place`, `PlaceValues` and a child's `TryApply`; `following-children` owed | taken (S18R) |
+| Z5 | The heads of `StructureLayout`, `RootLayout`, `BlockImport`, `BlockExport` and `NestedValues`; `docs/design/arena-protocol.md`; stale comments | The stored form of a tree is told in five heads, each pointing to the others, and some comments are stale or cite working documents | One section of `arena-protocol.md` (structures and records, the frames of offsets, the wire in preorder, the rules of the check, pending descriptors), each head to about twenty lines pointing to it; `RootDescriptors` (users it no longer has), `IStructureVisitor` after Z1, `RootReader` ("holds no String or Binary value"), `DescriptorKindEnum` ("in the root block"; a brief cited), `StoredTypeEnum`, `ClassBinder`, `SetOperations`, the heads of tests S18 touched that cite briefs; and where the stored form says bytes under a null bit are zero, that they are zero as a writer of this node writes them, a received root may hold any bytes there and nothing reads them (`docs/decisions/replication-and-hosting.md`, "Trust between the nodes of one database") | Comments and documents only | taken (S18R), last |
+| Z6 | `Moltaro.Lattice.Tests/Indexes/Model/Unstored` (`UnstoredPartSearchModelTests`, `UnstoredSchema`) | The names say the parts are not stored, and since S18 they are (Y1) | The folder `ReferencesAndPaths`, `ReferenceAndPathSearchModelTests`, `ReferenceAndPathSchema`; the heads lose "the part the engine stored last" | A move: the count of tests and of skips | taken (S18R) |
+| Z7 | `Access/Binding/ClassBinder.cs` | Whether the record holds a value as the property holds it is asked twice, as a test of types for a List and as a test of a delegate at run time in `ArrayOf` | One test, made when the class is bound, for both; `ArrayOf` loses its test of the delegate | The tests of binding and of copies | taken (S18R) |
+| Z8 | `Engine/EngineDatabase.TestAccess.cs` (`Counters`, `TextReferences`, `IndexNodes`, `ReservedNodeBytes`, `ForEachLiveRoot`, `DrainRetired`) | Six members repeat one frame: the state checked, the barrier, the parts, the lock of the writes | One private member that takes a function of the parts | Tests only | taken (S18R) |
+
+**The tests of the search by index that the model subsumes**, decided by the planner on 24
+November 2026, an entry of S18R after Z6. They go now, in a commit of their own whose
+message names, for each assertion removed, the test of the model that holds it, the narrow
+reviewer checking that list: `RangeOfEveryFamilyTests.Range_with_inclusive_and_exclusive_bounds_at_the_ends_of_the_type_...`
+(15 cases), `EnumAndFlagsTests.Enum_and_Flags_parts_are_in_numeric_order_...` and
+`FloatingPointKeyTests.Whole_index_of_floating_point_values_...` (2 cases). They go after an
+addition to the model, made first as a commit of tests: `FloatingPointKeyTests.Exact_search_...`
+(the model searches one of 0 and -0, not each) and `FloatingPointKeyTests...as_an_inclusive_or_exclusive_bound...`
+(the model bounds on -infinity and the zeros only by chance). They stay:
+`OneValueEveryWayTests`, its second theory (it also reads each entity by key through a class
+and by name for every scalar type at its ends); `IndexPartValueTests`, whole (values of each
+type given boxed, both spellings of one key, an Enum over Int32); and
+`RangeOfEveryFamilyTests.Bound_given_in_another_type_...` (`AllowlistTests` holds one foreign
+bound, forward only). A test with one assertion the reviewer finds without a holder stays.
+The coordinator's note: the rules of a refactoring sprint in the [development
+process](process.md) say that no test is removed, and the starting text of a coordinator
+says a deletion happens only on the owner's word in its session; this entry needs his word
+there before it is carried out.
+
+Y1 and Y2 of "Found while building S18" are closed into Z6 and Z1.
+
 ## Found while building S18, 24 November 2026
 
 | # | Place | What is wrong | The simpler form | What it must keep | Status |
 | --- | --- | --- | --- | --- | --- |
-| Y1 | `src/Moltaro.Lattice.Tests/Indexes/Model/Unstored` (`UnstoredPartSearchModelTests`, `UnstoredSchema`) | The names say the parts are not stored, and since S18 they are | The folder and the two types named for what they test, a Reference part and a part on a path into an owned value | A move: no assertion changes | open; for the architect's review after S18 |
-| Y2 | `Storage/Roots/BlockExport` (`RecordsLength`, `WriteRecords`) beside `StructureWalk` | The export descends a tree on its own, since the wire is in preorder and the walk visits the children first; S19 has to extend both | A pre-order step in the walk that serves the export, or the two kept apart with the reason that stands in the head of `BlockExport` | The bytes of the wire; the listing of the export of a scalar root | open; for the architect's review after S18 |
+| Y1 | `src/Moltaro.Lattice.Tests/Indexes/Model/Unstored` (`UnstoredPartSearchModelTests`, `UnstoredSchema`) | The names say the parts are not stored, and since S18 they are | The folder and the two types named for what they test, a Reference part and a part on a path into an owned value | A move: no assertion changes | taken (S18R) as Z6 of the architect's review after S18 |
+| Y2 | `Storage/Roots/BlockExport` (`RecordsLength`, `WriteRecords`) beside `StructureWalk` | The export descends a tree on its own, since the wire is in preorder and the walk visits the children first; S19 has to extend both | A pre-order step in the walk that serves the export, or the two kept apart with the reason that stands in the head of `BlockExport` | The bytes of the wire; the listing of the export of a scalar root | taken (S18R) as Z1 of the architect's review after S18 |
 
 ## Architect's review after S17, 23 November 2026
 

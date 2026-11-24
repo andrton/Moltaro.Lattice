@@ -8740,7 +8740,7 @@ night by the owner's word in the planner's session.
   the reads by a class of part 2. One full Debug run failed once in
   `LevelBoundTests.Reservation_made_or_refused_takes_no_managed_room_for_its_nodes`, an
   allocation counted on one thread, in code part 1 does not touch; it passed alone 25 times
-  and in every full run since, its output is kept, and its cause is not known.
+  and in every full run since, its output is kept; its cause, named by the architect's review after S18, is that it measures the allocation of its thread outside `ManagedAllocationCollection`, so a garbage collection inside its window moves the counter, and Z3 of S18R moves it there.
   The merge of `main` brought the tests of the search by index against a model, whose
   Reference and owned-path parts are skipped with a reason of their own,
   `SkipReason.OwnedValuesAndReferences`; part 2 folds it into `SkipReason.NestedValues` and
@@ -9007,6 +9007,15 @@ Map of 1,000, 100,000 and 1,000,000 entries; and whatever the start of S18 left 
 If the internal contract shows the sprint is too large for one review, the coordinator
 proposes its parts to the planner with the first step.
 
+**Added by the planner on 24 November 2026, from the architect's review after S18.** A record has one member today (the place 0 in `NestedValues.Write` and `Read`,
+`ListRecords`, `PackedOwnedValues`, `RootValues.CheckListBounds`), and `StructureLayout`
+carries four members of a List (`List`, `Packed`, `RecordsPerChunk`, `MostElements`); a
+Map's entry has two members and is a third kind of collection. The hash directory is a
+block the root owns that does not travel. The 37 `Layout!` and the 21 checks of "not
+stored yet" in 11 files, and `ClassBinder.NotRead`, go in this sprint, not after it; and
+the bound of a key and a value of a Map is checked in `RecordValues.CopyMap` and
+`ClassBinder.BindMap`.
+
 #### S20 · Partial updates
 
 **Carried from the study of S11:** how a partial update travels to a child is decided in
@@ -9135,6 +9144,10 @@ at the commit); and that an update of another database given to `batch.Update` i
 **Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
 given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
 a box that the keys of an index use, and its `Bind`; it does not write a second holder.
+
+**Added by the planner on 24 November 2026, from the architect's review after S18.** No routine copies an unchanged subtree from one root to another; a third
+`IRecordSource`, over stored blocks, fits the placement and would be a third user of the
+rule of pending descriptors.
 
 #### S21 · Protected views by name
 
@@ -9341,6 +9354,10 @@ scratch of a publication, the claims of a batch, the key set of a child, the str
 of a connection, V1 and V2 of [the refactoring backlog](refactoring.md)); the brief names
 each before the sprint starts.
 
+**Added by the planner on 24 November 2026, from the architect's review after S18.** A block of records has the kinds Value and Chunk, as a Binary has, so a move cannot
+tell from its header whether a block holds children without climbing to its root: kinds of
+their own are decided here, with the kinds of text entries already carried to this sprint.
+
 #### S24 · The memory budget
 
 **Carried from the outside review, 18 November 2026:** a child sizes its primary index
@@ -9395,6 +9412,11 @@ added holders of arena addresses and managed room that the budget does not count
 scratch of a publication, the claims of a batch, the key set of a child, the stream buffer
 of a connection, V1 and V2 of [the refactoring backlog](refactoring.md)); the brief names
 each before the sprint starts.
+
+**Added by the planner on 24 November 2026, from the architect's review after S18.** S18 added managed room the budget does not count: the buffers of `BlockImport`
+(about 145 KB an instance) and its starts, and the pieces `ExportedValues` keeps for a
+member of a batch from its `Add` to its commit; the brief names each before the sprint
+starts.
 
 #### S25 · Reference fixture, managed reference and the memory gate
 
