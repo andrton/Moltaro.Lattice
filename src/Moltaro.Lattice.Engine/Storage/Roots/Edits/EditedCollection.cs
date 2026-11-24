@@ -54,18 +54,18 @@ internal sealed class EditedCollection
             _hashed = !CollectionLookup.IsCompactAfterEdit(Count, _hashed);
         }
 
-        RequireResultCount(element, entityType, command, Count);
+        RequireResultCount(element, entityType, command.Name, Count);
         Changed = true;
         return true;
     }
 
     // All effective edits reach the same layout bound before placement.
-    public static void RequireResultCount(StructureLayout element, LatticeEntityType entityType, in UpdateCommand command, int count)
+    public static void RequireResultCount(StructureLayout element, LatticeEntityType entityType, string fieldName, int count)
     {
         if (count > element.MostElements)
         {
             throw new LatticeException(LatticeErrorEnum.ValidationFailed,
-                $"{entityType.Name}.{command.Name} would hold {count} entries, more than its limit of {element.MostElements}.");
+                $"{entityType.Name}.{fieldName} would hold {count} entries, more than its limit of {element.MostElements}.");
         }
     }
 
