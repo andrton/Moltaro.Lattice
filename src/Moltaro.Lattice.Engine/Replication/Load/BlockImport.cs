@@ -33,9 +33,14 @@ namespace Moltaro.Lattice.Replication.Load;
 //   List whose elements hold descriptors of kind Records, at most as many elements as such a List holds
 //   (StructureLayout.MostElements); no other kind. The location of a value out of line and of a List of
 //   records is 0 on the wire: nothing received is used as an address;
-// - the lengths, before anything is read past them: the values inline of a structure lie inside its block
-//   and after its fixed part or its records; the records of a List, a count times a stride counted in 64
-//   bits, are not more than the bytes left; each value out of line and each block of records is not more
+// - the values inline: those of the root, and those of the records of one block of records, ordered by their
+//   locations, lie one after the other from the end of the fixed part or of the records, each beginning where
+//   the one before it ended, so that each byte after the fixed part or the records is named by exactly one
+//   value and the block ends with the last. A master lays them so, in the order it places them
+//   (Storage.Roots.ValueHolder), which need not be the order of their descriptors; so the rule is on their
+//   locations, not on their order (CheckInline);
+// - the lengths, before anything is read past them: the records of a List, a count times a stride counted in
+//   64 bits, are not more than the bytes left; each value out of line and each block of records is not more
 //   than the bytes left; and the bytes of the input are exactly the root and its values, so a root payload
 //   and a block of records fit one block.
 // Each failure is a LatticeException with ValidationFailed, and nothing is allocated, nor any managed memory
@@ -84,6 +89,15 @@ internal sealed class BlockImport
     // One record of a List of records, or the bits of one record of a packed List, as received, while it is
     // checked: at most the payload of one chunk, by the rule of the schema language that a record fits one.
     private readonly byte[] _record = new byte[ValueBlocks.ChunkPayload];
+
+    // The values inline of the structures checked together, the root or the records of one block, each as its
+    // location shifted by 7 bits and its length, at most 64, which a location of at most Arena.MaxBlockSize
+    // leaves room for: as many as one block holds descriptors, the most such a group has by the layout (a root
+    // fits one block; the records of a block of records hold 64 bytes of room for each of their descriptors in
+    // one chunk). Sorted, they are in the order of their locations (CheckInline).
+    private readonly uint[] _inline = new uint[ValueBlocks.ChunkPayload / ValueBlocks.DescriptorSize];
+
+    private int _inlineCount;
 
     // Where the value each descriptor of the root checked last names begins among its values out of line,
     // by the index of the descriptor; as long as the most descriptors a root checked had.
@@ -293,6 +307,9 @@ internal sealed class BlockImport
     private static LatticeException ValuesBeyondTheInput(RootLayout layout, long length, long left) =>
         Invalid(layout, $"its values out of line take {length} bytes, more than the {left} left.");
 
+    private static LatticeException NotAfterTheOneBefore(RootLayout layout, LatticeField? list, uint location, ulong end) =>
+        Invalid(layout, $"a value inline in {(list is null ? "the root payload" : $"a block of the records of the List {list.Name}")} lies at {location}, where the values before it end at {end}: values inline lie one after the other.");
+
     // Reads the layout version and the root payload into _payload after checking the structure of the root
     // (see the class), and returns the length of the payload; the input stands at the first value out of line.
     private int ReadPayload(ref SequenceReader<byte> input, RootLayout layout)
@@ -313,21 +330,14 @@ internal sealed class BlockImport
 
         input.UnreadSequence.Slice(0, fixedPart).CopyTo(payload);
 
-        var inline = 0L;
-        var inlineEnd = 0UL;
+        _inlineCount = 0;
+        CheckStructure(layout, layout.Structure, payload[..fixedPart]);
 
-        CheckStructure(layout, layout.Structure, payload[..fixedPart], (ulong)layout.FixedSize, ref inline, ref inlineEnd);
-
-        var payloadLength = fixedPart + inline;
+        var payloadLength = CheckInline(layout, (ulong)layout.FixedSize, list: null) - BlockHeader.Size;
 
         if (payloadLength > payload.Length || payloadLength > input.Remaining)
         {
             throw Invalid(layout, $"it has {input.Remaining} bytes after its layout version, fewer than its fixed part of {fixedPart} bytes and its values inline describe, {payloadLength}.");
-        }
-
-        if (inlineEnd > (ulong)(BlockHeader.Size + payloadLength))
-        {
-            throw Invalid(layout, "a value inline lies beyond the end of the root payload.");
         }
 
         input.UnreadSequence.Slice(fixedPart, payloadLength - fixedPart).CopyTo(payload[fixedPart..]);
@@ -473,7 +483,7 @@ internal sealed class BlockImport
 
     // The records of one block of records that begin the input, count of them, each checked as a structure
     // (CheckStructure), and the length of the block: the records and their values inline, which lie after the
-    // records and inside the block. The input is a copy, and stays where it was for the caller.
+    // records (CheckInline). The input is a copy, and stays where it was for the caller.
     private long CheckBlockOfRecords(RootLayout layout, in StoredField place, StructureLayout element, int count, SequenceReader<byte> input)
     {
         if ((long)count * element.Size > input.Remaining)
@@ -482,24 +492,43 @@ internal sealed class BlockImport
         }
 
         var record = _record.AsSpan(0, element.Size);
-        var inline = 0L;
-        var inlineEnd = 0UL;
+
+        _inlineCount = 0;
 
         for (var index = 0; index < count; index++)
         {
             input.TryCopyTo(record);
             input.Advance(element.Size);
-            CheckStructure(layout, element, record, (ulong)(BlockHeader.Size + (count * element.Size)), ref inline, ref inlineEnd);
+            CheckStructure(layout, element, record);
         }
 
-        var length = ((long)count * element.Size) + inline;
+        return CheckInline(layout, (ulong)(BlockHeader.Size + (count * element.Size)), place.Field) - BlockHeader.Size;
+    }
 
-        if (inlineEnd > (ulong)(BlockHeader.Size + length))
+    // The values inline of the structures checked since _inlineCount was cleared (see the class): ordered by
+    // their locations, each begins where the one before it ended, the first at the start given, where the
+    // values of the block begin, its header counted: the root block, or a block of the records of the List
+    // given. Returns the end of the last, where the block ends. An empty value lies where the values before it
+    // end, as a master places it; it names no byte.
+    private long CheckInline(RootLayout layout, ulong start, LatticeField? list)
+    {
+        var spans = _inline.AsSpan(0, _inlineCount);
+
+        spans.Sort();
+
+        var end = start;
+
+        foreach (var span in spans)
         {
-            throw Invalid(layout, $"a value inline in a block of the records of the List {place.Field.Name} lies beyond the end of the block.");
+            if (span >> 7 != end)
+            {
+                throw NotAfterTheOneBefore(layout, list, span >> 7, end);
+            }
+
+            end += span & 0x7F;
         }
 
-        return length;
+        return (long)end;
     }
 
     // The records of a packed List whose elements have bits, which the bytes given hold, each held to the bits
@@ -518,10 +547,9 @@ internal sealed class BlockImport
     }
 
     // One structure as it was received, a root payload or a record, whose bytes begin at its start (see the
-    // class): its bits, and the kind of each descriptor against its place, adding up the bytes of its values
-    // inline and the furthest end of one, which lie at inlineStart or after. A location inline is bounded by
-    // the largest block before its length is added to it, so the sum cannot wrap around.
-    private static void CheckStructure(RootLayout layout, StructureLayout structure, ReadOnlySpan<byte> bytes, ulong inlineStart, ref long inline, ref ulong inlineEnd)
+    // class): its bits, and the kind of each descriptor against its place, each value inline added to those
+    // CheckInline orders.
+    private void CheckStructure(RootLayout layout, StructureLayout structure, ReadOnlySpan<byte> bytes)
     {
         var bitmap = bytes[..structure.NullBitmapLength];
 
@@ -544,15 +572,14 @@ internal sealed class BlockImport
 
             var element = place.Type == StoredTypeEnum.List ? structure.DescriptorElement(index) : null;
 
-            if (!Describes(place, element, descriptor, inlineStart))
+            if (!Describes(place, element, descriptor))
             {
                 throw Invalid(layout, $"the field {place.Field.Name} has a descriptor of the kind {descriptor.Kind} with the length {descriptor.Length} and the location {descriptor.Location}, which does not describe a stored value of its storage.");
             }
 
             if (descriptor.Kind == DescriptorKindEnum.Inline)
             {
-                inline += descriptor.Length;
-                inlineEnd = Math.Max(inlineEnd, descriptor.Location + descriptor.Length);
+                _inline[_inlineCount++] = ((uint)descriptor.Location << 7) | descriptor.Length;
             }
         }
     }
@@ -561,7 +588,7 @@ internal sealed class BlockImport
     // the element is the layout of the records of a List place. Inlined into the check of a structure, which
     // calls it for every descriptor (JIT listing of a Release build: called, one call a descriptor).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool Describes(in StoredField place, StructureLayout? element, in ValueDescriptor descriptor, ulong inlineStart)
+    private static bool Describes(in StoredField place, StructureLayout? element, in ValueDescriptor descriptor)
     {
         var length = descriptor.Length;
 
@@ -580,7 +607,7 @@ internal sealed class BlockImport
 
         return descriptor.Kind switch
         {
-            DescriptorKindEnum.Inline => !inEntry && length <= ValueBlocks.InlineLimit && descriptor.Location >= inlineStart && descriptor.Location <= Arena.MaxBlockSize,
+            DescriptorKindEnum.Inline => !inEntry && length <= ValueBlocks.InlineLimit && descriptor.Location <= Arena.MaxBlockSize,
             DescriptorKindEnum.Block => !inEntry && length is > 0 and <= ValueBlocks.SingleBlockLimit && descriptor.Location == 0,
             DescriptorKindEnum.Chunked => !inEntry && length is > ValueBlocks.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0,
             DescriptorKindEnum.Text => inEntry && length <= ValueBlocks.MostValueBytes && descriptor.Location == 0,
