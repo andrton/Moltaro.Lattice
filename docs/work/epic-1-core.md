@@ -1297,7 +1297,7 @@ Why this order:
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S18 | Owned values, Lists and references | Full, critical | Part 1 done on 24 November 2026; parts 2 and 3 in progress |
+| S18 | Owned values, Lists and references | Full, critical | Parts 1 and 2 done on 24 November 2026; part 3 in progress |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
 | S21 | Protected views by name | Full | Not started |
@@ -8746,6 +8746,64 @@ night by the owner's word in the planner's session.
   `SkipReason.OwnedValuesAndReferences`; part 2 folds it into `SkipReason.NestedValues` and
   takes the skip from the Reference parts that part 1 now stores.
 - *Every suite at the head* (e4fce78): 3,325 tests, 3,151 passing, 174 skipped, in Debug and
+  in Release.
+
+**The record of S18, part 2** (closed on 24 November 2026): copies and the core. It was
+coordinated by the eighth coordinator of the epic, by the same word of the owner.
+
+- *Built:* the read through an entity class of owned values, Lists and references: under
+  the protection the engine makes each nested value in the form of a record, and the object
+  is built from it after the protection, so no constructor and no setter of the application
+  runs inside it; the rule of Q55 by one internal member of `IndexValue`, which `BindOther`
+  and `FieldValues.Normalize` both call; the bound of a String or a Binary value in a field
+  of the entity, in a field of an owned value and in an element of a List, each value
+  checked once (the top-level pass as it was, the nested values where the walk descends
+  into them); the text key of a reference validated as a String value is; the bound of a
+  List for an entity type the engine stores, checked by one routine,
+  `RootValues.CheckListBounds`, in the validation step of a set and at a batch's `Add`,
+  before the conditions. A single write on a master is encoded on the publishing thread
+  after its conditions, so the planner's "where a write is encoded outside the lock" is
+  kept in its intent, before the conditions and by the engine, through that routine; the
+  core names no number. The bound of a List is stated in one paragraph of the remarks of
+  `LatticeFieldTypeEnum.List`, which a different answer to Q63 removes with its tests and
+  its routine. An empty array read through a class is the one empty array of its type, as
+  an empty Binary already was. `SkipReason.OwnedValuesAndReferences` is folded into
+  `SkipReason.NestedValues`; the two Reference cases of the model of the search by index
+  stay skipped, since they fail only at the open of a child, which part 1 refuses. The tests
+  added by name in the review of part 1 that a step-1 test now holds are removed, each with
+  its holder named.
+- *The listings,* against 739af9c: the read path by key and by a step unchanged;
+  `ClassCopier.Copy` 1,294 → 1,518 bytes and `Build` 210 → 481, a test of an empty array
+  for a scalar type; `CopyText` and `TakeBinary` as they were; `RecordValues.Copy` 416 → 426
+  (the arm of a text key of a reference); `CopyFields` 395 → 505, frame 120 → 136;
+  `ClassSet.Save` 392 → 420 and `RecordSet.Save` 850 → 878, one load and a branch for a
+  scalar type. The nested fields of a class are copied in a pass of their own, for the
+  figure written beside it: in one pass `CopyValue` grew from 328 to 370 bytes and stopped
+  being inlined into `ClassCopier.Copy`, a call for every String or Binary field.
+- *Review:* three rounds. Round 1: no P1, no P2; 6 P3 (remarks that bounded only a field of
+  the entity, a top-level value checked twice — taken by the reviewer's second form, so the
+  order of refusals of a record stays —, comments stating an order the code does not keep,
+  comments citing a role, a figure missing beside the second pass, "a primary key keeps its
+  rule" without a test) and P4s, taken with tests first. Round 2: all closed, every String
+  and Binary counted once at every depth on both paths; 1 P3 (remarks that claimed the
+  bounds for an entity type the engine does not store) and 1 P4. Round 3: both closed;
+  1 P4 left: the remarks say two reads share nothing but the empty array of a type, and
+  an empty String, `string.Empty`, is shared as well, immutable, for the next sprint that
+  touches those remarks. The hardest part to follow, by the reviewer: the pairs of
+  conversions in `ClassBinder`, where whether a value is copied again depends on which
+  branch returns `Same`.
+- *The breaker:* targets 5 and 2 by a class, 171 probes in Debug and Release, the
+  concurrent ones about 40 runs, three beside a full suite. No guarantee broken; the one low
+  point, the empty array shared on one path and not on another, is made one rule above.
+  Held: no object shared in 28 reads of 6,076 objects nor in concurrent reads of 177,000;
+  changes to an input after its write and to a read copy change nothing; constructors and
+  setters of the application saw no protection held, a control showing the probe would see
+  one; 80,059 reads through a class with no tree torn; Q55 at its edges in 99 rows at four
+  places; the bound of a List at eight places in both forms before the conditions; the text
+  key of a reference at its bound in UTF-16. Noted for S21: a write refused for memory waits
+  for reads with no bound of time, which only test code inside a read reaches today, and
+  which a viewer will reach.
+- *Every suite at the head* (15ee84d): 3,403 tests, 3,258 passing, 145 skipped, in Debug and
   in Release.
 
 #### S19 · Maps and Sets
