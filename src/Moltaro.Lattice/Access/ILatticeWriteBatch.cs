@@ -27,11 +27,11 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>Building.</b> Adding an operation to a batch of an open database contacts nothing. The
 /// entity or record is copied when it is added, so later edits of the object are not part of
-/// the batch. Once the database is closed, every operation added is refused with
-/// <see cref="ObjectDisposedException"/>, whatever its kind; a mistake of the caller's own is
-/// reported first, as on an open database: a second operation for one entity with
-/// <see cref="ArgumentException"/>, an operation added to a batch already submitted with
-/// <see cref="InvalidOperationException"/>. A batch
+/// the batch. Adding a partial update validates its copied content synchronously before
+/// checking whether the batch was submitted, whether the entity is already addressed and
+/// whether the database has closed. An invalid input or a duplicate operation therefore
+/// has the same error on an open or closed database. Once these checks pass, adding any
+/// operation to a closed database throws <see cref="ObjectDisposedException"/>. A batch
 /// takes one operation per entity. Two operations address the same entity when they name the
 /// same entity type and their primary keys are equal as the schema compares them: an integer
 /// key by its value whatever the width it was given in, a String key under the comparison
@@ -282,7 +282,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Update(LatticeUpdate update);
 
-    /// <summary>Adds a partial update provided its entity still has the expected revision at execution.</summary>
+    /// <summary>
+    /// Adds a partial update provided its entity still has the expected revision at
+    /// execution. Success consumes the update. A refusal leaves both builders as they were.
+    /// </summary>
     /// <param name="update">An unsubmitted update made for this database instance.</param>
     /// <param name="expectedRevision">The revision read together with the entity.</param>
     /// <exception cref="ArgumentNullException">The update is null.</exception>

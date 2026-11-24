@@ -19,6 +19,90 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Updates;
 public sealed class UpdateOwnershipTests
 {
     [Fact(Skip = UpdateSchema.Pending)]
+    public async Task Growing_inline_data_keeps_its_neighbor_intact_and_can_move_out_of_line_without_changing_old_roots()
+    {
+        await using var database = await EngineMaster.OpenAsync(UpdateSchema.Schema);
+        var items = database.Set<UpdateItem>();
+        var first = UpdateSchema.Item("ada");
+        var neighbor = Bytes(37, 41);
+        var original = Bytes(7, 17);
+        var grown = Bytes(ValueBlocks.InlineLimit - 1, 23);
+        var outOfLine = Bytes(ValueBlocks.InlineLimit + 1, 29);
+        first.Data = neighbor;
+        first.Home!.Data = original;
+        await items.InsertAsync(first);
+        using var held = await HeldRead.StartAsync(database, () => items.Get("ada")?.Data.Length);
+        var a = InspectInline(original, DescriptorKindEnum.Inline);
+
+        // These bytes would overlap at the old offsets. The new holder has its
+        // own placement and must give both values disjoint space.
+        Assert.True(a.Changed.Location < a.Neighbor.Location);
+        Assert.True(a.Changed.Location + (ulong)grown.Length > a.Neighbor.Location);
+        var inside = items.CreateUpdate("ada");
+        inside.Assign("Home.Data", grown);
+        await inside.CommitAsync();
+        var b = InspectInline(grown, DescriptorKindEnum.Inline);
+        Assert.NotEqual(a.Root, b.Root);
+        Assert.NotEqual((a.Changed.Location, a.Neighbor.Location), (b.Changed.Location, b.Neighbor.Location));
+
+        var outside = database.Set("Item").CreateUpdate("ada");
+        outside.Assign("Home.Data", outOfLine);
+        await outside.CommitAsync();
+        var c = InspectInline(outOfLine, DescriptorKindEnum.Block);
+        Assert.NotEqual(b.Root, c.Root);
+        database.ForEachLiveRoot((arena, layout, _, _) =>
+        {
+            var home = layout.EntityType.GetField("Home");
+            var data = layout.EntityType.GetField("Data");
+            var oldReader = new RootReader(arena, layout, a.Root);
+            var grownReader = new RootReader(arena, layout, b.Root);
+            Assert.Equal(original, Assert.IsType<LatticeOwnedValue>(oldReader.GetNested(home)).Get<byte[]>("Data"));
+            Assert.Equal(grown, Assert.IsType<LatticeOwnedValue>(grownReader.GetNested(home)).Get<byte[]>("Data"));
+            Assert.Equal(neighbor, oldReader.GetBinary(data));
+            Assert.Equal(neighbor, grownReader.GetBinary(data));
+        });
+
+        await held.ReleaseAsync();
+        OwnershipAudit.Expect(database);
+
+        (ArenaAddress Root, ValueDescriptor Changed, ValueDescriptor Neighbor) InspectInline(byte[] expected, DescriptorKindEnum kind)
+        {
+            (ArenaAddress, ValueDescriptor, ValueDescriptor) result = default;
+            database.ForEachLiveRoot((arena, layout, handle, root) =>
+            {
+                var home = layout.EntityType.GetField("Home");
+                var sibling = layout.EntityType.GetField("Data");
+                var declaration = Assert.Single(home.Declaration.OwnedType!.Fields, field => field.Name == "Data");
+                var changedAt = layout.StoredFieldOf([home, declaration]).Offset;
+                var neighborAt = layout.StoredFieldOf(sibling).Offset;
+                var payload = arena.Payload(root);
+                var changed = ValueBlocks.Read(payload[(changedAt - BlockHeader.Size)..]);
+                var untouched = ValueBlocks.Read(payload[(neighborAt - BlockHeader.Size)..]);
+                Assert.Equal(kind, changed.Kind);
+                Assert.Equal((uint)expected.Length, changed.Length);
+                Assert.Equal(DescriptorKindEnum.Inline, untouched.Kind);
+                if (kind == DescriptorKindEnum.Inline)
+                {
+                    Assert.True(changed.Location + changed.Length <= untouched.Location ||
+                        untouched.Location + untouched.Length <= changed.Location);
+                }
+                else
+                {
+                    AssertOwner(arena, ValueBlocks.AddressOf(changed), handle, root, changedAt);
+                }
+
+                var reader = new RootReader(arena, layout, root);
+                Assert.Equal(expected, Assert.IsType<LatticeOwnedValue>(reader.GetNested(home)).Get<byte[]>("Data"));
+                Assert.Equal(neighbor, reader.GetBinary(sibling));
+                result = (root, changed, untouched);
+            });
+
+            Assert.NotEqual(default, result.Item1);
+            return result;
+        }
+    }
+
+    [Fact(Skip = UpdateSchema.Pending)]
     public async Task An_unchanged_branch_and_a_child_of_copied_records_survive_successive_owners_and_recreation()
     {
         await using var database = await EngineMaster.OpenAsync(UpdateSchema.Schema);

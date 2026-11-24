@@ -136,11 +136,19 @@ public sealed class LatticeUpdate
     public LatticeCommandResult SetRemove<TMember>(string field, TMember member) => throw new NotSupportedException(NotImplemented);
 
     /// <summary>Submits these commands as one write in the order they were added.</summary>
+    /// <remarks>
+    /// A submission that passes the synchronous argument and builder checks consumes the
+    /// update. Invalid copied content fails the returned task with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/> before checking cancellation, the
+    /// database state or write conditions. A child normally returns the result after applying
+    /// the position. If it closes after receiving the master's reply, the call still returns
+    /// the master's result and the command outcomes become available.
+    /// </remarks>
     /// <param name="cancellationToken">Cancels the write before it starts executing.</param>
     /// <returns>
     /// A result whose position includes the update and whose Changed is true if any
     /// command changed the entity. An unchanged update keeps the revision and has its
-    /// own position. A child waits to apply the position as for any write.
+    /// own position.
     /// </returns>
     /// <exception cref="InvalidOperationException">The update is empty or already submitted.</exception>
     /// <exception cref="LatticeException">
@@ -182,7 +190,8 @@ public sealed class LatticeUpdate
 
     /// <summary>
     /// Submits a revision-checked update after the position the session depends on and
-    /// advances the session to the returned position.
+    /// advances the session to the returned position. Otherwise as
+    /// <see cref="CommitAsync(LatticeRevision, CancellationToken)"/>.
     /// </summary>
     /// <param name="expectedRevision">The revision read together with the entity.</param>
     /// <param name="session">The consistency context of the caller.</param>

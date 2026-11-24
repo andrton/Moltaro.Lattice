@@ -54,8 +54,10 @@ public sealed class UpdateBitmapTests
 
     [Theory(Skip = UpdateSchema.Pending)]
     [InlineData("count")]
+    [InlineData("same bitmap length")]
     [InlineData("padding")]
     [InlineData("length")]
+    [InlineData("extra framed byte")]
     [InlineData("aggregate")]
     public async Task A_malformed_correlated_bitmap_ends_the_connection_and_exposes_no_command_outcome(string damage)
     {
@@ -75,6 +77,10 @@ public sealed class UpdateBitmapTests
             {
                 BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(offset), uint.MaxValue);
             }
+            else if (damage == "same bitmap length")
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(offset), 2);
+            }
             else if (damage == "padding")
             {
                 body[^1] |= 0x80;
@@ -82,6 +88,10 @@ public sealed class UpdateBitmapTests
             else if (damage == "aggregate")
             {
                 body[offset - 1] = 0;
+            }
+            else if (damage == "extra framed byte")
+            {
+                body = [.. body, 0];
             }
 
             return ForwardPayload.Frames(ForwardPayload.WriteReply, frame.CorrelationId, frame.StreamSequence, body,

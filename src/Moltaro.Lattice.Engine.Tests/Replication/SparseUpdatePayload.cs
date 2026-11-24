@@ -6,9 +6,14 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // A test replaces the declared String key or predecessor to exercise replay.
 internal static class SparseUpdatePayload
 {
-    public const int BaseSequenceAt = 1 + sizeof(ulong) + 2 * sizeof(uint);
+    private const int MemberAt = 1 + sizeof(ulong) + sizeof(uint);
+
+    public const int BaseSequenceAt = MemberAt + sizeof(uint);
 
     private const int KeyLengthAt = BaseSequenceAt + sizeof(ulong);
+
+    public static void SetMember(byte[] effect, uint member) =>
+        BinaryPrimitives.WriteUInt32LittleEndian(effect.AsSpan(MemberAt), member);
 
     public static byte[] WithStringKey(byte[] effect, ReadOnlySpan<byte> encodedKey)
     {

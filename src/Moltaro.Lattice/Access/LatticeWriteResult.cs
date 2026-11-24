@@ -13,8 +13,8 @@ public readonly struct LatticeWriteResult
 
     /// <summary>
     /// The position that includes this write. The master has published it. A write through a
-    /// child returns after that child has applied it. If the child is closed first, the call
-    /// still returns this result; a closed child serves no read. A write that changed nothing
+    /// child returns after that child has applied it. If the child closes after receiving the
+    /// master's reply, the call returns the master's result. A write that changed nothing
     /// has a position of its own as well.
     /// </summary>
     public LatticePosition Position { get; }

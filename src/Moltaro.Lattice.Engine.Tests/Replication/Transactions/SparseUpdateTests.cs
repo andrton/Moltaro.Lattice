@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Moltaro.Lattice.Engine.Tests.Engine.Positions;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Fixture;
 using Moltaro.Lattice.Replication;
@@ -79,6 +80,7 @@ public sealed class SparseUpdateTests
                 malformedTail ? [.. effects, byte.MaxValue] : effects))];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var clock = ObservedClock.Of(child);
 
         var update = items.CreateUpdate("ada");
         update.Assign("Login", "new");
@@ -90,6 +92,7 @@ public sealed class SparseUpdateTests
 
         Assert.Contains(relay.ToChild, frame => frame.Kind == FrameKindEnum.Transaction);
         Assert.Equal("new", items.Get("ada")!.Login);
+        Assert.Equal(before, clock.Position);
         if (malformedTail)
         {
             Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
@@ -124,7 +127,9 @@ public sealed class SparseUpdateTests
             ? [frame.WithPayload(differentRoot)]
             : [frame]);
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
-        Assert.Equal(master.Position, child.Position);
+        var clock = ObservedClock.Of(child);
+        var before = child.Position;
+        Assert.Equal(master.Position, before);
         Assert.Contains("friend", child.Set<UpdateItem>().Get("ada")!.Tags!);
 
         var update = items.CreateUpdate("ada");
@@ -134,6 +139,7 @@ public sealed class SparseUpdateTests
         await relay.ChildEndedAsync();
 
         Assert.Equal(LatticeDatabaseStateEnum.Faulted, child.State);
+        Assert.Equal(before, clock.Position);
         var error = await Assert.ThrowsAsync<LatticeException>(() => child.WaitForPositionAsync(result.Position, Bound).AsTask());
         Assert.Equal(LatticeErrorEnum.Unavailable, error.Error);
     }

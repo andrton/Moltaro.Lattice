@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.Engine.Tests.Engine.Batches.BatchSchema;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.HeldRead;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
@@ -231,20 +232,5 @@ public sealed class WaitingReadTests
         {
             return null;
         }
-    }
-
-    // Starts the read on a thread of its own and returns once it has found the root of its member inside
-    // the engine (the read switch), within the bound.
-    private static async Task<Task<T>> StartAtTheRootAsync<T>(EngineDatabase database, Func<T> read)
-    {
-        var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        database.ArmReadSwitch(_ => inside.TrySetResult());
-
-        var started = OwnThread.Run(read);
-
-        await inside.Task.WaitAsync(Bound);
-
-        return started;
     }
 }

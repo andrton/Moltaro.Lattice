@@ -1,4 +1,7 @@
 using System.Buffers;
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Text;
 using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -119,7 +122,9 @@ public sealed class PartialCatchUpTests
         }
         else if (scenario == "covered key named twice")
         {
-            sparseEffect = [.. sparseEffect, .. sparseEffect];
+            var secondMember = SparseUpdatePayload.WithStringKey(sparseEffect, "ADA"u8);
+            SparseUpdatePayload.SetMember(secondMember, 1);
+            sparseEffect = [.. sparseEffect, .. secondMember];
         }
 
         var older = scenario == "wrong older base";
@@ -208,16 +213,7 @@ public sealed class PartialCatchUpTests
     [Fact(Skip = UpdateSchema.Pending)]
     public async Task Retained_missing_target_keys_have_a_load_budget_separate_from_arena_blocks()
     {
-        await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
-        var items = master.Set<UpdateItem>();
-        await items.InsertAsync(UpdateSchema.Item("ada"));
-        await using var relay = FrameRelay.Start(master.ListenUri!);
-        await using var witness = await ReplicationNodes.OpenChildAsync(relay.Address);
-        var update = items.CreateUpdate("ada");
-        update.Assign("Login", "sparse");
-        var changed = await update.CommitAsync();
-        await witness.WaitForPositionAsync(changed.Position, Bound);
-        var sparse = TransactionPayload.EffectsOf(TransactionPayload.SingleFrameAt(relay, changed.Position));
+        var sparse = await OneSparseEffectAsync();
 
         var arenaOptions = new ArenaOptions();
         using var arena = new Arena(new ArenaOptions { MemoryLimit = arenaOptions.SegmentSize });
@@ -225,9 +221,11 @@ public sealed class PartialCatchUpTests
         received.EndLoad(captureStart: 1);
         var random = new Random(42);
         var key = new byte[32 * 1024];
-        var largestAccepted = (ulong)arenaOptions.SegmentSize / (ulong)key.Length;
+        // At that count the UTF-16 characters alone fill the budget, leaving no
+        // room for the retained strings and table.
+        var lastAttempt = 1UL + ((ulong)arenaOptions.SegmentSize / ((ulong)sizeof(char) * (ulong)key.Length));
         var refusedAt = 0UL;
-        for (var sequence = 2UL; sequence <= largestAccepted + 2; sequence++)
+        for (var sequence = 2UL; sequence <= lastAttempt; sequence++)
         {
             for (var index = 0; index < key.Length; index++)
             {
@@ -247,11 +245,83 @@ public sealed class PartialCatchUpTests
             }
         }
 
-        Assert.InRange(refusedAt, 3UL, largestAccepted + 2);
+        Assert.InRange(refusedAt, 3UL, lastAttempt);
         Assert.Equal(refusedAt - 1, clock.Sequence);
         Assert.Equal(0, roots.Count);
         Assert.Equal(0, arena.Counters.LiveBytes);
         Assert.Equal(0, arena.Counters.PreparedBytes);
+    }
+
+    [Fact(Skip = UpdateSchema.Pending)]
+    public async Task Catch_up_budgets_staged_new_keys_before_it_can_clear_old_markers()
+    {
+        const int OldCount = 20;
+        const int NewCount = 46;
+        const int KeyLength = 32 * 1024;
+        var arenaOptions = new ArenaOptions();
+        Assert.True(NewCount * KeyLength * sizeof(char) < arenaOptions.SegmentSize);
+        Assert.True((OldCount + NewCount) * KeyLength * sizeof(char) > arenaOptions.SegmentSize);
+
+        var sparse = await OneSparseEffectAsync();
+
+        var prefix = new string('k', KeyLength - 3);
+        byte[][] keys = [.. Enumerable.Range(0, OldCount + NewCount).Select(
+            index => Encoding.UTF8.GetBytes(prefix + index.ToString("D3", CultureInfo.InvariantCulture)))];
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = arenaOptions.SegmentSize });
+        var (received, roots, clock) = Receiver(arena);
+        received.EndLoad(captureStart: 1);
+
+        byte[] Effects(int from, int count)
+        {
+            var effects = new ArrayBufferWriter<byte>();
+            for (var index = from; index < from + count; index++)
+            {
+                var member = SparseUpdatePayload.WithStringKey(sparse, keys[index]);
+                SparseUpdatePayload.SetMember(member, (uint)index);
+                effects.Write(member);
+            }
+
+            return effects.WrittenSpan.ToArray();
+        }
+
+        received.Apply(2, new ReadOnlySequence<byte>(Effects(0, OldCount)), CancellationToken.None);
+        var typeId = (uint)Assert.Single(UpdateSchema.Schema.EntityTypes).Id;
+        var deletes = new ArrayBufferWriter<byte>();
+        foreach (var key in keys.Take(OldCount))
+        {
+            var header = deletes.GetSpan(1 + 2 * sizeof(uint));
+            header[0] = TransactionPayload.Delete;
+            BinaryPrimitives.WriteUInt32LittleEndian(header[1..], typeId);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[(1 + sizeof(uint))..], (uint)key.Length);
+            deletes.Advance(1 + 2 * sizeof(uint));
+            deletes.Write(key);
+        }
+
+        byte[] tooMuch = [.. deletes.WrittenSpan, .. Effects(OldCount, NewCount)];
+        Assert.True(tooMuch.Length < arenaOptions.SegmentSize);
+        var refusal = Assert.Throws<LatticeException>(() => received.Apply(3, new ReadOnlySequence<byte>(tooMuch), CancellationToken.None));
+        Assert.Equal(LatticeErrorEnum.Unavailable, refusal.Error);
+        Assert.Equal(2UL, clock.Sequence);
+        Assert.Equal(0, roots.Count);
+
+        received.Apply(3, new ReadOnlySequence<byte>(deletes.WrittenMemory), CancellationToken.None);
+        received.ValidateUniqueIndexes();
+        Assert.Equal(3UL, clock.Sequence);
+        Assert.Equal(0, roots.Count);
+    }
+
+    private static async Task<byte[]> OneSparseEffectAsync()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
+        var items = master.Set<UpdateItem>();
+        await items.InsertAsync(UpdateSchema.Item("ada"));
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var witness = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var update = items.CreateUpdate("ada");
+        update.Assign("Login", "sparse");
+        var changed = await update.CommitAsync();
+        await witness.WaitForPositionAsync(changed.Position, Bound);
+        return TransactionPayload.EffectsOf(TransactionPayload.SingleFrameAt(relay, changed.Position));
     }
 
     private static (ReceivedChanges Received, RootTable Roots, PositionClock Clock) Receiver(Arena arena)

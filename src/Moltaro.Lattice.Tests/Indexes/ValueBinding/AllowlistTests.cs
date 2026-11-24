@@ -102,6 +102,11 @@ public sealed class AllowlistTests
         await BindingSearch.ExpectAsync(database, row.Field, search, reverse: false, expected, name);
     }
 
+    [Theory(Skip = UpdateSchema.Pending)]
+    [MemberData(nameof(Names))]
+    public Task Collection_command_operands_use_the_same_allowlist_as_index_queries(string name) =>
+        CollectionOperandBinding.ExpectAsync(Cases[name]);
+
     [Fact(Skip = UpdateSchema.Pending)]
     public async Task An_undeclared_enum_value_passes_shape_check_but_fails_submission()
     {

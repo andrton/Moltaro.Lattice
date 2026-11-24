@@ -92,7 +92,7 @@ public sealed class UpdateSubmissionTests
         Assert.Equal(new byte[] { 1, 2 }, stored.Data);
         Assert.Equal(10, Assert.Single(stored.Scores!));
         Assert.Equal("Member", Assert.Single(stored.Tags!));
-        Assert.Equal(new[] { "First", "Second" }, stored.Options!.Keys);
+        Assert.Equal(new[] { "First", "Second" }, stored.Options!.Keys.Order(StringComparer.Ordinal));
         Assert.Equal("Oslo", stored.Options["First"]!.City);
         Assert.Equal("Berlin", stored.Options["Second"]!.City);
         Assert.All(stored.Options.Values, value => Assert.Equal(new byte[] { 3, 4 }, value!.Data));
