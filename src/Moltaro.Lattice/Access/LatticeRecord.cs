@@ -69,9 +69,15 @@ public sealed class LatticeRecord
     /// every time; setting stores a copy of the value, as the remarks of the class say.
     /// </summary>
     /// <remarks>
-    /// An integer of another width is accepted when it fits only where a value is given by
-    /// itself: the value of a field here or in a <see cref="LatticeOwnedValue"/>, as a primary
-    /// key is. A part of a search key accepts that and more, see <see cref="IndexKey"/>.
+    /// A value given by itself, the value of a field here or in a <see cref="LatticeOwnedValue"/>,
+    /// is taken by the one rule of a part of a search key, see <see cref="IndexKey"/>, and held as
+    /// the .NET type of the field: a value of that type; an integer of another width that fits;
+    /// any integer for a Decimal; an integer that a Float32 or a Float64 holds exactly; a Float32
+    /// for a Float64; a Float64 for a Float32 when it converts back to itself, with NaN, an
+    /// infinity and the sign of zero kept. Nothing else is converted, 42.0 for an integer field
+    /// included. For the types a primary key may have, the integers, String and Guid, this is the
+    /// rule of a key given to a read. A write refuses text that is not well-formed and an integer
+    /// that the enum type of an Enum field does not allow, not the setting of the value.
     /// The element, key and value types of a collection are the declared ones and nothing is
     /// converted: a <c>List&lt;int&gt;</c> is not accepted for a List of Int64, nor a Map with
     /// <see cref="int"/> keys for a Map of Int64 keys. An element of a class derived from the

@@ -120,7 +120,7 @@ public sealed class ValuesByNameTests
 
     public static TheoryData<string> RefusedRows => [.. Refused.Keys];
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [MemberData(nameof(AcceptedRows))]
     public async Task Value_written_by_name_is_accepted_by_the_allowlist_of_a_search_key_and_held_as_the_type_of_its_field(string row)
     {
@@ -172,7 +172,7 @@ public sealed class ValuesByNameTests
         Assert.Null(detail[field]);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public void Elements_of_a_collection_are_taken_only_as_declared()
     {
         Assert.True(Schema.TryGetEntityType("Priced", out var priced));

@@ -173,13 +173,19 @@ public sealed class LatticeValueDeclaration
 
     /// <summary>
     /// The .NET type of a non-null value at this position: what a record holds for it, at
-    /// every depth, and for a scalar and an Enum also what a record accepts. The remarks say
-    /// what a record accepts for the other types.
+    /// every depth. The remarks say what a record accepts.
     /// </summary>
     /// <remarks>
     /// <para>
     /// For an <see cref="LatticeFieldTypeEnum.Enum"/> it is the .NET type of the underlying
     /// integer: a record holds that integer.
+    /// </para>
+    /// <para>
+    /// For the value of a field of a record or of an owned value that is a scalar, an Enum or a
+    /// Reference, a record accepts a value of this type and a number of another type that is the
+    /// same number in it, by the one rule of a part of a search key, see
+    /// <see cref="Access.IndexKey"/>, and holds it as this type. At a position inside a
+    /// collection it accepts this type only.
     /// </para>
     /// <para>What a record holds at a position, which is what this property reports for it:</para>
     /// <list type="table">
@@ -196,7 +202,7 @@ public sealed class LatticeValueDeclaration
     /// <item>
     /// <term><see cref="LatticeFieldTypeEnum.Reference"/></term>
     /// <description>
-    /// The key of the target, in the .NET type of that key; accepted: the same.
+    /// The key of the target, in the .NET type of that key; accepted: the same, and for the value of a field a number as the paragraph above says.
     /// </description>
     /// </item>
     /// <item>

@@ -27,7 +27,9 @@ namespace Moltaro.Lattice.Access.Values;
 // IndexKey and the allowlist of Q07.3.6 of docs/decisions/queries.md. Beyond them, a converted value is
 // written into the bits as any other, so it is not boxed; the value of an Enum part is refused in the
 // words of the validation of a write (EnumValues.Undeclared); and a value it cannot use is refused with
-// the message of a field value (FieldValues.CannotBeUsed).
+// the message of a field value (FieldValues.CannotBeUsed). The allowlist of numbers alone, TryConvertTo,
+// is also the rule by which a record and an owned value take the value of a field (FieldValues.Normalize),
+// so that a number means the same in a key and in an entity.
 [StructLayout(LayoutKind.Sequential)]
 internal readonly struct IndexValue
 {
@@ -269,7 +271,7 @@ internal readonly struct IndexValue
             throw new ArgumentException($"Field '{field.Name}' is {declaration.Type}; a null given as {givenAs} cannot be used for it.", parameterName);
         }
 
-        if (Pairs(_type, expected) && TryConvert(expected, out var converted))
+        if (TryConvertTo(expected, out var converted))
         {
             if (declaration.EnumType is { } enumType)
             {
@@ -280,6 +282,17 @@ internal readonly struct IndexValue
         }
 
         throw FieldValues.CannotBeUsed(field, ToObject()!, parameterName);
+    }
+
+    // The value, of another type than the field type given, in that type when the allowlist takes it: a pair
+    // of the allowlist (Pairs) and the same number there (TryConvert). A value of the field type itself is
+    // taken before this is asked, by Bind and by FieldValues.Normalize. False for anything else, a null and a
+    // value of a type no scalar field has included.
+    public bool TryConvertTo(LatticeFieldTypeEnum type, out IndexValue converted)
+    {
+        converted = default;
+
+        return Pairs(_type, type) && TryConvert(type, out converted);
     }
 
     // The value in the field type given, a pair of the allowlist with its own (Pairs), when it is the same

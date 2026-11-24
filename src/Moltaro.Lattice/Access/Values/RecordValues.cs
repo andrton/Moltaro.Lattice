@@ -30,8 +30,8 @@ namespace Moltaro.Lattice.Access.Values;
 internal static class RecordValues
 {
     // A value that is not null, set into a field of a record or of an owned value. A value
-    // given by itself, a scalar, an Enum or a Reference, accepts an integer of another width
-    // when it fits; the types inside a collection are exact.
+    // given by itself, a scalar, an Enum or a Reference, accepts a number of another type as a part
+    // of a search key does (FieldValues.Normalize); the types inside a collection are exact.
     public static object Accept(LatticeField field, string owner, object value)
     {
         var declaration = field.Declaration;
