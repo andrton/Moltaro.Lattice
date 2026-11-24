@@ -8522,7 +8522,7 @@ during catch-up is recorded and must be resolved by a delete before R.
 
 - **Goal.** An application changes named fields and collection elements of one entity
   without submitting the whole entity.
-- **Contract.** Approved by the owner as part 2 of stage 5 (23 November 2026). New, in
+- **Contract.** Approved by the owner as part 2 of stage 5 (24 November 2026). New, in
   `Moltaro.Lattice.Access`:
   `LatticeUpdate`, the commands for one entity in the order they were added: `EntityType`,
   `Count`; `Assign<TValue>(string field, TValue value)`;
@@ -8616,7 +8616,7 @@ during catch-up is recorded and must be resolved by a delete before R.
 **Decided by the planner on 23 November 2026, with the contract.** An update copies each
 value when its command is added. The outcome of each command is the `LatticeCommandResult`
 the command returns, as `mutation-commands.md`, "Collection operation outcomes", requires;
-the shape was changed by the owner on 23 November 2026 from a member `CommandChanged(int)`
+the shape was changed by the owner on 24 November 2026 from a member `CommandChanged(int)`
 of the update, which he did not find clear, to a result of each command ("С тегом понятно.
 Ну, результат выполнения операции.": with the tag it is clear, the result of the
 operation), and the contract of S20 to S22 approved in that form ("ok"); the name
@@ -8648,7 +8648,7 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 - **Goal.** Short synchronous code reads fields and collections of one entity directly
   from the arena, by the names of the schema, without a copy and without a way to misuse
   the memory.
-- **Contract.** Approved by the owner as part 2 of stage 5 (23 November 2026). New, in
+- **Contract.** Approved by the owner as part 2 of stage 5 (24 November 2026). New, in
   `Moltaro.Lattice.Access`, every view a `readonly ref struct`:
   `LatticeRecordView` (`EntityType`, `Revision`, an indexer by the name of a field and an
   indexer by `LatticeField`, both returning `LatticeValueView`); `LatticeOwnedView`
@@ -8732,7 +8732,7 @@ with that decision of the owner as its reason, and is entered with the code of t
 - **Goal.** The same protected read is available through the application's entity class:
   a view with a property for each field, written for the class when the application is
   built.
-- **Contract.** Approved by the owner as part 2 of stage 5 (23 November 2026). New:
+- **Contract.** Approved by the owner as part 2 of stage 5 (24 November 2026). New:
   `LatticeViewAttribute(Type entityClass)` for a `readonly ref partial struct`;
   `ILatticeEntityView<TSelf, TEntity>` with the static members a generated view implements
   (`FieldNames`, `Create`), implemented by generated code only; on `ILatticeSet<TEntity>` the
