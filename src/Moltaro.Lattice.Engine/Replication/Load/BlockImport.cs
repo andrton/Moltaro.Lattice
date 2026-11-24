@@ -263,10 +263,15 @@ internal sealed class BlockImport
         values = records.Values;
     }
 
-    // Whether a descriptor as it was received names a value that follows its structure on the wire, and so
-    // is copied pending (see the class): a value out of line, or a List of records that is not empty.
-    public static bool IsPending(in ValueDescriptor received) =>
-        ValueBlocks.LiesOutOfLine(received) || (received.Kind == DescriptorKindEnum.Records && received.Length != 0);
+    // Leaves the descriptor at the place, received as given, pending (see the class) when it names a value that
+    // follows its structure on the wire: a value out of line, or a List of records that is not empty.
+    public static void LeavePending(Span<byte> place, in ValueDescriptor received)
+    {
+        if (ValueBlocks.LiesOutOfLine(received) || (received.Kind == DescriptorKindEnum.Records && received.Length != 0))
+        {
+            ValueBlocks.Write(place, new ValueDescriptor { Length = received.Length });
+        }
+    }
 
     private static LatticeException Invalid(RootLayout layout, string message) =>
         new(LatticeErrorEnum.ValidationFailed, $"A root of {layout.EntityType.Name} received from the master is not valid: {message}");
@@ -370,14 +375,9 @@ internal sealed class BlockImport
                 passed = 0;
                 CheckValue(layout, place, structure.DescriptorElement(index), received, block, ref input);
                 checkedBytes = input.Consumed - start;
-
-                if (!IsPending(received))
-                {
-                    continue;
-                }
             }
 
-            ValueBlocks.Write(at, new ValueDescriptor { Length = received.Length });
+            LeavePending(at, received);
         }
 
         Pass(layout, passed, ref input);

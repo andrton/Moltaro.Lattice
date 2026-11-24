@@ -65,12 +65,8 @@ internal struct ReceivedRecords : IRecordSource
             for (var index = 0; index < element.DescriptorCount; index++)
             {
                 var place = block.Slice((record * element.Size) + element.DescriptorField(index).Offset, ValueBlocks.DescriptorSize);
-                var received = ValueBlocks.Read(place);
 
-                if (BlockImport.IsPending(received))
-                {
-                    ValueBlocks.Write(place, new ValueDescriptor { Length = received.Length });
-                }
+                BlockImport.LeavePending(place, ValueBlocks.Read(place));
             }
         }
 
