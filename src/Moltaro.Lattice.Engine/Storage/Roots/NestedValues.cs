@@ -161,30 +161,11 @@ internal static class NestedValues
         }
 
         var list = (IList)element.List!.Sequence!.Create();
+        var blocks = new RecordBlocks(arena, descriptor, element);
 
-        if (descriptor.Length == 0)
+        while (blocks.MoveNext())
         {
-            return list;
-        }
-
-        var address = ValueBlocks.AddressOf(descriptor);
-
-        if (descriptor.Length <= element.RecordsPerChunk)
-        {
-            ReadRecords(arena, element, address, (int)descriptor.Length, list, encoding);
-
-            return list;
-        }
-
-        var entries = ValueBlocks.Directory(arena, descriptor);
-        var left = (int)descriptor.Length;
-
-        for (var chunk = 0; chunk < entries.Length / ValueBlocks.DescriptorSize; chunk++)
-        {
-            var records = Math.Min(left, element.RecordsPerChunk);
-
-            ReadRecords(arena, element, ValueBlocks.AddressOf(ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..])), records, list, encoding);
-            left -= records;
+            ReadRecords(arena, element, blocks.Block, blocks.Count, list, encoding);
         }
 
         return list;
@@ -193,67 +174,31 @@ internal static class NestedValues
     // Whether the records of a List of kind Records lie in chunks under a directory rather than in one block.
     public static bool LiesInChunks(in ValueDescriptor records, StructureLayout element) => records.Length > element.RecordsPerChunk;
 
-    // Places a List of the place, its descriptor at the offset given, in the form its element has.
-    private static void PlaceList(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, object list)
+    // The one placement of a List of records, of count elements, its descriptor at the offset given of the
+    // block of the holder: what a write of values places (ListRecords) and what a node received
+    // (Replication.Load.ReceivedRecords) alike. One block of kind Value holds up to RecordsPerChunk records,
+    // else a directory of kind ChunkDirectory holds a chunk for each RecordsPerChunk of them; each block is
+    // allocated with the length the source gives, for its records and the values inline of their
+    // descriptors, and filled by the source before the next one is allocated, so that a source that reads
+    // its records from an input reads them in their order. The parent of the block or the directory is the
+    // block of the holder, the image of a root naming none until its writer completes the root; the parent
+    // of a chunk is its directory.
+    //
+    // A List above the bound of a List is refused with ValidationFailed, as the guard of the stored form
+    // (see the class). When the arena refuses a block, for the List or for a value of a record, the List
+    // frees everything it took, its descriptor is written as zero, and the holder is Refused; an
+    // OutOfMemoryException of the native allocator passes after the same free. So the descriptor names a
+    // whole List or nothing. For a root for a forwarded write each block is kept apart, with the values of
+    // its records (ExportedValues.StoreRecords), and the descriptor has the location 0.
+    public static void PlaceRecords<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, ref TSource source)
+        where TSource : IRecordSource, allows ref struct
     {
-        if (element.Packed is { } packed)
-        {
-            PlacePacked(ref holder, place, element, packed, offset, list);
-        }
-        else
-        {
-            PlaceRecords(ref holder, place, element, offset, (IList)list);
-        }
-    }
-
-    // A packed List: the records of its elements, placed as the bytes of a Binary value are (ValueHolder). Only
-    // the boundary of a chunk divides a record: inline and in one block, one place holds the whole List. So only
-    // a List that lies in chunks takes a record of scratch.
-    private static void PlacePacked(ref ValueHolder holder, in StoredField place, StructureLayout element, PackedElements packed, int offset, object list)
-    {
-        var count = packed.Count(list);
-
         if (count > element.MostElements)
         {
             throw AboveTheBound(place, count, element);
         }
 
-        var length = count * packed.Stride;
-
-        if (length <= ValueBlocks.SingleBlockLimit)
-        {
-            var whole = new PackedSource(packed, list, default);
-
-            holder.PlaceBytes(place, offset, length, ref whole);
-
-            return;
-        }
-
-        var record = ArrayPool<byte>.Shared.Rent(packed.Stride);
-
-        try
-        {
-            var source = new PackedSource(packed, list, record.AsSpan(0, packed.Stride));
-
-            holder.PlaceBytes(place, offset, length, ref source);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(record);
-        }
-    }
-
-    // A List of records: one block of them or a directory of chunks of them, each made for its records and
-    // the values inline of their descriptors, then filled.
-    private static void PlaceRecords(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, IList list)
-    {
-        var count = list.Count;
         var descriptorPlace = holder.At(offset, ValueBlocks.DescriptorSize);
-
-        if (count > element.MostElements)
-        {
-            throw AboveTheBound(place, count, element);
-        }
 
         if (count == 0)
         {
@@ -267,175 +212,38 @@ internal static class NestedValues
             return;
         }
 
-        var descriptor = new ValueDescriptor { Kind = DescriptorKindEnum.Records, Length = (uint)count };
-
-        if (!TryAllocateRecords(ref holder, element, list, ref descriptor, holder.Address, offset))
+        if (holder.Exported is not null)
         {
-            holder.Refused = true;
+            ExportRecords(ref holder, element, offset, count, ref source);
 
             return;
         }
 
-        ValueBlocks.Write(descriptorPlace, descriptor);
+        // What the holder counted before the List, which a List that is not placed gives back.
+        var slotBytes = holder.SlotBytes;
+        var descriptor = new ValueDescriptor { Kind = DescriptorKindEnum.Records, Length = (uint)count };
 
         try
         {
-            if (!TryFillRecords(ref holder, element, list, descriptor))
+            if (TryPlaceRecords(ref holder, element, offset, count, descriptorPlace, ref descriptor, ref source))
             {
-                RootStorage.FreeValue(holder.Arena, descriptor, element);
-                ValueBlocks.Write(descriptorPlace, default);
-                holder.Refused = true;
+                return;
             }
         }
         catch (OutOfMemoryException)
         {
-            RootStorage.FreeValue(holder.Arena, descriptor, element);
-            ValueBlocks.Write(descriptorPlace, default);
-
-            throw;
-        }
-    }
-
-    // Allocates the blocks of a List of records, prepared and cleared: one block of kind Value up to
-    // RecordsPerChunk records, else a directory and its chunks, every chunk but the last of RecordsPerChunk
-    // records. The descriptor takes the address of the block or the directory. False when the arena refused
-    // one, with nothing of them left allocated; an OutOfMemoryException of the native allocator passes on
-    // with nothing of them left allocated either, as ValueBlocks.TryStore leaves a value in chunks.
-    private static bool TryAllocateRecords(ref ValueHolder holder, StructureLayout element, IList list, ref ValueDescriptor descriptor, ArenaAddress parent, int offset)
-    {
-        var perChunk = element.RecordsPerChunk;
-        var count = list.Count;
-
-        if (count <= perChunk)
-        {
-            if (!ValueBlocks.TryAllocate(holder.Arena, BlockLength(element, list, 0, count, holder.Encoding), BlockKindEnum.Value, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out var block))
-            {
-                return false;
-            }
-
-            holder.Arena.Payload(block).Clear();
-            holder.SlotBytes += Arena.BlockSizeFor((int)holder.Arena.Header(block).PayloadLength);
-            descriptor.Location = block.Value;
-
-            return true;
-        }
-
-        var chunks = (count + perChunk - 1) / perChunk;
-
-        if (!ValueBlocks.TryAllocate(holder.Arena, chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out var directory))
-        {
-            return false;
-        }
-
-        // The entries start zero, so that the free of a directory whose chunks are not all allocated frees
-        // those that are.
-        var entries = holder.Arena.Payload(directory);
-        var slotBytes = (long)Arena.BlockSizeFor(chunks * ValueBlocks.DescriptorSize);
-
-        entries.Clear();
-
-        try
-        {
-            for (var chunk = 0; chunk < chunks; chunk++)
-            {
-                var first = chunk * perChunk;
-                var length = BlockLength(element, list, first, Math.Min(perChunk, count - first), holder.Encoding);
-
-                if (!ValueBlocks.TryAllocate(holder.Arena, length, BlockKindEnum.Chunk, holder.Root, holder.Layout.LayoutVersion, directory, (uint)(BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize)), out var block))
-                {
-                    ValueBlocks.FreeBlocks(holder.Arena, directory, chunks: true);
-
-                    return false;
-                }
-
-                holder.Arena.Payload(block).Clear();
-                slotBytes += Arena.BlockSizeFor(length);
-                ValueBlocks.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
-            }
-        }
-        catch (OutOfMemoryException)
-        {
-            // The chunks allocated so far and the directory go before the failure passes on.
-            ValueBlocks.FreeBlocks(holder.Arena, directory, chunks: true);
+            FreeRecords(ref holder, element, descriptorPlace, descriptor, slotBytes);
 
             throw;
         }
 
-        holder.SlotBytes += slotBytes;
-        descriptor.Location = directory.Value;
-
-        return true;
+        FreeRecords(ref holder, element, descriptorPlace, descriptor, slotBytes);
+        holder.Refused = true;
     }
 
-    // Writes the records of a List into the blocks TryAllocateRecords allocated; false when the arena refused
-    // a block for a value of a record.
-    private static bool TryFillRecords(ref ValueHolder holder, StructureLayout element, IList list, in ValueDescriptor descriptor)
-    {
-        var address = ValueBlocks.AddressOf(descriptor);
-
-        if (!LiesInChunks(descriptor, element))
-        {
-            return TryFillBlock(ref holder, element, list, address, 0, list.Count);
-        }
-
-        var entries = ValueBlocks.Directory(holder.Arena, descriptor);
-
-        for (var chunk = 0; chunk * element.RecordsPerChunk < list.Count; chunk++)
-        {
-            var first = chunk * element.RecordsPerChunk;
-            var block = ValueBlocks.AddressOf(ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]));
-
-            if (!TryFillBlock(ref holder, element, list, block, first, Math.Min(element.RecordsPerChunk, list.Count - first)))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    // Writes count records of the List from the element first on into the block, the values inline after the
-    // records; what the values take out of line counts in the holder of the List.
-    private static bool TryFillBlock(ref ValueHolder holder, StructureLayout element, IList list, ArenaAddress block, int first, int count)
-    {
-        var records = new ValueHolder(holder.Arena, holder.Layout, holder.Root, holder.Arena.Payload(block), BlockHeader.Size, block, BlockHeader.Size + (count * element.Size));
-
-        for (var record = 0; record < count && !records.Refused; record++)
-        {
-            var at = BlockHeader.Size + (record * element.Size);
-
-            StartRecord(ref records, element, at);
-
-            if (list[first + record] is { } value)
-            {
-                Write(ref records, element, at, 0, value);
-            }
-        }
-
-        holder.SlotBytes += records.SlotBytes;
-
-        return !records.Refused;
-    }
-
-    // The payload of a block of count records of the List from the element first on: the records, and every
-    // value of their descriptors that lies inline, as Write places them.
-    private static int BlockLength(StructureLayout element, IList list, int first, int count, LatticeStringEncodingEnum encoding)
-    {
-        var length = count * element.Size;
-
-        for (var record = first; record < first + count; record++)
-        {
-            if (list[record] is { } value)
-            {
-                length += InlineBytes(element, 0, value, encoding);
-            }
-        }
-
-        return length;
-    }
-
-    // The bytes a value of the place at the position takes inline in the block of its structure.
-    private static int InlineBytes(StructureLayout layout, int position, object value, LatticeStringEncodingEnum encoding)
+    // The bytes a value of the place at the position takes inline in the block of its structure, as Write
+    // places it: what ListRecords.BlockLength adds up, so this sizing has to agree with the writing.
+    public static int InlineBytes(StructureLayout layout, int position, object value, LatticeStringEncodingEnum encoding)
     {
         ref readonly var place = ref layout.Place(position);
 
@@ -480,6 +288,177 @@ internal static class NestedValues
             default:
                 return 0;
         }
+    }
+
+    // Places a List of the place, its descriptor at the offset given, in the form its element has.
+    private static void PlaceList(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, object list)
+    {
+        if (element.Packed is { } packed)
+        {
+            PlacePacked(ref holder, place, element, packed, offset, list);
+
+            return;
+        }
+
+        var records = (IList)list;
+        var source = new ListRecords(records, holder.Encoding);
+
+        PlaceRecords(ref holder, place, element, offset, records.Count, ref source);
+    }
+
+    // A packed List: the records of its elements, placed as the bytes of a Binary value are (ValueHolder). Only
+    // the boundary of a chunk divides a record: inline and in one block, one place holds the whole List. So only
+    // a List that lies in chunks takes a record of scratch.
+    private static void PlacePacked(ref ValueHolder holder, in StoredField place, StructureLayout element, PackedElements packed, int offset, object list)
+    {
+        var count = packed.Count(list);
+
+        if (count > element.MostElements)
+        {
+            throw AboveTheBound(place, count, element);
+        }
+
+        var length = count * packed.Stride;
+
+        if (length <= ValueBlocks.SingleBlockLimit)
+        {
+            var whole = new PackedSource(packed, list, default);
+
+            holder.PlaceBytes(place, offset, length, ref whole);
+
+            return;
+        }
+
+        var record = ArrayPool<byte>.Shared.Rent(packed.Stride);
+
+        try
+        {
+            var source = new PackedSource(packed, list, record.AsSpan(0, packed.Stride));
+
+            holder.PlaceBytes(place, offset, length, ref source);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(record);
+        }
+    }
+
+    // The blocks of a List of records, each allocated, named by the descriptor or the directory, and filled
+    // in turn (PlaceRecords); false when the arena refused a block, with the descriptor in place naming what
+    // was taken so far, or still as it was when nothing was.
+    private static bool TryPlaceRecords<TSource>(ref ValueHolder holder, StructureLayout element, int offset, int count, Span<byte> descriptorPlace, ref ValueDescriptor descriptor, ref TSource source)
+        where TSource : IRecordSource, allows ref struct
+    {
+        var perChunk = element.RecordsPerChunk;
+
+        if (count <= perChunk)
+        {
+            if (!TryAllocate(ref holder, source.BlockLength(element, 0, count), BlockKindEnum.Value, holder.Address, offset, out var block))
+            {
+                return false;
+            }
+
+            descriptor.Location = block.Value;
+            ValueBlocks.Write(descriptorPlace, descriptor);
+
+            return TryFill(ref holder, element, block, 0, count, ref source);
+        }
+
+        var chunks = (count + perChunk - 1) / perChunk;
+
+        if (!TryAllocate(ref holder, chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Address, offset, out var directory))
+        {
+            return false;
+        }
+
+        // The entries start zero: an entry the placement did not reach names no chunk (RecordBlocks).
+        var entries = holder.Arena.Payload(directory);
+
+        entries.Clear();
+        descriptor.Location = directory.Value;
+        ValueBlocks.Write(descriptorPlace, descriptor);
+
+        for (var chunk = 0; chunk < chunks; chunk++)
+        {
+            var first = chunk * perChunk;
+            var records = Math.Min(perChunk, count - first);
+            var length = source.BlockLength(element, first, records);
+
+            if (!TryAllocate(ref holder, length, BlockKindEnum.Chunk, directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), out var block))
+            {
+                return false;
+            }
+
+            ValueBlocks.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
+
+            if (!TryFill(ref holder, element, block, first, records, ref source))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // A prepared block of a List of records, of the root of the holder, counted in the holder.
+    private static bool TryAllocate(ref ValueHolder holder, int length, BlockKindEnum kind, ArenaAddress parent, int offset, out ArenaAddress block)
+    {
+        if (!ValueBlocks.TryAllocate(holder.Arena, length, kind, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out block))
+        {
+            return false;
+        }
+
+        holder.SlotBytes += Arena.BlockSizeFor(length);
+
+        return true;
+    }
+
+    // Fills a block of count records of the List from the element first on, by the source; what the values of
+    // the records take out of line counts in the holder of the List. False when the arena refused a block for
+    // one of them.
+    private static bool TryFill<TSource>(ref ValueHolder holder, StructureLayout element, ArenaAddress block, int first, int count, ref TSource source)
+        where TSource : IRecordSource, allows ref struct
+    {
+        var records = new ValueHolder(holder.Arena, holder.Layout, holder.Root, holder.Arena.Payload(block), BlockHeader.Size, block, BlockHeader.Size + (count * element.Size));
+
+        source.Fill(ref records, element, first, count);
+        holder.SlotBytes += records.SlotBytes;
+
+        return !records.Refused;
+    }
+
+    // Frees a List of records the placement did not complete, from what its descriptor names, writes its
+    // descriptor as zero and gives back what the holder counted for it.
+    private static void FreeRecords(ref ValueHolder holder, StructureLayout element, Span<byte> descriptorPlace, in ValueDescriptor descriptor, long slotBytes)
+    {
+        if (descriptor.Location != 0)
+        {
+            RootStorage.FreeValue(holder.Arena, descriptor, element);
+            ValueBlocks.Write(descriptorPlace, default);
+        }
+
+        holder.SlotBytes = slotBytes;
+    }
+
+    // A List of records of a root for a forwarded write: each block as the source fills it, kept apart with the
+    // values of its records, and the descriptor with the location 0, as the wire carries it.
+    private static void ExportRecords<TSource>(ref ValueHolder holder, StructureLayout element, int offset, int count, ref TSource source)
+        where TSource : IRecordSource, allows ref struct
+    {
+        for (var first = 0; first < count; first += element.RecordsPerChunk)
+        {
+            var records = Math.Min(element.RecordsPerChunk, count - first);
+            var block = new byte[source.BlockLength(element, first, records)];
+            var holderOfBlock = new ValueHolder(null!, holder.Layout, default, block, BlockHeader.Size, default, BlockHeader.Size + (records * element.Size))
+            {
+                Exported = ExportedValues.OfRecords(element, records),
+            };
+
+            source.Fill(ref holderOfBlock, element, first, records);
+            holder.Exported!.StoreRecords(offset, block, holderOfBlock.Exported!);
+        }
+
+        ValueBlocks.Write(holder.At(offset, ValueBlocks.DescriptorSize), new ValueDescriptor { Kind = DescriptorKindEnum.Records, Length = (uint)count });
     }
 
     // A packed List read from where its descriptor says it lies, a record that a chunk boundary divides read

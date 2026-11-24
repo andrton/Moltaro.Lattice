@@ -69,6 +69,9 @@ internal sealed class StructureLayout
     // The positions of the places that are descriptors, in the order of their descriptors.
     private readonly int[] _descriptors;
 
+    // Each place beneath a nullable owned value, with the null bit of the owned value right above it.
+    private readonly (int Position, int Above)[] _beneath;
+
     private StructureLayout(
         int start,
         StoredField[] places,
@@ -76,6 +79,7 @@ internal sealed class StructureLayout
         int[] children,
         StructureLayout?[] elements,
         int[] descriptors,
+        (int Position, int Above)[] beneath,
         int nullableCount,
         int descriptorOffset,
         int size,
@@ -89,6 +93,7 @@ internal sealed class StructureLayout
         _children = children;
         _elements = elements;
         _descriptors = descriptors;
+        _beneath = beneath;
         NullableCount = nullableCount;
         DescriptorOffset = descriptorOffset;
         Size = size;
@@ -182,6 +187,13 @@ internal sealed class StructureLayout
     // The layout of the element of the descriptor at the index when it is a List; null otherwise.
     public StructureLayout? DescriptorElement(int index) => _elements[_descriptors[index]];
 
+    // Every place beneath a nullable owned value, by its position, with the null bit of the owned value right
+    // above it, which has one since it lies beneath a nullable owned value too or is one: what the bits of a
+    // structure agree on (see the class). The bit of such a place is set while that owned value is absent, and
+    // when it is present the bit of a place that is not nullable is clear. Empty for a structure that holds no
+    // nullable owned value, a root of scalar fields among them.
+    public ReadOnlySpan<(int Position, int Above)> Beneath => _beneath;
+
     // The layout of the structure of the fields of an entity type, after the header of its root block. The
     // places the paths indexed lead to, as LatticeIndexPart.Path gives them, are parts of a secondary index:
     // a field of an owned type that stands at two positions is indexed at the one its path names. Refuses,
@@ -248,11 +260,13 @@ internal sealed class StructureLayout
     {
         var fields = new List<(LatticeField Field, LatticeValueDeclaration Declaration)>();
         var children = new List<int>();
+        var parents = new List<int>();
         var paths = new List<LatticeField[]>();
 
         // The positions: the members in a run, then the fields of every owned value among them in a run of
-        // their own, recursively, each with the path that leads to it.
-        int Allocate(IReadOnlyList<(LatticeField Field, LatticeValueDeclaration Declaration)> run, LatticeField[] above)
+        // their own, recursively, each with the owned place it lies in, -1 for a member, and the path that
+        // leads to it.
+        int Allocate(IReadOnlyList<(LatticeField Field, LatticeValueDeclaration Declaration)> run, int parent, LatticeField[] above)
         {
             var first = fields.Count;
 
@@ -260,6 +274,7 @@ internal sealed class StructureLayout
             {
                 fields.Add(member);
                 children.Add(-1);
+                parents.Add(parent);
                 paths.Add([.. above, member.Field]);
             }
 
@@ -267,14 +282,14 @@ internal sealed class StructureLayout
             {
                 if (run[index].Declaration.Type == LatticeFieldTypeEnum.Owned)
                 {
-                    children[first + index] = Allocate([.. run[index].Declaration.OwnedType!.Fields.Select(field => (field, field.Declaration))], paths[first + index]);
+                    children[first + index] = Allocate([.. run[index].Declaration.OwnedType!.Fields.Select(field => (field, field.Declaration))], first + index, paths[first + index]);
                 }
             }
 
             return first;
         }
 
-        Allocate(members, []);
+        Allocate(members, -1, []);
 
         var indexedPositions = Enumerable.Range(0, fields.Count).Where(position => indexed.Any(path => path.SequenceEqual(paths[position]))).ToHashSet();
 
@@ -306,6 +321,11 @@ internal sealed class StructureLayout
         {
             nullBits[position] = fields[position].Declaration.IsNullable || beneathNullable ? nullableCount++ : StoredField.NoNullBit;
         }
+
+        var beneath = inPathOrder
+            .Where(entry => entry.BeneathNullable)
+            .Select(entry => (entry.Position, Above: nullBits[parents[entry.Position]]))
+            .ToArray();
 
         // The fixed-width places from the end of the bitmap, then the descriptors, each in the order of the paths.
         var places = new StoredField[fields.Count];
@@ -361,6 +381,7 @@ internal sealed class StructureLayout
             [.. children],
             elements,
             [.. descriptors],
+            beneath,
             nullableCount,
             descriptorOffset,
             offset - start,

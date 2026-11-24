@@ -1,3 +1,4 @@
+using System.Buffers;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
@@ -6,10 +7,11 @@ namespace Moltaro.Lattice.Storage.Roots;
 
 // The block that a writer fills with structures and with the values their descriptors name inline, and the
 // one placement of a String, a Binary and a packed List into it or out of it: the image of a root that its
-// writer collects before the root block exists (RootWriter), or a block of the records of a List
-// (NestedValues). It holds the bytes of the block, the room left in it for values inline, the arena and the
-// owner of the blocks that the values out of line take, and what the writing has taken so far. A ref struct on
-// the stack of one write, passed by reference: placing a value changes it.
+// writer collects before the root block exists (RootWriter), the root block of a root a node received
+// (Replication.Load.BlockImport), or a block of the records of a List (NestedValues). It holds the bytes of the
+// block, the room left in it for values inline, the arena and the owner of the blocks that the values out of
+// line take, and what the writing has taken so far. A ref struct on the stack of one write, passed by
+// reference: placing a value changes it.
 //
 // The rules of a placement. A value above the bound of one value, ValueBlocks.MostValueBytes, and text that is
 // not well-formed are refused first with ValidationFailed and the field named, before anything is allocated:
@@ -22,7 +24,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // block, nothing more is allocated: Refused is set, and the write is refused for its memory. A value is placed
 // whole or not at all, so a descriptor names a whole value or nothing; an OutOfMemoryException of the native
 // allocator passes with nothing of the value taken. For a root for a forwarded write, a value out of line is
-// kept apart (ExportedValues) instead of in blocks.
+// kept apart (ExportedValues) instead of in blocks. A block that holds what it received has no room left: every
+// value placed into it lies out of line, as it came (InlineEnd at End).
 internal ref struct ValueHolder
 {
     // A holder of the bytes given, which lie at the offset origin of the block, its header counted, so that
@@ -63,8 +66,8 @@ internal ref struct ValueHolder
     // The block, or the null address for the image of a root.
     public ArenaAddress Address { get; }
 
-    // The values out of line of a root for a forwarded write, kept by the index of their descriptor; null for a
-    // root of an arena and a block of records.
+    // The values out of line of a root for a forwarded write, or of a block of its records, kept by their
+    // descriptors; null for a block of an arena.
     public ExportedValues? Exported { get; init; }
 
     // The offset of the block, header counted, where the next value inline goes; the room for values inline
@@ -144,7 +147,7 @@ internal ref struct ValueHolder
         else if (Exported is not null)
         {
             // Kept apart in the order of its descriptor, and described as the blocks that would hold it.
-            Exported.Store(ExportedIndex(offset), length, ref source);
+            Exported.Store(offset, length, ref source);
             ValueBlocks.Write(descriptor, new ValueDescriptor
             {
                 Kind = length <= ValueBlocks.SingleBlockLimit ? DescriptorKindEnum.Block : DescriptorKindEnum.Chunked,
@@ -196,7 +199,7 @@ internal ref struct ValueHolder
         {
             var source = ValueSource.Text(text, Encoding);
 
-            Exported.Store(ExportedIndex(offset), length, ref source);
+            Exported.Store(offset, length, ref source);
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Text, Length = (uint)length, Location = 0 });
         }
         else if (Arena.Texts.TryAcquire(text, Encoding, length, descriptor, out var newBytes))
@@ -209,8 +212,26 @@ internal ref struct ValueHolder
         }
     }
 
-    // The index of the descriptor at the offset among the descriptors of the root, for a forwarded write.
-    private readonly int ExportedIndex(int offset) => (offset - Layout.DescriptorOffset) / ValueBlocks.DescriptorSize;
+    // Places a text of the place that lies in an entry of the text table, received as the bytes of its
+    // encoding, its descriptor at the offset given: the entry that holds these bytes, found or added, of which
+    // the block takes one reference, or nothing when the arena refused a block before or refuses a new entry
+    // now (Text.TextTable.TryAcquire). The bytes were checked on receipt (Replication.Load.BlockImport).
+    public void PlaceEntry(int offset, in ReadOnlySequence<byte> bytes)
+    {
+        if (Refused)
+        {
+            return;
+        }
+
+        if (Arena.Texts.TryAcquire(bytes, At(offset, ValueBlocks.DescriptorSize), out var newBytes))
+        {
+            SlotBytes += newBytes;
+        }
+        else
+        {
+            Refused = true;
+        }
+    }
 
     private readonly string Name(in StoredField place) => $"{Layout.EntityType.Name}.{place.Field.Name}";
 

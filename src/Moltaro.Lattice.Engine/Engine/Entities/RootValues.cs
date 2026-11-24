@@ -140,7 +140,7 @@ internal static class RootValues
     // refuses what it refuses for a write of values, and keeps nothing then.
     public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values)
     {
-        var writer = new RootWriter(layout, new ExportedValues(layout.DescriptorCount));
+        var writer = new RootWriter(layout, ExportedValues.OfRoot(layout));
 
         try
         {

@@ -74,8 +74,8 @@ internal static class RootStorage
     // root owns, or the one reference a Text descriptor holds to its entry, which the text table releases: a
     // block holds its references until it is freed (Text.TextTable). For a List of kind Records, whose element
     // has the layout given, everything its records own first, then its blocks. The one place where a
-    // reference goes: the free of a root here, of the values of a root that was not completed (RootWriter,
-    // Replication.Load.BlockImport), and of a List a writer did not complete (NestedValues).
+    // reference goes: the free of a root here, of the values of a root that was not completed (RootWriter),
+    // and of a List whose placement did not complete (NestedValues).
     public static void FreeValue(Arena arena, in ValueDescriptor descriptor, StructureLayout? element)
     {
         var freeing = new Freeing();
@@ -91,10 +91,6 @@ internal static class RootStorage
 
         StructureWalk.WalkImage(arena, layout, image, ref freeing);
     }
-
-    // Frees what one descriptor of a root that is no List of kind Records holds outside its block, as
-    // FreeValue does (Replication.Load.BlockImport, which receives no such List).
-    public static void FreeValue(Arena arena, in ValueDescriptor descriptor) => FreeValue(arena, descriptor, null);
 
     // Names the block that holds a descriptor as the parent of the blocks of the value the descriptor names,
     // with the offset of the descriptor in that block: the root block, when a writer completes the root. The
