@@ -106,6 +106,9 @@ Gone through by the planner and the coordinator on 18 November 2026.
      (A), test first (the record of S18 in the epic); `kd` of K2; S18R; the subsumed index
      tests as a change of the light track; then S19, its first structural commit first. The
      section of that review says the rest.
+  6c. **After S19,** no separate refactoring sprint. The planner and coordinator joined
+     each entry to the sprint that changes its path. See the
+     [architect's review after S19](#architects-review-after-s19-24-november-2026).
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
@@ -443,7 +446,7 @@ a child that would refuse a valid swap.
 | --- | --- | --- | --- | --- | --- |
 | K2 | The write path of a type with several indexes after S17: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`, `TopUpIndexes`), `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `LeftAfterMove`, `Trim`), `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `AfterPublication`) | S17 costs a write that reserves in a secondary index. By listing, an insert into one Int64 index makes 25 + 2n calls at the head where it made 21 + n at b9a9074, n being the nodes refilled, the same on x64 and on ARM64 call for call. By ratio, the head against b9a9074 on `index-writes` down to 0.910; the ratios of part 1, of the bound by levels with what it bought, and of the write path, which bought nothing this method can see, are in the table of falls of the record of the start of the machine before the close of S17 in `epic-1-core.md`. The second line: part 2's insert that grows the primary index, 2 to 4 % by the start of part 2, owed, since no series of the last start grew the primary index; the next start carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated. The third line: part 3's `unique-writes` line, 0.953 against f6d9cf3, not explained by its listing, run again in the next start with the machine's listings (the same record) | Not known. The question to the architect's review after S17: what of the cost per index and per reservation can go without giving up the bound by levels or the check on the final state | The bound by levels: a batch whose take fits is not refused for its bound, and a refused or withdrawn reservation gives back exactly what it took; the check of unique values on the state a publication leaves; every guarantee of S17; no added load on a read | closed on 24 November 2026, after the start of the machine for S18 (its record in the [epic](epic-1-core.md)): the first line by `kd`, taken as a change of the light track of its own (four lines of `index-writes` 1.017 to 1.060, none falling), and applied as recorded below; `kbc` refused (3.1 to 5.4 % on six lines); the re-inlining of `NodePool.AfterPublication` not needed; the second line closed, part 2's growing insert not standing with the trees rotated; the third line closed, part 3's line not reproducing rotated. The reported fall while the primary index grows was carried as K3 |
 | K3 | The writer that inserts while the primary index grows, `read-by-key-threads` | 1.3 to 2.9 % slower at 6102bbe than at ed81c76 on four lines, called at three or four of five rounds, never at five; the same against 3e24ce4, so it arrives after part 2 of S17: in part 3 of S17, S17R or S18. No target is missed (the targets of writes G3 and G6) | The workstation listings at ed81c76 and 6102bbe and the rotated ARM64 run across 3e24ce4, 6b968b3, 8dc0e16, 6a4fb98, 6f50194 and 6102bbe | Every guarantee of S17 and S18 | closed in the ARM64 follow-up; the earlier fall did not repeat in five rounds across six trees |
-| K4 | A replace that changes no key, `full-form-users` | A replace of the fixture's user with the marks of unique indexes and the region in Dictionary storage, keeping every value, costs 1.18 to 1.20 of one without them, in one run without a gauge; what a replace pays for a unique index and for Dictionary text when neither changes has not been looked at | Determine the cost of each feature separately | The check of unique values; Dictionary text shared | open; the cost repeated in the ARM64 follow-up and stays with the architect's next review |
+| K4 | A replace that keeps all values, `full-form-users` | The ordinary and middle forms change ByLogin uniqueness and Dictionary storage of Region together. The combined cost repeated on ARM64. | Compare the four combinations on one release tree using the existing unchanged-replace series. | The check of unique values, Dictionary sharing and identical users and index shapes. | open; [measurement and accepting queue](#k4-unchanged-replace) |
 
 **K2, `kd`** (24 November 2026, light track, coordinator 9). The measured patch was
 carried unchanged to the current engine as `82b7e48`. It skips divisions in `Need`,
@@ -568,7 +571,64 @@ two S18 receiving series that were still owed. With two following children, the 
 repeat was 0.9618 of the base write rate. For an ordinary 100-byte forwarded replace,
 the second repeat's write p50 was 1.0751 of base. Both met the rotated rule in the
 named repeat. The listings identify extra checks and a further placement call level
-without separating their costs. Review those paths alongside K4 after S19.
+without separating their costs. See the [review after S19](#s18-receiving-lines).
+
+## Architect's review after S19, 24 November 2026
+
+Read at `main` `7c6e09af`. The planner and coordinator joined the five entries below to
+the sprints that already change their paths. None requires a separate S19R. The shared
+publication and position path, the storage dependency direction, the checked wire and
+resident key sources, and the shared comparer, hash and probe are sound. The audit keeps
+its own checks of ownership, descriptor offsets and lookup shape.
+
+| Place | Simpler form and reason | What it must keep | Status |
+| --- | --- | --- | --- |
+| `RootStorage`, `StructureWalk`, `LookupBlocks` | Keep one rule for walking the physical form when Q49 changes what a descriptor owns. Share classification where it replaces repeated code and keep lifecycle actions explicit. Bring the List-only comments up to date with the arena protocol. | One walk per lifecycle action, holder offsets, children before owner, and no early or double release. Check a protected old root, ownership and collection byte audits, rollback and child publication. Compare the scalar write listings and fixture bytes. | joined (S20), which changes ownership |
+| `NestedValues`, `ValueHolder`, record and collection sources | Use the existing record and collection entry sources. Reuse the resident placement tail and rollback where a new source would otherwise repeat them. Splitting `NestedValues` by size alone still adds a type without removing work (Z2e). | Null and empty states, comparer, uniqueness and order, compact and hashed forms, and rollback of descriptors, counts and the inline boundary. Check the collection form, validation and receiving tests, bytes and the write lock interval. | joined (S20), which adds a source over stored blocks. Z2e remains refused. The earlier `Admit` entry remains one item. |
+| `RootReader.FindEntry`, `CollectionKeys`, `CollectionLookup` | Reuse the local lookup for nested protected views when there is a second caller. | Use the actual holder payload under the same protection, with the same comparer, seed and scoped ordinal. Check both local forms and zero managed allocations for the lookup. | joined (S21), which adds the view that S22 uses |
+| `CollectionLookup.IsChunked`, `LookupBlocks` | Take physical shape from the allocation once spare capacity or shrink lets count and shape differ. Today a new hashed lookup is built for its count and an unchanged lookup is reused whole. | Slot and holder backlinks and offsets, hash and ordinal slots, children before owner and coherent reads during movement. Audit after churn and compare bytes at the shape thresholds. | joined (S23), when relocation and capacity can change shape independently |
+| `BlockImport`, `SkippedCollections`, `CollectionRecords` | Inventory owners, limits and lifetimes of import scratch, temporary pools and lookup blocks before allocating the budget. The native lookup already belongs to the arena and is counted there once. | Distinguish instance retention from temporary peak managed memory, clear wire slices before returning arrays, and keep malformed and duplicate refusal before publication. | joined (S24), which assigns the memory budget |
+
+### K4 unchanged replace
+
+The `e96650c` base and gauge compared Plain Region with no ByLogin mark against
+Dictionary Region with the mark. The full form also adds Groups. The results give no
+separate cost for either switch. On an unchanged key `SetsValue` skips the unique owner
+lookup, so the combined figure does not identify an owner lookup cost.
+
+S20 prepares the existing unchanged-replace series in all four combinations on one
+fixed Release tree, with the same generated users, digest, indexes and inputs. Rotate
+the four forms and balance the class and by-name row order in each. Check the schemas,
+trace and rotation on x64. In the first suitable independent rental, use the same ARM64
+platform for the four forms and report each switch with the other switch off and on,
+and their interaction, for both API forms. Name the accepting queue before S20 closes
+if set, or the nearest suitable protected-view comparison in S21 or S22 and its
+condition. There is no separate rental for K4.
+
+### S18 receiving lines
+
+Keep the [two historical comparisons](epic-1-core.md#s19-arm64-results) separate. The
+first in-process two-child repeat reached 0.9618 of base writes/s. The second ordinary
+100-byte forwarded replace repeat reached 1.0751 of base p50. Each met the rotating
+rule in that repeat. The old listing identifies extra checks and another placement
+call level. Delivery, scheduling and application also enter each end-to-end result.
+The forwarder already checked the input before admission and again when placing the
+retained raw input on the historical base. Dropping a check or retaining a checked
+tree through queueing would alter the validation boundary or add state without an
+isolated figure, so neither change is taken.
+
+Keep ordinary replace in the S20 control. If a new signal warrants attribution,
+estimate focused comparisons separately. Use a no-child master control beside the
+first two-child row and master-write application latency beside the forwarded p50.
+For an attribution to S18, use exact `6f50194`, its independent gauge and `6102bbe`
+with behavior-equivalent check or placement controls and their ARM64 hot listings.
+
+The S19 `PublisherScratchTests` timeout happened after both publication holds were
+released. The master had committed the forwarded 5,000-member batch, and the child
+missed the ten-second local application wait. The isolated base and head reruns and
+subsequent full runs passed. Keep the unchanged test in the S20 publication checks and
+report any recurrence or evidence that explains it. The coordinator's three isolated
+Release runs on the S20 baseline passed as well.
 
 ## Found while measuring S19, 24 November 2026
 
@@ -578,15 +638,23 @@ ARM64. The reader change was within its gauge. An x64 control restoring the old
 ownership walk gave no consistent recovery within workstation variation. Inlining
 of `WalkStructure` remains a hypothesis. [Measurements](epic-1-core.md#s19-arm64-results)
 
-The architect reviews this with K4 and the two S18 receiving lines. Coordinator 11
-assigns the control to the next planned rented ARM64 run. Use five rotated rounds
-of that one writer and reader series under the original tiering mode. Compare
-`e863f688`, an independent build of it for the gauge, `3066ea63`, and a scratch
-`3066ea63` with `AggressiveInlining` on `WalkStructure`. Check the hot ARM64
-listing before timing the scratch build. If the hint leaves the hot path unchanged,
-repeat the base and head comparison with the gauge and leave the hypothesis open.
-Attribute the fall to the call only if the paired rates recover and the listings
-match the timed code. No separate rental is scheduled for this control.
+Use the first independently justified rental. The candidate is the S20 publication
+and ownership comparison once its checks and queue estimate justify a rental, or the
+first suitable S21 or S22 protected-view comparison. No rental is booked. The original
+ARM64 archive has timings but no hot listing. The saved tiered x64 listing comes from
+a serial driver and does not establish the call active in the ARM64 timing window.
+
+In a separate diagnostic invocation, identify the code tier and the ownership call
+active in the original concurrent scenario under its original timing and warm-up. Use
+five rotated rounds of that writer and reader series, `e863f688`, an independent build
+of it for the gauge, and `3066ea63`. Add a scratch `3066ea63` with `AggressiveInlining`
+on `WalkStructure` only when the original base and head have that hot call difference
+and the hint changes it in the scratch without another hot-path change. Recheck the
+active code if the row is extracted for timing. A gain or fall requires a median
+outside the gauge band and at least three paired rounds on that side. Attribute the
+fall to the call only if the variant recovers to the gauge and the hot listings match
+the timed code. Otherwise the five rounds check the effect and the hypothesis stays
+open. There is no separate rental for this control.
 
 ## Found while building S18, 24 November 2026
 

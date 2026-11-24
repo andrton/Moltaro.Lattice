@@ -1307,7 +1307,7 @@ Why this order:
 | S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts; its Measured line taken after the close |
 | S19 | Maps and Sets | Full, critical | Done on 24 November 2026, in three parts |
-| S20 | Partial updates | Full | Not started |
+| S20 | Partial updates | Full, critical | In progress on 24 November 2026, Coordinator 11 |
 | S21 | Protected views by name | Full | Not started |
 | S22 | Typed protected views | Full | Not started |
 | S23 | Compaction and shrink | Full | Not started |
@@ -9577,6 +9577,186 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 **Added by the planner on 24 November 2026, from the architect's review after S18.** No routine copies an unchanged subtree from one root to another; a third
 `IRecordSource`, over stored blocks, fits the placement and would be a third user of the
 rule of pending descriptors.
+
+##### Study of S20
+
+The study started at `7c6e09af` with the existing placement, publication and following
+paths, Q13, Q35(4), Q49, Q08.1.1 and the S11 and S12 amendments. The
+[ReplicaBootstrap negative control](../design/prototype-evidence.md#bounded-replica-bootstrap-correctness)
+shows a partial effect with no base because the capture encountered the entity after its
+deletion. Under the S11 amendment the child already has all copies when it sees the
+effect and will receive the delete in the same catch-up interval.
+
+The licences were checked at the same commits as the implementations. The study takes
+ideas from the following sources.
+
+- **.NET Runtime**, MIT, `60629d14374c56f1cb51819049ad1fa529307f8d`. An immutable List
+  copies the changed path while keeping unchanged branches. Lattice uses the same rule
+  with packed records. An AVL node for each item adds space and indirection, and its
+  lifetime relies on the garbage collector. [Licence](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/LICENSE.TXT)
+  [Frozen node mutation](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Collections.Immutable/src/System/Collections/Immutable/ImmutableList_1.Node.cs#L1316-L1383)
+- **Redis 7.2.10**, BSD-3-Clause, `5a752e19782b9f8f80c7ef85e21cb47647954f09`. It
+  propagates the final value of a floating-point increment and the member selected by a
+  random removal. Ordered effects travel together. Lattice takes resolved operands and
+  keeps its own transaction, revision and outcome rules. [Licence](https://github.com/redis/redis/blob/5a752e19782b9f8f80c7ef85e21cb47647954f09/COPYING)
+  [Final value](https://github.com/redis/redis/blob/5a752e19782b9f8f80c7ef85e21cb47647954f09/src/t_hash.c#L646-L668)
+  [Selected member](https://github.com/redis/redis/blob/5a752e19782b9f8f80c7ef85e21cb47647954f09/src/t_set.c#L911-L944)
+  [Propagation order](https://github.com/redis/redis/blob/5a752e19782b9f8f80c7ef85e21cb47647954f09/src/server.c#L3090-L3128)
+- **RocksDB**, Apache-2.0 as one of its two licences, `410c5623195ecbe4699b9b5a5f622c7325cec6fe`.
+  Versions with independent lifetimes acquire and release file references. This would
+  require reference counts and a relocation rule for each shared arena value. A single
+  current owner under Lattice's existing FIFO retirement is sufficient when sharing is
+  confined to successive versions of one entity. [Licence choice](https://github.com/facebook/rocksdb/blob/410c5623195ecbe4699b9b5a5f622c7325cec6fe/README.md#license)
+  [Licence text](https://github.com/facebook/rocksdb/blob/410c5623195ecbe4699b9b5a5f622c7325cec6fe/LICENSE.Apache)
+  [Acquire references](https://github.com/facebook/rocksdb/blob/410c5623195ecbe4699b9b5a5f622c7325cec6fe/db/version_builder.cc#L360-L417)
+  [Release references](https://github.com/facebook/rocksdb/blob/410c5623195ecbe4699b9b5a5f622c7325cec6fe/db/version_set.cc#L799-L830)
+
+##### Internal contract of S20
+
+Agreed by the planner and coordinator on 24 November 2026. One sprint and one branch.
+Fix the public contract, sample and tests of both implementation parts first. Then
+build local preparation and ownership, and then forwarding, sparse encoding and
+catch-up. Every checkpoint builds. The public Acceptance holds at the completed head.
+
+**Inputs and submission.** `CreateUpdate` uses the usual local lifecycle guard, key
+binding and instance identity. It reads neither the entity nor the master. An existing
+builder adds commands locally. At addition resolve the path through owned fields,
+check the command and target kinds, key exclusion, repeated scalar path, types and
+typed null, explicit nullability and lossless operand conversion. List positions are
+signed and checked at execution. Split `IndexValue` shape conversion from content
+validation and preserve the index `Bind` path and errors. Reuse bound class conversions
+and record value rules. Take a private snapshot, including mutable containers and their
+contents, at addition. An unset required member of an owned value is a content error.
+Whole-container assignment retains the original entries and order until validation.
+Validate every command's copied content before execution, including replaced inputs and
+inputs that could become no-ops. Reject Map duplicates under schema equality. Normalize
+Set duplicates after validation, keeping the first representation. Operands use the
+allowlist and a whole container uses its declared element types under Q55. Limits on the
+result of editing and the validity of List positions are checked during execution.
+
+`CommitAsync` checks its arguments, submission state and emptiness at the call. It
+consumes a valid nonempty submission. Content validation fails through the returned
+task before cancellation, database state and write conditions, as on the local Save
+path. `batch.Update` checks null, used update, other instance, empty update, core
+content, used batch, duplicate entity, then the engine's close, layout limits and
+encoding, in that order. It rejects synchronously. Success consumes the update and
+transfers it to the batch. Refusal changes neither builder. See
+[Q64](open-questions.md#q64-when-does-an-update-validate-its-copied-content).
+
+**Execution and outcomes.** The third input goes through the already joined change to
+`Admit`, with existing ordering, cancellation, sessions and position waits. The
+revision condition is checked before execution. An absent entity gives `NotFound` or
+`RevisionConflict` according to whether a revision was supplied. An absent parent or
+collection or an invalid index gives `UpdateTargetMissing`. Insert accepts the end
+position. A mixed batch prepares in submitted order and reserves against its final
+unique-index state. A failed member gives its original zero-based `OperationIndex`.
+An arena refusal of the whole batch has no member index. Publish with the existing
+root and index path. A no-op retains the revision, gets its own position and has an
+`Unchanged` effect when the whole transaction is unchanged. Any changed command gives
+the update a new root and revision even when a later command restores the old value.
+The revision of a changed batch member uses its original member number.
+
+Prepare command bits before publication. A result holds a command index and shared
+completion state, with no object allocated per command. It reads its bit only after
+successful completion. A child normally completes once it applies the position.
+The [S12 close rule](#s12--writes-through-a-child-sessions-the-placeholder-is-removed)
+keeps the master's result and its bits if the child closes after receiving that reply.
+A failed, timed out or indeterminate commit exposes no bits. Update the XML remarks
+of `ILatticeWriteBatch` and `LatticeWriteResult.Changed` accordingly.
+
+**Shared blocks.** A prepared root may borrow unchanged edges from its immediate
+published predecessor of the same root handle and lifetime. Only one prepared version
+of that key can use this path at a time. Classify new and borrowed edges explicitly.
+For preparation failure and rollback, keep the actual holder and descriptor offset,
+including before the final root exists and inside partially written record blocks.
+Retirement and free check the exact parent and descriptor offset before descending.
+A directly copied Dictionary Text descriptor acquires a reference. The physical
+descriptors of a shared subtree keep their existing references. Reading, exporting
+and computing the size of a single entity still follow its full physical value graph.
+
+In `StoreReplace`, after all recoverable refusals, publish only the new prepared blocks
+and transfer checked backlinks before `ReleaseRoot`. Retirement of the old root follows
+publication of the position. There is one owner per block. A whole borrowed subtree
+does not need its descendants walked. The FIFO of retired versions visits old aliases
+before the last owner can free the block. Transfer changes no published payload and
+adds no ownership checks to reads. Fault after publication starts uses the existing
+fault path. The preparation rollback path is for work before that point. Count new
+slots for preparation, shared live slots once for the arena, and retained slots by
+their actual lifecycle. Use the independent audit of physical addresses and backlinks.
+Relocation in S23 must consider current readers and prepared writes and wait for
+aliased retirees that still inspect the header to drain, or repair their aliases.
+
+**Placement.** Q35(4) uses the end of a fresh `ValueHolder`. Fit new and retained
+inline bytes and recompute offsets there. The new holder uses the existing out-of-line
+rule if its inline area cannot hold them. There is no reserved capacity in an inline
+descriptor. Use sources over stored records and pending placement. Share the existing
+resident placement tail and lifecycle classification where this removes repetition.
+Reuse whole unchanged subtrees where possible. An individually reused chunk has the
+same exact owner check at its directory offset. Track compact and hashed form at each
+effective operation. Compact becomes hashed on 8 to 9, hashed becomes compact on 5 to
+4. Full collection assignment chooses the initial form as an ordinary full write.
+New hashed lookup blocks are allocated for final count. A reused lookup stays whole
+and immutable. This keeps count sufficient to identify its physical shape until S23.
+A child can have a different local form at the same logical state.
+
+**Wire.** Bump the wire format to 7 and keep the frame version and full root layout
+marker. Request kind 5 is an update, with the existing single or batch envelope for
+type, key, revision and position. Follow it with a `UInt64` length and a `UInt32`
+command count. Commands carry a byte opcode, a `UInt32` target ordinal in the compiled
+root structure and schema-driven operands, including an `Int32` position where used.
+Use the checked type and kind sets for the envelope. The sparse effect has a byte
+kind, a `UInt64` length, type and original member as `UInt32`, `UInt64` base sequence,
+the existing key encoding, and the count and operands of effective commands. Use the
+base root's actual last mutation under the writes lock, greater than zero and smaller
+than the transaction sequence. Resolved List positions, Map insert or replace, spelling
+and presence, and Set add and remove are applied to that exact base. Use one logical
+operand codec for fixed values, nullable markers, length-prefixed bytes, owned values
+and collection entries. It carries no arena locations, Dictionary handles or lookup
+slots. Preserve frame, message, transaction, schema and value limits. Before retaining
+data, check lengths, minimum lengths for counts, depth, types, command targets and all
+body invariants that do not require a root, including scalar targets occurring once and
+S19 collection input invariants. Check the exact body end and duplicate entities even
+when skipping an effect. Ordinary full replacement retains its existing effect.
+
+The recorded success reply goes before its transaction, by the existing correlation
+and ordering rule. Keep the short body when there is no update. Otherwise append the
+command count and low-bit-first bitmap in the original member and command order,
+including no-ops. Check expected size and exact count against the correlated request
+before trusting an allocation, and require zero padding. Use the existing multiframe
+message envelope. A true bit implies the reply changed. For a request consisting
+only of updates this is exactly the OR of the bits. A refusal has no bits.
+
+**Catch-up and live replay.** All copies are received before the tail. Only catch-up
+skips a fully checked effect whose local root already covers its sequence. An existing
+older root must have the exact base. If absent, record just the compared table and
+key until a committed Delete, even if a full Write supplies a temporary root. Delete
+clears a marker even without a local root, including at R. Reserve and stage marker
+changes with the transaction attempt and publish them only with the successful attempt.
+Retries and rejected transactions leave the previous markers and roots intact. Bound
+retained keys, actual table capacity, staging and peak growth using the existing child
+`MemoryLimit` as a separate load buffer, as for the assembler. Never hold a frame slice
+or allocate from an unchecked declared size. At R require an empty marker set before
+checking unique indexes and becoming Ready. A failed or exhausted load is Unavailable
+before Ready. Drop the buffer at R or any failed load. During live replay a valid
+effect with the wrong base or a resolved action impossible at that base is divergence.
+Check remaining bodies in the same transaction after detecting such a divergence, so
+a malformed stream takes the existing protocol failure path. There is no extra pass on
+the successful path. Valid divergence faults the instance and keeps its prior position.
+
+**Checks.** Measure the emitted transaction effect bytes for one changed `IsActive` of
+the fixture User and the ordinary Replace of the same resulting value, from equal input
+states. Compare `effectsLength` with the emitted bodies and verify application. Keep
+ordinary Replace in the publication controls and run `PublisherScratchTests` unchanged.
+Prepare the [K4 four-form comparison](refactoring.md#k4-unchanged-replace) on x64, and
+place the [S19 writer control](refactoring.md#found-while-measuring-s19-24-november-2026)
+in the first suitable independent ARM64 queue.
+
+The breaker's order is sharing and refusal during placement, publication and final
+indexes, sparse replay and readiness, then API snapshots and forwarded outcomes.
+Include a protected A to B to C to Delete and recreate, a whole shared branch and a
+shared descendant of a copied holder, a direct Text reference, fault after transfer on
+both roles, and memory counters. Probe a late mixed batch refusal, independent physical
+forms, a reply bitmap larger than a frame, and malformed wire after detectable divergence.
 
 #### S21 · Protected views by name
 
