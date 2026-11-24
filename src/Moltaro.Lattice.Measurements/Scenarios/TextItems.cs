@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine;
-using Moltaro.Lattice.Measurements.Fixture;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
@@ -74,15 +73,7 @@ internal sealed class TextItems : IDisposable
     // Keys of items drawn from 1 to Count by the generator of the fixture with the seed.
     public long[] Keys(ulong seed, int count)
     {
-        var random = new FixtureRandom(seed);
-        var keys = new long[count];
-
-        for (var index = 0; index < keys.Length; index++)
-        {
-            keys[index] = random.Below(Count) + 1;
-        }
-
-        return keys;
+        return ReadSeries.Keys(seed, count, Count);
     }
 
     // The bytes the arena holds for the entities, retired memory freed first: live and class slack.

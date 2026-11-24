@@ -16,10 +16,11 @@ namespace Moltaro.Lattice.Measurements;
 // It has two forms. The full form is the one of the milestone contract, with its collections, its
 // Dictionary strings and its unique indexes; the gates are judged on it only. The scalar form has the
 // same entity types and keeps every index, without the collection fields and with every String
-// Plain. A sprint before S19 measures the scalar form, because the collections of the full form
-// cannot be stored yet (its Dictionary strings can, from S13), and before S16 it measures that form
-// without its Unique marks, because an entity type with a unique index cannot be written yet. A brief that says
-// "the fixture's users" means the form its sprint can store.
+// Plain. A sprint before S19 measures the scalar form, because the Set of a role and the Map of a
+// setting cannot be stored yet (its Dictionary strings can, from S13; the Lists of its users and groups
+// can, and root-bytes and full-form-users measure them beside the scalar form), and before S16
+// it measures that form without its Unique marks, because an entity type with a unique index cannot be
+// written yet. A brief that says "the fixture's users" means the form its sprint can store.
 //
 // "The same on every run": every run generates the same records from the seed, in the same order
 // and with the same values, and Digest gives the same result for them. That is why the records come
