@@ -9106,15 +9106,24 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 - **To read.** [Q06.2, Q06.3](../decisions/memory-and-access.md);
   [reader protection, borrowed reads](../design/milestone-1-engine-contract.md#reader-protection-publication-and-compaction).
 - **Acceptance.** Scalars, nested values, Lists, Maps, Sets and references are readable
-  through a view and equal the owned copy. A database call from inside the callback is
-  refused. Code that stores a view, returns it or awaits inside the callback does not
-  compile, shown by compiler tests. An exception in the callback releases the
-  protection. A writer of the same entity waits for the callback and then proceeds;
-  writers of other entities do not wait for it. Closing or faulting the database waits
-  for open views before memory is freed. A handle bound to another schema is refused.
-- **Measured.** Asserted: a view read of scalar fields allocates nothing. Reported: sum
-  over a List of 1,000 numbers through a view and through a copy; writer delay caused by
-  a callback of a known duration.
+  through a view and equal the owned copy. A viewer must be short and must not wait or
+  call the database; the engine does not check it, and a read made inside a viewer does
+  not end the protection of the view around it. Code that stores a view, returns it or
+  awaits inside the callback does not compile, shown by compiler tests. An exception in
+  the callback releases the protection. A write of the viewed entity made while its viewer
+  runs is published without waiting for it, as writes of other entities are, while the
+  memory budget holds it; a read by key then returns the new state, and the view goes on
+  returning the state it began with, whole, until the viewer returns. While a view is open
+  no memory replaced after it began is freed, of any entity: a write that the budget
+  cannot hold without it waits for the viewer to return and is then executed or refused,
+  and the close waits for the open views before any memory is freed; nothing is built
+  against a viewer that does not return. A faulted database frees nothing and refuses a
+  new view with `Unavailable`. A handle bound to another schema is refused.
+- **Measured.** Asserted: a view read of scalar fields allocates nothing. Reported: a read
+  by key against its cost before this sprint; a replace of the viewed entity completed
+  while its viewer is held, against one without a view; the cost of entering and leaving a
+  view on 1 and 20 threads against a read by key; the sum over a List of 1,000 and of
+  100,000 numbers through a view and through a copy.
 - **Out of scope.** Typed views (S22). Writable views. Views that span entities or follow
   references.
 
@@ -9166,10 +9175,13 @@ with that decision of the owner as its reason, and is entered with the code of t
   [schema identity](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration).
 - **Acceptance.** The typed view and the view by name return the same values for every
   field type, including nested values and collections. The misuse that does not compile
-  for a view by name does not compile for a typed view. The generator reports a class
-  that does not match its entity type when the application is built, with the field
-  named. A class that inherits its properties from a class in another assembly gets its
-  view. No shipped assembly references Roslyn, checked by a test of the built
+  for a view by name does not compile for a typed view. When the schema is given to the
+  build as a file, the generator reports a class or a view that does not match it when the
+  application is built, with the field named; a schema made only in code is judged at the
+  first view of that type, which reports `BindingFailed` with the field named. A class
+  that inherits its properties from a class in another assembly gets its view. The
+  generator is an assembly of its own, `Moltaro.Lattice.Generators`, which alone references
+  the compiler, and no other shipped assembly does, checked by a test of the built
   references. An application that does not use typed views builds and runs without the
   analyzer.
 - **Measured.** Asserted: a typed view read of scalar fields allocates nothing.
