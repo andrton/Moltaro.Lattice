@@ -19,9 +19,10 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>What a batch is not.</b> The batch is one transaction of the database, but not a
 /// transaction the application works inside: it cannot read, it holds no lock while the
-/// application builds it, and it does not span two databases or an external one. A condition on the current state is expressed by the operation itself: Insert
-/// requires an absent key, Replace an existing one, and an expected revision requires
-/// that the entity has not changed since it was read.
+/// application builds it, and it does not span two databases or an external one. A
+/// condition on the current state is expressed by the operation itself. Insert requires
+/// an absent key. Replace and Update require an existing entity. An expected revision
+/// requires that the entity has not changed since it was read.
 /// </para>
 /// <para>
 /// <b>Building.</b> Adding an operation to a batch of an open database contacts nothing. The
@@ -67,7 +68,9 @@ namespace Moltaro.Lattice.Access;
 /// child has applied it. When the child does not apply it within the synchronization
 /// timeout, the commit fails with <see cref="LatticeErrorEnum.SynchronizationTimeout"/>
 /// and <see cref="LatticeException.CommittedPosition"/> set: the batch is committed, is
-/// not rolled back and must not be submitted again.
+/// not rolled back and must not be submitted again. If the child closes after receiving
+/// the master's reply, the call returns the master's result. The result of each update
+/// command is available only after a successful commit, including that result on close.
 /// </para>
 /// </remarks>
 public interface ILatticeWriteBatch
@@ -268,6 +271,28 @@ public interface ILatticeWriteBatch
         where TKey : notnull;
 
     /// <summary>
+    /// Adds a partial update for an existing entity. Success consumes the update.
+    /// A refusal leaves both builders as they were.
+    /// </summary>
+    /// <param name="update">An unsubmitted update made for this database instance.</param>
+    /// <exception cref="ArgumentNullException">The update is null.</exception>
+    /// <exception cref="ArgumentException">The update belongs to another database instance or the batch already addresses this entity.</exception>
+    /// <exception cref="InvalidOperationException">The update is empty, or the update or batch is already submitted.</exception>
+    /// <exception cref="LatticeException"><see cref="LatticeErrorEnum.ValidationFailed"/> when copied operands violate the schema.</exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
+    void Update(LatticeUpdate update);
+
+    /// <summary>Adds a partial update provided its entity still has the expected revision at execution.</summary>
+    /// <param name="update">An unsubmitted update made for this database instance.</param>
+    /// <param name="expectedRevision">The revision read together with the entity.</param>
+    /// <exception cref="ArgumentNullException">The update is null.</exception>
+    /// <exception cref="ArgumentException">The update belongs to another database instance or the batch already addresses this entity.</exception>
+    /// <exception cref="InvalidOperationException">The update is empty, or the update or batch is already submitted.</exception>
+    /// <exception cref="LatticeException"><see cref="LatticeErrorEnum.ValidationFailed"/> when copied operands violate the schema.</exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
+    void Update(LatticeUpdate update, LatticeRevision expectedRevision);
+
+    /// <summary>
     /// Submits the batch. Completes when the master has published the whole batch and,
     /// when it was submitted through a child, that child has applied it.
     /// </summary>
@@ -287,9 +312,8 @@ public interface ILatticeWriteBatch
     /// </remarks>
     /// <param name="cancellationToken">Cancels the batch while it has not started executing.</param>
     /// <returns>
-    /// The position that includes the whole batch.
-    /// <see cref="LatticeWriteResult.Changed"/> is <see langword="false"/> only when no
-    /// operation had anything to do.
+    /// The position that includes the whole batch and whether any operation changed the
+    /// database. An update contributes a change if any of its commands changed the entity.
     /// </returns>
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
@@ -297,7 +321,8 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
     /// <see cref="LatticeErrorEnum.DuplicateKey"/>, <see cref="LatticeErrorEnum.NotFound"/>,
-    /// <see cref="LatticeErrorEnum.RevisionConflict"/> or
+    /// <see cref="LatticeErrorEnum.RevisionConflict"/>, <see cref="LatticeErrorEnum.UpdateTargetMissing"/>,
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/> or
     /// <see cref="LatticeErrorEnum.UniqueConstraintViolation"/>, with
     /// <see cref="LatticeException.OperationIndex"/> set. For the batch as a whole:
     /// <see cref="LatticeErrorEnum.WriteRejected"/>,

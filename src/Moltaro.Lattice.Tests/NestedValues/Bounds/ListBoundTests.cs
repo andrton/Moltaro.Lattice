@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Moltaro.Lattice.TestSupport.PartialUpdates;
 
 namespace Moltaro.Lattice.Tests.NestedValues.Bounds;
 
@@ -65,6 +66,29 @@ public sealed class ListBoundTests
         var batch = database.CreateWriteBatch();
         TestData.ExpectValidationFailed("Labels", () => batch.Insert(new Series { Code = "above", Labels = Empty(MostStrings + 1) }));
         Assert.Equal(0, batch.Count);
+    }
+
+    [Fact(Skip = UpdateSchema.Pending)]
+    public async Task Editing_a_List_at_its_count_limit_fails_at_execution_and_preserves_its_revision()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
+        var series = database.Set<Series>();
+        await series.InsertAsync(new Series { Code = "series", Labels = Empty(MostStrings) });
+        Assert.True(series.TryGet("series", out _, out var revision));
+        var before = database.Position;
+
+        var update = series.CreateUpdate("series");
+        var added = update.ListAppend("Labels", "one too many");
+        var batch = database.CreateWriteBatch();
+        batch.Update(update, revision);
+        var error = await TestData.ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, () => batch.CommitAsync());
+
+        Assert.Equal(0, error.OperationIndex);
+        Assert.Throws<InvalidOperationException>(() => added.Changed);
+        Assert.Equal(before, database.Position);
+        Assert.True(series.TryGet("series", out var stored, out var after));
+        Assert.Equal(revision, after);
+        Assert.Equal(MostStrings, stored.Labels.Count);
     }
 
     // A List of count zeros, made without a loop.

@@ -72,6 +72,14 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         where TKey : notnull =>
         Delete(Resolve(entityName), key, expectedRevision);
 
+    public void Update(LatticeUpdate update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        throw new NotSupportedException(LatticeUpdate.NotImplemented);
+    }
+
+    public void Update(LatticeUpdate update, LatticeRevision expectedRevision) => Update(update);
+
     public ValueTask<LatticeWriteResult> CommitAsync(CancellationToken cancellationToken = default) =>
         Commit(null, cancellationToken);
 

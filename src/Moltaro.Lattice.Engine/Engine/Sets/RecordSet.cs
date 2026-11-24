@@ -22,6 +22,10 @@ internal sealed class RecordSet : ILatticeSet
 
     public LatticeEntityType EntityType => _operations.Table.EntityType;
 
+    public LatticeUpdate CreateUpdate<TKey>(TKey key)
+        where TKey : notnull =>
+        _operations.CreateUpdate(key);
+
     public ILatticeIndex<LatticeRecord> Index(string indexName) =>
         SetIndex<RecordCopy, LatticeRecord>.Resolve(_operations, indexName, new RecordCopy(EntityType));
 

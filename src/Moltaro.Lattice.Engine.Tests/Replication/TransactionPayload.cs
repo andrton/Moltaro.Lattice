@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication;
 
@@ -60,6 +61,14 @@ internal static class TransactionPayload
 
     // The effects in the first frame of a transaction: of the whole transaction, when it has one frame.
     public static byte[] EffectsOf(WireFrame frame) => frame.Payload[HeaderSize..];
+
+    public static WireFrame SingleFrameAt(FrameRelay relay, LatticePosition position)
+    {
+        var sequence = PositionSequence.Of(position);
+        var frame = Assert.Single(relay.FromMaster, frame => frame.Kind == FrameKindEnum.Transaction && SequenceOf(frame) == sequence);
+        Assert.True(frame.EndsABody);
+        return frame;
+    }
 
     // The payload of the first frame of a transaction of one frame: its sequence, the length of the
     // effects given, and the effects.

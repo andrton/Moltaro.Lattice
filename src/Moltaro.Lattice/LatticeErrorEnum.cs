@@ -36,7 +36,7 @@ public enum LatticeErrorEnum
     /// <summary>Insert found an existing entity with the same primary key. Nothing was written.</summary>
     DuplicateKey = 4,
 
-    /// <summary>Replace found no entity with the given primary key. Nothing was written.</summary>
+    /// <summary>A replacement or partial update found no entity with the given primary key. Nothing was written.</summary>
     NotFound = 5,
 
     /// <summary>
@@ -131,4 +131,10 @@ public enum LatticeErrorEnum
     /// stays valid, but the read did not complete and never ends as if it had.
     /// </summary>
     ReadLimitExceeded = 14,
+
+    /// <summary>
+    /// A partial update encountered an absent owned parent, a null collection for an element
+    /// command or a List position outside the range of its command. Nothing was written.
+    /// </summary>
+    UpdateTargetMissing = 15,
 }

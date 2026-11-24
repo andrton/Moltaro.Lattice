@@ -45,6 +45,13 @@ internal sealed class SetOperations
 
     public EntityTable Table { get; }
 
+    public LatticeUpdate CreateUpdate<TKey>(TKey key)
+        where TKey : notnull
+    {
+        KeyArgument.Of(Table, key);
+        throw new NotSupportedException(LatticeUpdate.NotImplemented);
+    }
+
     // A read by key: the copy inside the protection of reads, then the result built from it, outside
     // the protection, only when the entity exists. Null when it does not. The token of an asynchronous
     // read ends its wait for a slot of the protection (EntityTable.TryRead).

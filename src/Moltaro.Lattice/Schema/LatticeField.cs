@@ -19,7 +19,8 @@ public sealed class LatticeField
 
     /// <summary>
     /// The field name. Records and owned values are accessed by it; a .NET class bound to the
-    /// entity type or to the owned type has a property with the same name.
+    /// entity type or to the owned type has a property with the same name. A field name
+    /// cannot contain a dot, which separates fields in a path.
     /// </summary>
     public string Name { get; }
 

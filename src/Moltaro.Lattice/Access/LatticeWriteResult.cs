@@ -20,9 +20,9 @@ public readonly struct LatticeWriteResult
     public LatticePosition Position { get; }
 
     /// <summary>
-    /// Whether the write changed the database. <see langword="false"/> only when there was
-    /// nothing to do: deleting a key that was already absent. For a batch, whether any of
-    /// its operations changed the database.
+    /// Whether the write changed the database. Deleting an absent key or completing an update
+    /// in which every command was unchanged returns <see langword="false"/>. For a batch,
+    /// this is whether any of its operations changed the database.
     /// </summary>
     public bool Changed { get; }
 }
