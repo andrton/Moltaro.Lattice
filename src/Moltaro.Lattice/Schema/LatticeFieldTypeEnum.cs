@@ -101,13 +101,11 @@ public enum LatticeFieldTypeEnum : byte
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet</b> for every use. An entity with owned values, Lists and
-    /// references is stored and read back by name, on a master, at every depth. Not yet: a read
-    /// through a class of an entity type that holds an owned value or a List, at any depth, which
-    /// is refused with <see cref="NotSupportedException"/> before it reads, as
-    /// <see cref="Access.ILatticeSet{TEntity}"/> says; a write batch with such an entity, whose
-    /// commit reports <see cref="NotSupportedException"/> through its task; an index over a field
-    /// inside an owned value, which keeps its entity type from being stored, so that every write of
-    /// it throws <see cref="NotSupportedException"/> after the checks of its arguments and of the
+    /// references is stored and read back by name and through a class, on a master, at every
+    /// depth. Not yet: a write batch with such an entity, whose commit reports
+    /// <see cref="NotSupportedException"/> through its task; an index over a field inside an
+    /// owned value, which keeps its entity type from being stored, so that every write of it
+    /// throws <see cref="NotSupportedException"/> after the checks of its arguments and of the
     /// entity; and a child of a master that stores such an entity type, whose open throws
     /// <see cref="NotSupportedException"/>.
     /// </remarks>
@@ -120,8 +118,8 @@ public enum LatticeFieldTypeEnum : byte
     /// another collection included.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet</b> for every use: a List is stored and read back by name, and the
-    /// rest is not built yet, as the remarks of <see cref="Owned"/> say.
+    /// <b>Not implemented yet</b> for every use: a List is stored and read back by name and through
+    /// a class, and the rest is not built yet, as the remarks of <see cref="Owned"/> say.
     /// </remarks>
     List = 22,
 
@@ -162,10 +160,9 @@ public enum LatticeFieldTypeEnum : byte
     /// deleting the target does not change the reference.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name, and
-    /// through a class when its entity type holds no owned value and no List; a write batch and a
-    /// child are not built yet for an entity type that holds one, as the remarks of
-    /// <see cref="Owned"/> say.
+    /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name and
+    /// through a class; a write batch and a child are not built yet for an entity type that holds
+    /// one, as the remarks of <see cref="Owned"/> say.
     /// </remarks>
     Reference = 25,
 }

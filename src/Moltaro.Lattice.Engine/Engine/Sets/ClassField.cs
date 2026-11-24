@@ -14,13 +14,15 @@ namespace Moltaro.Lattice.Engine.Sets;
 // set.
 //
 // A read sets the fields after it released the protection of the root, from its copy (ClassCopy): a
-// value of a fixed-width type from the copy of the fixed part of the root, and a String or Binary
-// value, which lies outside it, from the slot of the field among the values the read made under the
-// protection. The set accessor is the application's code.
+// value of a fixed-width type from the copy of the fixed part of the root, and a value that lies
+// outside it from the slot of the field among the values the read made under the protection: a String
+// or a Binary value as the property holds it, and an owned value or a List in the form a record holds
+// it, which the setter turns into the value of the property first (BoundProperty.FromRecord). The set
+// accessor, and what FromRecord makes of an owned value, are the application's code.
 internal readonly struct ClassField<TEntity>
     where TEntity : class
 {
-    // The slot of a field that is no String and no Binary.
+    // The slot of a field whose value lies in the fixed part of a root.
     public const int NoSlot = -1;
 
     private readonly LatticeField _field;
@@ -45,22 +47,33 @@ internal readonly struct ClassField<TEntity>
         _setNull = setNull;
     }
 
-    // Where a read keeps the value of a String or Binary field between the copy and the object;
+    // Where a read keeps the value of a field with a slot (HasSlot) between the copy and the object;
     // NoSlot for any other field.
     public int Slot { get; }
 
-    // The setters of a property of a field the engine stores: a scalar, an Enum, a String or a Binary.
-    // A String or Binary field gets the given slot.
+    // The setters of a property of a field the engine stores: a scalar, an Enum, a Reference, a String, a
+    // Binary, an owned value or a List. A field with a slot (HasSlot) gets the given slot. The setter of an
+    // owned value or a List takes the form a record holds, as an object, and sets what FromRecord makes of it.
     public static ClassField<TEntity> Compile(BoundProperty property, int slot)
     {
         var declaration = property.Field.Declaration;
         var propertyType = property.Property.PropertyType;
         var entity = Expression.Parameter(typeof(TEntity), "entity");
-        var value = Expression.Parameter(declaration.ValueType, "value");
-        var converted = propertyType == declaration.ValueType ? (Expression)value : Expression.Convert(value, propertyType);
+        var nested = declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List;
+        var value = Expression.Parameter(nested ? typeof(object) : declaration.ValueType, "value");
+        Expression converted = value;
+
+        if (nested)
+        {
+            converted = Expression.Convert(Expression.Invoke(Expression.Constant(property.FromRecord), value), propertyType);
+        }
+        else if (propertyType != declaration.ValueType)
+        {
+            converted = Expression.Convert(value, propertyType);
+        }
 
         var setValue = Expression
-            .Lambda(typeof(Action<,>).MakeGenericType(typeof(TEntity), declaration.ValueType), Expression.Call(entity, property.SetAccessor, converted), entity, value)
+            .Lambda(typeof(Action<,>).MakeGenericType(typeof(TEntity), value.Type), Expression.Call(entity, property.SetAccessor, converted), entity, value)
             .Compile();
 
         var setNull = declaration.IsNullable
@@ -70,13 +83,15 @@ internal readonly struct ClassField<TEntity>
         return new ClassField<TEntity>(property.Field, slot, setValue, setNull);
     }
 
-    // Whether the field is a String or a Binary, a Reference whose key is a String included, whose value
-    // lies outside the fixed part of a root.
+    // Whether the value of the field lies outside the fixed part of a root, or beneath it: a String or a
+    // Binary, a Reference whose key is a String included, an owned value or a List.
     public static bool HasSlot(LatticeField field) =>
-        field.Declaration.ScalarType is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
+        field.Declaration.ScalarType is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary or LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List;
 
-    // Under the protection of the root: makes the value of a String or Binary field into its slot,
-    // the string or the array that the returned object will hold. Null for a null value.
+    // Under the protection of the root: makes the value of the field into its slot, the string or the
+    // array that the returned object will hold, or an owned value or a List in the form a record holds it,
+    // which only the types of the core and of .NET make (RootReader.GetOwned and GetList). Null for a null
+    // value.
     public void CopyValue(in RootReader root, object?[] values)
     {
         if (root.IsNull(_field))
@@ -86,11 +101,17 @@ internal readonly struct ClassField<TEntity>
             return;
         }
 
-        values[Slot] = _type == LatticeFieldTypeEnum.String ? root.GetString(_field) : root.GetBinary(_field);
+        values[Slot] = _type switch
+        {
+            LatticeFieldTypeEnum.String => root.GetString(_field),
+            LatticeFieldTypeEnum.Binary => root.GetBinary(_field),
+            LatticeFieldTypeEnum.Owned => root.GetOwned(_field),
+            _ => root.GetList(_field),
+        };
     }
 
     // After the protection: sets the property from the copy of the fixed part of the root, or, for a
-    // String or Binary field, from its slot.
+    // field with a slot, from its slot.
     public void Set(TEntity entity, in RootReader copied, object?[] values)
     {
         if (_setNull is not null && copied.IsNull(_field))
@@ -158,6 +179,10 @@ internal readonly struct ClassField<TEntity>
                 break;
             case LatticeFieldTypeEnum.Binary:
                 ((Action<TEntity, byte[]>)_setValue)(entity, (byte[])values[Slot]!);
+                break;
+            case LatticeFieldTypeEnum.Owned:
+            case LatticeFieldTypeEnum.List:
+                ((Action<TEntity, object>)_setValue)(entity, values[Slot]!);
                 break;
             default:
                 throw new UnreachableException($"The field {_field.Name} is {_type}, which the engine does not store.");

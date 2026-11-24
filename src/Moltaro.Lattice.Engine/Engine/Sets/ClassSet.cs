@@ -8,9 +8,10 @@ namespace Moltaro.Lattice.Engine.Sets;
 // The entities of one entity type as objects of a .NET class, on the engine. It behaves as the
 // contract of ILatticeSet<TEntity> says, as the set of the core does; it is the engine's own so that
 // a read by key converts its key without boxing it and copies the root into the object through
-// pooled scratch, without boxing a value: a read allocates the returned object, with what is
-// reachable from it, and nothing else. The constructor and the set accessors of the class run after the
-// read left the protection of reads (ClassCopier). A write takes the values of the object through the
+// pooled scratch, without boxing a value of a field of the entity: a read allocates the returned
+// object, with what is reachable from it, and nothing else, but for the form a record holds of an
+// owned value or a List, from which their objects are made. The constructors and the set accessors of
+// the classes run after the read left the protection of reads (ClassCopier). A write takes the values of the object through the
 // binding of the core, which checks them against the schema at every depth and takes a byte array of a
 // field as the object holds it: the engine copies it once, into its own memory, while the write runs
 // (EntityBinding.ValuesForWrite), since the application keeps the input of a write unchanged until the write
@@ -22,39 +23,20 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
     private readonly EntityBinding<TEntity> _binding;
 
-    // Null for an entity type the engine does not store, nothing of which is ever read, and for one whose
-    // reads are refused (RefusesReads).
+    // Null for an entity type the engine does not store: nothing of it is ever read.
     private readonly ClassCopier<TEntity>? _copier;
 
     public ClassSet(SetOperations operations, EntityBinding<TEntity> binding)
     {
         _operations = operations;
         _binding = binding;
-        RefusesReads = operations.Table.Layout is { Structure.HoldsOwnedValuesOrLists: true };
-        _copier = operations.Table.Layout is { } layout && !RefusesReads ? new ClassCopier<TEntity>(binding, layout) : null;
+        _copier = operations.Table.Layout is { } layout ? new ClassCopier<TEntity>(binding, layout) : null;
     }
-
-    // Whether every read through the class is refused before it reads: building an object of an entity type
-    // that holds an owned value or a List from its root is not implemented yet. A synchronous read and Index
-    // throw the refusal at the call; an asynchronous read reports it through its task or its enumeration,
-    // since it throws at the call only what its arguments show.
-    private bool RefusesReads { get; }
-
-    // The copier of a read: the one of the set, null for an entity type the engine does not store, whose read
-    // finds nothing; the refusal of a read for one whose reads are refused.
-    private ClassCopier<TEntity> Copier => _copier ?? NoCopier();
-
-    // The copier of a set that has none: null for an entity type the engine does not store, the refusal for
-    // one whose reads are refused.
-    private ClassCopier<TEntity> NoCopier() => RefusesReads ? throw ReadRefusal() : null!;
-
-    private NotSupportedException ReadRefusal() =>
-        new($"A read of {_binding.EntityType.Name} through a class is not implemented yet: it holds owned values or Lists. Read it by name.");
 
     public LatticeEntityType EntityType => _binding.EntityType;
 
     public ILatticeIndex<TEntity> Index(string indexName) =>
-        SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(Copier));
+        SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(_copier!));
 
     public TEntity? Get<TKey>(TKey key)
         where TKey : notnull =>
@@ -69,7 +51,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         var entityKey = KeyArgument.Of(_operations.Table, key);
 
-        entity = _operations.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(Copier), out revision, out _);
+        entity = _operations.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(_copier!), out revision, out _);
 
         return entity is not null;
     }
@@ -79,37 +61,17 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        var entityKey = KeyArgument.Of(_operations.Table, key);
-
-        if (RefusesReads)
-        {
-            return ValueTask.FromException<LatticeReadResult<TEntity>>(ReadRefusal());
-        }
-
-        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(Copier), session, cancellationToken);
+        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(_copier!), session, cancellationToken);
     }
 
     public IEnumerable<TEntity> Enumerate() =>
-        _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(Copier));
+        _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!));
 
     public IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        if (RefusesReads)
-        {
-            return Refused(ReadRefusal());
-        }
-
-        return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(Copier), session, cancellationToken);
-    }
-
-    // An enumeration whose first step fails with the refusal: awaiting the failed task throws it.
-    private static async IAsyncEnumerable<TEntity> Refused(NotSupportedException refusal)
-    {
-        await Task.FromException(refusal).ConfigureAwait(false);
-
-        yield break;
+        return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!), session, cancellationToken);
     }
 
     public ValueTask<LatticeWriteResult> InsertAsync(TEntity entity, CancellationToken cancellationToken = default) =>

@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.Owned;
 // as it was written (NestedSchema).
 public sealed class OwnedPresenceTests
 {
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Nullable_owned_value_is_read_back_absent_or_present_at_each_depth_by_name_and_through_the_class()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -39,7 +39,7 @@ public sealed class OwnedPresenceTests
         }
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Absent_owned_value_replaced_by_a_present_one_and_back_is_read_back_each_time()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

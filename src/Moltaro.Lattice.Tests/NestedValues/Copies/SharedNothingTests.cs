@@ -47,7 +47,7 @@ public sealed class SharedNothingTests
         Assert.Equal(stored, NestedSchema.Describe(persons.Get("ada")));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Two_reads_of_one_entity_through_the_class_share_nothing_at_any_depth()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -86,7 +86,7 @@ public sealed class SharedNothingTests
         Assert.Equal(stored, NestedSchema.Describe(database.Schema, persons.Get("ada")));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Nothing_a_caller_changes_in_a_record_after_its_write_returned_changes_what_was_written()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -117,7 +117,7 @@ public sealed class SharedNothingTests
         Assert.Equal(written, NestedSchema.Describe(database.Schema, database.Set<Person>().Get("ada")));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Nothing_a_caller_changes_in_an_object_after_its_write_returned_changes_what_was_written()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

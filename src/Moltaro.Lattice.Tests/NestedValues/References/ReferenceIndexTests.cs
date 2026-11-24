@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.References;
 // ByToName compares without case, as its target Name does, and ByToText by its code units (ReferenceSchema).
 public sealed class ReferenceIndexTests
 {
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Index_on_a_reference_finds_the_entities_whose_reference_holds_a_key_and_those_whose_reference_is_null()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);

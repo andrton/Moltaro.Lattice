@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -14,10 +15,11 @@ namespace Moltaro.Lattice.Access.Binding;
 //
 // Everything is decided here, once, when a class is bound: which property holds a field, as C#
 // finds it by name; whether its type is the one the table gives for the declaration, at every
-// depth; and how a value of it becomes what a record holds. What is built is a tree of
-// delegates, one for each position, that a write calls; nothing is looked up by reflection
-// afterwards. Every way in which a class disagrees with the schema is BindingFailed, with the
-// property named, and nothing here ends in another exception.
+// depth; how a value of it becomes what a record holds, for a write (ToRecord); and how what a
+// record holds becomes a value of it, for a read (FromRecord). What is built is a tree of
+// delegates, a pair for each position; nothing is looked up by reflection afterwards. Every way in
+// which a class disagrees with the schema is BindingFailed, with the property named, and nothing
+// here ends in another exception.
 //
 // What a write takes of an object is checked as a record is: a null where a position does not
 // allow it, at any depth, a key that a Map holds twice under the comparison of its key
@@ -26,10 +28,24 @@ namespace Moltaro.Lattice.Access.Binding;
 // class of an owned type is bound once for every pair of owned type and class, however many
 // positions hold it, so binding grows with the declarations; it ends because an owned type does not
 // contain itself, and it goes no deeper than a declaration may be, see SchemaBuilder.
+//
+// What a read gives an object is made from the form a record holds, which the engine makes under the
+// protection of reads and hands over after it (Engine.Sets.ClassCopier): FromRecord runs outside the
+// protection, and it is there that the constructors and the set accessors of the classes of owned
+// types run. An owned value becomes a new object of its class, every property set through the set
+// accessor C# sees for it, null included; a List becomes a new List<T> or array of the type of the
+// property, each element converted, and a List property of the very type a record holds there is
+// given the List the read made, which holds the same values at every depth. A read made every value
+// it hands over for the object it builds, so nothing is copied again. A Map and a Set are never read:
+// an entity type that holds one is not stored.
 internal sealed class ClassBinder
 {
+    // The conversion of a value that a record holds as the class holds it: a scalar, a String, a Binary
+    // value, an Enum given as its integer and a Reference, whatever their depth.
+    private static readonly Func<object, object> Same = static value => value;
+
     private readonly LatticeEntityType _entityType;
-    private readonly Dictionary<(LatticeOwnedType OwnedType, Type Class), Func<object, object>> _ownedClasses = [];
+    private readonly Dictionary<(LatticeOwnedType OwnedType, Type Class), Conversion> _ownedClasses = [];
 
     public ClassBinder(LatticeEntityType entityType)
     {
@@ -43,19 +59,19 @@ internal sealed class ClassBinder
             ? constructor
             : throw BindingFailed($"{type.Name}, {role}, needs a public parameterless constructor and cannot be abstract.");
 
-    // The property that holds a field in an object of the class, its accessors, and what turns its
-    // value into what a record holds.
+    // The property that holds a field in an object of the class, its accessors, what turns its value
+    // into what a record holds and what turns what a record holds into its value.
     public BoundProperty Bind(Type type, LatticeField field, string owner)
     {
         var (property, getAccessor, setAccessor) = FindProperty(type, field, owner);
         var place = new Place(type, property, field, owner);
-        var toRecord = ToRecord(property.PropertyType, field.Declaration, place);
+        var conversion = ConversionOf(property.PropertyType, field.Declaration, place);
 
-        // A Binary property binds only as a byte[] (ToRecord); its value is checked as ToRecord checks
-        // it, and not copied.
+        // A Binary property binds only as a byte[] (ConversionOf); its value is checked as ToRecord checks
+        // its type, and not copied.
         var take = field.Declaration.Type == LatticeFieldTypeEnum.Binary
-            ? ReadAsTheyAre(property.PropertyType, static value => value, place)
-            : toRecord;
+            ? ReadAsTheyAre(property.PropertyType, Same, place)
+            : conversion.ToRecord;
 
         // The get accessor is called virtually, as C# calls it: an override of a derived class of the
         // bound one is the one that runs.
@@ -63,7 +79,7 @@ internal sealed class ClassBinder
         var read = Expression.Convert(Expression.Call(Expression.Convert(instance, type), getAccessor), typeof(object));
         var get = Expression.Lambda<Func<object, object?>>(read, instance).Compile();
 
-        return new BoundProperty(field, property, getAccessor, setAccessor, get, toRecord, take);
+        return new BoundProperty(field, property, getAccessor, setAccessor, get, conversion.ToRecord, take, conversion.FromRecord);
     }
 
     // The property of a field is the one C# finds by its name on the class: the public member of
@@ -170,19 +186,20 @@ internal sealed class ClassBinder
         _ => member.MemberType.ToString().ToLowerInvariant(),
     };
 
-    // What turns a value of the given type, which is not null, into what a record holds at a
-    // position of this declaration. The type is checked against the table here, once.
-    private Func<object, object> ToRecord(Type type, LatticeValueDeclaration declaration, Place place) => declaration.Type switch
+    // The two conversions of a position of this declaration for a value of the given type, which is not
+    // null: what a write takes of it, and what a read gives it of what a record holds. The type is checked
+    // against the table here, once.
+    private Conversion ConversionOf(Type type, LatticeValueDeclaration declaration, Place place) => declaration.Type switch
     {
         LatticeFieldTypeEnum.Owned => BindOwned(type, declaration.OwnedType!, place),
         LatticeFieldTypeEnum.List => BindList(type, declaration, place),
-        LatticeFieldTypeEnum.Set => BindSet(type, declaration, place),
-        LatticeFieldTypeEnum.Map => BindMap(type, declaration, place),
+        LatticeFieldTypeEnum.Set => new Conversion(BindSet(type, declaration, place), NotRead),
+        LatticeFieldTypeEnum.Map => new Conversion(BindMap(type, declaration, place), NotRead),
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
-        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place),
+        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place), Same),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
-        LatticeFieldTypeEnum.String when type == typeof(string) => BindText(place),
-        _ when type == declaration.PositionType => static value => value,
+        LatticeFieldTypeEnum.String when type == typeof(string) => new Conversion(BindText(place), Same),
+        _ when type == declaration.PositionType => new Conversion(Same, Same),
         _ => throw place.Mismatch(),
     };
 
@@ -198,10 +215,11 @@ internal sealed class ClassBinder
     }
 
     // An Enum is its underlying integer, as it is stored, or a .NET enum that agrees with the
-    // enum type; a .NET enum value is held as its integer. A write refuses an integer that the enum
-    // type does not allow (EnumValues), also one that a .NET enum property holds by a cast: agreeing
-    // with the enum type does not keep a .NET enum from holding a value it does not name.
-    private Func<object, object> BindEnum(Type type, LatticeValueDeclaration declaration, Place place)
+    // enum type; a .NET enum value is held as its integer, and a read gives the .NET enum of the
+    // integer it holds. A write refuses an integer that the enum type does not allow (EnumValues),
+    // also one that a .NET enum property holds by a cast: agreeing with the enum type does not keep a
+    // .NET enum from holding a value it does not name.
+    private Conversion BindEnum(Type type, LatticeValueDeclaration declaration, Place place)
     {
         var enumType = declaration.EnumType!;
         var entityTypeName = _entityType.Name;
@@ -212,7 +230,7 @@ internal sealed class ClassBinder
 
         if (type == declaration.PositionType)
         {
-            return Allowed;
+            return new Conversion(Allowed, Same);
         }
 
         var dotNetEnum = declaration.IsNullable ? Nullable.GetUnderlyingType(type) : type;
@@ -229,12 +247,18 @@ internal sealed class ClassBinder
         }
 
         var stored = declaration.ValueType;
-        return value => Allowed(Convert.ChangeType(value, stored, CultureInfo.InvariantCulture));
+
+        // The .NET enum of an integer of the underlying type, as C# casts it: (TEnum)integer.
+        var integer = Expression.Parameter(typeof(object), "integer");
+        var cast = Expression.Convert(Expression.Convert(Expression.Convert(integer, stored), dotNetEnum), typeof(object));
+        var toEnum = Expression.Lambda<Func<object, object>>(cast, integer).Compile();
+
+        return new Conversion(value => Allowed(Convert.ChangeType(value, stored, CultureInfo.InvariantCulture)), toEnum);
     }
 
     // An owned value is an object of the class its owned type names. An owned type without a
     // class has no form in a class, and LatticeOwnedValue is for records only.
-    private Func<object, object> BindOwned(Type type, LatticeOwnedType ownedType, Place place)
+    private Conversion BindOwned(Type type, LatticeOwnedType ownedType, Place place)
     {
         if (ownedType.ClrTypeName is null)
         {
@@ -258,7 +282,7 @@ internal sealed class ClassBinder
             return bound;
         }
 
-        Constructor(type, $"the class of owned type '{ownedType.Name}'");
+        var constructor = Constructor(type, $"the class of owned type '{ownedType.Name}'");
         var properties = ownedType.Fields.Select(field => Bind(type, field, ownedType.Name)).ToArray();
         var entityTypeName = _entityType.Name;
 
@@ -281,21 +305,59 @@ internal sealed class ClassBinder
             return owned;
         };
 
-        _ownedClasses.Add((ownedType, type), toRecord);
-        return toRecord;
+        var create = Expression.Lambda<Func<object>>(Expression.New(constructor)).Compile();
+        var setters = Array.ConvertAll(properties, property => Setter(type, property));
+
+        // Every property is set, to null as well: what the constructor gave it is not what was stored.
+        Func<object, object> fromRecord = value =>
+        {
+            var owned = (LatticeOwnedValue)value;
+            var instance = create();
+
+            for (var index = 0; index < properties.Length; index++)
+            {
+                var fieldValue = owned.Values[properties[index].Field.Ordinal];
+
+                setters[index](instance, fieldValue is null ? null : properties[index].FromRecord(fieldValue));
+            }
+
+            return instance;
+        };
+
+        bound = new Conversion(toRecord, fromRecord);
+        _ownedClasses.Add((ownedType, type), bound);
+        return bound;
     }
 
-    // A List is a List<T> or an array of T.
-    private Func<object, object> BindList(Type type, LatticeValueDeclaration declaration, Place place)
+    // What sets the property of an object of the class to a value of its type, or to null: the set
+    // accessor C# sees for it, of any accessibility, called virtually as C# calls it.
+    private static Action<object, object?> Setter(Type type, BoundProperty property)
+    {
+        var instance = Expression.Parameter(typeof(object), "instance");
+        var value = Expression.Parameter(typeof(object), "value");
+        var call = Expression.Call(Expression.Convert(instance, type), property.SetAccessor, Expression.Convert(value, property.Property.PropertyType));
+
+        return Expression.Lambda<Action<object, object?>>(call, instance, value).Compile();
+    }
+
+    // A List is a List<T> or an array of T. A read gives a List property of the very type a record
+    // holds there the List the read made.
+    private Conversion BindList(Type type, LatticeValueDeclaration declaration, Place place)
     {
         if (type.IsSZArray)
         {
-            return ReadAsTheyAre(type, BindSequence(type.GetElementType()!, declaration, place), place);
+            var elementType = type.GetElementType()!;
+            var element = ConversionOf(elementType, declaration.Element!, place);
+            var toRecord = ReadAsTheyAre(type, BindSequence(element.ToRecord, declaration, place), place);
+
+            return new Conversion(toRecord, SequenceFromRecord(nameof(ArrayOf), elementType, element.FromRecord));
         }
 
-        var elementType = GenericArgument(type, typeof(List<>)) ?? throw place.Mismatch();
+        var listElementType = GenericArgument(type, typeof(List<>)) ?? throw place.Mismatch();
+        var listElement = ConversionOf(listElementType, declaration.Element!, place);
+        var fromRecord = type == declaration.ValueType ? Same : SequenceFromRecord(nameof(ListOf), listElementType, listElement.FromRecord);
 
-        return BindSequence(elementType, declaration, place);
+        return new Conversion(BindSequence(listElement.ToRecord, declaration, place), fromRecord);
     }
 
     // A property of an array type, or an array element of one, may hold an array of another
@@ -317,13 +379,12 @@ internal sealed class ClassBinder
     {
         var elementType = GenericArgument(type, typeof(HashSet<>)) ?? throw place.Mismatch();
 
-        return BindSequence(elementType, declaration, place);
+        return BindSequence(ConversionOf(elementType, declaration.Element!, place).ToRecord, declaration, place);
     }
 
-    private Func<object, object> BindSequence(Type elementType, LatticeValueDeclaration declaration, Place place)
+    private Func<object, object> BindSequence(Func<object, object> elementToRecord, LatticeValueDeclaration declaration, Place place)
     {
         var element = declaration.Element!;
-        var elementToRecord = ToRecord(elementType, element, place);
         var form = declaration.Sequence!;
         var entityTypeName = _entityType.Name;
 
@@ -350,6 +411,52 @@ internal sealed class ClassBinder
         };
     }
 
+    // What a read gives a List property whose type is not the List<T> a record holds there: a new List or
+    // array, made by ListOf or ArrayOf for the element type of the property, of every element of the
+    // List of the record converted, a null kept. The generic method is made once, here.
+    private static Func<object, object> SequenceFromRecord(string method, Type elementType, Func<object, object> element)
+    {
+        var convert = typeof(ClassBinder)
+            .GetMethod(method, BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(elementType)
+            .CreateDelegate<Func<object, Func<object, object>, object>>();
+
+        return value => convert(value, element);
+    }
+
+    private static object ListOf<TElement>(object list, Func<object, object> element)
+    {
+        var source = (IList)list;
+        var result = new List<TElement>(source.Count);
+
+        foreach (var item in source)
+        {
+            result.Add(item is null ? default! : (TElement)element(item));
+        }
+
+        return result;
+    }
+
+    private static object ArrayOf<TElement>(object list, Func<object, object> element)
+    {
+        // Elements that the record holds as the array holds them are copied as they are, without a box
+        // for each.
+        if (ReferenceEquals(element, Same))
+        {
+            return ((List<TElement>)list).ToArray();
+        }
+
+        var source = (IList)list;
+        var result = new TElement[source.Count];
+
+        for (var index = 0; index < result.Length; index++)
+        {
+            result[index] = source[index] is { } item ? (TElement)element(item) : default!;
+        }
+
+        return result;
+    }
+
     // A Map is a Dictionary<K, V>. Its keys are added under the comparer of the key
     // declaration, not under the comparer of the Dictionary.
     private Func<object, object> BindMap(Type type, LatticeValueDeclaration declaration, Place place)
@@ -360,8 +467,8 @@ internal sealed class ClassBinder
         }
 
         var arguments = type.GetGenericArguments();
-        var keyToRecord = ToRecord(arguments[0], declaration.Key!, place);
-        var valueToRecord = ToRecord(arguments[1], declaration.Value!, place);
+        var keyToRecord = ConversionOf(arguments[0], declaration.Key!, place).ToRecord;
+        var valueToRecord = ConversionOf(arguments[1], declaration.Value!, place).ToRecord;
         var valueIsNullable = declaration.Value!.IsNullable;
         var form = declaration.Map!;
         var entityTypeName = _entityType.Name;
@@ -391,6 +498,11 @@ internal sealed class ClassBinder
         };
     }
 
+    // What a read would give a Map or a Set property: a read never meets one, since an entity type that
+    // holds one is not stored (Storage.Roots.StructureLayout of the engine).
+    private static object NotRead(object value) =>
+        throw new UnreachableException($"A {value.GetType().Name} is never read: an entity type that holds a Map or a Set is not stored.");
+
     private static Type? GenericArgument(Type type, Type definition) =>
         type.IsGenericType && type.GetGenericTypeDefinition() == definition ? type.GetGenericArguments()[0] : null;
 
@@ -398,6 +510,10 @@ internal sealed class ClassBinder
 
     private static LatticeException ValidationFailed(string entityTypeName, string message) =>
         new(LatticeErrorEnum.ValidationFailed, $"{entityTypeName}: {message}");
+
+    // What a write takes of a value of a position and what a read gives a position of what a record holds,
+    // each for a value that is not null.
+    private readonly record struct Conversion(Func<object, object> ToRecord, Func<object, object> FromRecord);
 
     // A property that a field is bound to, for the messages about it: at binding, what type it
     // needs; at a write, what it holds.

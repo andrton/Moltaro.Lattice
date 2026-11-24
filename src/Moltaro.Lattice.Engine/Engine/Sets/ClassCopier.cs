@@ -6,13 +6,15 @@ namespace Moltaro.Lattice.Engine.Sets;
 
 // Makes the objects of a bound class that reads return, in the two steps of a read (IRootCopy). Under
 // the protection of the root, Copy copies the fixed part of the root block and makes the strings and
-// arrays of its String and Binary values, into scratch the read owns, and runs no code of the
-// application. After the read released the protection, Build makes a new object by the public
-// parameterless constructor and sets every field from the scratch through a compiled setter
-// (ClassField): the constructor and the set accessors are the application's code and run outside the
-// protection of reads (the planner's word on the first review of S06). Made once for a
-// set of an entity type the engine stores, from the binding of the core, which found the property of
-// every field by the rules of ILatticeDatabase.Set<TEntity>().
+// arrays of its String and Binary values, and every owned value and List in the form a record holds it,
+// a LatticeOwnedValue or a List<T> with all they hold, into scratch the read owns; it runs no code of the
+// application, since only the types of the core and of .NET are made there. After the read released the
+// protection, Build makes a new object by the public parameterless constructor and sets every field from
+// the scratch through a compiled setter (ClassField), which turns an owned value or a List into the
+// objects of the classes of the application first (BoundProperty.FromRecord): the constructors and the
+// set accessors are the application's code and run outside the protection of reads (the planner's word
+// on the first review of S06). Made once for a set of an entity type the engine stores, from the binding
+// of the core, which found the property of every field by the rules of ILatticeDatabase.Set<TEntity>().
 internal sealed class ClassCopier<TEntity>
     where TEntity : class
 {
@@ -45,11 +47,11 @@ internal sealed class ClassCopier<TEntity>
     // The bytes of the copy of the fixed part of a root.
     public int FixedPartLength => RootReader.FixedPartLength(_layout);
 
-    // The slots of the values of String and Binary fields.
+    // The slots of the values of the fields that have one (ClassField.HasSlot).
     public int ValueCount { get; }
 
-    // Under the protection of the root: copies its fixed part into fixedPart and makes its String and
-    // Binary values into their slots.
+    // Under the protection of the root: copies its fixed part into fixedPart and makes the values that lie
+    // outside it, or beneath it, into their slots.
     public void Copy(in RootReader root, Span<byte> fixedPart, object?[] values)
     {
         root.CopyFixedPart(fixedPart);
