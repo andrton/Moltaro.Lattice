@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 //   Decimal, DateTimeOffset, DateOnly, TimeOnly, TimeSpan, an Enum and a Flags Enum, an entity of Item is
 //   found by the index on its field in every form, and the entity read by its key holds the value. The
 //   smallest Float32 and Float64 are MinValue, the largest MaxValue (NaN and the infinities are the
-//   business of FloatingPointKeyTests); the Enum is Level, from -300 to 300, the Flags type Rights, from
+//   business of FloatingPointSearchModelTests); the Enum is Level, from -300 to 300, the Flags type Rights, from
 //   no bit to every declared bit.
 // IndexPartValueTests holds every scalar type found by its value and by null, through a class and by
 // name; KeyTypeTests every key type read by its key and by an integer of another width.

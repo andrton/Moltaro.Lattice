@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 //   end open, with the smallest and the largest value and a value between as a bound;
 // - a bound given in another type of the allowlist, an integer for a Decimal and a Float32 for a Float64,
 //   finds what the same bound in the type of the field finds.
-// OrderAndBoundsTests holds Int32, Int64 and String, in composite keys; FloatingPointKeyTests NaN, the
+// OrderAndBoundsTests holds Int32, Int64 and String, in composite keys; FloatingPointSearchModelTests NaN, the
 // infinities and the two zeros as bounds; EnumAndFlagsTests the Enum and Flags parts.
 public sealed class RangeOfEveryFamilyTests
 {
