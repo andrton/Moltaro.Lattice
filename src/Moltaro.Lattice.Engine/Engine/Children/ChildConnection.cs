@@ -360,25 +360,30 @@ internal sealed class ChildConnection
     {
         while (_replies.TryTake(out var reply))
         {
-            if (reply.Refusal is null)
+            if (reply.Refusal is null && reply.Updates.Count == 0)
             {
                 AddResult(reply);
+                continue;
+            }
+
+            var body = new OutgoingMessage();
+            if (reply.Refusal is { } refusal)
+            {
+                ForwardEncoding.WriteReply(body, refusal, reply.IndexId);
             }
             else
             {
-                var body = new OutgoingMessage();
+                ForwardEncoding.WriteReply(body, reply.Result, reply.Updates);
+            }
 
-                ForwardEncoding.WriteReply(body, reply.Refusal, reply.IndexId);
-                body.Complete();
+            body.Complete();
+            for (var index = 0; index < body.FrameCount; index++)
+            {
+                _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, reply.CorrelationId, body.Frame(index));
 
-                for (var index = 0; index < body.FrameCount; index++)
+                if (_connection.PendingBytes >= Protocol.MaxFrame)
                 {
-                    _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, reply.CorrelationId, body.Frame(index));
-
-                    if (_connection.PendingBytes >= Protocol.MaxFrame)
-                    {
-                        await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
-                    }
+                    await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
                 }
             }
         }

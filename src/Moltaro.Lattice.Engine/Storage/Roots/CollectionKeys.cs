@@ -115,6 +115,14 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
         return ValueComparer.CompareStored(Key.Type, Bytes(ordinal, Key.Offset, Key.Width, scratch), fixedProbe) == 0;
     }
 
+    // The spelling of a key that the lookup found by the schema comparison.
+    public string Spelling(int ordinal)
+    {
+        var payload = RecordPayload(ordinal, out var start);
+        var text = ValueBlocks.Read(payload[(start + Key.Offset)..]);
+        return StoredText.Read(_arena, text, payload, _encoding);
+    }
+
     public static uint NullHash(ulong seed) => ValueComparer.IntegerHash(-1, seed);
 
     private bool IsNull(int ordinal)

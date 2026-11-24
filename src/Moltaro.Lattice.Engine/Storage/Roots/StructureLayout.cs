@@ -35,6 +35,8 @@ internal sealed class StructureLayout
     // For an owned place, the position of the first field of its owned type; -1 for any other place.
     private readonly int[] _children;
 
+    private readonly LatticeField[][]? _rootPaths;
+
     // For a List place, the layout of the record of its element; null for any other place.
     private readonly StructureLayout?[] _elements;
 
@@ -49,6 +51,7 @@ internal sealed class StructureLayout
         StoredField[] places,
         LatticeValueDeclaration[] declarations,
         int[] children,
+        LatticeField[][]? rootPaths,
         StructureLayout?[] elements,
         int[] descriptors,
         (int Position, int Above)[] beneath,
@@ -62,6 +65,7 @@ internal sealed class StructureLayout
         _places = places;
         _declarations = declarations;
         _children = children;
+        _rootPaths = rootPaths;
         _elements = elements;
         _descriptors = descriptors;
         _beneath = beneath;
@@ -165,6 +169,10 @@ internal sealed class StructureLayout
 
     // The position of a field of the owned type of the owned place at the position.
     public int ChildOf(int position, LatticeField field) => _children[position] + field.Ordinal;
+
+    // A wire ordinal names a path only in the flattened root.
+    public LatticeField[]? RootPath(uint position) =>
+        position < (uint)_rootPaths!.Length ? _rootPaths[(int)position] : null;
 
     // The layout of the record of the element of the List place at the position.
     public StructureLayout ElementOf(int position) => _elements[position]!;
@@ -369,6 +377,7 @@ internal sealed class StructureLayout
             places,
             [.. fields.Select(member => member.Declaration)],
             [.. children],
+            collection is null ? [.. paths] : null,
             elements,
             [.. descriptors],
             beneath,

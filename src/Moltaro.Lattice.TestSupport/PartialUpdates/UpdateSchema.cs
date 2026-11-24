@@ -4,8 +4,6 @@ namespace Moltaro.Lattice.TestSupport.PartialUpdates;
 
 internal static class UpdateSchema
 {
-    public const string Pending = "Partial updates are not implemented yet.";
-
     public static LatticeSchema Schema { get; } = LatticeSchema.Compile($$"""
         {
           "StringEncoding": "Utf8",

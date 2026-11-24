@@ -11,9 +11,9 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 
 // Sparse committed effects use the actual predecessor and the existing transaction framing
 // (replication-and-hosting.md, "How are live changes delivered?").
-public sealed class SparseUpdateTests
+public sealed class SparseUpdateTests(ITestOutputHelper output)
 {
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task One_fixture_field_emits_fewer_effect_bytes_than_ordinary_replacement()
     {
         var baseline = GeneratedRecords.Of(FixtureForms.Full, "User")[0];
@@ -49,10 +49,12 @@ public sealed class SparseUpdateTests
         Assert.Equal((ulong)fullBytes.Length, TransactionPayload.AnnouncedLengthOf(fullFrame));
         Assert.Equal(baseSequence, BinaryPrimitives.ReadUInt64LittleEndian(sparseBytes.AsSpan(SparseUpdatePayload.BaseSequenceAt)));
         Assert.Equal(TransactionPayload.Write, fullBytes[0]);
-        Assert.True(sparseBytes.Length < fullBytes.Length, $"Partial effect: {sparseBytes.Length} bytes; whole replacement: {fullBytes.Length} bytes.");
+        var sizes = $"Partial effect: {sparseBytes.Length} bytes; whole replacement: {fullBytes.Length} bytes.";
+        output.WriteLine(sizes);
+        Assert.True(sparseBytes.Length < fullBytes.Length, sizes);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_live_base_divergence_faults_only_if_every_later_effect_is_structurally_valid(bool malformedTail)
@@ -108,7 +110,7 @@ public sealed class SparseUpdateTests
         }
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task An_impossible_resolved_Set_insertion_faults_a_live_child_even_with_the_exact_base_sequence()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);

@@ -212,7 +212,7 @@ public sealed class UpdateOwnershipTests
 
     [Theory]
     [InlineData(true)]
-    [InlineData(false, Skip = UpdateSchema.Pending)]
+    [InlineData(false)]
     public async Task Fault_after_transfer_uses_publication_failure_and_close_releases_every_slot(bool onMaster)
     {
         var masterAllocator = new CountingNativeAllocator();

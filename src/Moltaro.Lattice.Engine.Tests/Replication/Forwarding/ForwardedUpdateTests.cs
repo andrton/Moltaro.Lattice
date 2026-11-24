@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
 public sealed class ForwardedUpdateTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(true, false)]
     [InlineData(false, false)]
     [InlineData(true, true)]
@@ -122,7 +122,7 @@ public sealed class ForwardedUpdateTests
         }
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Forwarded_mixed_batch_can_change_from_an_ordinary_member_when_all_command_results_are_false()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
@@ -147,7 +147,7 @@ public sealed class ForwardedUpdateTests
         Assert.NotNull(records.Get("grace"));
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task A_forwarded_batch_refusal_preserves_its_original_index_and_has_no_command_outcomes()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
@@ -175,7 +175,7 @@ public sealed class ForwardedUpdateTests
         Assert.Empty(named.Index("ByCity").Find(IndexKey.Equal("Paris")));
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Timeout_after_a_known_commit_never_exposes_the_command_bits()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
@@ -200,7 +200,7 @@ public sealed class ForwardedUpdateTests
         Assert.Throws<InvalidOperationException>(() => changed.Changed);
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Close_after_receiving_the_reply_keeps_the_real_command_bits()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);

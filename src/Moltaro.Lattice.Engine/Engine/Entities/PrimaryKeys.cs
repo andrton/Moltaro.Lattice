@@ -142,7 +142,7 @@ internal readonly struct PrimaryKeys
     // Reads a key that WriteKey wrote from the input, hashed under the seed of this instance, with the
     // input advanced past it. ValidationFailed for bytes that are not a key of this entity type: too few
     // of them, an integer outside the key type, text that is not well-formed UTF-8.
-    public EntityKey ReadKey(ref SequenceReader<byte> input)
+    public EntityKey ReadKey(ref SequenceReader<byte> input, bool limitsValue = false)
     {
         switch (KeyKind)
         {
@@ -183,6 +183,13 @@ internal readonly struct PrimaryKeys
                     throw InvalidKey("the bytes do not hold the text they announce.");
                 }
 
+                var maxBytes = ValueBlocks.MostValueBytes;
+                var utf16 = _stringEncoding == LatticeStringEncodingEnum.Utf16;
+                if (limitsValue && length > (utf16 ? maxBytes / 2 * 3 : maxBytes))
+                {
+                    throw InvalidKey("the text exceeds the maximum size of a value.");
+                }
+
                 string text;
 
                 try
@@ -192,6 +199,11 @@ internal readonly struct PrimaryKeys
                 catch (DecoderFallbackException exception)
                 {
                     throw InvalidKey($"its text is not well-formed UTF-8 ({exception.Message})");
+                }
+
+                if (limitsValue && utf16 && text.Length > maxBytes / 2)
+                {
+                    throw InvalidKey("the decoded text exceeds the maximum size of a value.");
                 }
 
                 input.Advance(length);

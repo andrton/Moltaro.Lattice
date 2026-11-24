@@ -58,12 +58,13 @@ internal static class Protocol
     // The format of what the bodies of a load and of the stream hold: the envelope of a root, the
     // framing of roots and of the schema, the body of LoadEnd (Replication.Load), the transactions and
     // their effects (Replication.Transactions), and the writes a child forwards with their replies
-    // (Replication.Forwarding). Another value is another format. 6 carries Map and Set entries in the
+    // (Replication.Forwarding). Another value is another format. 7 adds partial update commands,
+    // sparse committed effects and correlated command outcomes. 6 carries Map and Set entries in the
     // root body and rebuilds their lookups on receipt. 5 adds to 4 the number of the member of a
     // write batch in the envelope of a root and the write batch a child forwards; 4 adds to 3 the identity of the unique index a refusal of a
     // forwarded write names; 3 adds to 2 the writes a child forwards on the connection, with their replies;
     // 2 is the format whose LoadEnd carries S and R and whose stream follows the load.
-    public const int WireFormat = 6;
+    public const int WireFormat = 7;
 
     // The bit of LayoutFormat that a node whose numbers are big-endian sets.
     public const int BigEndianLayout = 0x0001_0000;

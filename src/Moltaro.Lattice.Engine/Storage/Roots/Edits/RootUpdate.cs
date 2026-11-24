@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
@@ -14,28 +15,57 @@ internal sealed class RootUpdate
     private readonly ArenaAddress _source;
     private readonly Dictionary<int, object?> _changes = [];
 
-    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, UpdateCommand[] commands)
+    private readonly List<ResolvedCommand> _effects = [];
+
+    private RootUpdate(Arena arena, RootLayout layout, ArenaAddress source)
     {
         _arena = arena;
         _layout = layout;
         _source = source;
+    }
+
+    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, UpdateCommand[] commands)
+        : this(arena, layout, source)
+    {
         Bits = UpdateOutcome.BitsFor(commands.Length);
 
         for (var index = 0; index < commands.Length; index++)
         {
-            if (Apply(commands[index]))
+            if (Apply(commands[index], out var effective))
             {
                 UpdateOutcome.SetChanged(Bits, index);
+                _effects.Add(effective);
                 Changed = true;
             }
         }
     }
 
+    // Replay uses the same edits but verifies each resolved action against the
+    // exact predecessor. A failed plan owns no arena slots.
+    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, ReadOnlySpan<ResolvedCommand> commands)
+        : this(arena, layout, source)
+    {
+        foreach (ref readonly var expected in commands)
+        {
+            var command = expected.Command;
+            if (!Apply(command, out var actual) ||
+                actual.ReplacesMapValue != expected.ReplacesMapValue ||
+                (command.First is string spelling && actual.Command.First is string found && !StringComparer.Ordinal.Equals(spelling, found)))
+            {
+                throw TargetMissing(layout.EntityType, command.Name, "does not match the committed collection action.");
+            }
+        }
+
+        Changed = true;
+    }
+
     public bool Changed { get; }
 
-    public byte[] Bits { get; }
+    public byte[] Bits { get; } = [];
 
-    private bool Apply(in UpdateCommand command)
+    public ReadOnlySpan<ResolvedCommand> Effects => CollectionsMarshal.AsSpan(_effects);
+
+    private bool Apply(in UpdateCommand command, out ResolvedCommand resolved)
     {
         var payload = _arena.Payload(_source);
         var structure = _layout.Structure;
@@ -43,6 +73,7 @@ internal sealed class RootUpdate
         if (command.Kind == UpdateCommandKindEnum.Assign)
         {
             _changes[command.Target] = command.First;
+            resolved = new ResolvedCommand(command);
             return true;
         }
 
@@ -70,7 +101,7 @@ internal sealed class RootUpdate
 
         var collection = (EditedCollection)staged;
         _changes[command.Target] = collection;
-        return collection.Edit(command, _layout.EntityType, element);
+        return collection.Edit(command, _layout.EntityType, element, out resolved);
     }
 
     // An intermediate owned value is flattened into the root but still has

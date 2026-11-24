@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Replication.Forwarding;
 
 namespace Moltaro.Lattice.Engine.Delivery;
 
@@ -39,8 +40,8 @@ internal sealed class RecordedReplies
     // In the hold of the lock of the writes that publishes the write, before its transaction is appended
     // to the tail: the write of the correlation id succeeded with the result. The publication wakes the
     // senders after the hold.
-    public void Succeed(ulong correlationId, in LatticeWriteResult result) =>
-        _replies.Enqueue(new RecordedReply(correlationId, result, null, null));
+    public void Succeed(ulong correlationId, in LatticeWriteResult result, in UpdateBitmap updates = default) =>
+        _replies.Enqueue(new RecordedReply(correlationId, result, null, null, updates));
 
     // From any thread outside the lock of the writes: the write of the correlation id was refused, with the
     // identity of the unique index the refusal names, if it names one, and the senders are woken, since no

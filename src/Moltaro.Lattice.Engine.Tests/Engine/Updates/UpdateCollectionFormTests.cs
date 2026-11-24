@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Updates;
 // transitions at each effective command from its own local form (physical-storage.md).
 public sealed class UpdateCollectionFormTests
 {
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Collection_hysteresis_uses_each_effective_command_and_allows_different_local_forms()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema, new EngineTestInputs { IndexSeed = 11 });

@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.Unicode;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
@@ -132,7 +134,7 @@ internal static class ForwardEncoding
     // the reader stands at the key. A kind that is no write, a batch among them, is not valid.
     public static ForwardedWrite ReadMemberHead(ref SequenceReader<byte> body)
     {
-        if (!body.TryRead(out var kind) || kind > (byte)WriteKindEnum.Delete)
+        if (!body.TryRead(out var kind) || (kind > (byte)WriteKindEnum.Delete && kind != (byte)WriteKindEnum.Update))
         {
             throw Protocol.Invalid("A forwarded write is empty or names a kind of write that is none.");
         }
@@ -210,9 +212,19 @@ internal static class ForwardEncoding
     public static void WriteReply(Span<byte> payload, in LatticeWriteResult result)
     {
         BinaryPrimitives.WriteUInt64LittleEndian(payload, ResultLength);
+        WriteResult(payload[sizeof(ulong)..], result);
+    }
 
-        var span = payload[sizeof(ulong)..];
+    public static void WriteReply(IBufferWriter<byte> output, in LatticeWriteResult result, in UpdateBitmap bitmap)
+    {
+        WriteResult(output.GetSpan(ResultLength), result);
+        output.Advance(ResultLength);
+        UpdateOperands.WriteUInt32(output, (uint)bitmap.Count);
+        UpdateOperands.WriteBytes(output, bitmap.Bits!);
+    }
 
+    private static void WriteResult(Span<byte> span, in LatticeWriteResult result)
+    {
         span[0] = 0;
         BinaryPrimitives.WriteUInt64LittleEndian(span[1..], result.Position.History);
         BinaryPrimitives.WriteUInt64LittleEndian(span[(1 + sizeof(ulong))..], result.Position.Sequence);
@@ -251,7 +263,7 @@ internal static class ForwardEncoding
     }
 
     // The reply in the body (see the class).
-    public static ForwardedReply ReadReply(ReadOnlySequence<byte> body)
+    public static ForwardedReply ReadReply(ReadOnlySequence<byte> body, int commands = 0, bool onlyUpdates = false)
     {
         var reader = new SequenceReader<byte>(body);
 
@@ -264,9 +276,10 @@ internal static class ForwardEncoding
                 throw Protocol.Invalid("The reply of a forwarded write ends before Changed, or Changed is neither 0 nor 1.");
             }
 
+            var bits = commands == 0 ? null : ReadOutcomes(ref reader, commands, changed != 0, onlyUpdates);
             ExpectEndOfReply(reader);
 
-            return new ForwardedReply(new LatticeWriteResult(position, changed == 1), null, null);
+            return new ForwardedReply(new LatticeWriteResult(position, changed == 1), null, null, bits);
         }
 
         if (!reader.TryReadLittleEndian(out int error) || !Enum.IsDefined((LatticeErrorEnum)error))
@@ -342,6 +355,36 @@ internal static class ForwardEncoding
             OperationIndex = operationIndex,
             CommittedPosition = committed,
         }, indexId);
+    }
+
+    private static byte[] ReadOutcomes(ref SequenceReader<byte> reader, int commands, bool changed, bool onlyUpdates)
+    {
+        var expected = UpdateOutcome.BitmapLength(commands);
+        if (UpdateOperands.ReadUInt32(ref reader) != (uint)commands || reader.Remaining != expected)
+        {
+            throw Protocol.Invalid("The command count or bitmap length differs from the forwarded request.");
+        }
+
+        var body = reader.UnreadSequence;
+        var paddingStarts = commands % 8;
+        if (paddingStarts != 0)
+        {
+            var last = new SequenceReader<byte>(body.Slice(expected - 1));
+            if (!last.TryRead(out var padding) || (padding >> paddingStarts) != 0)
+            {
+                throw Protocol.Invalid("The forwarded reply has nonzero command bitmap padding.");
+            }
+        }
+
+        var bits = body.ToArray();
+        var hasChange = Array.Exists(bits, static value => value != 0);
+        if ((hasChange && !changed) || (onlyUpdates && hasChange != changed))
+        {
+            throw Protocol.Invalid("The forwarded reply's Changed disagrees with its command bitmap.");
+        }
+
+        reader.Advance(expected);
+        return bits;
     }
 
     // The reply with the refusal naming its unique index by the name the entity type of the write gives

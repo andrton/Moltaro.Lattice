@@ -62,13 +62,10 @@ internal sealed class SetOperations : IUpdateExecutor
         LatticeSession? session, CancellationToken cancellationToken)
     {
         RootValues.BindUpdate(Table.Layout, update);
-        if (!_database.CanPublishLocalUpdate)
-        {
-            _database.ThrowIfNotReady();
-            return ValueTask.FromException<LatticeWriteResult>(EngineDatabase.UpdateDeliveryNotSupported());
-        }
-
-        return _writes.SubmitUpdateAsync(Table, KeyArgument.OfNormalized(Table, key), update, expectedRevision, session, cancellationToken);
+        var normalized = KeyArgument.OfNormalized(Table, key);
+        return _forwarder is null
+            ? _writes.SubmitUpdateAsync(Table, normalized, update, expectedRevision, session, cancellationToken)
+            : _forwarder.WriteAsync(Table, WriteKindEnum.Update, normalized, values: null, update, expectedRevision, session, cancellationToken);
     }
 
     // A read by key: the copy inside the protection of reads, then the result built from it, outside
@@ -229,5 +226,5 @@ internal sealed class SetOperations : IUpdateExecutor
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>
         _forwarder is null
             ? _writes.SubmitAsync(Table, kind, key, values, expectedRevision, session, cancellationToken)
-            : _forwarder.WriteAsync(Table, kind, key, values, expectedRevision, session, cancellationToken);
+            : _forwarder.WriteAsync(Table, kind, key, values, update: null, expectedRevision, session, cancellationToken);
 }

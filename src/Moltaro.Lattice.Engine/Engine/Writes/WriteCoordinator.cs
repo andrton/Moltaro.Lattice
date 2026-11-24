@@ -422,8 +422,9 @@ internal sealed class WriteCoordinator
     // where it came from instead of values (see the class, "Forwarded writes"). Its outcome is its reply,
     // with the refusals of SubmitAsync, and is recorded before the write leaves the barrier of the close;
     // nothing is returned, and the task of its admission is not looked at.
-    public void Forward(EntityTable table, WriteKindEnum kind, in EntityKey key, ForwardedOrigin forwarded, LatticeRevision? expectedRevision, LatticeSession? session) =>
-        SubmitForwarded(new WriteSubmission(table, kind, key, ExpectedRevision: expectedRevision, Forwarded: forwarded), session);
+    public void Forward(EntityTable table, WriteKindEnum kind, in EntityKey key, ForwardedOrigin forwarded,
+        LatticeRevision? expectedRevision, LatticeSession? session, UpdateInput? update = null) =>
+        SubmitForwarded(new WriteSubmission(table, kind, key, ExpectedRevision: expectedRevision, Forwarded: forwarded, Update: update), session);
 
     // Submits a write batch a child forwarded, its members of entity types the engine stores, each with its
     // root, and the set of their entities, which names none twice (Children.RequestReceiver): one write, as a

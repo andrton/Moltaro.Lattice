@@ -14,7 +14,7 @@ public sealed class UpdateVisibilityTests
 {
     [Theory]
     [InlineData(false)]
-    [InlineData(true, Skip = UpdateSchema.Pending)]
+    [InlineData(true)]
     public async Task Reads_by_key_and_changed_index_wait_for_the_same_update_position(bool onChild)
     {
         await using var master = onChild

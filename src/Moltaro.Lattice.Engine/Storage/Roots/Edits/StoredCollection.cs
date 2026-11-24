@@ -38,6 +38,12 @@ internal readonly struct StoredCollection
         return new CollectionLookup(_arena, _collection).Find(keys, IndexValue.Of(key));
     }
 
+    public string Spelling(int ordinal)
+    {
+        var keys = new CollectionKeys(_arena, _element, _collection, _arena.Payload(_holder), _encoding);
+        return keys.Spelling(ordinal);
+    }
+
     public (ArenaAddress Address, int Offset) Record(int ordinal)
     {
         if (!NestedValues.LiesInChunks(_entries, _element))

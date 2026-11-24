@@ -1,6 +1,8 @@
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
+using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Delivery;
@@ -20,15 +22,22 @@ internal static class TransactionEncoder
 {
     // A transaction of the changes, which are not empty. The roots are those the write publishes, complete
     // in their prepared blocks; nothing changes them while the lock of the writes is held.
-    public static void Write(DeliveryTail tail, ulong sequence, ReadOnlySpan<PreparedChange> changes, Arena arena)
+    public static void Write(DeliveryTail tail, ulong sequence, ReadOnlySpan<PreparedChange> changes, Arena arena, PreparedUpdates? updates = null)
     {
         var effects = 0L;
 
         foreach (ref readonly var change in changes)
         {
-            effects += change.Kind == ChangeKindEnum.Delete
-                ? TransactionFormat.DeleteEnvelopeSize + change.Table.Keys.KeyLength(change.Key)
-                : TransactionFormat.WriteEnvelopeSize + RootLength(change, arena);
+            if (updates?.EffectOf(change.Member) is { } update)
+            {
+                effects += TransactionFormat.UpdateEnvelopeSize + change.Table.Keys.KeyLength(change.Key) + update.CommandBytes;
+            }
+            else
+            {
+                effects += change.Kind == ChangeKindEnum.Delete
+                    ? TransactionFormat.DeleteEnvelopeSize + change.Table.Keys.KeyLength(change.Key)
+                    : TransactionFormat.WriteEnvelopeSize + RootLength(change, arena);
+            }
         }
 
         tail.Begin(sequence, effects);
@@ -37,7 +46,11 @@ internal static class TransactionEncoder
 
         foreach (ref readonly var change in changes)
         {
-            if (change.Kind == ChangeKindEnum.Delete)
+            if (updates?.EffectOf(change.Member) is { } update)
+            {
+                WriteUpdate(tail, sequence, effects, header, change, update);
+            }
+            else if (change.Kind == ChangeKindEnum.Delete)
             {
                 WriteDelete(tail, sequence, effects, header, change);
             }
@@ -48,6 +61,23 @@ internal static class TransactionEncoder
 
             header = 0;
         }
+    }
+
+    private static void WriteUpdate(DeliveryTail tail, ulong sequence, long effects, int header, in PreparedChange change, in SparseChange update)
+    {
+        var start = header + TransactionFormat.UpdateEnvelopeSize;
+        var bytes = tail.GetSpan(start);
+        if (header != 0)
+        {
+            TransactionFormat.WriteHeader(bytes, sequence, effects);
+        }
+
+        var table = change.Table;
+        var length = TransactionFormat.UpdateHeadSize + table.Keys.KeyLength(change.Key) + update.CommandBytes;
+        TransactionFormat.WriteEnvelopeOfUpdate(bytes[header..], length, (uint)table.EntityType.Id, change.Member, update.BaseSequence);
+        tail.Advance(start);
+        table.Keys.WriteKey(change.Key, tail);
+        UpdateCommands.Write(tail, table.Layout.Structure, update.Commands);
     }
 
     // A Write of the root of the change, after the header of the transaction when header is its size.

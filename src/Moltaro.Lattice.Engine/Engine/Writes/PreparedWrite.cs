@@ -50,6 +50,8 @@ internal sealed class PreparedWrite
 
     public long EncodedSize { get; private set; }
 
+    public PreparedUpdates? Updates { get; set; }
+
     // The write this is the prepared state of.
     public PendingWrite Write { get; }
 
@@ -150,6 +152,7 @@ internal sealed class PreparedWrite
         ChangesEntity = false;
         _batchCount = 0;
         _claims = null;
+        Updates = null;
     }
 
     // No change: what the preparation of a delete of a key that is absent made. The change itself is left
@@ -175,5 +178,6 @@ internal sealed class PreparedWrite
         _batch = null;
         _batchCount = 0;
         _claims = null;
+        Updates = null;
     }
 }

@@ -7,4 +7,4 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // Limit, OperationIndex and CommittedPosition, and in IndexName once the identity of the unique index a
 // refusal names is resolved against the schema of the child (ForwardEncoding.NameIndex). Exactly one of
 // the two is set; IndexId only with the refusal of a value of a unique index.
-internal readonly record struct ForwardedReply(LatticeWriteResult? Result, LatticeException? Refusal, int? IndexId);
+internal readonly record struct ForwardedReply(LatticeWriteResult? Result, LatticeException? Refusal, int? IndexId, byte[]? Bits = null);

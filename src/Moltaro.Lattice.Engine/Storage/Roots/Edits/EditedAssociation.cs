@@ -44,23 +44,33 @@ internal sealed class EditedAssociation
 
     public int Count { get; private set; }
 
-    public bool Apply(in UpdateCommand command)
+    public bool Apply(in UpdateCommand command, out ResolvedCommand resolved)
     {
+        resolved = new ResolvedCommand(command);
         var key = command.First;
         var setsValue = command.Kind == UpdateCommandKindEnum.MapSet;
         var adds = setsValue || command.Kind == UpdateCommandKindEnum.SetAdd;
         var original = _stored?.Find(key) ?? -1;
         if (original >= 0 && (!_changed.TryGetValue(original, out var prior) || prior.Original != EditedEntry.Removed))
         {
+            if (adds && !setsValue)
+            {
+                return false;
+            }
+
+            if (key is string)
+            {
+                resolved = new ResolvedCommand(command with { First = _stored!.Value.Spelling(original) }, setsValue);
+            }
+            else if (setsValue)
+            {
+                resolved = new ResolvedCommand(command, ReplacesMapValue: true);
+            }
+
             if (setsValue)
             {
                 _changed[original] = new EditedEntry(original, null, command.Second, ReplacesSecond: true);
                 return true;
-            }
-
-            if (adds)
-            {
-                return false;
             }
 
             _changed[original] = new EditedEntry(EditedEntry.Removed, null, null);
@@ -71,15 +81,16 @@ internal sealed class EditedAssociation
         var comparisonKey = key ?? NullMember;
         if (_newKeys.TryGetValue(comparisonKey, out var index))
         {
+            if (adds && !setsValue)
+            {
+                return false;
+            }
+
+            resolved = new ResolvedCommand(command with { First = _added[index].First }, setsValue);
             if (setsValue)
             {
                 _added[index] = _added[index] with { Second = command.Second };
                 return true;
-            }
-
-            if (adds)
-            {
-                return false;
             }
 
             _newKeys.Remove(comparisonKey);

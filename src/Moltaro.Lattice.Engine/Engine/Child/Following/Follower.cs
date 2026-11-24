@@ -135,15 +135,24 @@ internal sealed class Follower
 
         _applied = end.CaptureStart;
 
-        while (_applied < end.Readiness)
+        try
         {
-            if (!await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false))
+            while (_applied < end.Readiness)
             {
-                throw new LatticeException(LatticeErrorEnum.Unavailable, "The master closed before this child had applied the transactions up to its readiness position.");
+                if (!await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false))
+                {
+                    throw new LatticeException(LatticeErrorEnum.Unavailable, "The master closed before this child had applied the transactions up to its readiness position.");
+                }
             }
-        }
 
-        _changes.ValidateUniqueIndexes();
+            _changes.ValidateUniqueIndexes();
+        }
+        catch
+        {
+            _changes.DropMissingUpdates();
+            _assembler.Reset();
+            throw;
+        }
 
         // From here on the writes of the child go to the queue of its sender, before the child is Ready,
         // so that none finds the child without a connection while the task that follows has not begun;

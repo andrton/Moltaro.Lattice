@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Entities;
@@ -21,7 +22,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 // A full Write cannot clear that outstanding obligation (replication-and-hosting.md).
 public sealed class PartialCatchUpTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData("deleted without a local root")]
     [InlineData("deleted after a full write")]
     [InlineData("still marked after a full write")]
@@ -91,7 +92,7 @@ public sealed class PartialCatchUpTests
         Assert.Null(child.Set("Item").Get("ada"));
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData("covered")]
     [InlineData("malformed covered effect")]
     [InlineData("covered key named twice")]
@@ -123,7 +124,8 @@ public sealed class PartialCatchUpTests
         else if (scenario == "covered key named twice")
         {
             var secondMember = SparseUpdatePayload.WithStringKey(sparseEffect, "ADA"u8);
-            SparseUpdatePayload.SetMember(secondMember, 1);
+            SparseUpdatePayload.SetMember(sparseEffect, 1);
+            SparseUpdatePayload.SetMember(secondMember, 2);
             sparseEffect = [.. sparseEffect, .. secondMember];
         }
 
@@ -164,7 +166,7 @@ public sealed class PartialCatchUpTests
         Assert.Equal(sparse.Position, child.Position);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_refused_catch_up_transaction_can_be_retried_at_the_same_sequence_without_leaking_marker_edits(bool clearing)
@@ -188,7 +190,13 @@ public sealed class PartialCatchUpTests
         received.EndLoad(start);
         if (clearing)
         {
-            received.Apply(start + 1, new ReadOnlySequence<byte>(sparse), CancellationToken.None);
+            var frame = ApplyMissingAndDrop(received, start + 1, sparse);
+            Assert.Throws<LatticeException>(received.ValidateUniqueIndexes);
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            Assert.False(frame.IsAlive);
         }
 
         var attemptedSequence = clock.Sequence + 1;
@@ -210,7 +218,7 @@ public sealed class PartialCatchUpTests
         Assert.Equal(0, roots.Count);
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Retained_missing_target_keys_have_a_load_budget_separate_from_arena_blocks()
     {
         var sparse = await OneSparseEffectAsync();
@@ -252,7 +260,7 @@ public sealed class PartialCatchUpTests
         Assert.Equal(0, arena.Counters.PreparedBytes);
     }
 
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task Catch_up_budgets_staged_new_keys_before_it_can_clear_old_markers()
     {
         const int OldCount = 20;
@@ -277,7 +285,7 @@ public sealed class PartialCatchUpTests
             for (var index = from; index < from + count; index++)
             {
                 var member = SparseUpdatePayload.WithStringKey(sparse, keys[index]);
-                SparseUpdatePayload.SetMember(member, (uint)index);
+                SparseUpdatePayload.SetMember(member, (uint)(index - from + 1));
                 effects.Write(member);
             }
 
@@ -308,6 +316,14 @@ public sealed class PartialCatchUpTests
         received.ValidateUniqueIndexes();
         Assert.Equal(3UL, clock.Sequence);
         Assert.Equal(0, roots.Count);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference ApplyMissingAndDrop(ReceivedChanges received, ulong sequence, byte[] sparse)
+    {
+        var frame = sparse.ToArray();
+        received.Apply(sequence, new ReadOnlySequence<byte>(frame), CancellationToken.None);
+        return new WeakReference(frame);
     }
 
     private static async Task<byte[]> OneSparseEffectAsync()

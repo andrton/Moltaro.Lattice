@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // submitted. It is checked before it permits success (decisions/mutation-commands.md).
 public sealed class UpdateBitmapTests
 {
-    [Fact(Skip = UpdateSchema.Pending)]
+    [Fact]
     public async Task A_large_bitmap_uses_multiple_reply_frames_and_keeps_every_bit_in_request_order()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
@@ -52,7 +52,7 @@ public sealed class UpdateBitmapTests
         Assert.Equal(1, body[^1]);
     }
 
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData("count")]
     [InlineData("same bitmap length")]
     [InlineData("padding")]

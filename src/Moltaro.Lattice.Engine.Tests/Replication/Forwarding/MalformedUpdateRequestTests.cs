@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
 public sealed class MalformedUpdateRequestTests
 {
-    [Theory(Skip = UpdateSchema.Pending)]
+    [Theory]
     [InlineData("unbounded count")]
     [InlineData("unknown target")]
     [InlineData("duplicate scalar")]

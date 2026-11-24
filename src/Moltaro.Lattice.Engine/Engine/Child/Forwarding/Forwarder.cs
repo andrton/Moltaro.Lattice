@@ -1,10 +1,12 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
@@ -118,6 +120,7 @@ internal sealed class Forwarder
         WriteKindEnum kind,
         EntityKey key,
         object?[]? values,
+        UpdateInput? update,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
         CancellationToken cancellationToken)
@@ -128,7 +131,8 @@ internal sealed class Forwarder
         try
         {
             sender = Begin(session, cancellationToken);
-            call = new ForwardedCall(Request(table, kind, key, values, expectedRevision, session?.MinPosition), table.EntityType);
+            call = new ForwardedCall(Request(table, kind, key, values, update, expectedRevision, session?.MinPosition),
+                table.EntityType, UpdateReplies.Of(update));
         }
         catch (Exception exception)
         {
@@ -150,7 +154,7 @@ internal sealed class Forwarder
         try
         {
             sender = Begin(session, cancellationToken);
-            call = new ForwardedCall(BatchRequest(members, session?.MinPosition), EntityTypesOf(members));
+            call = new ForwardedCall(BatchRequest(members, session?.MinPosition), EntityTypesOf(members), UpdateReplies.Of(members));
         }
         catch (Exception exception)
         {
@@ -225,11 +229,13 @@ internal sealed class Forwarder
             session?.Advance(result.Position);
         }
 
+        call.Updates?.Apply(reply.Bits);
         return result;
     }
 
     // The request of the write (see the class, step 2).
-    private static OutgoingMessage Request(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticePosition? minimumPosition)
+    private static OutgoingMessage Request(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values,
+        UpdateInput? update, LatticeRevision? expectedRevision, LatticePosition? minimumPosition)
     {
         var request = new OutgoingMessage();
         var layout = table.Layout;
@@ -237,7 +243,11 @@ internal sealed class Forwarder
         ForwardEncoding.WriteRequestHead(request, kind, (uint)table.EntityType.Id, expectedRevision, minimumPosition);
         table.Keys.WriteKey(key, request);
 
-        if (kind != WriteKindEnum.Delete)
+        if (update is not null)
+        {
+            WriteUpdate(request, layout.Structure, update);
+        }
+        else if (kind != WriteKindEnum.Delete)
         {
             var writer = new RootWriter(layout, ExportedValues.OfRoot(layout));
 
@@ -277,6 +287,12 @@ internal sealed class Forwarder
             ForwardEncoding.WriteMemberHead(request, member.Kind, typeId, member.ExpectedRevision);
             table.Keys.WriteKey(member.Key, request);
 
+            if (member.Update is { } update)
+            {
+                WriteUpdate(request, table.Layout.Structure, update);
+                continue;
+            }
+
             if (member.Kind == WriteKindEnum.Delete)
             {
                 continue;
@@ -294,6 +310,12 @@ internal sealed class Forwarder
         request.Complete();
 
         return request;
+    }
+
+    private static void WriteUpdate(OutgoingMessage request, StructureLayout layout, UpdateInput update)
+    {
+        ForwardEncoding.WriteRootLength(request, UpdateCommands.Length(layout, update.Commands));
+        UpdateCommands.Write(request, layout, update.Commands);
     }
 
     // The entity types of the members, in their order, in which a refusal of the batch names its unique index.

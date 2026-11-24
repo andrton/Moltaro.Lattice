@@ -35,7 +35,7 @@ public sealed class ReceivedCollectionTests
     [Fact]
     public void Collection_transfer_changes_the_wire_version_and_keeps_the_root_layout_version()
     {
-        Assert.Equal(6, Protocol.WireFormat);
+        Assert.Equal(7, Protocol.WireFormat);
         Assert.Equal(2u, RootLayout.Version);
     }
 

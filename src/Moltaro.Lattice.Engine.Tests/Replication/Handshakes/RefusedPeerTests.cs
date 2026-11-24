@@ -34,6 +34,7 @@ public sealed class RefusedPeerTests
         new("the wire format 3", "Format"),
         new("the wire format 4", "Format"),
         new TheoryDataRow<string, string>("the wire format 5", "Format"),
+        new("the wire format 6", "Format"),
         new("another layout format", "Format"),
         new("the layout version 1", "Format"),
         new("the byte order of a big-endian machine", "Format"),
@@ -82,6 +83,9 @@ public sealed class RefusedPeerTests
 
             // The format before Map and Set entries could travel.
             "the wire format 5" => child with { WireFormat = 5 },
+
+            // The format before partial updates.
+            "the wire format 6" => child with { WireFormat = 6 },
             "another layout format" => child with { LayoutFormat = child.LayoutFormat + 1 },
 
             // The layout version is bits 0 to 15 of the layout format. Version 1 is the form of a root

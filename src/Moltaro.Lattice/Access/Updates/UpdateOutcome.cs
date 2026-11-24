@@ -11,6 +11,8 @@ internal sealed class UpdateOutcome
 
     public void SetBits(byte[] bits) => _bits = bits;
 
+    public ReadOnlySpan<byte> PreparedBits => _bits;
+
     public bool Changed(int command)
     {
         if (Volatile.Read(ref _completion) is not { IsCompletedSuccessfully: true })
@@ -18,10 +20,14 @@ internal sealed class UpdateOutcome
             throw Unavailable();
         }
 
-        return (_bits![command / 8] & (1 << (command % 8))) != 0;
+        return HasBit(_bits!, command);
     }
 
-    public static byte[] BitsFor(int commands) => new byte[(commands / 8) + (commands % 8 == 0 ? 0 : 1)];
+    public static int BitmapLength(int commands) => (commands / 8) + (commands % 8 == 0 ? 0 : 1);
+
+    public static byte[] BitsFor(int commands) => new byte[BitmapLength(commands)];
+
+    public static bool HasBit(ReadOnlySpan<byte> bits, int command) => (bits[command / 8] & (1 << (command % 8))) != 0;
 
     public static void SetChanged(byte[] bits, int command) => bits[command / 8] |= (byte)(1 << (command % 8));
 

@@ -6,6 +6,7 @@ using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Entities;
@@ -68,6 +69,57 @@ internal static class RootValues
             }
 
             update.Commands[index] = command with { Target = target };
+        }
+    }
+
+    // Writes a complete entity or places a planned update into a new root of prepared blocks for the lifetime the handle names, with the
+    // bytes of the slots the writer allocated for it (Storage.Roots.RootWriter.SlotBytes). The null address,
+    // with the refusal, when the arena has no room for the entity; then, and after any failure, the
+    // writer has freed everything it allocated.
+    public static ArenaAddress Place(Arena arena, RootLayout layout, RootHandle handle, object?[]? values, out long size, out LatticeException? refusal,
+        RootUpdate? update = null)
+    {
+        var writer = new RootWriter(arena, layout, handle);
+
+        refusal = null;
+
+        try
+        {
+            if (update is null)
+            {
+                Write(ref writer, layout.EntityType, values!);
+            }
+            else
+            {
+                writer.PlaceUpdate(update);
+            }
+
+            var root = writer.Complete();
+
+            size = writer.SlotBytes;
+
+            return root;
+        }
+        catch (LatticeException refused) when (refused.Error == LatticeErrorEnum.WriteRejected)
+        {
+            // Only a Complete that failed refuses for the memory of the arena, and it freed everything;
+            // Abandon after it does nothing.
+            writer.Abandon();
+            refusal = refused;
+            size = 0;
+
+            return default;
+        }
+        catch
+        {
+            // After a failed Complete this does nothing; after a value the writer refused it frees
+            // what the writer allocated for the values before it. Through the public API the writer
+            // refuses no value: the core refuses text that is not well-formed and a value above the
+            // bound before the write gets here. What can reach this is an OutOfMemoryException of
+            // the native allocator at a Set… member, or a guard of the writer that the core does not
+            // match.
+            writer.Abandon();
+            throw;
         }
     }
 

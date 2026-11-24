@@ -183,6 +183,8 @@ internal sealed class WriteExecutor
         var members = write.Members!;
         var record = write.Record;
         var changes = record.BatchChanges(members.Length);
+        PreparedUpdates? updates = null;
+        record.Updates = null;
         var count = 0;
         var size = 0L;
 
@@ -209,12 +211,15 @@ internal sealed class WriteExecutor
                 if (member.Update is { } input)
                 {
                     var update = PlanUpdate(table, replaced, input, place);
+                    updates ??= new PreparedUpdates();
                     if (!update.Changed)
                     {
                         continue;
                     }
 
-                    var root = Encode(table, handle, values: null, out var updateSize, out _, update);
+                    var number = BatchMember.NumberOf(place, members.Length);
+                    updates.Add(number, _roots.Entry(handle).LastMutationSequence, table.Layout.Structure, update.Effects);
+                    var root = RootValues.Place(_arena, table.Layout, handle, values: null, out var updateSize, out _, update);
                     if (root.IsNull)
                     {
                         refusal = BatchRefusalForMemory();
@@ -223,7 +228,7 @@ internal sealed class WriteExecutor
 
                     changes[count++] = new PreparedChange(ChangeKindEnum.Replace, table, member.Key, handle, root, replaced)
                     {
-                        Member = BatchMember.NumberOf(place, members.Length),
+                        Member = number,
                     };
                     size += updateSize;
                     continue;
@@ -260,6 +265,16 @@ internal sealed class WriteExecutor
                 }
 
                 size += rootSize;
+            }
+
+            if (updates is not null)
+            {
+                if (write.Forwarded is not null)
+                {
+                    updates.SetReply(UpdateReplies.Of(members));
+                }
+
+                record.Updates = updates;
             }
 
             var reservation = _changes.TryReserve(changes[..count], checksUnique: true, out taken);
@@ -425,7 +440,7 @@ internal sealed class WriteExecutor
             var values = write.Values!;
 
             table.KeepStoredKey(handle, values);
-            root = Encode(table, handle, values, out size, out refusal);
+            root = RootValues.Place(_arena, table.Layout, handle, values, out size, out refusal);
         }
 
         return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
@@ -435,6 +450,13 @@ internal sealed class WriteExecutor
         ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
     {
         var update = PlanUpdate(write.Table, replaced, input);
+        var updates = new PreparedUpdates();
+        write.Record.Updates = updates;
+        if (write.Forwarded is not null)
+        {
+            updates.SetReply(UpdateReplies.Of(input));
+        }
+
         if (!update.Changed)
         {
             prepared = write.PrepareNoChange();
@@ -443,7 +465,8 @@ internal sealed class WriteExecutor
             return ReservationEnum.Reserved;
         }
 
-        var root = Encode(write.Table, handle, values: null, out var size, out refusal, update);
+        updates.Add(0, _roots.Entry(handle).LastMutationSequence, write.Table.Layout.Structure, update.Effects);
+        var root = RootValues.Place(_arena, write.Table.Layout, handle, values: null, out var size, out refusal, update);
         return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
     }
 
@@ -525,7 +548,7 @@ internal sealed class WriteExecutor
 
             root = write.Forwarded is { } forwarded
                 ? Place(table, handle, forwarded.Root, replaces: false, out size, out refusal)
-                : Encode(table, handle, write.Values!, out size, out refusal);
+                : RootValues.Place(_arena, table.Layout, handle, write.Values!, out size, out refusal);
 
             if (root.IsNull)
             {
@@ -557,57 +580,6 @@ internal sealed class WriteExecutor
 
                 _roots.Release(handle);
             }
-        }
-    }
-
-    // Writes the values into a new root of prepared blocks for the lifetime the handle names, with the
-    // bytes of the slots the writer allocated for it (Storage.Roots.RootWriter.SlotBytes). The null address,
-    // with the refusal, when the arena has no room for the entity; then, and after any failure, the
-    // writer has freed everything it allocated.
-    private ArenaAddress Encode(EntityTable table, RootHandle handle, object?[]? values, out long size, out LatticeException? refusal,
-        RootUpdate? update = null)
-    {
-        var writer = new RootWriter(_arena, table.Layout, handle);
-
-        refusal = null;
-
-        try
-        {
-            if (update is null)
-            {
-                RootValues.Write(ref writer, table.EntityType, values!);
-            }
-            else
-            {
-                writer.PlaceUpdate(update);
-            }
-
-            var root = writer.Complete();
-
-            size = writer.SlotBytes;
-
-            return root;
-        }
-        catch (LatticeException refused) when (refused.Error == LatticeErrorEnum.WriteRejected)
-        {
-            // Only a Complete that failed refuses for the memory of the arena, and it freed everything;
-            // Abandon after it does nothing.
-            writer.Abandon();
-            refusal = refused;
-            size = 0;
-
-            return default;
-        }
-        catch
-        {
-            // After a failed Complete this does nothing; after a value the writer refused it frees
-            // what the writer allocated for the values before it. Through the public API the writer
-            // refuses no value: the core refuses text that is not well-formed and a value above the
-            // bound before the write gets here. What can reach this is an OutOfMemoryException of
-            // the native allocator at a Set… member, or a guard of the writer that the core does not
-            // match.
-            writer.Abandon();
-            throw;
         }
     }
 
@@ -688,7 +660,7 @@ internal sealed class WriteExecutor
 
         table.KeepStoredKey(handle, values);
 
-        return Encode(table, handle, values, out size, out refusal);
+        return RootValues.Place(_arena, table.Layout, handle, values, out size, out refusal);
     }
 
     // The publication of one write (see the class), with the fault points of the tests, and its
@@ -723,7 +695,8 @@ internal sealed class WriteExecutor
         // takes the reply first (Delivery.RecordedReplies).
         if (write.Forwarded is { } forwarded)
         {
-            forwarded.Replies.Succeed(forwarded.CorrelationId, new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity));
+            forwarded.Replies.Succeed(forwarded.CorrelationId, new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity),
+                prepared.Updates?.Reply ?? default);
         }
 
         if (delivers)
@@ -743,7 +716,7 @@ internal sealed class WriteExecutor
         }
         else
         {
-            TransactionEncoder.Write(_delivery, sequence, prepared.Changes, _arena);
+            TransactionEncoder.Write(_delivery, sequence, prepared.Changes, _arena, prepared.Updates);
         }
     }
 

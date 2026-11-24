@@ -35,10 +35,13 @@ internal sealed class EditedCollection
 
     public int Count => _list?.Count ?? _association!.Count;
 
-    public bool Edit(in UpdateCommand command, LatticeEntityType entityType, StructureLayout element)
+    public bool Edit(in UpdateCommand command, LatticeEntityType entityType, StructureLayout element, out ResolvedCommand resolved)
     {
         if (_list is { } list)
         {
+            resolved = command.Kind == UpdateCommandKindEnum.ListAppend
+                ? new ResolvedCommand(command with { Kind = UpdateCommandKindEnum.ListInsert, Position = list.Count })
+                : new ResolvedCommand(command);
             if (!list.Apply(command))
             {
                 throw RootUpdate.TargetMissing(entityType, command.Name, $"has no List position {command.Position} for {command.Kind}.");
@@ -46,7 +49,7 @@ internal sealed class EditedCollection
         }
         else
         {
-            if (!_association!.Apply(command))
+            if (!_association!.Apply(command, out resolved))
             {
                 return false;
             }

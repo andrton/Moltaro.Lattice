@@ -6,8 +6,10 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
+using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Roots.Edits;
 
 namespace Moltaro.Lattice.Engine.Child.Loading;
 
@@ -104,6 +106,8 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // yet and ends the following of one that is (Following.Follower).
 internal sealed class ReceivedChanges
 {
+    private readonly Arena _arena;
+
     private readonly RootTable _roots;
 
     private readonly RetiredMemory _retired;
@@ -123,7 +127,7 @@ internal sealed class ReceivedChanges
 
     private readonly BlockImport _import;
 
-    // Faults the instance, after the lock, when a publication failed between its stores.
+    // Faults the instance after the lock when a live transaction diverges or publication fails.
     private readonly Action _fault;
 
     // The changes prepared and not published yet, in the order they were received: not reserved while the
@@ -144,9 +148,11 @@ internal sealed class ReceivedChanges
 
     public long SkippedStates { get; private set; }
 
-    // Whether a publication failed between its stores, so that the instance is faulted after the lock (see
-    // the class); it stays so.
-    private bool _publicationFailed;
+    // Set after a checked live divergence or a failure during publication. The
+    // instance faults once the holder leaves the writing lock.
+    private bool _needsFault;
+
+    private MissingUpdateTargets? _missingUpdates;
 
     // Whether a change received is checked against the unique indexes: from the position the child becomes
     // ready at on (see the class, "Unique indexes").
@@ -164,6 +170,7 @@ internal sealed class ReceivedChanges
         CloseBarrier barrier,
         Action fault)
     {
+        _arena = arena;
         _roots = roots;
         _retired = retired;
         _clock = clock;
@@ -209,7 +216,7 @@ internal sealed class ReceivedChanges
         catch
         {
             // After the lock, which TryPlace takes and leaves: the reads were marked faulted under it.
-            if (_publicationFailed)
+            if (_needsFault)
             {
                 _fault();
             }
@@ -235,6 +242,13 @@ internal sealed class ReceivedChanges
         {
             lock (_writes)
             {
+                if (_missingUpdates is { Count: > 0 } missing)
+                {
+                    throw Protocol.Invalid($"The child reached readiness with {missing.Count} missing update targets without a Delete.");
+                }
+
+                _missingUpdates = null;
+
                 foreach (var table in _tables.InSchemaOrder)
                 {
                     foreach (var index in table.Indexes)
@@ -252,6 +266,15 @@ internal sealed class ReceivedChanges
         finally
         {
             _barrier.Exit();
+        }
+    }
+
+    // An unsuccessful load has no follower left to use the catch-up buffer.
+    public void DropMissingUpdates()
+    {
+        lock (_writes)
+        {
+            _missingUpdates = null;
         }
     }
 
@@ -324,7 +347,7 @@ internal sealed class ReceivedChanges
         catch
         {
             // After the lock, which TryApply takes and leaves: the reads were marked faulted under it.
-            if (_publicationFailed)
+            if (_needsFault)
             {
                 _fault();
             }
@@ -379,12 +402,13 @@ internal sealed class ReceivedChanges
         lock (_writes)
         {
             var reader = new SequenceReader<byte>(effects);
+            string? divergence = null;
 
             try
             {
                 while (!reader.End)
                 {
-                    if (!TryPrepareEffect(ref reader, sequence))
+                    if (!TryPrepareEffect(ref reader, sequence, ref divergence))
                     {
                         GiveBack();
 
@@ -392,6 +416,16 @@ internal sealed class ReceivedChanges
                     }
                 }
 
+                if (divergence is not null)
+                {
+                    // The whole body was valid. A malformed suffix would have
+                    // left through the protocol path before faulting the node.
+                    _needsFault = true;
+                    _epochs.Fault();
+                    throw new LatticeException(LatticeErrorEnum.Unavailable, divergence);
+                }
+
+                _missingUpdates?.Reserve();
                 if (!TryReserve())
                 {
                     GiveBack();
@@ -419,7 +453,7 @@ internal sealed class ReceivedChanges
     // Prepares the next effect of the transaction (Replication.Transactions.TransactionFormat): false when
     // the arena refused it. Each effect is of an entity type the engine stores, and the root of a Write
     // carries the sequence of its transaction as its last mutation, which is the stamp of its publication.
-    private bool TryPrepareEffect(ref SequenceReader<byte> reader, ulong sequence)
+    private bool TryPrepareEffect(ref SequenceReader<byte> reader, ulong sequence, ref string? divergence)
     {
         switch (TransactionFormat.ReadEffect(ref reader, sequence, out var typeId, out var lastMutation, out var member, out var root))
         {
@@ -431,13 +465,16 @@ internal sealed class ReceivedChanges
                     throw Protocol.Invalid($"A Write of the transaction {sequence} carries a root of {written.EntityType.Name} whose last mutation is {lastMutation}.");
                 }
 
-                return TryPrepareWrite(written, sequence, member, ref root);
+                return TryPrepareWrite(written, sequence, member, ref root, validateOnly: divergence is not null);
+
+            case EffectKindEnum.Update:
+                return TryPrepareUpdate(TableOf(typeId, sequence), sequence, lastMutation, member, ref root, ref divergence);
 
             case EffectKindEnum.Delete:
                 var deleted = TableOf(typeId, sequence);
                 var key = deleted.Keys.ReadKey(ref reader);
 
-                return TryPrepareDelete(deleted, key, sequence);
+                return TryPrepareDelete(deleted, key, sequence, validateOnly: divergence is not null);
 
             default:
                 // An Unchanged changes no entity.
@@ -457,13 +494,18 @@ internal sealed class ReceivedChanges
     // false when the arena refused its root, with nothing of it taken. ValidationFailed for a root that is
     // not valid and for a key an earlier effect of the same transaction names, prepared or skipped. The
     // changes prepared since the last Publish are the caller's to give back.
-    private bool TryPrepareWrite(EntityTable table, ulong lastMutation, uint member, ref SequenceReader<byte> rest)
+    private bool TryPrepareWrite(EntityTable table, ulong lastMutation, uint member, ref SequenceReader<byte> rest, bool validateOnly = false)
     {
         var layout = table.Layout;
         var received = _import.Check(ref rest, layout);
         var key = KeyOf(table, received);
 
         NameOnce(table, key);
+        if (validateOnly)
+        {
+            _import.CheckSkippedCollections(received);
+            return true;
+        }
 
         var held = table.TryFind(key, out var handle, out var replaced);
 
@@ -509,13 +551,85 @@ internal sealed class ReceivedChanges
         return true;
     }
 
+    private bool TryPrepareUpdate(EntityTable table, ulong sequence, ulong predecessor, uint member,
+        ref SequenceReader<byte> body, ref string? divergence)
+    {
+        var key = table.Keys.ReadKey(ref body, limitsValue: true);
+        var commands = UpdateCommands.ReadEffect(table.Layout, ref body);
+        NameOnce(table, key);
+        if (divergence is not null)
+        {
+            return true;
+        }
+
+        var held = table.TryFind(key, out var handle, out var replaced);
+        var mutation = held ? _roots.Entry(handle).LastMutationSequence : 0;
+        if (!_checksUnique)
+        {
+            if (!held)
+            {
+                (_missingUpdates ??= new MissingUpdateTargets(_arena.MemoryLimit)).Add(table, key);
+                _skipped++;
+                return true;
+            }
+
+            if (mutation >= sequence)
+            {
+                _skipped++;
+                return true;
+            }
+        }
+
+        if (mutation != predecessor)
+        {
+            Diverge(ref divergence, $"An Update of {table.EntityType.Name} '{key}' at {sequence} requires predecessor {predecessor}, but this child holds {mutation}.");
+            return true;
+        }
+
+        RootUpdate plan;
+        try
+        {
+            plan = new RootUpdate(_arena, table.Layout, replaced, commands.AsSpan());
+        }
+        catch (LatticeException exception) when (exception.Error is LatticeErrorEnum.UpdateTargetMissing or LatticeErrorEnum.ValidationFailed)
+        {
+            Diverge(ref divergence, $"An Update of {table.EntityType.Name} '{key}' at {sequence} contradicts its predecessor. {exception.Message}");
+            return true;
+        }
+
+        _prepared.EnsureCapacity(_prepared.Count + 1);
+        var root = RootValues.Place(_arena, table.Layout, handle, values: null, out _, out _, plan);
+        if (root.IsNull)
+        {
+            return false;
+        }
+
+        _prepared.Add(new PreparedChange(ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
+        return true;
+    }
+
+    private void Diverge(ref string? divergence, string reason)
+    {
+        if (!_checksUnique)
+        {
+            throw Protocol.Invalid(reason);
+        }
+
+        divergence = reason;
+    }
+
     // Under the lock of the writes: prepares the delete of the key at the sequence by the rule (see the
     // class); nothing when the child does not hold the key, or holds a state not earlier than the delete.
     // ValidationFailed for a key an earlier effect of the same transaction names, prepared or skipped.
-    private bool TryPrepareDelete(EntityTable table, in EntityKey key, ulong sequence)
+    private bool TryPrepareDelete(EntityTable table, in EntityKey key, ulong sequence, bool validateOnly)
     {
         NameOnce(table, key);
+        if (validateOnly)
+        {
+            return true;
+        }
 
+        _missingUpdates?.Delete(table, key);
         if (!table.TryFind(key, out var handle, out var replaced) || _roots.Entry(handle).LastMutationSequence >= sequence)
         {
             _skipped++;
@@ -564,10 +678,11 @@ internal sealed class ReceivedChanges
 
             _publisher.PublishBeforePosition(changes, stamp);
             _publisher.PublishPositionAndAfter(changes, stamp, publishesPosition);
+            _missingUpdates?.Commit();
         }
         catch
         {
-            _publicationFailed = true;
+            _needsFault = true;
             _epochs.Fault();
             _publisher.OfferFaultSwitch();
             throw;
@@ -608,6 +723,7 @@ internal sealed class ReceivedChanges
         }
 
         _skipped = 0;
+        _missingUpdates?.EndAttempt();
     }
 
     // The key of a checked root, read where the root holds it and hashed under the seed of this instance.
