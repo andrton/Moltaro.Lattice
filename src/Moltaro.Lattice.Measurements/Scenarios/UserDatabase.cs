@@ -58,14 +58,14 @@ internal sealed class UserDatabase : IDisposable
     // or none.
     public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false, bool withoutIndexes = false, bool unique = false, EngineTestInputs? inputs = null)
     {
-        var scalar = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique)));
+        var json = FixtureVariants.WithClass(ReferenceFixture.ScalarSchemaJson(unique), "User", typeof(FixtureUser));
+        var scalar = LatticeSchema.Compile(json);
         var records = ReferenceFixture.Generate(scalar).ToList();
-        var json = WithUserClass(ReferenceFixture.ScalarSchemaJson(unique));
         var schema = dictionaryRegion || withoutIndexes
-            ? LatticeSchema.Compile(withoutIndexes ? WithoutUserIndexes(json) : WithDictionaryRegion(json))
+            ? LatticeSchema.Compile(withoutIndexes ? FixtureVariants.WithoutIndexes(json) : FixtureVariants.WithDictionaryRegion(json))
             : scalar;
         var copies = dictionaryRegion || withoutIndexes;
-        var users = records.Where(record => record.EntityType.Name == "User").Select(user => copies ? CopyInto(schema, user) : user).ToList();
+        var users = records.Where(record => record.EntityType.Name == "User").Select(user => copies ? FixtureVariants.CopyInto(schema, user) : user).ToList();
 
         var options = new LatticeDatabaseOptions
         {
@@ -100,15 +100,7 @@ internal sealed class UserDatabase : IDisposable
     // every run.
     public long[] Keys(ulong seed, int count)
     {
-        var random = new FixtureRandom(seed);
-        var keys = new long[count];
-
-        for (var index = 0; index < keys.Length; index++)
-        {
-            keys[index] = random.Below(_users.Count) + 1;
-        }
-
-        return keys;
+        return ReadSeries.Keys(seed, count, _users.Count);
     }
 
     // One replace of the next user with the values it has, for a writer on one thread.
@@ -184,62 +176,4 @@ internal sealed class UserDatabase : IDisposable
     public long IndexBytes => _database.Counters.PrimaryIndexBytes;
 
     public void Dispose() => _database.Dispose();
-
-    // The descriptor with Region of the users in Dictionary storage.
-    private static string WithDictionaryRegion(string json)
-    {
-        const string Region = "\"Name\": \"Region\", \"Type\": \"String\"";
-
-        if (!json.Contains(Region, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("The descriptor of the fixture does not declare Region as this scenario expects.");
-        }
-
-        return json.Replace(Region, $"{Region}, \"StringStorage\": \"Dictionary\"", StringComparison.Ordinal);
-    }
-
-    // The descriptor with User declaring no index: its three indexes, ByLogin, ByEmail and
-    // ByRegionAndLogin, taken out of the list, which stays, empty.
-    private static string WithoutUserIndexes(string json)
-    {
-        var first = json.IndexOf("{ \"Id\": 1, \"Name\": \"ByLogin\"", StringComparison.Ordinal);
-        var last = json.IndexOf("\"Name\": \"ByRegionAndLogin\"", StringComparison.Ordinal);
-        var open = first < 0 ? -1 : json.LastIndexOf('[', first);
-        var close = last < 0 ? -1 : json.IndexOf(']', json.IndexOf(']', last) + 1);
-
-        if (open < 0 || close < 0)
-        {
-            throw new InvalidOperationException("The descriptor of the fixture does not declare the indexes of User as this scenario expects.");
-        }
-
-        return string.Concat(json.AsSpan(0, open), "[]", json.AsSpan(close + 1));
-    }
-
-    // A user of the fixture as a record of the entity type User of the schema, field by field.
-    private static LatticeRecord CopyInto(LatticeSchema schema, LatticeRecord user)
-    {
-        schema.TryGetEntityType("User", out var entityType);
-
-        var copy = new LatticeRecord(entityType!);
-
-        foreach (var field in user.EntityType.Fields)
-        {
-            copy[field.Name] = user[field.Name];
-        }
-
-        return copy;
-    }
-
-    // The descriptor with the class FixtureUser named for the entity type User.
-    private static string WithUserClass(string json)
-    {
-        const string User = "\"Name\": \"User\",";
-
-        if (!json.Contains(User, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("The descriptor of the fixture does not name the entity type User as this scenario expects.");
-        }
-
-        return json.Replace(User, $"{User} \"ClrType\": \"{typeof(FixtureUser).FullName}\",", StringComparison.Ordinal);
-    }
 }
