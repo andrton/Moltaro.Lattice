@@ -103,11 +103,9 @@ internal readonly struct PrimaryKeys
         _ => sizeof(uint) + Encoding.UTF8.GetByteCount(key.Text!),
     };
 
-    // Writes the key into the output, KeyLength bytes (see KeyLength). The text of a String key may be as
-    // long as a String value may be, longer than one span of the output holds (the tail a master delivers
-    // from, Delivery.DeliveryTail, gives spans of at most one block), so it is encoded into the spans as the
-    // output gives them, each asked for room for one whole character; an integer, a Guid and the length of
-    // a text fit the span asked for.
+    // Writes the key into the output, KeyLength bytes. A lookup can use another
+    // spelling than the stored key, with a different encoded size. String keys
+    // are streamed into spans, each with room for one whole character.
     public void WriteKey(in EntityKey key, IBufferWriter<byte> output)
     {
         switch (KeyKind)
@@ -142,7 +140,9 @@ internal readonly struct PrimaryKeys
     // Reads a key that WriteKey wrote from the input, hashed under the seed of this instance, with the
     // input advanced past it. ValidationFailed for bytes that are not a key of this entity type: too few
     // of them, an integer outside the key type, text that is not well-formed UTF-8.
-    public EntityKey ReadKey(ref SequenceReader<byte> input, bool limitsValue = false)
+    // This reads a lookup argument. The value bound of a stored String applies
+    // where a root's contents are checked.
+    public EntityKey ReadKey(ref SequenceReader<byte> input)
     {
         switch (KeyKind)
         {
@@ -183,13 +183,6 @@ internal readonly struct PrimaryKeys
                     throw InvalidKey("the bytes do not hold the text they announce.");
                 }
 
-                var maxBytes = ValueBlocks.MostValueBytes;
-                var utf16 = _stringEncoding == LatticeStringEncodingEnum.Utf16;
-                if (limitsValue && length > (utf16 ? maxBytes / 2 * 3 : maxBytes))
-                {
-                    throw InvalidKey("the text exceeds the maximum size of a value.");
-                }
-
                 string text;
 
                 try
@@ -199,11 +192,6 @@ internal readonly struct PrimaryKeys
                 catch (DecoderFallbackException exception)
                 {
                     throw InvalidKey($"its text is not well-formed UTF-8 ({exception.Message})");
-                }
-
-                if (limitsValue && utf16 && text.Length > maxBytes / 2)
-                {
-                    throw InvalidKey("the decoded text exceeds the maximum size of a value.");
                 }
 
                 input.Advance(length);

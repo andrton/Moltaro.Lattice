@@ -3,12 +3,12 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The one walk over everything a root owns: the descriptors of its structure and, for each List of kind
-// Records, the descriptors of each of its records, in the block of records that holds them, recursively
-// (IStructureVisitor). It descends only into a List whose elements hold descriptors, and no deeper than the
-// schema allows a declaration to be, 32, so the recursion is bounded by the schema and not by the data. It
-// reads the blocks of a root and changes none; the visitor may free, publish or retire what a descriptor
-// names once the walk has passed it, since every descriptor beneath it was visited before it.
+// Walks the logical graph of a root: its descriptors, the entries descriptor
+// of each Lookup, and the descriptors of the records that Lists, Maps and Sets
+// hold. The schema bounds recursion to its declaration depth. A visitor can
+// decline an edge before descent, as the ownership walks do for aliases.
+// The walk reads payloads. On the way out a visitor can publish, retire or
+// free the blocks it owns because their descendants have been visited.
 //
 // A descriptor of kind Records whose location is 0 names no block, as an empty List does; a directory entry
 // still zero names no chunk; a record whose writer stopped before it is zero and holds only descriptors of
@@ -20,9 +20,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // the writes, or the protection of reads for a published root.
 internal static class StructureWalk
 {
-    // Walks the root at the address, written with the layout, calling the visitor for every descriptor it
-    // owns at every depth, children first (IStructureVisitor). The root is recognized as RootReader recognizes
-    // it, and refused with ArgumentException in the same cases, before anything is visited.
+    // Walks the root at the address using its layout. Each edge the visitor
+    // enters is visited after its children. The root is validated as in RootReader.
     //
     // Not inlined. Inlined, the walk brings its loop and its locals into every caller of the operations of a
     // root (RootStorage), the publication of every write among them, and grows the frames their prologs clear

@@ -15,6 +15,12 @@ internal static class SparseUpdatePayload
     public static void SetMember(byte[] effect, uint member) =>
         BinaryPrimitives.WriteUInt32LittleEndian(effect.AsSpan(MemberAt), member);
 
+    public static ReadOnlySpan<byte> StringKeyOf(byte[] effect)
+    {
+        var length = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(effect.AsSpan(KeyLengthAt)));
+        return effect.AsSpan(KeyLengthAt + sizeof(uint), length);
+    }
+
     public static byte[] WithStringKey(byte[] effect, ReadOnlySpan<byte> encodedKey)
     {
         var oldLength = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(effect.AsSpan(KeyLengthAt)));

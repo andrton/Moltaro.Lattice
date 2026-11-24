@@ -119,7 +119,7 @@ internal sealed class RequestReceiver
 
         var request = ForwardEncoding.ReadRequestHead(ref reader);
         var table = TableOf(request.TypeId);
-        var key = table.Keys.ReadKey(ref reader, limitsValue: request.Kind == WriteKindEnum.Update);
+        var key = table.Keys.ReadKey(ref reader);
         var update = UpdateOf(table, request.Kind, ref reader);
         var root = update is null ? RootOf(table, request, key, ref reader) : default;
 
@@ -143,7 +143,7 @@ internal sealed class RequestReceiver
         {
             var member = ForwardEncoding.ReadMemberHead(ref reader);
             var table = TableOf(member.TypeId);
-            var key = table.Keys.ReadKey(ref reader, limitsValue: member.Kind == WriteKindEnum.Update);
+            var key = table.Keys.ReadKey(ref reader);
             var update = UpdateOf(table, member.Kind, ref reader);
             var root = update is null ? RootOf(table, member, key, ref reader) : default;
             commands += update?.Commands.Length ?? 0;

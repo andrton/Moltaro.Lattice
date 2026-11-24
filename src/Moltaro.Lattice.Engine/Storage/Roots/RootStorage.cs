@@ -2,14 +2,12 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// Operations on one whole root in the arena, by the layout it was written with, and on one descriptor of a
-// root. What a descriptor holds outside the block that holds it is decided here by its kind, and only here:
-// a Block or a Chunked descriptor names blocks the root owns (Values.ValueBlocks), a Records descriptor names
-// the block or the directory of the records of a List, which the root owns as well, a Text descriptor holds
-// one reference to an entry of the text table (Text.TextTable), and an Inline or a Null descriptor holds
-// nothing outside the block. An operation of a root walks every descriptor it owns at every depth, those of
-// the records of its Lists included, children first (StructureWalk), and applies the operation of one
-// descriptor to each.
+// Operations on a root's physical ownership (docs/design/arena-protocol.md).
+// Block, Chunked, Records and Lookup descriptors name arena edges. A descriptor
+// may reach a shared subtree whose current owner is another holder and offset.
+// The ownership visitors distinguish those aliases before walking children.
+// A Text descriptor holds one reference to a text table entry, while Inline
+// and Null descriptors hold nothing outside their block.
 internal static class RootStorage
 {
     // Frees a root written with the layout: the root block and every block it owns, the value
@@ -39,11 +37,11 @@ internal static class RootStorage
         arena.Free(root);
     }
 
-    // Publishes a root that a writer wrote, in prepared blocks: the root block and every block
-    // it owns become live (Arena.Publish), when the write of the root is published, and so does the
-    // entry of a Dictionary text that is still prepared because this root is the first published one
-    // to refer to it (Text.TextTable.Publish). It changes no byte and allocates nothing. The root is
-    // recognized as Free recognizes it, and refused in the same cases before anything is published.
+    // Publishes the new prepared blocks and any prepared Dictionary text they
+    // reference, then publishes the root block. A borrowed subtree is already
+    // live. Its backlink moves to the new holder before the root is installed,
+    // without descending into its children. Publication changes no payload
+    // bytes and allocates nothing.
     public static void Publish(Arena arena, RootLayout layout, ArenaAddress root)
     {
         var publishing = new Publishing();
@@ -52,12 +50,11 @@ internal static class RootStorage
         arena.Publish(root);
     }
 
-    // Retires a published root that a write replaced or deleted: the root block and every block it
-    // owns become retired (Arena.Retire), so that the reads that reached it before go on reading one
-    // whole state, and its bytes leave the live counters. The entry of a Dictionary text is not retired:
-    // it stays live, and the retired root keeps its reference until Free frees it. It changes no byte
-    // and allocates nothing. The root is recognized as Free recognizes it, and refused in the same
-    // cases before anything is retired. Free frees it later, once no read can reach it.
+    // Retires the old root and the blocks it still owns. An earlier reader can
+    // still follow its full graph, including aliases of transferred subtrees.
+    // A Dictionary text entry stays live while a physical Text descriptor
+    // holds its reference. The retire walk leaves payloads intact and takes
+    // no allocation. Free follows the same ownership rule after the readers drain.
     //
     // Returns the bytes of the slots of the text entries that the Text descriptors of the root name:
     // each as a value of its length out of line takes them (ValueBlocks.SlotBytesOf), whether or not

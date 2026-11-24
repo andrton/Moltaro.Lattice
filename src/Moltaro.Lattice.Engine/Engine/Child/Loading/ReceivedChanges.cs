@@ -554,7 +554,7 @@ internal sealed class ReceivedChanges
     private bool TryPrepareUpdate(EntityTable table, ulong sequence, ulong predecessor, uint member,
         ref SequenceReader<byte> body, ref string? divergence)
     {
-        var key = table.Keys.ReadKey(ref body, limitsValue: true);
+        var key = table.Keys.ReadKey(ref body);
         var commands = UpdateCommands.ReadEffect(table.Layout, ref body);
         NameOnce(table, key);
         if (divergence is not null)

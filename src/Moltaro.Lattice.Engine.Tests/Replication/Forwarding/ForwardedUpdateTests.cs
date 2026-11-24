@@ -238,6 +238,75 @@ public sealed class ForwardedUpdateTests
         await closing.WaitAsync(Bound);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_update_through_an_equivalent_lookup_key_keeps_the_stored_spelling(bool inBatch)
+    {
+        const string Stored = "sun";
+        const string Lookup = "\u017Fun";
+        const string Absent = "\u017Fet";
+
+        await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema);
+        var items = master.Set<UpdateItem>();
+        await items.InsertAsync(UpdateSchema.Item(Stored));
+        Assert.True(items.TryGet(Lookup, out _, out var revision));
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var previous = master.Position;
+
+        foreach (var node in new[] { master, child })
+        {
+            var missing = await Assert.ThrowsAsync<LatticeException>(() => SubmitAsync(node, Absent, null).AsTask());
+            Assert.Equal(LatticeErrorEnum.NotFound, missing.Error);
+            Assert.Equal(inBatch ? 0 : (int?)null, missing.OperationIndex);
+
+            var conditional = await Assert.ThrowsAsync<LatticeException>(() => SubmitAsync(node, Absent, revision).AsTask());
+            Assert.Equal(LatticeErrorEnum.RevisionConflict, conditional.Error);
+            Assert.Equal(inBatch ? 0 : (int?)null, conditional.OperationIndex);
+            Assert.Equal(previous, node.Position);
+        }
+
+        var result = await SubmitAsync(child, Lookup, revision);
+        Assert.True(result.Changed);
+        Assert.Equal(result.Position, child.Position);
+        Assert.Equal(result.Position, master.Position);
+        foreach (var node in new[] { master, child })
+        {
+            var saved = node.Set<UpdateItem>().Get(Lookup)!;
+            Assert.Equal(Stored, saved.Id);
+            Assert.Equal("updated", saved.Label);
+            Assert.Equal(inBatch, node.Set("Item").Get("grace") is not null);
+        }
+
+        var transaction = TransactionPayload.SingleFrameAt(relay, result.Position);
+        var keyBytes = SparseUpdatePayload.StringKeyOf(TransactionPayload.EffectsOf(transaction));
+        Assert.Equal("\u017Fun"u8.ToArray(), keyBytes.ToArray());
+
+        ValueTask<LatticeWriteResult> SubmitAsync(EngineDatabase node, string key, LatticeRevision? expected)
+        {
+            var update = inBatch ? node.Set("Item").CreateUpdate(key) : node.Set<UpdateItem>().CreateUpdate(key);
+            update.Assign("Label", "updated");
+            if (!inBatch)
+            {
+                return expected is { } condition ? update.CommitAsync(condition) : update.CommitAsync();
+            }
+
+            var batch = node.CreateWriteBatch();
+            if (expected is { } memberCondition)
+            {
+                batch.Update(update, memberCondition);
+            }
+            else
+            {
+                batch.Update(update);
+            }
+
+            batch.Insert(UpdateSchema.Item("grace"));
+            return batch.CommitAsync();
+        }
+    }
+
     private static LatticeCommandResult SetOption(LatticeUpdate update, bool byClass, LatticeOwnedType homeType, string key, string city, byte[] data) =>
         byClass
             ? update.MapSet("Options", key, new UpdateHome { City = city, Data = data })
