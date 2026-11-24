@@ -9,8 +9,9 @@ namespace Moltaro.Lattice.Storage.Values;
 // allocation"). A place is at least as long as the rest of a split record, since a record fits one chunk and
 // the value is a whole number of records.
 //
-// The record of scratch has the stride of the records and belongs to the caller. As a ref struct the source
-// lives on the stack of the write that places the List.
+// The record of scratch has the stride of the records and belongs to the caller; a List that does not lie in
+// chunks fills one place with all its records and needs none, so it may be empty then. As a ref struct the
+// source lives on the stack of the write that places the List.
 //
 // A source of its own rather than a mode of ValueSource: as a mode, its fields grew ValueSource, and with it
 // the frame of RootWriter.SetString, which holds two of them, from 240 to 320 bytes, all cleared on every

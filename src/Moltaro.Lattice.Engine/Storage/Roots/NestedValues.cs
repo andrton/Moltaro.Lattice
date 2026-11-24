@@ -206,7 +206,9 @@ internal static class NestedValues
         }
     }
 
-    // A packed List: the records of its elements, as the bytes of a Binary value are placed.
+    // A packed List: the records of its elements, placed as the bytes of a Binary value are (ValueHolder). Only
+    // the boundary of a chunk divides a record: inline and in one block, one place holds the whole List. So only
+    // a List that lies in chunks takes a record of scratch.
     private static void PlacePacked(ref ValueHolder holder, in StoredField place, StructureLayout element, PackedElements packed, int offset, object list)
     {
         var count = packed.Count(list);
@@ -218,11 +220,11 @@ internal static class NestedValues
 
         var length = count * packed.Stride;
 
-        if (length <= ValueBlocks.InlineLimit && holder.InlineEnd + length <= holder.End && !holder.Refused)
+        if (length <= ValueBlocks.SingleBlockLimit)
         {
-            packed.Write(list, 0, holder.At(holder.InlineEnd, length));
-            ValueBlocks.Write(holder.At(offset, ValueBlocks.DescriptorSize), new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)holder.InlineEnd });
-            holder.InlineEnd += length;
+            var whole = new PackedSource(packed, list, default);
+
+            holder.PlaceBytes(place, offset, length, ref whole);
 
             return;
         }
