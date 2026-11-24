@@ -46,10 +46,19 @@ internal static class NestedValues
     {
         ref readonly var place = ref layout.Place(position);
 
-        if (place.IsNullable)
+        if (place.Type is StoredTypeEnum.Map or StoredTypeEnum.Set)
         {
-            holder.At(at + layout.Start + (place.NullBit / 8), 1)[0] &= (byte)~(1 << (place.NullBit % 8));
+            // A refusal leaves a nullable field absent, so the writer can still complete.
+            PlaceCollection(ref holder, place, layout.ElementOf(position), at + place.Offset, value);
+            if (!holder.Refused)
+            {
+                MarkPresent(ref holder, layout, at, place);
+            }
+
+            return;
         }
+
+        MarkPresent(ref holder, layout, at, place);
 
         switch (place.Type)
         {
@@ -80,13 +89,18 @@ internal static class NestedValues
             case StoredTypeEnum.List:
                 PlaceList(ref holder, place, layout.ElementOf(position), at + place.Offset, value);
                 break;
-            case StoredTypeEnum.Map or StoredTypeEnum.Set:
-                PlaceCollection(ref holder, place, layout.ElementOf(position), at + place.Offset, value);
-                break;
 
             default:
                 StoredScalars.WriteBoxed(holder.At(at + place.Offset, place.Width), value);
                 break;
+        }
+    }
+
+    private static void MarkPresent(ref ValueHolder holder, StructureLayout layout, int at, in StoredField place)
+    {
+        if (place.IsNullable)
+        {
+            holder.At(at + layout.Start + (place.NullBit / 8), 1)[0] &= (byte)~(1 << (place.NullBit % 8));
         }
     }
 

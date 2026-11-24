@@ -68,4 +68,44 @@ public sealed class CompactCollectionValidationTests
         Assert.Equal(0, item.Arena.Counters.PreparedBytes);
         Assert.Equal(0, item.Arena.Counters.LiveBytes);
     }
+
+    [Theory(Skip = SkipReason.MapsAndSets)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Nullable_collection_remains_null_when_its_write_is_refused_and_the_root_completes(bool map)
+    {
+        using var item = RootArena.Of(map
+            ? "{ 'Id': 2, 'Name': 'Values', 'Type': 'Map', 'Nullable': true, 'Key': { 'Type': 'String', 'Comparison': 'OrdinalIgnoreCase' }, 'Value': { 'Type': 'Int32' } }"
+            : "{ 'Id': 2, 'Name': 'Values', 'Type': 'Set', 'Nullable': true, 'Element': { 'Type': 'String', 'Comparison': 'OrdinalIgnoreCase' } }");
+        var values = item.Field("Values");
+        var writer = item.Writer();
+        writer.SetInteger(item.Field("Id"), 1);
+
+        try
+        {
+            if (map)
+            {
+                writer.SetMap(values, new Dictionary<string, int>(StringComparer.Ordinal) { ["a"] = 1, ["A"] = 2 });
+            }
+            else
+            {
+                writer.SetSet(values, new HashSet<string>(StringComparer.Ordinal) { "a", "A" });
+            }
+
+            Assert.Fail("The collection accepted two equal entries.");
+        }
+        catch (LatticeException error)
+        {
+            Assert.Equal(LatticeErrorEnum.ValidationFailed, error.Error);
+        }
+
+        Assert.Equal(0, writer.SlotBytes);
+        Assert.Equal(0, item.Arena.Counters.PreparedBytes);
+        var root = writer.Complete();
+        var reader = item.Reader(root);
+        Assert.True(reader.IsNull(values));
+        Assert.Null(reader.GetNested(values));
+        RootStorage.Free(item.Arena, item.Layout, root);
+        Assert.Equal(0, item.Arena.Counters.PreparedBytes);
+    }
 }
