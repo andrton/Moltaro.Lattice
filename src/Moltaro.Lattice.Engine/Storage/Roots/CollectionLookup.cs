@@ -76,7 +76,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
             ? ValueBlocks.DescriptorSize + chunks * sizeof(ulong)
             : SlotPayload(ValueBlocks.DescriptorSize + wanted * SlotBytes);
 
-        if (!Allocate(ref holder, length, BlockKindEnum.Lookup, holder.Address, offset, out var address))
+        if (!holder.TryAllocate(length, BlockKindEnum.Lookup, holder.Address, offset, out var address))
         {
             return false;
         }
@@ -97,7 +97,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
             {
                 var slots = Math.Min(wanted - chunk * SlotsPerChunk, SlotsPerChunk);
                 var bytes = SlotPayload(slots * SlotBytes);
-                if (!Allocate(ref holder, bytes, BlockKindEnum.Chunk, address, FirstChunkOffset + chunk * sizeof(ulong), out var block))
+                if (!holder.TryAllocate(bytes, BlockKindEnum.Chunk, address, FirstChunkOffset + chunk * sizeof(ulong), out var block))
                 {
                     return false;
                 }
@@ -112,17 +112,6 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     }
 
     private static int SlotPayload(int bytes) => Arena.BlockSizeFor(bytes) - BlockHeader.Size;
-
-    private static bool Allocate(ref ValueHolder holder, int length, BlockKindEnum kind, ArenaAddress parent, int offset, out ArenaAddress address)
-    {
-        if (!ValueBlocks.TryAllocate(holder.Arena, length, kind, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out address))
-        {
-            return false;
-        }
-
-        holder.SlotBytes += Arena.BlockSizeFor(length);
-        return true;
-    }
 
     public ref ulong Slot(int index)
     {

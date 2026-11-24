@@ -86,6 +86,19 @@ internal ref struct ValueHolder
     // The bytes of the block at the offset given, header counted, for the length given.
     public readonly Span<byte> At(int offset, int length) => Bytes.Slice(offset - Origin, length);
 
+    // Takes a prepared block for this root and accounts for its whole slot. The caller makes
+    // the initialized block reachable through its parent descriptor or chunk address.
+    public bool TryAllocate(int length, BlockKindEnum kind, ArenaAddress parent, int offset, out ArenaAddress address)
+    {
+        if (!ValueBlocks.TryAllocate(Arena, length, kind, Root, Layout.LayoutVersion, parent, (uint)offset, out address))
+        {
+            return false;
+        }
+
+        SlotBytes += Arena.BlockSizeFor(length);
+        return true;
+    }
+
     // Places a text of the place, its descriptor at the offset given (see the type). The whole text is checked
     // before anything is placed: a lone surrogate at its end must not be found after its first chunks were
     // allocated. Checking, counting and, in a UTF-8 database, encoding are three passes over the text, kept

@@ -5,7 +5,7 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Storage.Roots;
 
 // The two members of a packed Map entry are written by the same layout as the fields of a root.
-// The key and value are already in the record forms accepted by their declarations.
+// The record forms box fixed-width keys and values as they enter or leave the dictionary.
 internal sealed class PackedMap : PackedCollection
 {
     private readonly StructureLayout _entry;

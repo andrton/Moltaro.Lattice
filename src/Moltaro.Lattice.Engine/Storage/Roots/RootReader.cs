@@ -275,8 +275,7 @@ internal readonly ref struct RootReader
         }
     }
 
-    // The payload of the root, after checking that the value of the field, which may be an owned value with
-    // no bytes of its own, is not null.
+    // The bytes of the field at its fixed place, after checking its null bit.
     private ReadOnlySpan<byte> NotNull(in StoredField stored)
     {
         if (HoldsNull(stored))

@@ -247,14 +247,21 @@ internal static class RootValues
     {
         foreach (var field in entityType.FieldsByOrdinal)
         {
-            values[field.Ordinal] = reader.IsNull(field) ? null : Value(field, reader);
+            var type = field.Declaration.ScalarType;
+            if (type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set)
+            {
+                values[field.Ordinal] = reader.GetNested(field);
+                continue;
+            }
+
+            values[field.Ordinal] = reader.IsNull(field) ? null : ScalarValue(field, type, reader);
         }
     }
 
-    // The value of a field that is not null, boxed in the exact type a record holds for it.
-    private static object Value(LatticeField field, in RootReader reader)
+    // The value of a scalar field that is not null, boxed in the exact type a record holds for it.
+    private static object ScalarValue(LatticeField field, LatticeFieldTypeEnum type, in RootReader reader)
     {
-        switch (field.Declaration.ScalarType)
+        switch (type)
         {
             case LatticeFieldTypeEnum.Boolean:
                 return reader.GetBoolean(field);
@@ -294,8 +301,6 @@ internal static class RootValues
                 return reader.GetString(field);
             case LatticeFieldTypeEnum.Binary:
                 return reader.GetBinary(field);
-            case LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set:
-                return reader.GetNested(field)!;
             default:
                 throw new UnreachableException($"The field {field.Name} is {field.Declaration.Type}, which the engine does not store.");
         }

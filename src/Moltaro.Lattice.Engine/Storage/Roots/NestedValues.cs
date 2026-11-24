@@ -370,21 +370,26 @@ internal static class NestedValues
         }
 
         var compact = count <= CollectionLookup.MostCompactEntries;
-        if (compact || holder.Exported is not null)
+        if (holder.Exported is not null)
         {
             PlaceCollectionEntries(ref holder, place, element, offset, value, count, allowInline: compact);
-            if (!holder.Refused && holder.Exported is null)
-            {
-                CheckUnique(holder, place, element, offset);
-            }
-
             return;
         }
 
         var before = holder.SlotBytes;
+        var inline = holder.InlineEnd;
         try
         {
-            if (CollectionLookup.TryPrepare(ref holder, offset, count, out var entries))
+            if (compact)
+            {
+                PlaceCollectionEntries(ref holder, place, element, offset, value, count, allowInline: true);
+                if (!holder.Refused)
+                {
+                    CheckUnique(holder, place, element, offset);
+                    return;
+                }
+            }
+            else if (CollectionLookup.TryPrepare(ref holder, offset, count, out var entries))
             {
                 PlaceCollectionEntries(ref entries, place, element, CollectionLookup.EntriesOffset, value, count, allowInline: false);
                 if (!entries.Refused)
@@ -397,11 +402,11 @@ internal static class NestedValues
         }
         catch
         {
-            DiscardLookup(ref holder, element, offset, before);
+            DiscardCollection(ref holder, element, offset, before, inline);
             throw;
         }
 
-        DiscardLookup(ref holder, element, offset, before);
+        DiscardCollection(ref holder, element, offset, before, inline);
         holder.Refused = true;
     }
 
@@ -452,18 +457,16 @@ internal static class NestedValues
     public static LatticeException Duplicate(in StoredField place, StructureLayout element, int ordinal) =>
         new(LatticeErrorEnum.ValidationFailed, $"The {element.Collection!.Type} {place.Field.Name} holds an equal entry more than once, at entry {ordinal + 1}.");
 
-    // Clear the outer descriptor after unwinding so that the root's later unwind cannot see it.
-    public static void DiscardLookup(ref ValueHolder holder, StructureLayout element, int offset, long before)
+    // Give back only this field and release its inline space. The writer may set the same field
+    // again, or abandon the root. Neither path should reach what this attempt owned.
+    public static void DiscardCollection(ref ValueHolder holder, StructureLayout element, int offset, long before, int inline)
     {
         var bytes = holder.At(offset, ValueBlocks.DescriptorSize);
         var descriptor = ValueBlocks.Read(bytes);
-        if (descriptor.Kind == DescriptorKindEnum.Lookup)
-        {
-            RootStorage.FreeValue(holder.Arena, descriptor, element);
-            bytes.Clear();
-        }
-
+        RootStorage.FreeValue(holder.Arena, descriptor, element);
+        bytes.Clear();
         holder.SlotBytes = before;
+        holder.InlineEnd = inline;
     }
 
     // Packed records use the Binary placement. Only the boundary of a chunk divides a record,
@@ -505,7 +508,7 @@ internal static class NestedValues
 
         if (count <= perChunk)
         {
-            if (!TryAllocate(ref holder, source.BlockLength(element, 0, count), BlockKindEnum.Value, holder.Address, offset, out var block))
+            if (!holder.TryAllocate(source.BlockLength(element, 0, count), BlockKindEnum.Value, holder.Address, offset, out var block))
             {
                 return false;
             }
@@ -518,7 +521,7 @@ internal static class NestedValues
 
         var chunks = (count + perChunk - 1) / perChunk;
 
-        if (!TryAllocate(ref holder, chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Address, offset, out var directory))
+        if (!holder.TryAllocate(chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Address, offset, out var directory))
         {
             return false;
         }
@@ -536,7 +539,7 @@ internal static class NestedValues
             var records = Math.Min(perChunk, count - first);
             var length = source.BlockLength(element, first, records);
 
-            if (!TryAllocate(ref holder, length, BlockKindEnum.Chunk, directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), out var block))
+            if (!holder.TryAllocate(length, BlockKindEnum.Chunk, directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), out var block))
             {
                 return false;
             }
@@ -548,19 +551,6 @@ internal static class NestedValues
                 return false;
             }
         }
-
-        return true;
-    }
-
-    // A prepared block of a List of records, of the root of the holder, counted in the holder.
-    private static bool TryAllocate(ref ValueHolder holder, int length, BlockKindEnum kind, ArenaAddress parent, int offset, out ArenaAddress block)
-    {
-        if (!ValueBlocks.TryAllocate(holder.Arena, length, kind, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out block))
-        {
-            return false;
-        }
-
-        holder.SlotBytes += Arena.BlockSizeFor(length);
 
         return true;
     }
