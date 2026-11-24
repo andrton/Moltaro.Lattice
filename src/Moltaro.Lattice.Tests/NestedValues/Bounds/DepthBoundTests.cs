@@ -27,7 +27,7 @@ public sealed class DepthBoundTests
 
     private static readonly LatticeSchema Utf16Dictionary = SchemaOf("Utf16", "Dictionary");
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task String_and_Binary_above_their_bound_in_an_owned_value_are_ValidationFailed_with_their_place_named()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
@@ -52,7 +52,7 @@ public sealed class DepthBoundTests
         Assert.Null(byName.Get("above"));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task String_and_Binary_above_their_bound_as_an_element_of_a_List_are_ValidationFailed_with_their_place_named()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
@@ -74,7 +74,7 @@ public sealed class DepthBoundTests
         Assert.Null(byName.Get("above"));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task In_a_UTF16_schema_with_Dictionary_storage_134086688_characters_at_depth_pass_the_validation_and_one_more_is_ValidationFailed()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Utf16Dictionary);
@@ -89,7 +89,7 @@ public sealed class DepthBoundTests
         await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => byClass.ReplaceAsync(new Note { Code = "absent", Captions = [new string('a', Characters)] }));
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task String_and_Binary_of_exactly_their_bound_at_depth_pass_the_validation()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);

@@ -45,11 +45,13 @@ public enum LatticeFieldTypeEnum : byte
     /// <summary><see cref="string"/>.</summary>
     /// <remarks>
     /// One value takes at most 268,173,376 bytes of its stored encoding, the encoding the schema
-    /// declares in <see cref="LatticeSchema.StringEncoding"/>. A write of a larger value, and
-    /// adding an entity with one to a write batch, is refused with
-    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with the field named, as every other
-    /// validation of an entity: before the conditions of the write are looked at and before a
-    /// write is refused as not implemented. The bound is a fixed rule of the storage format,
+    /// declares in <see cref="LatticeSchema.StringEncoding"/>, at every depth: the bound holds for
+    /// each such value, a field of the entity, a field of an owned value and an element of a List,
+    /// not only for a field of the entity. A write of a larger value, and adding an entity with one
+    /// to a write batch, is refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its
+    /// place named, as every other validation of an entity names one: the field of the entity or of
+    /// the owned type that declares it, and for an element the field that holds the List; before the
+    /// conditions of the write are looked at and before a write is refused as not implemented. The bound is a fixed rule of the storage format,
     /// the same on every node and not an option; an entity itself has no size limit, only the
     /// memory of the instance bounds it.
     /// </remarks>
@@ -72,11 +74,12 @@ public enum LatticeFieldTypeEnum : byte
 
     /// <summary>An array of <see cref="byte"/>.</summary>
     /// <remarks>
-    /// One value takes at most 268,173,376 bytes. A write of a larger value, and adding an
-    /// entity with one to a write batch, is refused with
-    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with the field named, as every other
-    /// validation of an entity: before the conditions of the write are looked at and before a
-    /// write is refused as not implemented. The bound is a fixed rule of the storage format,
+    /// One value takes at most 268,173,376 bytes, at every depth: the bound holds for each such
+    /// value, a field of the entity, a field of an owned value and an element of a List, not only for
+    /// a field of the entity. A write of a larger value, and adding an entity with one to a write
+    /// batch, is refused with <see cref="LatticeErrorEnum.ValidationFailed"/>, with its place named,
+    /// as for a String; before the conditions of the write are looked at and before a write is
+    /// refused as not implemented. The bound is a fixed rule of the storage format,
     /// the same on every node and not an option; an entity itself has no size limit, only the
     /// memory of the instance bounds it.
     /// </remarks>

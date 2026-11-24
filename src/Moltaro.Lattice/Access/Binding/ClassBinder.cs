@@ -23,8 +23,9 @@ namespace Moltaro.Lattice.Access.Binding;
 //
 // What a write takes of an object is checked as a record is: a null where a position does not
 // allow it, at any depth, a key that a Map holds twice under the comparison of its key
-// declaration, text that is not well-formed at any depth, and an integer that its enum type does
-// not allow at any depth, are ValidationFailed. Of equal members of a Set the first is kept. The
+// declaration, a String or Binary value above the bound of one value at any depth (ValueBound),
+// text that is not well-formed at any depth, and an integer that its enum type does not allow at
+// any depth, are ValidationFailed. Of equal members of a Set the first is kept. The
 // class of an owned type is bound once for every pair of owned type and class, however many
 // positions hold it, so binding grows with the declarations; it ends because an owned type does not
 // contain itself, and it goes no deeper than a declaration may be, see SchemaBuilder.
@@ -196,22 +197,43 @@ internal sealed class ClassBinder
         LatticeFieldTypeEnum.Set => new Conversion(BindSet(type, declaration, place), NotRead),
         LatticeFieldTypeEnum.Map => new Conversion(BindMap(type, declaration, place), NotRead),
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
-        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place), Same),
+        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, BindBinary(declaration, place), place), Same),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
-        LatticeFieldTypeEnum.String when type == typeof(string) => new Conversion(BindText(place), Same),
+        LatticeFieldTypeEnum.String when type == typeof(string) => new Conversion(BindText(declaration, place), Same),
         _ when type == declaration.PositionType => new Conversion(Same, Same),
         _ => throw place.Mismatch(),
     };
 
-    // Text is taken as it is, after one pass that refuses text that is not well-formed, a surrogate
-    // without its pair, at any depth (the planner's answer to Q41).
-    private Func<object, object> BindText(Place place)
+    // Text is taken as it is, after the bound of one value, and after one pass that refuses text that is
+    // not well-formed, a surrogate without its pair, at any depth (the planner's answer to Q41).
+    private Func<object, object> BindText(LatticeValueDeclaration declaration, Place place)
     {
         var entityTypeName = _entityType.Name;
+        var encoding = _entityType.StringEncoding;
 
-        return value => WellFormedText.IsWellFormed((string)value)
-            ? value
-            : throw ValidationFailed(entityTypeName, place.Holds("text that is not well-formed: it has a surrogate without its pair"));
+        return value =>
+        {
+            if (!ValueBound.Holds(declaration, value, encoding))
+            {
+                throw ValidationFailed(entityTypeName, place.Holds(ValueBound.Held));
+            }
+
+            return WellFormedText.IsWellFormed((string)value)
+                ? value
+                : throw ValidationFailed(entityTypeName, place.Holds("text that is not well-formed: it has a surrogate without its pair"));
+        };
+    }
+
+    // A byte array is copied, as a record holds its own, after the bound of one value, so that an array
+    // above it is never copied.
+    private Func<object, object> BindBinary(LatticeValueDeclaration declaration, Place place)
+    {
+        var entityTypeName = _entityType.Name;
+        var encoding = _entityType.StringEncoding;
+
+        return value => ValueBound.Holds(declaration, value, encoding)
+            ? ((byte[])value).Clone()
+            : throw ValidationFailed(entityTypeName, place.Holds(ValueBound.Held));
     }
 
     // An Enum is its underlying integer, as it is stored, or a .NET enum that agrees with the

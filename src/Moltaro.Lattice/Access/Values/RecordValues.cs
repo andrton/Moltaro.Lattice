@@ -17,7 +17,8 @@ namespace Moltaro.Lattice.Access.Values;
 //   - a record submitted by a write, which holds only what it took, changed perhaps through
 //     what it returned; a mismatch, a field without the value it requires at any depth, text
 //     that is not well-formed at any depth, an integer that its enum type does not allow at any
-//     depth, and the value of a field above the bound of one value, are ValidationFailed.
+//     depth, and a String or Binary value above the bound of one value at any depth, are
+//     ValidationFailed.
 //
 // The walk descends by the declarations of the schema, never by the objects it meets: at each
 // step it goes from a declaration into one inside it, or into the fields of an owned type the
@@ -45,27 +46,27 @@ internal static class RecordValues
 
     // The values of a record as a write takes them: copied and checked again at every depth. The value
     // of every field of the entity is checked against the bound of one value first, so that a value
-    // above it is refused before it is copied. A String or Binary value inside a collection or an owned
-    // value is not checked yet; no entity type with such a field is stored yet.
+    // above it is refused before anything else of the entity is checked and before it is copied; a
+    // String or Binary value inside a collection or an owned value is checked where the walk takes it,
+    // before it is copied (CopyText, TakeBinary).
     //
     // A Binary value of a field of the entity is taken as the record holds it, after the same check
     // that it is a byte[] and nothing else: the engine copies it once, into its own memory, while the
     // write runs, or a write batch while the operation is added, and the caller keeps it unchanged
     // until then (docs/decisions/mutation-commands.md, "Stable write inputs until completion"). A
-    // Binary value inside a collection or an owned value is copied with it; the engine stores no such
-    // field yet.
+    // Binary value inside a collection or an owned value is copied with it.
     public static object?[] Submit(LatticeEntityType entityType, object?[] values)
     {
         foreach (var field in entityType.FieldsByOrdinal)
         {
-            if (values[field.Ordinal] is { } value && !ValueBound.Holds(field, value, entityType.StringEncoding))
+            if (values[field.Ordinal] is { } value && !ValueBound.Holds(field.Declaration, value, entityType.StringEncoding))
             {
-                throw new Place(entityType.Name, entityType.Name, field).Fail(ValueBound.Problem);
+                throw new Place(entityType, entityType.Name, field).Fail(ValueBound.Problem);
             }
         }
 
         var submitted = new object?[values.Length];
-        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType.Name, entityType.Name, copyBinary: false);
+        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType, entityType.Name, copyBinary: false);
 
         return submitted;
     }
@@ -82,12 +83,18 @@ internal static class RecordValues
     };
 
     // Exactly a byte[]: the runtime also takes an sbyte[] for one, whose values are others. A copy of
-    // it, or the array itself when copy is false (Submit).
+    // it, or the array itself when copy is false (Submit). A write refuses an array above the bound of
+    // one value before it is copied; a value set into a record is not checked for it.
     private static object TakeBinary(LatticeValueDeclaration declaration, object value, Place place, bool copy)
     {
         if (value.GetType() != typeof(byte[]))
         {
             throw place.Fail(NotAccepted(declaration, value));
+        }
+
+        if (place.IsWrite && !ValueBound.Holds(declaration, value, place.EntityType!.StringEncoding))
+        {
+            throw place.Fail($"holds {ValueBound.Held}.");
         }
 
         return copy ? ((byte[])value).Clone() : value;
@@ -113,7 +120,7 @@ internal static class RecordValues
     // refused only by a write, which names the entity type it writes. A Binary value of one of these
     // fields is copied when copyBinary is true, as for the fields of an owned value (CopyOwned), and taken
     // as the record holds it for the fields of an entity (Submit).
-    private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, string? entityType, string owner, bool copyBinary)
+    private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, LatticeEntityType? entityType, string owner, bool copyBinary)
     {
         foreach (var field in fields)
         {
@@ -180,14 +187,19 @@ internal static class RecordValues
         return copy;
     }
 
-    // Text is held as it is given. A write refuses text that is not well-formed, a surrogate without
-    // its pair, at any depth (docs/decisions/strings.md, "Input validity and preservation"); a value
-    // set into a record is not checked for it.
+    // Text is held as it is given. A write refuses text above the bound of one value, and then text that
+    // is not well-formed, a surrogate without its pair, at any depth (docs/decisions/strings.md, "Input
+    // validity and preservation"); a value set into a record is not checked for either.
     private static object CopyText(LatticeValueDeclaration declaration, object value, Place place)
     {
         if (value is not string text)
         {
             throw place.Fail(NotAccepted(declaration, value));
+        }
+
+        if (place.IsWrite && !ValueBound.Holds(declaration, text, place.EntityType!.StringEncoding))
+        {
+            throw place.Fail($"holds {ValueBound.Held}.");
         }
 
         if (place.IsWrite && !WellFormedText.IsWellFormed(text))
@@ -237,8 +249,9 @@ internal static class RecordValues
         declaration.IsNullable ? $"nullable {Describe(declaration)}" : Describe(declaration);
 
     // Where a value is: the field of an entity type or of an owned type that holds it, and,
-    // for a write, the entity type that is written. The message is made only on a failure.
-    private readonly record struct Place(string? EntityType, string Owner, LatticeField Field)
+    // for a write, the entity type that is written, whose encoding of text the bound of one value
+    // counts in. The message is made only on a failure.
+    private readonly record struct Place(LatticeEntityType? EntityType, string Owner, LatticeField Field)
     {
         // Whether the value is submitted by a write, which names the entity type it writes, rather
         // than set into a record.
@@ -246,6 +259,6 @@ internal static class RecordValues
 
         public Exception Fail(string problem) => EntityType is null
             ? new ArgumentException($"Field '{Owner}.{Field.Name}' {problem}", "value")
-            : new LatticeException(LatticeErrorEnum.ValidationFailed, $"{EntityType}: field '{Owner}.{Field.Name}' {problem}");
+            : new LatticeException(LatticeErrorEnum.ValidationFailed, $"{EntityType.Name}: field '{Owner}.{Field.Name}' {problem}");
     }
 }
