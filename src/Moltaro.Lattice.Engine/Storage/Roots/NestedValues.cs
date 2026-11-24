@@ -24,13 +24,14 @@ namespace Moltaro.Lattice.Storage.Roots;
 // field beneath it the bit it has. A value given as null leaves its bit set and its bytes zero. A String, a
 // Binary and a packed List are placed by the one placement of ValueHolder, in the block that holds their
 // descriptor or out of it. A List of records lies in one block of records or a directory of them, never
-// inline. The values are those the validation of the core took and checked (Access.Values.RecordValues); a
-// List above its bound is refused with ValidationFailed as the guard of the stored form, as ValueHolder
-// refuses a value above its bound, and the writer is then abandoned. Once the arena refused a block, the
-// writing takes nothing more and the write is refused for its memory; a List frees what it took before the
-// refusal, so that a descriptor always names a whole value or nothing, and the writer of the root frees the
-// rest. An OutOfMemoryException of the native allocator passes through a List after it has freed what it
-// took.
+// inline, placed by the one placement of such a List (PlaceRecords), which serves a root a node received as
+// well (Replication.Load.BlockImport). The values are those the validation of the core took and checked
+// (Access.Values.RecordValues); a List above its bound is refused with ValidationFailed as the guard of the
+// stored form, as ValueHolder refuses a value above its bound, and the writer is then abandoned. Once the
+// arena refused a block, the writing takes nothing more and the write is refused for its memory; a List frees
+// what it took before the refusal, so that a descriptor always names a whole value or nothing, and the writer
+// of the root frees the rest. An OutOfMemoryException of the native allocator passes through a List after it
+// has freed what it took.
 //
 // Reading copies every value into memory of the caller, a new object for each, so that two reads share
 // nothing; an element of a packed List is read without a box (Values.PackedElements). The caller holds the
@@ -191,7 +192,7 @@ internal static class NestedValues
     // whole List or nothing. For a root for a forwarded write each block is kept apart, with the values of
     // its records (ExportedValues.StoreRecords), and the descriptor has the location 0.
     public static void PlaceRecords<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, ref TSource source)
-        where TSource : IRecordSource, allows ref struct
+        where TSource : struct, IRecordSource
     {
         if (count > element.MostElements)
         {
@@ -347,7 +348,7 @@ internal static class NestedValues
     // in turn (PlaceRecords); false when the arena refused a block, with the descriptor in place naming what
     // was taken so far, or still as it was when nothing was.
     private static bool TryPlaceRecords<TSource>(ref ValueHolder holder, StructureLayout element, int offset, int count, Span<byte> descriptorPlace, ref ValueDescriptor descriptor, ref TSource source)
-        where TSource : IRecordSource, allows ref struct
+        where TSource : struct, IRecordSource
     {
         var perChunk = element.RecordsPerChunk;
 
@@ -417,7 +418,7 @@ internal static class NestedValues
     // the records take out of line counts in the holder of the List. False when the arena refused a block for
     // one of them.
     private static bool TryFill<TSource>(ref ValueHolder holder, StructureLayout element, ArenaAddress block, int first, int count, ref TSource source)
-        where TSource : IRecordSource, allows ref struct
+        where TSource : struct, IRecordSource
     {
         var records = new ValueHolder(holder.Arena, holder.Layout, holder.Root, holder.Arena.Payload(block), BlockHeader.Size, block, BlockHeader.Size + (count * element.Size));
 
@@ -443,7 +444,7 @@ internal static class NestedValues
     // A List of records of a root for a forwarded write: each block as the source fills it, kept apart with the
     // values of its records, and the descriptor with the location 0, as the wire carries it.
     private static void ExportRecords<TSource>(ref ValueHolder holder, StructureLayout element, int offset, int count, ref TSource source)
-        where TSource : IRecordSource, allows ref struct
+        where TSource : struct, IRecordSource
     {
         for (var first = 0; first < count; first += element.RecordsPerChunk)
         {

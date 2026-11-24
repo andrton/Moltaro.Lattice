@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using Moltaro.Lattice.Access.Values;
@@ -105,7 +106,7 @@ internal sealed class BlockImport
 
         if (!input.End)
         {
-            throw Invalid(layout, $"it has {input.Remaining} bytes more than its root and its values describe.");
+            throw MoreThanDescribed(layout, input.Remaining);
         }
 
         return new ReceivedRoot(layout, payloadLength, values);
@@ -182,7 +183,7 @@ internal sealed class BlockImport
 
         // The root block holds what it received: every value placed into it lies out of line, as it came.
         var holder = new ValueHolder(_arena, layout, handle, target, BlockHeader.Size, block, BlockHeader.Size + root.PayloadLength);
-        var values = new SequenceReader<byte>(root.OutOfLine);
+        var values = root.OutOfLine;
 
         try
         {
@@ -207,11 +208,11 @@ internal sealed class BlockImport
     }
 
     // Places the values of the structure at the offset at of the block of the holder whose descriptors are
-    // pending (see the class), from the values given, which stand at the first of them, and leaves the values
-    // at the end of the last; nothing more once the arena refused a block (ValueHolder.Refused). A null value,
+    // pending (see the class), from the values given, which begin with the first of them, and leaves the
+    // values after the last; nothing more once the arena refused a block (ValueHolder.Refused). A null value,
     // a value inline and an empty List of records came whole with the structure. For the root here, and for
     // each record of a List of records (ReceivedRecords).
-    public static void PlaceValues(ref ValueHolder holder, StructureLayout structure, int at, ref SequenceReader<byte> values)
+    public static void PlaceValues(ref ValueHolder holder, StructureLayout structure, int at, ref ReadOnlySequence<byte> values)
     {
         for (var index = 0; index < structure.DescriptorCount && !holder.Refused; index++)
         {
@@ -228,17 +229,14 @@ internal sealed class BlockImport
 
             if (place.Type == StoredTypeEnum.List && structure.DescriptorElement(index) is { HoldsDescriptors: true } element)
             {
-                var records = new ReceivedRecords(values);
-
-                NestedValues.PlaceRecords(ref holder, place, element, offset, length, ref records);
-                values = records.Values;
+                PlaceRecords(ref holder, place, element, offset, length, ref values);
 
                 continue;
             }
 
-            var bytes = values.UnreadSequence.Slice(0, length);
+            var bytes = values.Slice(0, length);
 
-            values.Advance(length);
+            values = values.Slice(length);
 
             if (place.LiesInTextEntry(length))
             {
@@ -253,6 +251,18 @@ internal sealed class BlockImport
         }
     }
 
+    // A List of records of count elements (ReceivedRecords), the values standing at the first of its blocks.
+    // Not inlined: inlined, the source of its records grows the frame of PlaceValues, which every root a node
+    // receives goes through (JIT listing of a Release build).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void PlaceRecords(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, ref ReadOnlySequence<byte> values)
+    {
+        var records = new ReceivedRecords(values);
+
+        NestedValues.PlaceRecords(ref holder, place, element, offset, count, ref records);
+        values = records.Values;
+    }
+
     // Whether a descriptor as it was received names a value that follows its structure on the wire, and so
     // is copied pending (see the class): a value out of line, or a List of records that is not empty.
     public static bool IsPending(in ValueDescriptor received) =>
@@ -260,6 +270,17 @@ internal sealed class BlockImport
 
     private static LatticeException Invalid(RootLayout layout, string message) =>
         new(LatticeErrorEnum.ValidationFailed, $"A root of {layout.EntityType.Name} received from the master is not valid: {message}");
+
+    // Refusals the check of every root can reach, their messages made here, so that the check of a root holds
+    // no message of its own (JIT listing of a Release build).
+    private static LatticeException MoreThanDescribed(RootLayout layout, long more) =>
+        Invalid(layout, $"it has {more} bytes more than its root and its values describe.");
+
+    private static LatticeException BeyondTheInput(RootLayout layout, in StoredField place, uint length, long left) =>
+        Invalid(layout, $"the value of the field {place.Field.Name} takes {length} bytes, more than the {left} left.");
+
+    private static LatticeException ValuesBeyondTheInput(RootLayout layout, long length, long left) =>
+        Invalid(layout, $"its values out of line take {length} bytes, more than the {left} left.");
 
     // Reads the layout version and the root payload into _payload after checking the structure of the root
     // (see the class), and returns the length of the payload; the input stands at the first value out of line.
@@ -320,20 +341,57 @@ internal sealed class BlockImport
 
         var block = new ReadOnlySequence<byte>(_payload, 0, payloadLength);
 
+        // The bytes of the values checked before the Strings and Binaries out of line since the input last
+        // moved, and the bytes of those: they are passed over together, as all a root of scalar fields holds
+        // out of line, and a List is checked where it stands, with its records or its elements.
+        var checkedBytes = 0L;
+        var passed = 0L;
+
         for (var index = 0; index < structure.DescriptorCount; index++)
         {
             ref readonly var place = ref structure.DescriptorField(index);
             var at = payload[(place.Offset - BlockHeader.Size)..];
             var received = ValueBlocks.Read(at);
 
-            _starts[index] = input.Consumed - start;
-            CheckValue(layout, place, place.Type == StoredTypeEnum.List ? structure.DescriptorElement(index) : null, received, block, ref input);
+            _starts[index] = checkedBytes + passed;
 
-            if (IsPending(received))
+            if (place.Type != StoredTypeEnum.List)
             {
-                ValueBlocks.Write(at, new ValueDescriptor { Length = received.Length });
+                if (!ValueBlocks.LiesOutOfLine(received))
+                {
+                    continue;
+                }
+
+                passed += received.Length;
             }
+            else
+            {
+                Pass(layout, passed, ref input);
+                passed = 0;
+                CheckValue(layout, place, structure.DescriptorElement(index), received, block, ref input);
+                checkedBytes = input.Consumed - start;
+
+                if (!IsPending(received))
+                {
+                    continue;
+                }
+            }
+
+            ValueBlocks.Write(at, new ValueDescriptor { Length = received.Length });
         }
+
+        Pass(layout, passed, ref input);
+    }
+
+    // Passes over that many bytes of values, which the input has to hold.
+    private static void Pass(RootLayout layout, long length, ref SequenceReader<byte> input)
+    {
+        if (length > input.Remaining)
+        {
+            throw ValuesBeyondTheInput(layout, length, input.Remaining);
+        }
+
+        input.Advance(length);
     }
 
     // The value one descriptor of a structure names, its kind checked with the structure: a value out of line,
@@ -351,7 +409,7 @@ internal sealed class BlockImport
             case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked or DescriptorKindEnum.Text:
                 if (descriptor.Length > input.Remaining)
                 {
-                    throw Invalid(layout, $"the value of the field {place.Field.Name} takes {descriptor.Length} bytes, more than the {input.Remaining} left.");
+                    throw BeyondTheInput(layout, place, descriptor.Length, input.Remaining);
                 }
 
                 if (element is { NullableCount: > 0 })
@@ -494,7 +552,9 @@ internal sealed class BlockImport
     }
 
     // Whether the descriptor of a value that is not null describes a value its place stores (see the class);
-    // the element is the layout of the records of a List place.
+    // the element is the layout of the records of a List place. Inlined into the check of a structure, which
+    // calls it for every descriptor (JIT listing of a Release build: called, one call a descriptor).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Describes(in StoredField place, StructureLayout? element, in ValueDescriptor descriptor, ulong inlineStart)
     {
         var length = descriptor.Length;

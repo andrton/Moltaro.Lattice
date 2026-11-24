@@ -11,24 +11,24 @@ namespace Moltaro.Lattice.Replication.Load;
 // records name. BlockImport.Check found it all valid, so the length of a block is that of its records and of
 // the values inline their descriptors give, and a block is copied as it came, its descriptors pending (see
 // BlockImport) until its records' values are placed in their order, a List of records among them through
-// the same placement. The reader of the values of the root is held here while the List is placed, and the
-// caller takes it back where the List ends (Values).
-internal ref struct ReceivedRecords : IRecordSource
+// the same placement. The values of the root not placed yet are held here while the List is placed, and the
+// caller takes them back where the List ends (Values).
+internal struct ReceivedRecords : IRecordSource
 {
-    private SequenceReader<byte> _values;
+    private ReadOnlySequence<byte> _values;
 
-    // The records of a List whose first block begins the values the reader stands at.
-    public ReceivedRecords(SequenceReader<byte> values)
+    // The records of a List whose first block begins the values given.
+    public ReceivedRecords(ReadOnlySequence<byte> values)
     {
         _values = values;
     }
 
-    // The reader of the values of the root, after what the List placed.
-    public readonly SequenceReader<byte> Values => _values;
+    // The values of the root after what the List placed.
+    public readonly ReadOnlySequence<byte> Values => _values;
 
     public readonly int BlockLength(StructureLayout element, int first, int count)
     {
-        var block = _values.UnreadSequence;
+        var block = _values;
         var length = count * element.Size;
         Span<byte> descriptor = stackalloc byte[ValueBlocks.DescriptorSize];
 
@@ -54,8 +54,8 @@ internal ref struct ReceivedRecords : IRecordSource
     {
         var block = records.Bytes;
 
-        _values.TryCopyTo(block);
-        _values.Advance(block.Length);
+        _values.Slice(0, block.Length).CopyTo(block);
+        _values = _values.Slice(block.Length);
 
         // The block holds what it received: every value placed into it lies out of line, as it came.
         records.InlineEnd = records.End;

@@ -27,6 +27,9 @@ internal sealed class ExportedValues
 
     private readonly int _first;
 
+    // How many structures the block holds: 1 for a root, the records of a block of records.
+    private readonly int _structures;
+
     // The pieces of each value, by the index of its descriptor among the descriptors of the block, structure
     // after structure; null for a descriptor that holds none.
     private readonly List<byte[]>?[] _values;
@@ -35,6 +38,7 @@ internal sealed class ExportedValues
     {
         _structure = structure;
         _first = first;
+        _structures = structures;
         _values = new List<byte[]>?[structures * structure.DescriptorCount];
     }
 
@@ -103,11 +107,12 @@ internal sealed class ExportedValues
     }
 
     // The index of the descriptor at the offset (see the class): the structure it lies in, at the stride of
-    // the layout, and its place among the descriptors of that structure.
+    // the layout, and its place among the descriptors of that structure. A root is one structure, so the
+    // value of a write forwarded by a child of scalar fields takes no division by the stride.
     private int IndexOf(int offset)
     {
         var inBlock = offset - _first;
-        var structure = (inBlock - _structure.Start) / _structure.Size;
+        var structure = _structures == 1 ? 0 : (inBlock - _structure.Start) / _structure.Size;
         var descriptor = (inBlock - (structure * _structure.Size) - _structure.DescriptorOffset) / ValueBlocks.DescriptorSize;
 
         return (structure * _structure.DescriptorCount) + descriptor;

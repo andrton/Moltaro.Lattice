@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
@@ -61,7 +62,7 @@ internal static class BlockExport
             }
             else if (descriptor.Kind == DescriptorKindEnum.Records)
             {
-                length += RecordsLength(arena, descriptor, layout.Structure.DescriptorElement(descriptors.Index)!);
+                length += RecordsLengthOfRoot(arena, layout, root, descriptors.Index);
             }
         }
 
@@ -109,10 +110,26 @@ internal static class BlockExport
             }
             else if (descriptor.Kind == DescriptorKindEnum.Records)
             {
-                WriteRecords(output, arena, descriptor, layout.Structure.DescriptorElement(descriptors.Index)!);
+                WriteRecordsOfRoot(output, arena, layout, root, descriptors.Index);
             }
         }
     }
+
+    // The List of records of the descriptor at the index of the root, for Length and Write, called with what
+    // a root of scalar fields holds in registers, so that the length and the copy of such a root, which has
+    // no List of records, pay nothing in their frames for it. Inlined, the List of records grew the frame of
+    // Length from 48 bytes to 64 and that of Write from 248 to 264 (JIT listing of a Release build).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long RecordsLengthOfRoot(Arena arena, RootLayout layout, ArenaAddress root, int index) =>
+        RecordsLength(arena, DescriptorOfRoot(arena, layout, root, index), layout.Structure.DescriptorElement(index)!);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void WriteRecordsOfRoot(IBufferWriter<byte> output, Arena arena, RootLayout layout, ArenaAddress root, int index) =>
+        WriteRecords(output, arena, DescriptorOfRoot(arena, layout, root, index), layout.Structure.DescriptorElement(index)!);
+
+    // The descriptor at the index of the root.
+    private static ValueDescriptor DescriptorOfRoot(Arena arena, RootLayout layout, ArenaAddress root, int index) =>
+        ValueBlocks.Read(layout.RootPayload(arena, root)[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]);
 
     // Whether the descriptor names blocks of this arena, whose address the wire carries as 0: a value out of
     // line, or the records of a List that is not empty.

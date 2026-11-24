@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
@@ -490,6 +491,12 @@ internal ref struct RootWriter
 
     // An owned value or a List of the entity, written into the image of the root by NestedValues, with what it
     // takes counted here.
+    //
+    // Not inlined. Inlined into the write of the values of a root (Engine.Entities.RootValues.Write), it grows
+    // that method for every write of an entity of scalar fields: in the JIT listing of a Release build,
+    // inlined, 4,767 bytes with a frame of 344; called, 4,672 bytes with a frame of 328, as before a root for a
+    // forwarded write carried nested values.
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private void SetNested(LatticeField field, StoredTypeEnum type, string member, object value)
     {
         ref readonly var stored = ref Take(field, type, member);
