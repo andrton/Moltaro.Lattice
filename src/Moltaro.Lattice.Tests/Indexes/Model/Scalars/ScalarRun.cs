@@ -29,7 +29,19 @@ internal static class ScalarRun
     {
         var model = new IndexModel(cell.Type.Order);
         var given = Generate(cell, model);
-        var table = new ModelTable<Sample<TValue>>
+        IReadOnlyList<object> neverStored = [.. cell.Type.Between, .. HeldBack(cell)];
+
+        return ModelRun.RunAsync(
+            cell.ToString(),
+            ScalarSchema.Of(cell, typeof(Sample<TValue>)),
+            TableOf<TValue>(model),
+            given,
+            ModelSearches.Of(model, given, [neverStored], mostKeys: int.MaxValue),
+            ModelSearches.Pages(model, given));
+    }
+
+    public static ModelTable<Sample<TValue>> TableOf<TValue>(IndexModel model) =>
+        new()
         {
             EntityType = "Sample",
             Index = "ByValue",
@@ -44,16 +56,6 @@ internal static class ScalarRun
                 _ => IndexKey.All,
             },
         };
-        IReadOnlyList<object> neverStored = [.. cell.Type.Between, .. HeldBack(cell)];
-
-        return ModelRun.RunAsync(
-            cell.ToString(),
-            ScalarSchema.Of(cell, typeof(Sample<TValue>)),
-            table,
-            given,
-            ModelSearches.Of(model, given, [neverStored], mostKeys: int.MaxValue),
-            ModelSearches.Pages(model, given));
-    }
 
     private static List<ModelEntry> Generate(ScalarCell cell, IndexModel model)
     {
