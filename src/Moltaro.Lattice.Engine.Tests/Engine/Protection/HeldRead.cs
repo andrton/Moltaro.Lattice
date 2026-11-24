@@ -54,5 +54,17 @@ internal sealed class HeldRead : IDisposable
         return await _read.WaitAsync(Bound);
     }
 
+    // Starts an observer and waits until it has found its root. The read itself is
+    // allowed to proceed, so a held publication is the only reason it can still wait.
+    public static async Task<Task<T>> StartAtTheRootAsync<T>(EngineDatabase database, Func<T> read)
+    {
+        var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        database.ArmReadSwitch(_ => inside.TrySetResult());
+
+        var started = OwnThread.Run(read);
+        await inside.Task.WaitAsync(Bound);
+        return started;
+    }
+
     public void Dispose() => _released.TrySetResult();
 }

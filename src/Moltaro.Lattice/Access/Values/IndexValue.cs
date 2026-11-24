@@ -171,8 +171,13 @@ internal readonly struct IndexValue
             return this;
         }
 
-        return BindOther(declaration, fieldName, parameterName);
+        return BindOther(declaration, fieldName, parameterName, checksEnum: true);
     }
+
+    // An update checks the same type and conversion at command addition. It
+    // checks text and membership of Enum values on the copied input at submission.
+    public IndexValue BindShape(LatticeValueDeclaration declaration, string fieldName, string parameterName) =>
+        _type == declaration.ScalarType ? this : BindOther(declaration, fieldName, parameterName, checksEnum: false);
 
     // The value of a fixed-width type, read back from the bits.
     public TValue As<TValue>()
@@ -257,7 +262,7 @@ internal readonly struct IndexValue
     // After the type of the field (Bind): a value of another type converted by the allowlist, and checked
     // when its part is an Enum; a null with a type accepted where a value of its type would be, and one
     // without a type as it is. ArgumentException for anything else.
-    private IndexValue BindOther(LatticeValueDeclaration declaration, string fieldName, string parameterName)
+    private IndexValue BindOther(LatticeValueDeclaration declaration, string fieldName, string parameterName, bool checksEnum)
     {
         var expected = declaration.ScalarType;
 
@@ -275,7 +280,7 @@ internal readonly struct IndexValue
 
         if (TryConvertTo(expected, out var converted))
         {
-            if (declaration.EnumType is { } enumType)
+            if (checksEnum && declaration.EnumType is { } enumType)
             {
                 converted.ThrowIfNotAllowed(enumType, declaration.Type, fieldName, parameterName);
             }

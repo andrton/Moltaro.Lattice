@@ -213,6 +213,11 @@ internal static class SchemaBuilder
             }
 
             var place = $"field '{Shown(ownerName)}.{Shown(draft.Name)}'";
+            if (draft.Name.Contains('.', StringComparison.Ordinal))
+            {
+                throw Invalid($"{place} has a dot in its name. A dot separates fields in a path.");
+            }
+
             CheckIdentity(draft.Id, place, ids);
             if (!names.Add(draft.Name))
             {

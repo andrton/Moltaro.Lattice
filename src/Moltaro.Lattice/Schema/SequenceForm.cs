@@ -17,6 +17,8 @@ internal abstract class SequenceForm
     // array whose elements are read as T, see ArrayElements.
     public abstract bool IsInput(object value);
 
+    public abstract bool IsInputType(Type type);
+
     // The elements of an input that IsInput accepted, in its order.
     public abstract IEnumerable<object?> Elements(object input);
 
@@ -30,9 +32,12 @@ internal abstract class SequenceForm
     // added, so of equal members the first is kept.
     public abstract void Add(object collection, object? element);
 
-    public static SequenceForm For(bool isSet, LatticeValueDeclaration element)
+    public static SequenceForm For(bool isSet, LatticeValueDeclaration element) =>
+        For(isSet, element.PositionType, element.TextComparison);
+
+    internal static SequenceForm For(bool isSet, Type element, TextComparison? comparison)
     {
-        var formType = typeof(SequenceForm<>).MakeGenericType(element.PositionType);
-        return (SequenceForm)Activator.CreateInstance(formType, isSet, element.TextComparison)!;
+        var formType = typeof(SequenceForm<>).MakeGenericType(element);
+        return (SequenceForm)Activator.CreateInstance(formType, isSet, comparison)!;
     }
 }

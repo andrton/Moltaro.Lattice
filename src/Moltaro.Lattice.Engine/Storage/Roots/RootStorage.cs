@@ -2,14 +2,12 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// Operations on one whole root in the arena, by the layout it was written with, and on one descriptor of a
-// root. What a descriptor holds outside the block that holds it is decided here by its kind, and only here:
-// a Block or a Chunked descriptor names blocks the root owns (Values.ValueBlocks), a Records descriptor names
-// the block or the directory of the records of a List, which the root owns as well, a Text descriptor holds
-// one reference to an entry of the text table (Text.TextTable), and an Inline or a Null descriptor holds
-// nothing outside the block. An operation of a root walks every descriptor it owns at every depth, those of
-// the records of its Lists included, children first (StructureWalk), and applies the operation of one
-// descriptor to each.
+// Operations on a root's physical ownership (docs/design/arena-protocol.md).
+// Block, Chunked, Records and Lookup descriptors name arena edges. A descriptor
+// may reach a shared subtree whose current owner is another holder and offset.
+// The ownership visitors distinguish those aliases before walking children.
+// A Text descriptor holds one reference to a text table entry, while Inline
+// and Null descriptors hold nothing outside their block.
 internal static class RootStorage
 {
     // Frees a root written with the layout: the root block and every block it owns, the value
@@ -39,11 +37,11 @@ internal static class RootStorage
         arena.Free(root);
     }
 
-    // Publishes a root that a writer wrote, in prepared blocks: the root block and every block
-    // it owns become live (Arena.Publish), when the write of the root is published, and so does the
-    // entry of a Dictionary text that is still prepared because this root is the first published one
-    // to refer to it (Text.TextTable.Publish). It changes no byte and allocates nothing. The root is
-    // recognized as Free recognizes it, and refused in the same cases before anything is published.
+    // Publishes the new prepared blocks and any prepared Dictionary text they
+    // reference, then publishes the root block. A borrowed subtree is already
+    // live. Its backlink moves to the new holder before the root is installed,
+    // without descending into its children. Publication changes no payload
+    // bytes and allocates nothing.
     public static void Publish(Arena arena, RootLayout layout, ArenaAddress root)
     {
         var publishing = new Publishing();
@@ -52,12 +50,11 @@ internal static class RootStorage
         arena.Publish(root);
     }
 
-    // Retires a published root that a write replaced or deleted: the root block and every block it
-    // owns become retired (Arena.Retire), so that the reads that reached it before go on reading one
-    // whole state, and its bytes leave the live counters. The entry of a Dictionary text is not retired:
-    // it stays live, and the retired root keeps its reference until Free frees it. It changes no byte
-    // and allocates nothing. The root is recognized as Free recognizes it, and refused in the same
-    // cases before anything is retired. Free frees it later, once no read can reach it.
+    // Retires the old root and the blocks it still owns. An earlier reader can
+    // still follow its full graph, including aliases of transferred subtrees.
+    // A Dictionary text entry stays live while a physical Text descriptor
+    // holds its reference. The retire walk leaves payloads intact and takes
+    // no allocation. Free follows the same ownership rule after the readers drain.
     //
     // Returns the bytes of the slots of the text entries that the Text descriptors of the root name:
     // each as a value of its length out of line takes them (ValueBlocks.SlotBytesOf), whether or not
@@ -79,11 +76,11 @@ internal static class RootStorage
     // has the layout given, everything its records own first, then its blocks. The one place where a
     // reference goes: the free of a root here, of the values of a root that was not completed (RootWriter),
     // and of a List whose placement did not complete (NestedValues).
-    public static void FreeValue(Arena arena, in ValueDescriptor descriptor, StructureLayout? element)
+    public static void FreeValue(Arena arena, in ValueDescriptor descriptor, StructureLayout? element, ArenaAddress holder, int offset)
     {
         var freeing = new Freeing();
 
-        StructureWalk.WalkValue(arena, descriptor, element, default, 0, ref freeing);
+        StructureWalk.WalkValue(arena, descriptor, element, holder, offset, ref freeing);
     }
 
     // Frees everything the descriptors of the image of a root that a writer did not complete name, at every
@@ -95,21 +92,45 @@ internal static class RootStorage
         StructureWalk.WalkImage(arena, layout, image, ref freeing);
     }
 
-    // Names the block that holds a descriptor as the parent of the blocks of the value the descriptor names,
-    // with the offset of the descriptor in that block: the root block, when a writer completes the root. The
-    // blocks of a Text descriptor belong to their entry, which no root block is the parent of; an empty List of
-    // kind Records names no block.
+    // Moves an edge from the writer's image to the root block. A borrowed
+    // value still belongs to a published holder, so it stays with that holder.
     public static void AdoptValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress root, int descriptorOffset)
     {
-        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked or DescriptorKindEnum.Lookup || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Location != 0))
+        if (OwnedAddress(descriptor) is { IsNull: false } block)
         {
-            ValueBlocks.Adopt(arena, descriptor, root, descriptorOffset);
+            ref var header = ref arena.Header(block);
+            if (header.Parent.IsNull && header.DescriptorOffset == (uint)descriptorOffset)
+            {
+                header.Parent = root;
+            }
         }
+    }
+
+    // Text references belong to the table. All other out-of-line descriptor
+    // forms with a location name a root-owned edge.
+    public static ArenaAddress OwnedAddress(in ValueDescriptor descriptor) =>
+        descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked or DescriptorKindEnum.Records or DescriptorKindEnum.Lookup
+            ? ValueBlocks.AddressOf(descriptor)
+            : default;
+
+    private static bool Owns(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset)
+    {
+        var address = OwnedAddress(descriptor);
+        if (address.IsNull)
+        {
+            return true;
+        }
+
+        ref readonly var header = ref arena.Header(address);
+        return header.Parent == holder && header.DescriptorOffset == (uint)offset;
     }
 
     // Frees what each descriptor holds outside its block (FreeValue).
     private struct Freeing : IStructureVisitor
     {
+        public readonly bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset) =>
+            Owns(arena, descriptor, holder, offset);
+
         public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
 
         public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
@@ -144,6 +165,32 @@ internal static class RootStorage
     // prepared.
     private struct Publishing : IStructureVisitor
     {
+        public readonly bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset)
+        {
+            var address = OwnedAddress(descriptor);
+            if (address.IsNull)
+            {
+                return true;
+            }
+
+            ref var header = ref arena.Header(address);
+            if (header.Parent == holder && header.DescriptorOffset == (uint)offset)
+            {
+                return true;
+            }
+
+            // The preparation checked the old edge. The writing lock and the
+            // admission order keep the preceding version until this transfer.
+            if (header.Root != arena.Header(holder).Root || arena.IsPrepared(address))
+            {
+                throw new InvalidOperationException("A published value cannot be transferred from this edge.");
+            }
+
+            header.Parent = holder;
+            header.DescriptorOffset = (uint)offset;
+            return false;
+        }
+
         public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
 
         public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
@@ -179,6 +226,9 @@ internal static class RootStorage
     private struct Retiring : IStructureVisitor
     {
         public long TextBytes { get; private set; }
+
+        public readonly bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset) =>
+            Owns(arena, descriptor, holder, offset);
 
         public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
 

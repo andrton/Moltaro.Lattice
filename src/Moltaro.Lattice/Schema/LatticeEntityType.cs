@@ -115,6 +115,19 @@ public sealed class LatticeEntityType
     public bool TryGetField(string name, [NotNullWhen(true)] out LatticeField? field) =>
         _fieldsByName.TryGetValue(name, out field);
 
+    /// <summary>Returns the field with the given name on this entity type.</summary>
+    /// <param name="name">The field name, compared ordinally and case-sensitively.</param>
+    /// <exception cref="ArgumentException">This entity type has no field with that name.</exception>
+    /// <exception cref="ArgumentNullException">The name is null.</exception>
+    public LatticeField GetField(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return TryGetField(name, out var field)
+            ? field
+            : throw new ArgumentException($"Entity type '{Name}' has no field '{name}'.", nameof(name));
+    }
+
     /// <summary>Finds a declared secondary index by name.</summary>
     /// <param name="name">The index name.</param>
     /// <param name="index">The index, when found.</param>

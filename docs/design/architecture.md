@@ -135,13 +135,13 @@ master, also one a child forwards to it as one request.
 
 ## Writes and durability
 
-Applications edit their own copies, then submit changes. Save sends the whole entity
-without automatic diff; partial updates are explicit. Expected revisions protect
-against conflicting changes. Borrowed views never mutate database memory directly.
-
-The public contract has no operation called Save. It names a complete write by its
-condition: `Insert` requires an absent key, `Replace` an existing one, `Upsert` accepts
-both. Saving several entities together in a WriteBatch ordinarily uses `Upsert`.
+Applications submit complete owned copies with `Insert`, `Replace` or `Upsert`.
+`Insert` requires an absent key, `Replace` an existing one, and `Upsert` accepts both.
+An explicit partial update assigns fields and edits collections of one existing entity.
+When a command changes the entity, the engine publishes a fresh root and shares
+unchanged value blocks with the previous version. An unchanged update keeps the root
+and revision and publishes a position. Expected revisions protect against conflicting
+changes. A successful update reports each command's outcome in its original order.
 
 A write can also be refused before it executes, or wait a bounded time: when the master
 cannot reserve memory within its budget, when the journal has reached its hard limit, or
@@ -154,7 +154,8 @@ while PostgreSQL is unavailable.
 A batch may change different entity types in the same database. It contains
 at most one operation per type/key. A batch has no limit of its own on the number of entities or on its size; it is refused
 only when the memory budget or the journal cannot hold it. Neither has one entity. Validation, durable effects and publication preserve
-its all-or-nothing boundary; children preserve that same boundary during replay.
+its all-or-nothing boundary. A batch can mix complete writes, deletes and partial
+updates. Children preserve that boundary during replay.
 
 It is a transaction of the database, not one the application works inside: a batch
 cannot read, and there is no interactive read/write transaction.
@@ -188,14 +189,16 @@ Initial loading and live updates come from master memory over the internal conne
 Children that start together load in parallel; the configurable limit of loads at once
 is planned and not built yet.
 A new child receives the whole database, builds local indexes and catches up through a
-fixed published position before opening reads.
+fixed published position before opening reads. The stream carries the effective fields
+and collection edits of a partial update and identifies the root version they extend.
+Capture and complete writes still send whole roots.
 
 <!-- DIAGRAM:replication -->
 
 ### A position carries the dependency between requests
 
-Save through a child waits until that child has applied the committed operation.
-The next request carries its history and position to any child. That child waits for
+A write through an open child waits until that child has applied the committed
+operation. The next request carries its history and position to any child. That child waits for
 at least the supplied position, with a timeout, then executes the request. If the
 child does not apply a committed write in time, the caller gets a timeout that carries
 the committed position: the write is not rolled back and must not be sent again.

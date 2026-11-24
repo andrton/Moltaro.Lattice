@@ -1,4 +1,5 @@
 using System.Reflection;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Binding;
@@ -31,4 +32,5 @@ internal readonly record struct BoundProperty(
     Func<object, object?> Get,
     Func<object, object> ToRecord,
     Func<object, object> Take,
-    Func<object, object> FromRecord);
+    Func<object, object> FromRecord,
+    UpdateValueBinding? Update);

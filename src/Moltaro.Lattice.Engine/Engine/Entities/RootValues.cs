@@ -1,10 +1,12 @@
 using System.Buffers;
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Entities;
@@ -40,6 +42,84 @@ internal static class RootValues
             {
                 CheckCollectionBounds(entityType, layout.Structure, entityType.Name, field.Ordinal, value);
             }
+        }
+    }
+
+    public static void BindUpdate(RootLayout layout, UpdateInput update)
+    {
+        var structure = layout.Structure;
+        var type = layout.EntityType;
+        for (var index = 0; index < update.Commands.Length; index++)
+        {
+            var command = update.Commands[index];
+            var target = structure.PositionOf(command.Path);
+            Debug.Assert(target >= 0, "An update path must resolve in its entity layout.");
+            if (command.Kind == UpdateCommandKindEnum.Assign && command.First is { } assigned)
+            {
+                CheckCollectionBounds(type, structure, type.Name, target, assigned);
+            }
+            else if (command.Kind == UpdateCommandKindEnum.MapSet && command.Second is { } value)
+            {
+                CheckCollectionBounds(type, structure.ElementOf(target), type.Name, 1, value);
+            }
+            else if (command.Kind is UpdateCommandKindEnum.ListAppend or UpdateCommandKindEnum.ListInsert or UpdateCommandKindEnum.ListReplace &&
+                command.First is { } entry)
+            {
+                CheckCollectionBounds(type, structure.ElementOf(target), type.Name, 0, entry);
+            }
+
+            update.Commands[index] = command with { Target = target };
+        }
+    }
+
+    // Writes a complete entity or places a planned update into a new root of prepared blocks for the lifetime the handle names, with the
+    // bytes of the slots the writer allocated for it (Storage.Roots.RootWriter.SlotBytes). The null address,
+    // with the refusal, when the arena has no room for the entity; then, and after any failure, the
+    // writer has freed everything it allocated.
+    public static ArenaAddress Place(Arena arena, RootLayout layout, RootHandle handle, object?[]? values, out long size, out LatticeException? refusal,
+        RootUpdate? update = null)
+    {
+        var writer = new RootWriter(arena, layout, handle);
+
+        refusal = null;
+
+        try
+        {
+            if (update is null)
+            {
+                Write(ref writer, layout.EntityType, values!);
+            }
+            else
+            {
+                writer.PlaceUpdate(update);
+            }
+
+            var root = writer.Complete();
+
+            size = writer.SlotBytes;
+
+            return root;
+        }
+        catch (LatticeException refused) when (refused.Error == LatticeErrorEnum.WriteRejected)
+        {
+            // Only a Complete that failed refuses for the memory of the arena, and it freed everything;
+            // Abandon after it does nothing.
+            writer.Abandon();
+            refusal = refused;
+            size = 0;
+
+            return default;
+        }
+        catch
+        {
+            // After a failed Complete this does nothing; after a value the writer refused it frees
+            // what the writer allocated for the values before it. Through the public API the writer
+            // refuses no value: the core refuses text that is not well-formed and a value above the
+            // bound before the write gets here. What can reach this is an OutOfMemoryException of
+            // the native allocator at a Set… member, or a guard of the writer that the core does not
+            // match.
+            writer.Abandon();
+            throw;
         }
     }
 

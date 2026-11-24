@@ -37,6 +37,8 @@ internal struct AuditVisitor : IStructureVisitor
     // root block.
     public long StoredBytes { get; private set; }
 
+    public readonly bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset) => true;
+
     public readonly void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) { }
 
     public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)

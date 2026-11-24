@@ -168,10 +168,9 @@ internal ref struct ValueHolder
                 Location = 0,
             });
         }
-        else if (ValueBlocks.TryStore(Arena, Root, Layout.LayoutVersion, length, ref source, descriptor))
+        else if (ValueBlocks.TryStore(Arena, Root, Layout.LayoutVersion, Address, (uint)offset, length, ref source, descriptor))
         {
             SlotBytes += ValueBlocks.SlotBytesOf(length);
-            AdoptIfPlaced(ValueBlocks.Read(descriptor), offset);
         }
         else
         {
@@ -179,14 +178,34 @@ internal ref struct ValueHolder
         }
     }
 
-    // Names the block of the holder as the parent of the blocks of a value placed out of line, at the offset of
-    // its descriptor; the image of a root has no block yet, and its writer names the root block later.
-    public readonly void AdoptIfPlaced(in ValueDescriptor descriptor, int offset)
+    // Retains a descriptor from the immediate predecessor. Inline bytes belong
+    // to this holder, Text has one reference per physical descriptor, and an
+    // out-of-line subtree remains the old holder's until publication.
+    public void Retain(in StoredField place, int offset, ArenaAddress source, int sourceOffset)
     {
-        if (!Address.IsNull)
+        var payload = Arena.Payload(source);
+        var descriptor = ValueBlocks.Read(payload[(sourceOffset - BlockHeader.Size)..]);
+        if (descriptor.Kind == DescriptorKindEnum.Inline)
         {
-            ValueBlocks.Adopt(Arena, descriptor, Address, offset);
+            var bytes = ValueSource.Bytes(ValueBlocks.Contiguous(Arena, descriptor, payload));
+            PlaceBytes(place, offset, (int)descriptor.Length, ref bytes);
+            return;
         }
+
+        if (descriptor.Kind == DescriptorKindEnum.Text)
+        {
+            Arena.Texts.AddReference(ValueBlocks.AddressOf(descriptor));
+        }
+        else if (RootStorage.OwnedAddress(descriptor) is { IsNull: false } block)
+        {
+            ref readonly var header = ref Arena.Header(block);
+            if (header.Root != Root || header.Parent != source || header.DescriptorOffset != (uint)sourceOffset)
+            {
+                throw new InvalidOperationException("A retained value must belong to the exact edge of the preceding version.");
+            }
+        }
+
+        ValueBlocks.Write(At(offset, ValueBlocks.DescriptorSize), descriptor);
     }
 
     // Places a text that lies in an entry of the text table, length bytes in the encoding of the database, at

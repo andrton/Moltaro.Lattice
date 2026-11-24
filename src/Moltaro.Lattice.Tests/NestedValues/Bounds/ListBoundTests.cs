@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Moltaro.Lattice.TestSupport.PartialUpdates;
 
 namespace Moltaro.Lattice.Tests.NestedValues.Bounds;
 
@@ -65,6 +66,43 @@ public sealed class ListBoundTests
         var batch = database.CreateWriteBatch();
         TestData.ExpectValidationFailed("Labels", () => batch.Insert(new Series { Code = "above", Labels = Empty(MostStrings + 1) }));
         Assert.Equal(0, batch.Count);
+    }
+
+    [Fact]
+    public async Task Editing_a_List_at_its_count_limit_fails_at_execution_and_preserves_its_revision()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
+        var series = database.Set<Series>();
+        await series.InsertAsync(new Series { Code = "series", Values = [4], Labels = Empty(MostStrings) });
+        Assert.True(series.TryGet("series", out _, out var revision));
+        var before = database.Position;
+
+        foreach (var inserts in new[] { false, true })
+        {
+            var update = series.CreateUpdate("series");
+            var prior = update.ListReplace("Values", 0, 17L);
+            var removed = update.ListRemove("Labels", 0);
+            var restored = update.ListAppend("Labels", "at the bound");
+            var added = inserts
+                ? update.ListInsert("Labels", MostStrings, "one too many")
+                : update.ListAppend("Labels", "one too many");
+            var batch = database.CreateWriteBatch();
+            batch.Update(update, revision);
+            var error = await TestData.ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, () => batch.CommitAsync());
+
+            Assert.Equal(0, error.OperationIndex);
+            Assert.Contains($"would hold {MostStrings + 1} entries", error.Message);
+            Assert.Throws<InvalidOperationException>(() => prior.Changed);
+            Assert.Throws<InvalidOperationException>(() => removed.Changed);
+            Assert.Throws<InvalidOperationException>(() => restored.Changed);
+            Assert.Throws<InvalidOperationException>(() => added.Changed);
+            Assert.Equal(before, database.Position);
+            Assert.True(series.TryGet("series", out var stored, out var after));
+            Assert.Equal(revision, after);
+            Assert.Equal(4L, Assert.Single(stored.Values));
+            Assert.Equal(MostStrings, stored.Labels.Count);
+            Assert.Equal("", stored.Labels[^1]);
+        }
     }
 
     // A List of count zeros, made without a loop.

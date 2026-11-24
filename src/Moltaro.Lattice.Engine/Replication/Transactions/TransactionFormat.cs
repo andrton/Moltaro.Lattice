@@ -18,6 +18,8 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // - Delete: its kind, the type id of the entity (UInt32), then the key, in the form of the entity type
 //   of the key (Engine.Entities.PrimaryKeys.WriteKey).
 // - Unchanged: its kind and nothing more.
+// - Update: its kind, the length of its body (UInt64), the type id (UInt32),
+//   original member (UInt32), predecessor sequence (UInt64), key and effective commands.
 // It travels in Transaction frames (FrameKindEnum.Transaction) cut from those bytes in their order: a
 // transaction begins a frame of its own, each frame holds at most Protocol.MaxDataPayload bytes of it,
 // and its last frame carries Protocol.EndsABody. Its frames are its check: the check of each frame, the
@@ -36,6 +38,10 @@ internal static class TransactionFormat
 
     // The kind and the type id at the start of a Delete.
     public const int DeleteEnvelopeSize = 1 + sizeof(uint);
+
+    public const int UpdateHeadSize = (2 * sizeof(uint)) + sizeof(ulong);
+
+    public const int UpdateEnvelopeSize = 1 + sizeof(ulong) + UpdateHeadSize;
 
     // An Unchanged: its kind.
     public const int UnchangedSize = 1;
@@ -58,6 +64,16 @@ internal static class TransactionFormat
     {
         bytes[0] = (byte)EffectKindEnum.Delete;
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[1..], typeId);
+    }
+
+    public static void WriteEnvelopeOfUpdate(Span<byte> bytes, long bodyLength, uint typeId, uint member, ulong baseSequence)
+    {
+        bytes[0] = (byte)EffectKindEnum.Update;
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[1..], (ulong)bodyLength);
+        var body = bytes[(1 + sizeof(ulong))..];
+        BinaryPrimitives.WriteUInt32LittleEndian(body, typeId);
+        BinaryPrimitives.WriteUInt32LittleEndian(body[sizeof(uint)..], member);
+        BinaryPrimitives.WriteUInt64LittleEndian(body[(2 * sizeof(uint))..], baseSequence);
     }
 
     // An Unchanged, UnchangedSize bytes: its kind.
@@ -90,6 +106,27 @@ internal static class TransactionFormat
                 RootEnvelope.TryRead(ref root, out typeId, out lastMutation, out member);
 
                 return EffectKindEnum.Write;
+
+            case EffectKindEnum.Update:
+                if (!effects.TryReadLittleEndian(out long updateLength) || updateLength < UpdateHeadSize || updateLength > effects.Remaining)
+                {
+                    throw Protocol.Invalid($"An Update of the transaction {sequence} announces a body its bytes do not hold.");
+                }
+
+                root = new SequenceReader<byte>(effects.UnreadSequence.Slice(0, updateLength));
+                effects.Advance(updateLength);
+                root.TryReadLittleEndian(out int updatedId);
+                root.TryReadLittleEndian(out int updateMember);
+                root.TryReadLittleEndian(out long predecessor);
+                typeId = (uint)updatedId;
+                member = (uint)updateMember;
+                lastMutation = (ulong)predecessor;
+                if (lastMutation == 0 || lastMutation >= sequence)
+                {
+                    throw Protocol.Invalid($"An Update of the transaction {sequence} has the invalid predecessor {lastMutation}.");
+                }
+
+                return EffectKindEnum.Update;
 
             case EffectKindEnum.Delete:
                 if (!effects.TryReadLittleEndian(out int deletedId))

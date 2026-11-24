@@ -14,4 +14,7 @@ internal enum EffectKindEnum : byte
     // A write that changed nothing, a delete of an absent key: only its position (the owner's answer to
     // Q39).
     Unchanged = 3,
+
+    // Effective commands applied to one published predecessor.
+    Update = 4,
 }

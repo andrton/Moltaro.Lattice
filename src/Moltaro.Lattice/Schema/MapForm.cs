@@ -16,6 +16,8 @@ internal abstract class MapForm
     // of exactly K and V.
     public abstract bool IsInput(object value);
 
+    public abstract bool IsInputType(Type type);
+
     // The entries of an input that IsInput accepted, in its order. A key may be null in an
     // input.
     public abstract IEnumerable<KeyValuePair<object?, object?>> Entries(object input);
@@ -27,9 +29,12 @@ internal abstract class MapForm
     // key that the key declaration holds equal.
     public abstract bool TryAdd(object map, object key, object? value);
 
-    public static MapForm For(LatticeValueDeclaration key, LatticeValueDeclaration value)
+    public static MapForm For(LatticeValueDeclaration key, LatticeValueDeclaration value) =>
+        For(key.PositionType, value.PositionType, key.TextComparison);
+
+    internal static MapForm For(Type key, Type value, TextComparison? comparison)
     {
-        var formType = typeof(MapForm<,>).MakeGenericType(key.PositionType, value.PositionType);
-        return (MapForm)Activator.CreateInstance(formType, key.TextComparison)!;
+        var formType = typeof(MapForm<,>).MakeGenericType(key, value);
+        return (MapForm)Activator.CreateInstance(formType, comparison)!;
     }
 }

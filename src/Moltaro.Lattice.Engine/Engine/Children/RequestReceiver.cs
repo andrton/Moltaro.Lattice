@@ -1,11 +1,13 @@
 using System.Buffers;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Children;
@@ -118,11 +120,13 @@ internal sealed class RequestReceiver
         var request = ForwardEncoding.ReadRequestHead(ref reader);
         var table = TableOf(request.TypeId);
         var key = table.Keys.ReadKey(ref reader);
-        var root = RootOf(table, request, key, ref reader);
+        var update = UpdateOf(table, request.Kind, ref reader);
+        var root = update is null ? RootOf(table, request, key, ref reader) : default;
 
         ForwardEncoding.ExpectEnd(reader);
 
-        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root, table.EntityType), request.ExpectedRevision, SessionOf(request.MinimumPosition));
+        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root, table.EntityType),
+            request.ExpectedRevision, SessionOf(request.MinimumPosition), update);
     }
 
     // Checks a write batch, every member and the batch as a whole, and submits it as one write (see the
@@ -133,26 +137,44 @@ internal sealed class RequestReceiver
         var members = new BatchMember[count];
         var entityTypes = new LatticeEntityType[count];
         var keys = new PublicationKeys(count);
+        var commands = 0L;
 
         for (var place = 0; place < count; place++)
         {
             var member = ForwardEncoding.ReadMemberHead(ref reader);
             var table = TableOf(member.TypeId);
             var key = table.Keys.ReadKey(ref reader);
-            var root = RootOf(table, member, key, ref reader);
+            var update = UpdateOf(table, member.Kind, ref reader);
+            var root = update is null ? RootOf(table, member, key, ref reader) : default;
+            commands += update?.Commands.Length ?? 0;
+            if (commands > int.MaxValue)
+            {
+                throw Protocol.Invalid("A forwarded write batch carries too many update commands.");
+            }
 
             if (!keys.TryAdd(table, key))
             {
                 throw Protocol.Invalid($"A forwarded write batch names {table.EntityType.Name} '{key}' in two members.");
             }
 
-            members[place] = new BatchMember(member.Kind, table, key, member.ExpectedRevision, root);
+            members[place] = new BatchMember(member.Kind, table, key, member.ExpectedRevision, root, update);
             entityTypes[place] = table.EntityType;
         }
 
         ForwardEncoding.ExpectEnd(reader);
 
         _writes.Coordinator.Forward(members, keys, new ForwardedOrigin(_replies, correlationId, entityTypes), SessionOf(minimumPosition));
+    }
+
+    private static UpdateInput? UpdateOf(EntityTable table, WriteKindEnum kind, ref SequenceReader<byte> reader)
+    {
+        if (kind != WriteKindEnum.Update)
+        {
+            return null;
+        }
+
+        var commands = new SequenceReader<byte>(ForwardEncoding.ReadRoot(ref reader));
+        return new UpdateInput(UpdateCommands.ReadRequest(table.Layout, ref commands), new UpdateOutcome());
     }
 
     // The table of an entity type the master stores.

@@ -23,6 +23,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     // added, so an integer key is one entity in whatever width it was given.
     private HashSet<WriteBatchEntity> _identities = [];
     private bool _submitted;
+    private bool _hasUpdates;
 
     public WriteBatch(LatticeSchema schema, IWriteBatchExecutor executor)
     {
@@ -72,6 +73,10 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         where TKey : notnull =>
         Delete(Resolve(entityName), key, expectedRevision);
 
+    public void Update(LatticeUpdate update) => AddUpdate(update, null);
+
+    public void Update(LatticeUpdate update, LatticeRevision expectedRevision) => AddUpdate(update, expectedRevision);
+
     public ValueTask<LatticeWriteResult> CommitAsync(CancellationToken cancellationToken = default) =>
         Commit(null, cancellationToken);
 
@@ -118,20 +123,51 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     // database that was closed, ObjectDisposedException, and a List above its bound.
     private void Add(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision)
     {
+        var entity = CheckIdentity(entityType, key);
+        var root = _executor.EncodeRoot(entityType, values);
+        Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
+    }
+
+    private void AddUpdate(LatticeUpdate update, LatticeRevision? expectedRevision)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        update.ThrowIfSubmitted();
+        if (!ReferenceEquals(update.Database, _executor))
+        {
+            throw new ArgumentException("The update belongs to another database instance.", nameof(update));
+        }
+
+        update.ThrowIfEmpty();
+        var input = update.ValidateContent();
+        var entityType = update.EntityType;
+        var key = update.Key;
+        var entity = CheckIdentity(entityType, key);
+        _executor.CheckUpdate(entityType, input);
+
+        // Finish any fallible allocation before changing either builder.
+        _operations.EnsureCapacity(Count + 1);
+        Keep(entity, new WriteBatchOperation(WriteKindEnum.Update, entityType, key, expectedRevision, default, input));
+        _hasUpdates = true;
+        update.Consume();
+    }
+
+    private WriteBatchEntity CheckIdentity(LatticeEntityType entityType, object key)
+    {
         ThrowIfSubmitted();
-
         var entity = new WriteBatchEntity(entityType, key);
-
         if (_identities.Contains(entity))
         {
             throw new ArgumentException(
                 $"The batch already has an operation for {entityType.Name} '{key}'. A batch takes one operation per entity.");
         }
 
-        var root = _executor.EncodeRoot(entityType, values);
+        return entity;
+    }
 
+    private void Keep(WriteBatchEntity entity, WriteBatchOperation operation)
+    {
         _identities.Add(entity);
-        _operations.Add(new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
+        _operations.Add(operation);
         Count++;
     }
 
@@ -161,7 +197,19 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         _operations = [];
         _identities = [];
 
-        return _executor.ExecuteAsync(operations, session, cancellationToken);
+        var result = _executor.ExecuteAsync(operations, session, cancellationToken);
+        if (!_hasUpdates)
+        {
+            return result;
+        }
+
+        var completion = result.AsTask();
+        foreach (var operation in operations)
+        {
+            operation.Update?.Outcome.Attach(completion);
+        }
+
+        return new ValueTask<LatticeWriteResult>(completion);
     }
 
     private void ThrowIfSubmitted()

@@ -15,10 +15,10 @@ namespace Moltaro.Lattice.Engine.Child.Following;
 // (docs/decisions/replication-and-hosting.md, "Initial capture and readiness handoff").
 //
 // Before Ready (CatchUpAsync). The transactions of (S, R] are applied in their order, each received within
-// OpenTimeout, as every part of a load is: the open of the child waits for them. Only then are its unique
-// indexes checked, at R (Loading.ReceivedChanges.ValidateUniqueIndexes), and only then is the child Ready
-// at R, its clock having moved from S through every sequence it applied. Nothing is acknowledged before R:
-// the state before it is a mixture of the copy and the stream, which no position names.
+// OpenTimeout, as every part of a load is: the open of the child waits for them. At R,
+// ReceivedChanges checks that committed Deletes resolved all missing update targets and checks
+// the unique indexes. Then the child becomes Ready at R. Before R the mixed state of the copy
+// and the stream is private to the load, so nothing has been acknowledged.
 //
 // After Ready (FollowAsync). The child acknowledges R, then applies every transaction as it comes and,
 // whenever no more of the stream has arrived whole and it is about to read more, acknowledges the last one
@@ -35,11 +35,11 @@ namespace Moltaro.Lattice.Engine.Child.Following;
 // on. A reply that is not valid is a frame of the master that is not valid.
 //
 // What a transaction has to be. Its sequence follows the one before; it is checked by its frames and its
-// announced length (TransactionAssembler); each effect is a Write, a Delete or an Unchanged of an entity type
-// the engine stores, and the root of a Write carries the sequence of its transaction as its last mutation,
-// which, with consecutive sequences, keeps an effect not later than the state held from arriving after R. A
-// transaction that is not so is refused whole: nothing of it is applied. Before Ready that fails the open,
-// with ValidationFailed, which the open reports as Unavailable; after Ready the child stops following.
+// announced length (TransactionAssembler). A Write carries a root stamped with the transaction sequence.
+// A Delete names a key, an Update carries the effective commands for its predecessor, and Unchanged
+// advances only the position. An invalid transaction is refused whole. Before Ready this fails the
+// open with Unavailable. After Ready a malformed stream ends following at the prior position. A fully
+// checked Update that contradicts the live predecessor faults the child at that position.
 //
 // Memory. A transaction the arena of the child cannot hold is applied by the rule of a write refused for
 // memory: what is retired is freed and the transaction is tried again; refused again, the reads that hold
@@ -50,8 +50,8 @@ namespace Moltaro.Lattice.Engine.Child.Following;
 //
 // Stopping. A child that stops following — a transaction it refused or cannot hold, a frame that is not
 // valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender that
-// failed, the close of the child — ends its connection and keeps serving its reads at the position it has,
-// Ready; it does not resume by itself (reconnection is not built yet). Nothing of a transaction it was
+// failed, the close of the child — ends its connection. A Ready child continues serving reads at the
+// last applied position. A faulted or closed child refuses reads. Nothing of a transaction it was
 // putting together is applied. It marks itself without a master (Forwarding.Forwarder.LoseMaster), so that a
 // write through it is Unavailable and a wait for a position it has not reached ends at once; it ends its side
 // of the connection and the sender; and every write it had sent whole and that has no reply ends in
@@ -135,15 +135,24 @@ internal sealed class Follower
 
         _applied = end.CaptureStart;
 
-        while (_applied < end.Readiness)
+        try
         {
-            if (!await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false))
+            while (_applied < end.Readiness)
             {
-                throw new LatticeException(LatticeErrorEnum.Unavailable, "The master closed before this child had applied the transactions up to its readiness position.");
+                if (!await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false))
+                {
+                    throw new LatticeException(LatticeErrorEnum.Unavailable, "The master closed before this child had applied the transactions up to its readiness position.");
+                }
             }
-        }
 
-        _changes.ValidateUniqueIndexes();
+            _changes.ValidateUniqueIndexes();
+        }
+        catch
+        {
+            _changes.DropMissingUpdates();
+            _assembler.Reset();
+            throw;
+        }
 
         // From here on the writes of the child go to the queue of its sender, before the child is Ready,
         // so that none finds the child without a connection while the task that follows has not begun;
@@ -154,8 +163,8 @@ internal sealed class Follower
     }
 
     // Follows the master once the child is Ready, and forwards the writes of the child through its sender,
-    // until the child stops following or closes (see the class). It never fails: what ends it is the end of
-    // the following, and the child stays Ready. The token is the close of the child.
+    // until the child stops following or closes (see the class). The task ends with the connection.
+    // The child keeps its applied position, and a checked live divergence faults it.
     public async Task FollowAsync(CancellationToken closing)
     {
         // The end of either side of the connection ends the other: the sender cancels it when it ends.

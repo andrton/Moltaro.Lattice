@@ -25,9 +25,10 @@ a child loads them, follows their changes and forwards writes that contain them.
 can address a field inside an owned value. The fixed part of an entity fits in one block,
 including the fields of its owned values. A record for a collection entry fits in one chunk.
 A database whose schema breaks either layout rule fails to open with `InvalidSchema`,
-which names the entity type. The master executes every write batch, including one committed
-through a child. PostgreSQL persistence
-is not implemented yet, and the contract may still change.
+which names the entity type. Partial updates assign named fields and edit Lists, Maps and
+Sets. The master executes them alone or in a write batch, also when a child submits them.
+Children apply the changed fields and collection entries at the committed position.
+PostgreSQL persistence is not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -250,6 +251,26 @@ others as after. A batch takes one operation per entity, and its size is
 limited only by what the master can hold. It is not a transaction the application works inside: it cannot read, and it holds
 no lock while it is built.
 
+**Editing part of an entity.** Create an update for an existing key, give it commands in
+execution order and commit it once. Both the class set and the set by name take schema
+field names. For example, with the User schema above:
+
+```csharp
+var edit = database.Set<User>().CreateUpdate(1L);
+LatticeCommandResult renamed = edit.Assign("Name", "Ada Lovelace");
+edit.Assign<string?>("Department", null);
+await edit.CommitAsync();
+
+Console.WriteLine(renamed.Changed);
+```
+
+Each command copies its operands when added. An update can also be added to a write batch
+with `batch.Update(edit)` before either is submitted. A successful commit exposes each
+command's `Changed` result, including after local application on a child that stays open.
+Assignment counts as a change even when the value compares equal. Removing an absent
+Map key or Set member and adding an existing Set member leave the revision as it was when
+the update has no other changes. A successful no-op still has a position.
+
 **Master and children.** A master and its read replicas can run in one process or in
 several. Application code uses both through the same interface: a write through a master
 is executed in place, a write through a child is sent to its master and executed there.
@@ -415,13 +436,14 @@ path, from simple to complex.
 | `Moltaro.Lattice.Access` | `ILatticeSet<TEntity>` | Entities as objects of a .NET class |
 | | `ILatticeSet`, `LatticeRecord`, `LatticeOwnedValue` | Entities by name, as records, and the owned values a record holds |
 | | `ILatticeIndex<TEntity>`, `IndexKey`, `IndexBound` | Finding entities through a declared secondary index |
+| | `LatticeUpdate`, `LatticeCommandResult` | Ordered field assignments and collection edits for one entity, with each command's result after commit |
 | | `ILatticeWriteBatch` | Several writes, also of different entity types, executed together or not at all |
 | `Moltaro.Lattice.DependencyInjection` | `AddLattice` | Registration in a dependency injection container; a separate package |
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 Durable persistence and automatic child reconnection are defined in the contract and await
-implementation. Partial updates, safe write retries, schema migration and replication
-status are planned. A query language is not planned for the first version.
+implementation. Safe write retries, schema migration and replication status are planned.
+A query language is not planned for the first version.
 
 ## Repository layout
 

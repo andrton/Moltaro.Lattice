@@ -82,8 +82,19 @@ internal sealed class PendingRequests
             throw Protocol.Invalid("The master sent a reply with the correlation id 0, which no request has.");
         }
 
-        var reply = ForwardEncoding.ReadReply(body);
+        ForwardedCall? call;
 
+        lock (_lock)
+        {
+            _calls.TryGetValue(correlationId, out call);
+        }
+
+        if (call is null)
+        {
+            throw Protocol.Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
+        }
+
+        var reply = ForwardEncoding.ReadReply(body, call.Updates?.Count ?? 0, call.Updates?.OnlyUpdates ?? false);
         if (reply.Result is { } result)
         {
             if (result.Position.History != _history)
@@ -95,18 +106,6 @@ internal sealed class PendingRequests
             {
                 throw Protocol.Invalid($"The master replied with the position {result.Position}, which is not above the sequence {applied} this child has applied: the reply of a write comes before its transaction.");
             }
-        }
-
-        ForwardedCall? call;
-
-        lock (_lock)
-        {
-            _calls.TryGetValue(correlationId, out call);
-        }
-
-        if (call is null)
-        {
-            throw Protocol.Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
         }
 
         // Before the call leaves the table: a refusal that names a unique index its entity type does not

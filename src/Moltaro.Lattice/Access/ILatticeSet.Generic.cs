@@ -122,6 +122,10 @@ public interface ILatticeSet<TEntity>
     /// <summary>The entity type this set serves.</summary>
     LatticeEntityType EntityType { get; }
 
+    /// <inheritdoc cref="ILatticeSet.CreateUpdate{TKey}"/>
+    LatticeUpdate CreateUpdate<TKey>(TKey key)
+        where TKey : notnull;
+
     /// <summary>
     /// Selects a secondary index declared for the entity type, to find entities by the
     /// values of its fields. The returned object can be kept and reused.

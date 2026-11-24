@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Schema;
@@ -35,21 +36,25 @@ internal sealed class ForwardedCall
     // The entity types of the members of a batch, in their order; null for one write.
     private readonly LatticeEntityType[]? _memberTypes;
 
-    public ForwardedCall(OutgoingMessage request, LatticeEntityType entityType)
+    public ForwardedCall(OutgoingMessage request, LatticeEntityType entityType, UpdateReplies? updates = null)
     {
         Request = request;
         _entityType = entityType;
+        Updates = updates;
     }
 
     // The call of a write batch, with the entity types of its members, in their order.
-    public ForwardedCall(OutgoingMessage request, LatticeEntityType[] memberTypes)
+    public ForwardedCall(OutgoingMessage request, LatticeEntityType[] memberTypes, UpdateReplies? updates = null)
     {
         Request = request;
         _memberTypes = memberTypes;
+        Updates = updates;
     }
 
     // The request, complete.
     public OutgoingMessage Request { get; }
+
+    public UpdateReplies? Updates { get; }
 
     // The id of the request on its connection, which the sender gives it when it takes it.
     public ulong CorrelationId { get; set; }

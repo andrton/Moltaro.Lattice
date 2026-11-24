@@ -1,4 +1,7 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Engine.Child.Forwarding;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Indexes;
@@ -13,8 +16,9 @@ namespace Moltaro.Lattice.Engine.Sets;
 // (Child.Forwarding.Forwarder). That submission is where a master and a child part: the one place a
 // set takes another way on each, while everything else here is the same for both. One of these for each
 // entity type of an open database, shared by its sets.
-internal sealed class SetOperations
+internal sealed class SetOperations : IUpdateExecutor
 {
+    private readonly EngineDatabase _database;
     private readonly WriteCoordinator _writes;
 
     // The writes of a child, which go to its master; null on a master.
@@ -32,8 +36,9 @@ internal sealed class SetOperations
     // before it is submitted (RootValues.CheckCollectionBounds).
     private readonly bool _checksCollections;
 
-    public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
+    public SetOperations(EngineDatabase database, EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
     {
+        _database = database;
         Table = table;
         _writes = writes;
         _forwarder = forwarder;
@@ -44,6 +49,24 @@ internal sealed class SetOperations
     }
 
     public EntityTable Table { get; }
+
+    public LatticeUpdate CreateUpdate<TKey>(TKey key, IReadOnlyList<BoundProperty>? fields = null)
+        where TKey : notnull
+    {
+        var normalized = FieldValues.NormalizeKey(Table.EntityType, key);
+        _database.ThrowIfNotReady();
+        return new LatticeUpdate(Table.EntityType, normalized, _database, this, fields);
+    }
+
+    public ValueTask<LatticeWriteResult> ExecuteUpdateAsync(object key, UpdateInput update, LatticeRevision? expectedRevision,
+        LatticeSession? session, CancellationToken cancellationToken)
+    {
+        RootValues.BindUpdate(Table.Layout, update);
+        var normalized = KeyArgument.OfNormalized(Table, key);
+        return _forwarder is null
+            ? _writes.SubmitUpdateAsync(Table, normalized, update, expectedRevision, session, cancellationToken)
+            : _forwarder.WriteAsync(Table, WriteKindEnum.Update, normalized, values: null, update, expectedRevision, session, cancellationToken);
+    }
 
     // A read by key: the copy inside the protection of reads, then the result built from it, outside
     // the protection, only when the entity exists. Null when it does not. The token of an asynchronous
@@ -203,5 +226,5 @@ internal sealed class SetOperations
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>
         _forwarder is null
             ? _writes.SubmitAsync(Table, kind, key, values, expectedRevision, session, cancellationToken)
-            : _forwarder.WriteAsync(Table, kind, key, values, expectedRevision, session, cancellationToken);
+            : _forwarder.WriteAsync(Table, kind, key, values, update: null, expectedRevision, session, cancellationToken);
 }

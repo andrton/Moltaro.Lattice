@@ -102,6 +102,28 @@ public sealed class DotNetEnumAgreementTests
         Assert.Equal("Car", database.Set<Car>().EntityType.Name);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_update_binds_the_declared_enum_and_its_nullable_form(bool byClass)
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: SchemaFor<Car>());
+        var cars = database.Set<Car>();
+        await cars.InsertAsync(new Car { Id = 1, Tint = ColorEnum.Green, Rights = AccessEnum.Read });
+
+        var update = byClass ? cars.CreateUpdate(1) : database.Set("Car").CreateUpdate(1);
+        Assert.Throws<ArgumentException>(() => update.Assign<ColorEnum?>("Rights", null));
+        var rights = byClass ? update.Assign<AccessEnum?>("Rights", null) : update.Assign<byte?>("Rights", null);
+        var tint = byClass ? update.Assign("Tint", ColorEnum.Blue) : update.Assign("Tint", (short)4);
+        Assert.True((await update.CommitAsync()).Changed);
+        Assert.True(rights.Changed);
+        Assert.True(tint.Changed);
+
+        var saved = cars.Get(1)!;
+        Assert.Null(saved.Rights);
+        Assert.Equal(ColorEnum.Blue, saved.Tint);
+    }
+
     [Fact]
     public async Task Property_of_the_underlying_integer_is_not_compared_with_the_members()
     {

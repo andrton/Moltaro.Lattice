@@ -10,6 +10,10 @@ namespace Moltaro.Lattice.Storage.Roots;
 // See docs/design/arena-protocol.md, "Stored structures and root transfer."
 internal interface IStructureVisitor
 {
+    // Whether to enter a descriptor and what it names. Lifecycle visitors
+    // skip an older alias before reading the borrowed block's descendants.
+    bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset);
+
     // The payload of a block of records, before any descriptor of its records is visited.
     void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count);
 

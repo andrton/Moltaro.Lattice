@@ -1,3 +1,5 @@
+using Moltaro.Lattice.TestSupport.PartialUpdates;
+
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // A value of a key and of a bound is bound to the type of its field by the accepted allowlist, at its
@@ -67,6 +69,57 @@ public sealed class AllowlistTests
             await BindingSearch.ExpectAsync(database, row.Field, asLower, reverse: false, BindingSearch.Range(stored, end, null, reverse: false), $"{name}, as a lower bound {end}");
             await BindingSearch.ExpectAsync(database, row.Field, asUpper, reverse: false, BindingSearch.Range(stored, null, end, reverse: false), $"{name}, as an upper bound {end}");
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(Names))]
+    public async Task Scalar_assignments_use_the_same_allowlist_as_index_queries_by_class_and_by_name(string name)
+    {
+        var row = Cases[name];
+        await using var database = await BindingSchema.OpenAsync();
+        var typed = database.Set<Item>();
+        var named = database.Set("Item");
+        await BindingSearch.InsertAsync(database, row.Field, BindingSearch.Numbered(null, null));
+        var byName = named.CreateUpdate(1L);
+        var byClass = typed.CreateUpdate(2L);
+
+        if (row.Bound is null)
+        {
+            Assert.Throws<ArgumentException>(() => byName.Assign(row.Field, row.Given));
+            Assert.Throws<ArgumentException>(() => byClass.Assign(row.Field, row.Given));
+            Assert.Equal(0, byName.Count);
+            Assert.Equal(0, byClass.Count);
+            return;
+        }
+
+        var first = byName.Assign(row.Field, row.Given);
+        var second = byClass.Assign(row.Field, row.Given);
+        await byName.CommitAsync();
+        await byClass.CommitAsync();
+        Assert.True(first.Changed && second.Changed);
+        var search = TypedValues.Equal(row.Given);
+        var expected = BindingSearch.Numbered(row.Bound, row.Bound);
+        await BindingSearch.ExpectAsync(database, row.Field, search, reverse: false, expected, name);
+    }
+
+    [Theory]
+    [MemberData(nameof(Names))]
+    public Task Collection_command_operands_use_the_same_allowlist_as_index_queries(string name) =>
+        CollectionOperandBinding.ExpectAsync(Cases[name]);
+
+    [Fact]
+    public async Task An_undeclared_enum_value_passes_shape_check_but_fails_submission()
+    {
+        await using var database = await BindingSchema.OpenAsync();
+        var typed = database.Set<Item>();
+        await typed.InsertAsync(Item.Of(1, "Level", (short)-2));
+        var update = typed.CreateUpdate(1L);
+        var command = update.Assign("Level", (short)-3);
+        var commit = update.CommitAsync();
+
+        await TestData.ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, () => commit);
+        Assert.Throws<InvalidOperationException>(() => command.Changed);
+        Assert.Single(typed.Index("ByLevel").Find(IndexKey.Equal((short)-2)));
     }
 
     private static IEnumerable<AllowlistCase> Rows()

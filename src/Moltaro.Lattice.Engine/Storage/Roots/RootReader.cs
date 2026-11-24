@@ -293,6 +293,8 @@ internal readonly ref struct RootReader
     {
         public long Bytes { get; private set; }
 
+        public readonly bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset) => true;
+
         public void EnterRecordBlock(ReadOnlySpan<byte> payload, StructureLayout element, int count) => Bytes += payload.Length;
 
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)

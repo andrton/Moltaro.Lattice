@@ -1,4 +1,5 @@
 using System.Buffers;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Batches;
@@ -16,6 +17,8 @@ internal interface IWriteBatchExecutor
     // collection above its bound at any depth, which the engine knows from the layout of the entity type, so
     // that the Add refuses it as a single write refuses it before its conditions.
     ReadOnlySequence<byte> EncodeRoot(LatticeEntityType entityType, object?[]? values);
+
+    void CheckUpdate(LatticeEntityType entityType, UpdateInput update);
 
     // Executes the operations, of which there is at least one, as one write after the position the session
     // depends on, if one is given, and moves the session to its position: the outcome of

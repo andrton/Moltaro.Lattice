@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Child;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Child.Forwarding;
@@ -339,6 +340,12 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         return RootValues.Export(layout, entityType, values);
     }
 
+    void IWriteBatchExecutor.CheckUpdate(LatticeEntityType entityType, UpdateInput update)
+    {
+        ThrowIfNotReady();
+        RootValues.BindUpdate(Part(_parts).Operations[entityType].Table.Layout, update);
+    }
+
     // The commit of a write batch of the core: its members, each key in the form of its entity type
     // (Sets.KeyArgument), go on a master to the write coordinator as one write
     // (Writes.WriteCoordinator.SubmitBatchAsync), and on a child to its master as one request
@@ -359,7 +366,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             var operation = operations[place];
             var table = parts.Operations[operation.EntityType].Table;
 
-            members[place] = new BatchMember(operation.Kind, table, KeyArgument.Of(table, operation.Key), operation.ExpectedRevision, operation.Root);
+            var key = operation.Update is null ? KeyArgument.Of(table, operation.Key) : KeyArgument.OfNormalized(table, operation.Key);
+            members[place] = new BatchMember(operation.Kind, table, key, operation.ExpectedRevision, operation.Root, operation.Update);
         }
 
         return parts.Forwarder is { } forwarder
@@ -801,7 +809,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
             foreach (var table in tables.InSchemaOrder)
             {
-                var forType = new SetOperations(table, coordinator, forwarder, clock, _options, reads);
+                var forType = new SetOperations(this, table, coordinator, forwarder, clock, _options, reads);
 
                 operations.Add(table.EntityType, forType);
                 recordSets.Add(table.EntityType, new RecordSet(forType));
@@ -888,7 +896,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         return new ClassSet<TEntity>(parts.Operations[binding.EntityType], binding);
     }
 
-    private void ThrowIfNotReady()
+    internal void ThrowIfNotReady()
     {
         var state = State;
 

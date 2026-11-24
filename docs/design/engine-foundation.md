@@ -64,10 +64,11 @@ indexes, comparison rules, coherent publication or durability.
   15 minutes from first master admission, configurable without extending on retry. Receipts commit
   with the mutation; expired tokens cannot be admitted as new work. Automatic retries
   and cross-restart MemoryOnly durability are not implied.
-- Explicit partial updates prepare affected values/blocks before commit and publish
-  fixed values in place or install replacement blocks after commit. Full Save prepares
-  the complete replacement without diff; required publication resources are prepared
-  within the instance budget before journal submission.
+- An explicit partial update prepares a fresh root and the blocks of the changed
+  values. It shares unchanged out-of-line branches with the preceding root and
+  transfers their ownership at publication. Full writes prepare the complete root
+  without diff. Publication resources are reserved before the commit.
+  [Arena ownership](arena-protocol.md#ownership-across-partial-updates)
 - [Repeated scalar targets in one explicit partial update](../decisions/mutation-commands.md#repeated-scalar-targets-in-an-explicit-partial-update)
   reject that mutation, or its containing WriteBatch, before commit. Ordered collection
   commands and repeated local assignments before ordinary Save retain their contracts.

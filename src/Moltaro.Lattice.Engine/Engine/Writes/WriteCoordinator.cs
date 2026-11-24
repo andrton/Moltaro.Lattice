@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -366,6 +367,15 @@ internal sealed class WriteCoordinator
         object?[]? values,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
+        CancellationToken cancellationToken) =>
+        SubmitLocal(new WriteSubmission(table, kind, key, values, expectedRevision), session, cancellationToken);
+
+    public ValueTask<LatticeWriteResult> SubmitUpdateAsync(EntityTable table, EntityKey key, UpdateInput update,
+        LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>
+        SubmitLocal(new WriteSubmission(table, WriteKindEnum.Update, key, ExpectedRevision: expectedRevision, Update: update),
+            session, cancellationToken);
+
+    private ValueTask<LatticeWriteResult> SubmitLocal(in WriteSubmission submission, LatticeSession? session,
         CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
@@ -381,10 +391,10 @@ internal sealed class WriteCoordinator
         // On a master the position of a session is published already, unless a caller made it up.
         if (!waited.IsCompletedSuccessfully)
         {
-            return AdmitAfterAsync(waited, table, kind, key, values, members: null, keys: null, expectedRevision, session, cancellationToken);
+            return AdmitAfterAsync(waited, submission, session, cancellationToken);
         }
 
-        return Admit(table, kind, key, values, members: null, keys: null, forwarded: null, expectedRevision, session, cancellationToken);
+        return Admit(submission, session, cancellationToken);
     }
 
     // Submits a write batch and returns its task, with its position and whether a member changed the
@@ -405,65 +415,43 @@ internal sealed class WriteCoordinator
             }
         }
 
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken);
-        }
-
-        if (!TryEnter(session, cancellationToken, out var waited, out var refusal))
-        {
-            return ValueTask.FromException<LatticeWriteResult>(refusal);
-        }
-
-        if (!waited.IsCompletedSuccessfully)
-        {
-            return AdmitAfterAsync(waited, table: null!, kind: default, key: default, values: null, members, keys, expectedRevision: null, session, cancellationToken);
-        }
-
-        return Admit(table: null!, kind: default, key: default, values: null, members, keys, forwarded: null, expectedRevision: null, session, cancellationToken);
+        return SubmitLocal(new WriteSubmission(Members: members, Keys: keys), session, cancellationToken);
     }
 
     // Submits a write a child forwarded, of an entity type the engine stores, which brings its root and
     // where it came from instead of values (see the class, "Forwarded writes"). Its outcome is its reply,
     // with the refusals of SubmitAsync, and is recorded before the write leaves the barrier of the close;
     // nothing is returned, and the task of its admission is not looked at.
-    public void Forward(EntityTable table, WriteKindEnum kind, in EntityKey key, ForwardedOrigin forwarded, LatticeRevision? expectedRevision, LatticeSession? session) =>
-        SubmitForwarded(table, kind, key, members: null, keys: null, forwarded, expectedRevision, session);
+    public void Forward(EntityTable table, WriteKindEnum kind, in EntityKey key, ForwardedOrigin forwarded,
+        LatticeRevision? expectedRevision, LatticeSession? session, UpdateInput? update = null) =>
+        SubmitForwarded(new WriteSubmission(table, kind, key, ExpectedRevision: expectedRevision, Forwarded: forwarded, Update: update), session);
 
     // Submits a write batch a child forwarded, its members of entity types the engine stores, each with its
     // root, and the set of their entities, which names none twice (Children.RequestReceiver): one write, as a
     // batch of SubmitBatchAsync is (see the class, "A write batch"), whose outcome is its reply as for one
     // forwarded write, with the refusals of SubmitBatchAsync.
     public void Forward(BatchMember[] members, PublicationKeys keys, ForwardedOrigin forwarded, LatticeSession? session) =>
-        SubmitForwarded(table: null!, kind: default, key: default, members, keys, forwarded, expectedRevision: null, session);
+        SubmitForwarded(new WriteSubmission(Members: members, Keys: keys, Forwarded: forwarded), session);
 
     // A forwarded write or batch enters the barrier of the close and is admitted, once the position of its
     // session is published when it has one; a refusal before its admission is its reply at once.
-    private void SubmitForwarded(
-        EntityTable table,
-        WriteKindEnum kind,
-        in EntityKey key,
-        BatchMember[]? members,
-        PublicationKeys? keys,
-        ForwardedOrigin forwarded,
-        LatticeRevision? expectedRevision,
-        LatticeSession? session)
+    private void SubmitForwarded(in WriteSubmission submission, LatticeSession? session)
     {
         if (!TryEnter(session, CancellationToken.None, out var waited, out var refusal))
         {
-            forwarded.Refuse(refusal);
+            submission.Forwarded!.Refuse(refusal);
 
             return;
         }
 
         if (!waited.IsCompletedSuccessfully)
         {
-            _ = ForwardAfterAsync(waited, table, kind, key, members, keys, forwarded, expectedRevision, session);
+            _ = ForwardAfterAsync(waited, submission, session);
 
             return;
         }
 
-        _ = Admit(table, kind, key, values: null, members, keys, forwarded, expectedRevision, session, CancellationToken.None);
+        _ = Admit(submission, session, CancellationToken.None);
     }
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault).
@@ -612,13 +600,7 @@ internal sealed class WriteCoordinator
     // leaves the barrier with its failure.
     private async ValueTask<LatticeWriteResult> AdmitAfterAsync(
         ValueTask waited,
-        EntityTable table,
-        WriteKindEnum kind,
-        EntityKey key,
-        object?[]? values,
-        BatchMember[]? members,
-        PublicationKeys? keys,
-        LatticeRevision? expectedRevision,
+        WriteSubmission submission,
         LatticeSession? session,
         CancellationToken cancellationToken)
     {
@@ -633,20 +615,14 @@ internal sealed class WriteCoordinator
             throw;
         }
 
-        return await Admit(table, kind, key, values, members, keys, forwarded: null, expectedRevision, session, cancellationToken).ConfigureAwait(false);
+        return await Admit(submission, session, cancellationToken).ConfigureAwait(false);
     }
 
     // The same for a forwarded write: a wait that fails is its refusal, recorded before it leaves the
     // barrier, and nothing of it runs after that. The task never fails, and no one awaits it.
     private async Task ForwardAfterAsync(
         ValueTask waited,
-        EntityTable table,
-        WriteKindEnum kind,
-        EntityKey key,
-        BatchMember[]? members,
-        PublicationKeys? keys,
-        ForwardedOrigin forwarded,
-        LatticeRevision? expectedRevision,
+        WriteSubmission submission,
         LatticeSession? session)
     {
         try
@@ -655,27 +631,20 @@ internal sealed class WriteCoordinator
         }
         catch (Exception exception)
         {
-            forwarded.Refuse(exception);
+            submission.Forwarded!.Refuse(exception);
             _barrier.Exit();
 
             return;
         }
 
-        _ = Admit(table, kind, key, values: null, members, keys, forwarded, expectedRevision, session, CancellationToken.None);
+        _ = Admit(submission, session, CancellationToken.None);
     }
 
     // The call of a write inside the barrier of the close (see the class): one hold of the lock that
     // admits it and, when nothing makes it wait, prepares, dispatches and publishes it; then the outcome,
     // or the task when it waits. The write leaves the barrier when its outcome is given.
     private ValueTask<LatticeWriteResult> Admit(
-        EntityTable table,
-        WriteKindEnum kind,
-        in EntityKey key,
-        object?[]? values,
-        BatchMember[]? members,
-        PublicationKeys? keys,
-        ForwardedOrigin? forwarded,
-        LatticeRevision? expectedRevision,
+        in WriteSubmission submission,
         LatticeSession? session,
         CancellationToken cancellationToken)
     {
@@ -684,12 +653,10 @@ internal sealed class WriteCoordinator
         LatticeWriteResult result = default;
         Exception? failure = null;
         var large = false;
+        var forwarded = submission.Forwarded;
 
         lock (_writes)
         {
-#if LATTICE_COLLECTION_TIMINGS
-            var admissionStarted = CollectionWriteTimings.Start();
-#endif
             // After a fault a write is refused here, so that none enters the lists after the fault has
             // ended those in them.
             if (_faulted)
@@ -700,11 +667,16 @@ internal sealed class WriteCoordinator
             {
                 write = _spare ?? new PendingWrite(this);
                 _spare = null;
-                write.Begin(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
+                write.Begin(submission.Table!, submission.Kind, submission.Key, submission.Values, forwarded,
+                    submission.ExpectedRevision, session, cancellationToken, ++_admitted);
 
-                if (members is not null)
+                if (submission.Members is { } members)
                 {
-                    write.BeginBatch(members, keys!);
+                    write.BeginBatch(members, submission.Keys!);
+                }
+                else if (submission.Update is { } update)
+                {
+                    write.Update = update;
                 }
 
                 _queued++;
@@ -728,9 +700,6 @@ internal sealed class WriteCoordinator
                     _spare = write;
                 }
             }
-#if LATTICE_COLLECTION_TIMINGS
-            CollectionWriteTimings.EndAdmission(admissionStarted);
-#endif
         }
 
         CarryOutDecisions(ref hold);

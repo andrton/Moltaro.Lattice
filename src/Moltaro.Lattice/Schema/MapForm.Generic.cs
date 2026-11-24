@@ -21,6 +21,8 @@ internal sealed class MapForm<TKey, TValue> : MapForm
     // enums, and KeyValuePair<TKey, TValue> is neither.
     public override bool IsInput(object value) => value is IEnumerable<KeyValuePair<TKey, TValue>>;
 
+    public override bool IsInputType(Type type) => typeof(IEnumerable<KeyValuePair<TKey, TValue>>).IsAssignableFrom(type);
+
     public override IEnumerable<KeyValuePair<object?, object?>> Entries(object input)
     {
         foreach (var (key, value) in (IEnumerable<KeyValuePair<TKey, TValue>>)input)

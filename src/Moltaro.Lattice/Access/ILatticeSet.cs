@@ -43,6 +43,16 @@ public interface ILatticeSet
     /// <summary>The entity type this set serves.</summary>
     LatticeEntityType EntityType { get; }
 
+    /// <summary>Starts a local partial update for the given key without reading the entity.</summary>
+    /// <typeparam name="TKey">The type of the key supplied by the caller.</typeparam>
+    /// <param name="key">The primary key, bound by the same rules as a read of this set.</param>
+    /// <returns>An empty update of this entity type and database instance.</returns>
+    /// <exception cref="ArgumentException">The key has an incompatible type or value.</exception>
+    /// <exception cref="ObjectDisposedException">The database is closed.</exception>
+    /// <exception cref="LatticeException"><see cref="LatticeErrorEnum.Unavailable"/> when the database is not ready.</exception>
+    LatticeUpdate CreateUpdate<TKey>(TKey key)
+        where TKey : notnull;
+
     /// <summary>
     /// Selects a secondary index declared for the entity type, to find entities by the
     /// values of its fields. The returned object can be kept and reused.

@@ -96,7 +96,7 @@ internal static class NestedValues
         }
     }
 
-    private static void MarkPresent(ref ValueHolder holder, StructureLayout layout, int at, in StoredField place)
+    public static void MarkPresent(ref ValueHolder holder, StructureLayout layout, int at, in StoredField place)
     {
         if (place.IsNullable)
         {
@@ -280,12 +280,12 @@ internal static class NestedValues
         }
         catch
         {
-            FreeRecords(ref holder, element, descriptorPlace, descriptor, slotBytes);
+            FreeRecords(ref holder, element, offset, descriptorPlace, descriptor, slotBytes);
 
             throw;
         }
 
-        FreeRecords(ref holder, element, descriptorPlace, descriptor, slotBytes);
+        FreeRecords(ref holder, element, offset, descriptorPlace, descriptor, slotBytes);
         holder.Refused = true;
     }
 
@@ -384,13 +384,16 @@ internal static class NestedValues
 
     public static void PlaceCollection<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, ref TSource source)
         where TSource : struct, ICollectionEntrySource
+        => PlaceCollection(ref holder, place, element, offset, count, CollectionLookup.IsCompact(count), ref source);
+
+    public static void PlaceCollection<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, bool compact, ref TSource source)
+        where TSource : struct, ICollectionEntrySource
     {
         if (holder.Refused)
         {
             return;
         }
 
-        var compact = count <= CollectionLookup.MostCompactEntries;
         if (holder.Exported is not null)
         {
             source.Place(ref holder, place, element, offset, count, allowInline: compact);
@@ -471,13 +474,7 @@ internal static class NestedValues
         var payload = holder.Bytes[(BlockHeader.Size - holder.Origin)..];
         var keys = new CollectionKeys(holder.Arena, element, descriptor, payload, holder.Encoding);
         var slots = new CollectionLookup(holder.Arena, descriptor);
-#if LATTICE_COLLECTION_TIMINGS
-        var populationStarted = CollectionWriteTimings.Start();
-#endif
         var duplicate = CollectionLookup.AddEntries(ref keys, ref slots, keys.Count);
-#if LATTICE_COLLECTION_TIMINGS
-        CollectionWriteTimings.EndPopulation(populationStarted);
-#endif
         if (duplicate >= 0)
         {
             throw Duplicate(place, element, duplicate);
@@ -493,7 +490,7 @@ internal static class NestedValues
     {
         var bytes = holder.At(offset, ValueBlocks.DescriptorSize);
         var descriptor = ValueBlocks.Read(bytes);
-        RootStorage.FreeValue(holder.Arena, descriptor, element);
+        RootStorage.FreeValue(holder.Arena, descriptor, element, holder.Address, offset);
         bytes.Clear();
         holder.SlotBytes = before;
         holder.InlineEnd = inline;
@@ -602,11 +599,11 @@ internal static class NestedValues
 
     // Frees a List of records the placement did not complete, from what its descriptor names, writes its
     // descriptor as zero and gives back what the holder counted for it.
-    private static void FreeRecords(ref ValueHolder holder, StructureLayout element, Span<byte> descriptorPlace, in ValueDescriptor descriptor, long slotBytes)
+    private static void FreeRecords(ref ValueHolder holder, StructureLayout element, int offset, Span<byte> descriptorPlace, in ValueDescriptor descriptor, long slotBytes)
     {
         if (descriptor.Location != 0)
         {
-            RootStorage.FreeValue(holder.Arena, descriptor, element);
+            RootStorage.FreeValue(holder.Arena, descriptor, element, holder.Address, offset);
             ValueBlocks.Write(descriptorPlace, default);
         }
 
