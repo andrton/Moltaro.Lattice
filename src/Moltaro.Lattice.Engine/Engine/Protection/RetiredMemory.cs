@@ -221,6 +221,9 @@ internal sealed class RetiredMemory
         }
     }
 
+    public int DrainStep(int workLimit) =>
+        throw new NotSupportedException("Bounded retirement reclamation is not implemented yet.");
+
     // One bounded turn. The ordinary drain owns an earlier non-relocation item.
     // The one epoch scan can make an old slot reusable even while later reads are held.
     public bool TryReclaimRelocated()
