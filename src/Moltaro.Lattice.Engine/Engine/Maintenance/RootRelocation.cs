@@ -26,26 +26,10 @@ internal static class RootRelocation
 
         var arena = parts.Arena;
         var retired = parts.Retired;
-        if (!arena.TryFindRelocationClass(source, out var sizeClass) || !retired.TryReserveRelocated())
+        if (!arena.TryFindRelocationClass(source, out var sizeClass) ||
+            !RelocationCopy.TryPublish(arena, retired, source, sizeClass, out var replacement))
         {
             return false;
-        }
-
-        ArenaAddress replacement = default;
-        try
-        {
-            replacement = arena.PrepareRelocatedCopy(source, sizeClass);
-            arena.Publish(replacement);
-        }
-        catch
-        {
-            retired.Release();
-            if (!replacement.IsNull)
-            {
-                arena.Free(replacement);
-            }
-
-            throw;
         }
 
         // Publish the replacement before tagging the old slot. An epoch opened

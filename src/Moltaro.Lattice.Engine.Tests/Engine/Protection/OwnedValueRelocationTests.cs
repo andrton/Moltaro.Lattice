@@ -23,7 +23,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // readable until its epoch ends. See docs/design/arena-protocol.md, "Deferred reclamation".
 public sealed class OwnedValueRelocationTests
 {
-    private const string NotImplemented = "Moving an owned native value is not implemented yet.";
     private const int DataBytes = 1_000;
     private const int SlotBytes = 1_280;
     private const int DataOffset = 42;
@@ -46,7 +45,7 @@ public sealed class OwnedValueRelocationTests
         { 'Id': 2, 'Name': 'Rows', 'Type': 'List', 'Element': { 'Type': 'String' } }
         """);
 
-    [Theory(Skip = NotImplemented)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_transferred_value_moves_without_breaking_an_older_root_alias(LatticeRoleEnum role)
@@ -208,7 +207,7 @@ public sealed class OwnedValueRelocationTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Theory(Skip = NotImplemented)]
+    [Theory]
     [InlineData(false, DataBytes, SlotBytes)]
     [InlineData(true, DataBytes, SlotBytes)]
     [InlineData(true, 4_064, 4_096)]
@@ -248,7 +247,7 @@ public sealed class OwnedValueRelocationTests
         Assert.Equal(DataOf(source.Key, dataBytes), items.Get(source.Key)!.Get<byte[]>("Data"));
     }
 
-    [Fact(Skip = NotImplemented)]
+    [Fact]
     public async Task Only_the_current_owner_and_its_block_descriptor_can_redirect_the_leaf()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
@@ -312,7 +311,7 @@ public sealed class OwnedValueRelocationTests
         Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
     }
 
-    [Fact(Skip = NotImplemented)]
+    [Fact]
     public async Task A_live_records_holder_is_not_a_leaf_even_when_its_region_and_parent_are_eligible()
     {
         const int RecordsPerRoot = 128;
@@ -396,7 +395,7 @@ public sealed class OwnedValueRelocationTests
         Assert.Equal(rows, after.Get<List<string>>("Rows"));
     }
 
-    [Theory(Skip = NotImplemented)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_master_with_a_prepared_alias_transfer_cannot_redirect_an_eligible_source(bool targetsSource)
@@ -453,7 +452,7 @@ public sealed class OwnedValueRelocationTests
         Assert.Equal(stage.Destination[^1].Value, Find(master, source.Key).Value);
     }
 
-    [Fact(Skip = NotImplemented)]
+    [Fact]
     public async Task A_full_retirement_queue_prevents_moving_an_eligible_owned_leaf()
     {
         var allocator = new CountingNativeAllocator();
@@ -537,7 +536,7 @@ public sealed class OwnedValueRelocationTests
         Assert.Equal(revision, ExpectRecord(items, source.Key, OriginalCode, data));
     }
 
-    [Fact(Skip = NotImplemented)]
+    [Fact]
     public async Task An_entirely_reserved_retirement_queue_prevents_moving_an_eligible_owned_leaf()
     {
         var allocator = new CountingNativeAllocator();
