@@ -83,13 +83,17 @@ comes first (the owner, 21 November 2026).
   investigation is open. Unfinished work is not handed to another session.
 - Before the merge the coordinator checks that every decision of the sprint is in the
   documents — the epic document, the briefs, [refactoring.md](refactoring.md),
-  [open-questions.md](open-questions.md), this file — and names to the planner what could not be put there. After the merge it stops
-  and does not start the next sprint.
+  [open-questions.md](open-questions.md), this file — and names to the planner what could
+  not be put there.
+- After the merge, the coordinator reports directly in the planner's chat and ends its
+  session at the boundary. The report includes the merged commit, the checks run and
+  their results, and any work still open. The coordinator messages the planner as soon
+  as it finds a blocker that requires a decision.
 - At every boundary the planner creates the new coordinator session, with the model and
   effort of the table above, gives it its starting text and tells the owner its name. The
-  text names the role, the state of `main`, the next work in order, what is owed to the
-  owner and the mistakes not to repeat, each with the document that holds it, and this
-  rule.
+  text identifies the planner's chat for the handoff and names the role, the state of
+  `main`, the next work in order, what is owed to the owner and the mistakes not to
+  repeat, each with the document that holds it, and this rule.
 - At a boundary where the planner itself is due, it first writes a starting text of the
   same form for the new planner and gives it to the owner; the new planner then creates
   the new coordinator.

@@ -814,11 +814,43 @@ touch the same paths. No separate refactoring sprint is needed.
 | --- | --- |
 | `ClassSet`, `SetOperations`, `EntityTable.TryView` | Join to S22. Use the existing stamped protected read with a generated projection bound once to the actual schema. Keep one epoch, the same hit and miss positions, session ordering, exception cleanup and zero allocations for scalar reads. `TryRead` and `TryCopy` already share `TakeEntry`. Keep their measured front ends. |
 | `SchemaJsonReader`, `SchemaBuilder`, `ClassBinder`, `EntityBinding` | Join to the S22 generator proof. The actual analyzer and runtime class binding must apply the same schema and class agreement rules, including inherited members from a referenced assembly. Separate agreement checks from construction of runtime delegates only where the two callers require it. The compiler dependency belongs to the generator. |
-| `ResidentViews`, `CollectionKeys` | Join to the existing S23 physical collection work. Use one rule to open a resident descriptor or packed block as its stored form becomes relevant to compaction. Keep logical count separate from capacity. Verify held views, copied enumerators, split records and native byte spans, and measure the affected hot paths. The current packed List cursor and the owned Map scalar specialization serve different traversal patterns and stay as they are. |
+| `ResidentViews`, `CollectionKeys` | Joined to the [S23 resident collection work](#s23-resident-collection-shape). |
 
 The S34 position-clock item and the concurrent scalar writer item keep their existing
 dispositions. The scalar writer check requires the original hot listing in a suitable
 independently justified ARM64 queue.
+
+## Architect's review after S22, 25 November 2026
+
+The independent architect reviewed merged S22 at `159d3fee`, including the typed
+generator, shared protected-read path and the collection storage it reads. The stamped
+lookup shared with by-name views, the cold projection binding outside the epoch and the
+separation of compiler dependencies from the runtime are sound.
+
+### S23 resident collection shape
+
+Use one rule in `ResidentViews`, `CollectionKeys` and `CollectionLookup` to open a
+resident collection descriptor or packed block. Join this to the
+[`CollectionLookup.IsChunked` and `LookupBlocks` item](#architects-review-after-s19-24-november-2026).
+Get the physical form from its placement and keep the logical element count separate.
+Exercise two collections with the same count and different physical forms. Preserve
+holder backlinks, offsets, ordinals, coherent held views, copied enumerators, split
+records and native byte spans. Repeat the existing allocation and timing comparisons
+for the paths this work changes, using the S22 protected scalar retiming if it applies.
+Keep the packed List cursor and the owned Map scalar specialization for their
+distinct traversal patterns.
+
+### Generator findings
+
+- `RoslynClassMetadata` revisits accessor facts during inference and validation.
+  The accessor lookup already uses one algorithm. Property selection and the diagnostic
+  for missing implementation metadata serve different callers. Declined for S22R.
+- `ProjectionBuilder` creates an empty projection list for validation-only descendants
+  during the consumer build. The traversal still validates the descendants. The review
+  did not establish a build cost or a simpler form.
+  Declined for S22R. Revisit either finding if a consumer build measures the cost.
+
+The S34 pending-target index and the S24 accounting and rollback keep their placements.
 
 ## Found while building S18, 24 November 2026
 
