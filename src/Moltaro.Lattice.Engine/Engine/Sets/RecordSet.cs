@@ -13,6 +13,8 @@ namespace Moltaro.Lattice.Engine.Sets;
 // completes (docs/decisions/mutation-commands.md, "Stable write inputs until completion").
 internal sealed class RecordSet : ILatticeSet
 {
+    private const string ProtectedViewsPending = "Protected views are not implemented yet.";
+
     private readonly SetOperations _operations;
 
     public RecordSet(SetOperations operations)
@@ -53,6 +55,44 @@ internal sealed class RecordSet : ILatticeSet
         ArgumentNullException.ThrowIfNull(session);
 
         return _operations.ReadAsync<RecordCopy, LatticeRecord>(KeyArgument.Of(_operations.Table, key), new RecordCopy(EntityType), session, cancellationToken);
+    }
+
+    public bool TryView<TKey, TResult>(TKey key, LatticeViewFunc<LatticeRecordView, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        KeyArgument.Of(_operations.Table, key);
+
+        throw new NotSupportedException(ProtectedViewsPending);
+    }
+
+    public bool TryView<TKey, TState, TResult>(TKey key, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        KeyArgument.Of(_operations.Table, key);
+
+        throw new NotSupportedException(ProtectedViewsPending);
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TResult>(TKey key, LatticeSession session, LatticeViewFunc<LatticeRecordView, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        KeyArgument.Of(_operations.Table, key);
+
+        throw new NotSupportedException(ProtectedViewsPending);
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TState, TResult>(TKey key, LatticeSession session, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        KeyArgument.Of(_operations.Table, key);
+
+        throw new NotSupportedException(ProtectedViewsPending);
     }
 
     public IEnumerable<LatticeRecord> Enumerate() =>
