@@ -96,7 +96,8 @@ public sealed class FixedRootRelocationTests
             await reads.WaitAsync(Bound);
         }
 
-        Assert.True(TryReclaim(node));
+        var reclaimed = child is null ? await ReclaimAfterLoadChildAsync(node) : TryReclaim(node);
+        Assert.True(reclaimed);
         ExpectFreed(target);
         Assert.Equal(initial, node.Counters.Arena);
         Assert.Equal(revision, ExpectRecord(items, target.Key));
@@ -529,6 +530,22 @@ public sealed class FixedRootRelocationTests
     {
         var reclaimed = false;
         Assert.True(database.TryRunMaintenanceStep(parts => reclaimed = parts.Retired.TryReclaimRelocated()));
+        return reclaimed;
+    }
+
+    private static async Task<bool> ReclaimAfterLoadChildAsync(EngineDatabase database)
+    {
+        // The master's teardown of the temporary child can still take the
+        // writes lock. Wait for admission, then assert the first sampled outcome.
+        using var stop = new CancellationTokenSource(Bound);
+        var reclaimed = false;
+        Action<DatabaseParts> attempt = parts => reclaimed = parts.Retired.TryReclaimRelocated();
+        while (!database.TryRunMaintenanceStep(attempt))
+        {
+            stop.Token.ThrowIfCancellationRequested();
+            await Task.Yield();
+        }
+
         return reclaimed;
     }
 
