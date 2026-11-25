@@ -41,5 +41,16 @@ internal static class ViewSample
         }
 
         Console.WriteLine();
+        Console.WriteLine("== A generated protected view ==");
+
+        var users = database.Set<User>();
+        await users.InsertAsync(new User { Id = 1, Name = "Ada", Enabled = true }, session);
+
+        if (users.TryView(1L, static (UserView view) => view.Enabled, out var enabled))
+        {
+            Console.WriteLine($"Ada is enabled: {enabled}");
+        }
+
+        Console.WriteLine();
     }
 }
