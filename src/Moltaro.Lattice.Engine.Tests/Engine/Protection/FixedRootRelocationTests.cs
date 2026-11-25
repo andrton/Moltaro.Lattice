@@ -1,0 +1,533 @@
+using System.Buffers;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Views;
+using Moltaro.Lattice.Engine.Maintenance;
+using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
+using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
+namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
+
+// A move changes the native address behind the current handle. It neither writes a revision
+// nor takes the old block away from an entered view (docs/design/arena-protocol.md).
+public sealed class FixedRootRelocationTests
+{
+    private const string RelocationNotImplemented = "Fixed-root relocation is not implemented yet.";
+
+    private const int SlotBytes = 8_192;
+    private const int SlotsPerRegion = Arena.MaxBlockSize / SlotBytes;
+
+    private static readonly LatticeSchema Schema = MakeSchema();
+    private static readonly LatticeSchema DescriptorSchema = MakeSchema(withDescriptor: true);
+
+    [Theory(Skip = RelocationNotImplemented)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
+    public async Task A_held_view_keeps_the_old_root_while_new_reads_follow_the_same_handle(LatticeRoleEnum role)
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(role == LatticeRoleEnum.Master ? allocator : null));
+        await using var child = role == LatticeRoleEnum.Child
+            ? await ReplicationNodes.OpenChildAsync(master.ListenUri!, Inputs(allocator))
+            : null;
+        var node = child ?? master;
+        await InsertAsync(master, 3 * SlotsPerRegion);
+        await FollowAsync(master, child);
+        var stage = StageOf(node);
+        var target = stage.Source[0];
+        var neighbor = stage.Source[1];
+        await RemoveAsync(master, stage.Spare.Concat(stage.Source.Skip(2)).Concat(stage.Destination.Skip(SlotsPerRegion - 2)));
+        await FollowAsync(master, child);
+        node.DrainRetired();
+
+        var initial = node.Counters.Arena;
+        Assert.Equal(1, initial.ReservedSegments);
+        Assert.Equal(0, initial.RetiredBytes);
+        var position = node.Position;
+        var items = node.Set("Item");
+        var revision = ExpectRecord(items, target.Key);
+        var bytes = target.Arena.Payload(target.Address).ToArray();
+        var header = target.Arena.Header(target.Address);
+        var body = Export(items, target);
+        var reads = HoldView(items, target, revision, out var pause);
+        using (pause)
+        {
+            await pause.EnteredAsync(reads);
+            Assert.True(TryMove(node, target));
+            Assert.Equal(initial.RetiredBytes + SlotBytes, node.Counters.Arena.RetiredBytes);
+            Assert.Equal(initial.Segments, node.Counters.Arena.Segments);
+            Assert.Equal(initial.LiveBytes, node.Counters.Arena.LiveBytes);
+            Assert.Equal(initial.ClassSlackBytes, node.Counters.Arena.ClassSlackBytes);
+            Assert.Equal(initial.PreparedBytes, node.Counters.Arena.PreparedBytes);
+            Assert.Equal(position, node.Position);
+
+            var replacement = Find(node, target.Key);
+            Assert.Equal(target.Handle, replacement.Handle);
+            Assert.NotEqual(target.Address, replacement.Address);
+            Assert.Equal(stage.Destination[0].Address.Segment, replacement.Address.Segment);
+            Assert.Equal(neighbor.Address, Find(node, neighbor.Key).Address);
+            Assert.Equal(header, replacement.Arena.Header(replacement.Address));
+            Assert.Equal(bytes, replacement.Arena.Payload(replacement.Address).ToArray());
+            Assert.Equal(body, Export(items, replacement));
+
+            Assert.Equal(revision, ExpectRecord(items, target.Key));
+            AssertViewAt(items, replacement, revision);
+            var found = items.Index("ByCheck").Find(IndexKey.All.Range(
+                IndexBound.Inclusive(CheckOf(target.Key)), IndexBound.Inclusive(CheckOf(neighbor.Key))));
+            Assert.Equal(new[] { target.Key, neighbor.Key }, found.Select(record => record.Get<long>("Id")));
+
+            Assert.False(TryReclaim(node));
+            Assert.Equal(bytes, target.Arena.Payload(target.Address).ToArray());
+            if (child is null)
+            {
+                await using var loaded = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
+                Assert.Equal(position, loaded.Position);
+                Assert.Equal(revision, ExpectRecord(loaded.Set("Item"), target.Key));
+                Assert.Equal(body, Export(loaded.Set("Item"), Find(loaded, target.Key)));
+            }
+
+            pause.Release();
+            await reads.WaitAsync(Bound);
+        }
+
+        Assert.True(TryReclaim(node));
+        ExpectFreed(target);
+        Assert.Equal(initial, node.Counters.Arena);
+        Assert.Equal(revision, ExpectRecord(items, target.Key));
+        Assert.Equal(position, node.Position);
+        await node.CloseAsync().AsTask().WaitAsync(Bound);
+        allocator.ExpectEverythingReturned();
+    }
+
+    [Theory(Skip = RelocationNotImplemented)]
+    [InlineData(4, true)]
+    [InlineData(1, false)]
+    public async Task A_source_at_exactly_half_or_without_an_earlier_compatible_head_is_skipped(int kept, bool makeDestination)
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(allocator));
+        await InsertAsync(database, 3 * SlotsPerRegion);
+        var stage = StageOf(database);
+        await RemoveAsync(database, stage.Spare.Concat(stage.Source.Skip(kept)));
+        if (makeDestination)
+        {
+            await RemoveAsync(database, stage.Destination.TakeLast(1));
+        }
+
+        database.DrainRetired();
+        var source = stage.Source[0];
+        var initial = database.Counters;
+        var requests = allocator.Requests;
+        var position = database.Position;
+        Assert.Equal(1, initial.Arena.ReservedSegments);
+
+        Assert.False(TryMove(database, source));
+        ExpectUnchanged(database, source, initial, position);
+        Assert.Equal(requests, allocator.Requests);
+
+        if (makeDestination)
+        {
+            await RemoveAsync(database, stage.Source.Skip(kept - 1).Take(1));
+        }
+        else
+        {
+            await RemoveAsync(database, stage.Destination.TakeLast(1));
+        }
+
+        database.DrainRetired();
+        Assert.True(TryMove(database, source));
+    }
+
+
+    [Fact(Skip = RelocationNotImplemented)]
+    public async Task A_held_retired_slot_counts_toward_the_half_full_source_limit()
+    {
+        await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
+        await InsertAsync(database, 2 * SlotsPerRegion);
+        var stage = StageOf(database);
+        var source = stage.Source[0];
+        var retired = stage.Source[1];
+        await RemoveAsync(database, stage.Source.Skip(SlotsPerRegion / 2).Concat(stage.Destination.TakeLast(1)));
+        database.DrainRetired();
+
+        var items = database.Set("Item");
+        var revision = ExpectRecord(items, source.Key);
+        var reads = HoldView(items, source, revision, out var pause);
+        using (pause)
+        {
+            await pause.EnteredAsync(reads);
+            await RemoveAsync(database, new[] { retired });
+            Assert.Null(items.Get(retired.Key));
+            _ = retired.Arena.Header(retired.Address);
+            var initial = database.Counters;
+            var position = database.Position;
+            Assert.False(TryMove(database, source));
+            ExpectUnchanged(database, source, initial, position);
+            pause.Release();
+            await reads.WaitAsync(Bound);
+        }
+
+        database.DrainRetired();
+        ExpectFreed(retired);
+        Assert.True(TryMove(database, source));
+    }
+
+    [Fact(Skip = RelocationNotImplemented)]
+    public async Task A_later_head_does_not_cause_a_search_for_an_earlier_compatible_region()
+    {
+        await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
+        await InsertAsync(database, 3 * SlotsPerRegion);
+        var stage = StageOf(database);
+        var source = stage.Source[0];
+
+        // Free room in the source, then in an earlier region, then in a later one.
+        // Returning a slot to a previously full region puts it first for the class.
+        await RemoveAsync(database, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)).Concat(stage.Spare.TakeLast(1)));
+        database.DrainRetired();
+        var initial = database.Counters;
+        var position = database.Position;
+        Assert.False(TryMove(database, source));
+        ExpectUnchanged(database, source, initial, position);
+
+        var items = database.Set("Item");
+        const long FillerKey = 3 * SlotsPerRegion + 1;
+        await items.InsertAsync(Record(items.EntityType, FillerKey, CheckOf(FillerKey))).AsTask().WaitAsync(Bound);
+        Assert.Equal(stage.Spare[0].Address.Segment, Find(database, FillerKey).Address.Segment);
+
+        Assert.True(TryMove(database, source));
+        Assert.Equal(stage.Destination[0].Address.Segment, Find(database, source.Key).Address.Segment);
+    }
+
+    [Theory(Skip = RelocationNotImplemented)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_stale_handle_or_address_and_a_root_with_descriptors_are_skipped(bool withDescriptor)
+    {
+        await using var database = await ReplicationNodes.OpenMasterAsync(withDescriptor ? DescriptorSchema : Schema, Inputs());
+        await InsertAsync(database, 2 * SlotsPerRegion);
+        var stage = StageOf(database);
+        var source = stage.Source[0];
+        await RemoveAsync(database, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
+        database.DrainRetired();
+        var initial = database.Counters;
+        var position = database.Position;
+
+        Assert.False(TryMove(database, source with { Handle = default }));
+        Assert.False(TryMove(database, source with { Handle = new RootHandle(source.Handle.Generation + 1, source.Handle.Slot) }));
+        Assert.False(TryMove(database, source with { Address = default }));
+        Assert.False(TryMove(database, source with { Address = stage.Source[1].Address }));
+        ExpectUnchanged(database, source, initial, position);
+
+        Assert.Equal(!withDescriptor, TryMove(database, source));
+        if (withDescriptor)
+        {
+            ExpectUnchanged(database, source, initial, position);
+        }
+        else
+        {
+            Assert.False(TryMove(database, source));
+        }
+    }
+
+    [Fact(Skip = RelocationNotImplemented)]
+    public async Task A_master_with_a_prepared_replace_does_not_move_a_root_even_while_its_writes_lock_is_free()
+    {
+        var persistence = new HeldPersistence(holding: false);
+        await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(persistence: persistence));
+        await InsertAsync(master, 2 * SlotsPerRegion);
+        var stage = StageOf(master);
+        var source = stage.Source[0];
+        await RemoveAsync(master, stage.Source.Skip(2).Concat(stage.Destination.TakeLast(2)));
+        master.DrainRetired();
+
+        var items = master.Set("Item");
+        var before = ExpectRecord(items, source.Key);
+        persistence.Hold();
+        try
+        {
+            var replacing = items.ReplaceAsync(Record(items.EntityType, source.Key, CheckOf(source.Key) + 1)).AsTask();
+            await persistence.NextAsync();
+            Assert.False(replacing.IsCompleted);
+            Assert.Equal(before, ExpectRecord(items, source.Key));
+
+            // Preparing the replacement uses one of two compatible slots. The old
+            // edge is still live, with a sparse source and an available destination.
+            var stillPrepared = master.Counters;
+            Assert.True(stillPrepared.Arena.PreparedBytes >= SlotBytes);
+            var position = master.Position;
+            Assert.False(TryMove(master, source));
+            ExpectUnchanged(master, source, stillPrepared, position);
+
+            persistence.ReleaseAll();
+            await replacing.WaitAsync(Bound);
+            Assert.NotEqual(before, ExpectRecord(items, source.Key, CheckOf(source.Key) + 1));
+            Assert.False(TryMove(master, source));
+            master.DrainRetired();
+            Assert.True(TryMove(master, stage.Source[1]));
+        }
+        finally
+        {
+            persistence.ReleaseAll();
+        }
+    }
+
+    [Theory(Skip = RelocationNotImplemented)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_reclamation_step_releases_one_raw_head_and_ordinary_cleanup_handles_the_rest(bool close)
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(allocator));
+        await InsertAsync(database, 3 * SlotsPerRegion);
+        var stage = StageOf(database);
+        await RemoveAsync(database, stage.Spare.Concat(stage.Source.Skip(2)).Concat(stage.Destination.TakeLast(2)));
+        database.DrainRetired();
+
+        var first = stage.Source[0];
+        var second = stage.Source[1];
+        var items = database.Set("Item");
+        var revision = ExpectRecord(items, first.Key);
+        var reads = HoldView(items, first, revision, out var pause);
+        using (pause)
+        {
+            await pause.EnteredAsync(reads);
+            Assert.True(TryMove(database, first));
+            Assert.True(TryMove(database, second));
+            Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
+            Assert.False(TryReclaim(database));
+            Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
+            pause.Release();
+            await reads.WaitAsync(Bound);
+        }
+
+        var returned = allocator.Returned;
+        Assert.True(TryReclaim(database));
+        ExpectFreed(first);
+        _ = second.Arena.Header(second.Address);
+        Assert.Equal(SlotBytes, database.Counters.Arena.RetiredBytes);
+        Assert.Equal(returned, allocator.Returned);
+        if (close)
+        {
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+            allocator.ExpectEverythingReturned();
+        }
+        else
+        {
+            database.DrainRetired();
+            ExpectFreed(second);
+            Assert.Equal(0, database.Counters.Arena.RetiredBytes);
+            Assert.Equal(returned + 1, allocator.Returned);
+            Assert.Equal(1, database.Counters.Arena.ReservedSegments);
+            Assert.False(TryReclaim(database));
+            Assert.Equal(revision, ExpectRecord(items, first.Key));
+        }
+    }
+
+    [Fact(Skip = RelocationNotImplemented)]
+    public async Task A_reclamation_step_leaves_an_earlier_ordinary_retirement_to_the_ordinary_drain()
+    {
+        await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
+        await InsertAsync(database, 2 * SlotsPerRegion);
+        var stage = StageOf(database);
+        await RemoveAsync(database, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(2)));
+        database.DrainRetired();
+
+        var items = database.Set("Item");
+        var target = stage.Source[0];
+        var unrelated = stage.Destination[0];
+        var revision = ExpectRecord(items, target.Key);
+        var reads = HoldView(items, target, revision, out var pause);
+        using (pause)
+        {
+            await pause.EnteredAsync(reads);
+            await items.ReplaceAsync(Record(items.EntityType, unrelated.Key, CheckOf(unrelated.Key)));
+            Assert.Equal(SlotBytes, database.Counters.Arena.RetiredBytes);
+            Assert.True(TryMove(database, target));
+            Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
+            pause.Release();
+            await reads.WaitAsync(Bound);
+        }
+
+        Assert.False(TryReclaim(database));
+        Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
+        _ = target.Arena.Header(target.Address);
+        _ = unrelated.Arena.Header(unrelated.Address);
+
+        database.DrainRetired();
+        ExpectFreed(target);
+        ExpectFreed(unrelated);
+        Assert.Equal(0, database.Counters.Arena.RetiredBytes);
+        Assert.Equal(revision, ExpectRecord(items, target.Key));
+    }
+
+    private static bool TryMove(EngineDatabase database, Location location)
+    {
+        var moved = false;
+        Assert.True(database.TryRunMaintenanceStep(parts => moved = RootRelocation.TryMove(parts, location.Handle, location.Address)));
+        return moved;
+    }
+
+    private static bool TryReclaim(EngineDatabase database)
+    {
+        var reclaimed = false;
+        Assert.True(database.TryRunMaintenanceStep(parts => reclaimed = parts.Retired.TryReclaimRelocated()));
+        return reclaimed;
+    }
+
+    private static Task HoldView(ILatticeSet items, Location location, LatticeRevision revision, out ViewerPause pause)
+    {
+        var viewer = new ViewerPause();
+        pause = viewer;
+        return OwnThread.Run(() =>
+        {
+            Assert.True(items.TryView(location.Key, view =>
+            {
+                ExpectView(view, location, revision);
+                viewer.Hold();
+                ExpectView(view, location, revision);
+                return view.Revision;
+            }, out var seen));
+            Assert.Equal(revision, seen);
+        });
+    }
+
+    private static void AssertViewAt(ILatticeSet items, Location location, LatticeRevision revision)
+    {
+        Assert.True(items.TryView(location.Key, view =>
+        {
+            ExpectView(view, location, revision);
+            return true;
+        }, out _));
+    }
+
+    private static void ExpectView(LatticeRecordView view, Location location, LatticeRevision revision)
+    {
+        Assert.Equal(revision, view.Revision);
+        Assert.Equal(location.Key, view["Id"].Get<long>());
+        Assert.Equal(CheckOf(location.Key), view["Check"].Get<long>());
+        Assert.True(view["Pad0"].IsNull);
+        Assert.True(Unsafe.AreSame(
+            ref MemoryMarshal.GetReference(ViewRow(ref view).Bytes),
+            ref MemoryMarshal.GetReference(location.Arena.Payload(location.Address))));
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_row")]
+    private static extern ref ViewRecord ViewRow(ref LatticeRecordView view);
+
+    private static LatticeRevision ExpectRecord(ILatticeSet set, long key, long? check = null)
+    {
+        Assert.True(set.TryGet(key, out var record, out var revision));
+        Assert.Equal(key, record.Get<long>("Id"));
+        Assert.Equal(check ?? CheckOf(key), record.Get<long>("Check"));
+        Assert.Null(record["Pad0"]);
+        return revision;
+    }
+
+    private static void ExpectUnchanged(EngineDatabase database, Location source, EngineCounters counters, LatticePosition position)
+    {
+        Assert.Equal(source, Find(database, source.Key));
+        Assert.Equal(counters, database.Counters);
+        Assert.Equal(position, database.Position);
+    }
+
+    private static void ExpectFreed(Location location) =>
+        Assert.Throws<ArgumentException>("address", () => _ = location.Arena.Header(location.Address));
+
+    private static byte[] Export(ILatticeSet items, Location location)
+    {
+        Assert.True(items.TryView(location.Key, view =>
+        {
+            var output = new ArrayBufferWriter<byte>();
+            BlockExport.Write(output, location.Arena, location.Layout, location.Address);
+            return output.WrittenSpan.ToArray();
+        }, out var body));
+        return body;
+    }
+
+    private static async Task InsertAsync(EngineDatabase database, int count)
+    {
+        var items = database.Set("Item");
+        for (var key = 1L; key <= count; key++)
+        {
+            await items.InsertAsync(Record(items.EntityType, key, CheckOf(key))).AsTask().WaitAsync(Bound);
+        }
+    }
+
+    private static async Task RemoveAsync(EngineDatabase database, IEnumerable<Location> removals)
+    {
+        var items = database.Set("Item");
+        foreach (var location in removals)
+        {
+            await items.DeleteAsync(location.Key).AsTask().WaitAsync(Bound);
+        }
+    }
+
+    private static async Task FollowAsync(EngineDatabase master, EngineDatabase? child)
+    {
+        if (child is not null)
+        {
+            await child.WaitForPositionAsync(master.Position, Bound);
+        }
+    }
+
+    private static Location Find(EngineDatabase database, long key) => Assert.Single(Locations(database), location => location.Key == key);
+
+    private static (Location[] Destination, Location[] Source, Location[] Spare) StageOf(EngineDatabase database)
+    {
+        var groups = Locations(database).GroupBy(location => location.Address.Segment).OrderBy(group => group.Key)
+            .Select(group => group.OrderBy(location => location.Key).ToArray()).ToArray();
+        Assert.InRange(groups.Length, 2, 3);
+        Assert.All(groups, group => Assert.Equal(SlotsPerRegion, group.Length));
+        return (groups[0], groups[1], groups.Length == 3 ? groups[2] : []);
+    }
+
+    private static List<Location> Locations(EngineDatabase database)
+    {
+        var locations = new List<Location>();
+        database.ForEachLiveRoot((arena, layout, handle, address) =>
+        {
+            var payload = arena.Payload(address);
+            Assert.Equal(SlotBytes, Arena.BlockSizeFor(payload.Length));
+            var offset = layout.StoredFieldOf(layout.EntityType.Key).Offset - BlockHeader.Size;
+            locations.Add(new Location(MemoryMarshal.Read<long>(payload[offset..]), arena, layout, handle, address));
+        });
+        return locations;
+    }
+
+    private static EngineTestInputs Inputs(CountingNativeAllocator? allocator = null, HeldPersistence? persistence = null) => new()
+    {
+        Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 16L * Arena.MaxBlockSize },
+        Allocator = allocator,
+        Persistence = persistence,
+    };
+
+    private static LatticeRecord Record(LatticeEntityType type, long key, long check) => new(type)
+    {
+        ["Id"] = key,
+        ["Check"] = check,
+    };
+
+    private static long CheckOf(long key) => key * 3;
+
+    private static LatticeSchema MakeSchema(bool withDescriptor = false)
+    {
+        var padding = Enumerable.Range(0, 400).Select(index =>
+            $$"""{"Id":{{index + 4}},"Name":"Pad{{index}}","Type":"Guid","Nullable":true}""");
+        var descriptor = withDescriptor ? """,{"Id":3,"Name":"OptionalText","Type":"String","Nullable":true}""" : "";
+        return LatticeSchema.Compile($$"""
+            {"StringEncoding":"Utf8","EntityTypes":[{"Id":1,"Name":"Item","Fields":[
+              {"Id":1,"Name":"Id","Type":"Int64"},{"Id":2,"Name":"Check","Type":"Int64"}{{descriptor}},
+              {{string.Join(",", padding)}}],"PrimaryKey":[1],"Indexes":[{"Id":1,"Name":"ByCheck","Fields":[2]}]}]}
+            """);
+    }
+
+    private sealed record Location(long Key, Arena Arena, RootLayout Layout, RootHandle Handle, ArenaAddress Address);
+}

@@ -189,6 +189,9 @@ internal sealed class RetiredMemory
         }
     }
 
+    public bool TryReclaimRelocated() =>
+        throw new NotSupportedException("Fixed-root relocation is not implemented yet.");
+
     // Frees every retired thing that no read in progress can reach, and returns; it does not wait.
     // With no read in progress it leaves nothing retired.
     public void Drain()
