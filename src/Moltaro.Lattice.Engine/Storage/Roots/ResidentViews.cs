@@ -95,6 +95,21 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
         return new ViewRecord(layout, bytes, tail, start);
     }
 
+    public ViewPackedBlock ReadPackedListBlock(ViewCollection collection, int block)
+    {
+        var layout = (StructureLayout)collection.EntryLayout;
+        if (layout.HoldsDescriptors)
+        {
+            return default;
+        }
+
+        var descriptor = ValueBlocks.Read(collection.Holder[collection.DescriptorOffset..]);
+        var bytes = ValueBlocks.LiesInChunks(descriptor)
+            ? ValueBlocks.Chunk(arena, ValueBlocks.Directory(arena, descriptor), block)
+            : ValueBlocks.Contiguous(arena, descriptor, collection.Holder);
+        return new ViewPackedBlock(bytes, layout.Size);
+    }
+
     public int FindEntry(scoped in ViewCollection collection, in IndexValue key)
     {
         var descriptor = ValueBlocks.Read(collection.Holder[collection.DescriptorOffset..]);

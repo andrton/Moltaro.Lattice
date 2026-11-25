@@ -43,12 +43,18 @@ public readonly ref struct LatticeListView
     public ref struct Enumerator
     {
         private readonly LatticeListView _view;
+        private ViewPackedBlock _block;
         private int _ordinal;
+        private int _blockOrdinal;
+        private int _offset;
 
         internal Enumerator(LatticeListView view)
         {
             _view = view;
+            _block = view.Count == 0 ? default : view._storage.ReadPackedListBlock(view._collection, 0);
             _ordinal = -1;
+            _blockOrdinal = 0;
+            _offset = -_block.Stride;
         }
 
         /// <summary>The element at the position of the most recent successful move.</summary>
@@ -58,11 +64,41 @@ public readonly ref struct LatticeListView
             get
             {
                 _view._collection.RequireCurrent(_ordinal);
-                return _view.ElementAt(_ordinal);
+                var stride = _block.Stride;
+                if (stride == 0 || _block.Bytes.Length - _offset < stride)
+                {
+                    // A split record follows the same two-part read as the indexer.
+                    return _view.ElementAt(_ordinal);
+                }
+
+                var row = new ViewRecord(_view._collection.EntryLayout, _block.Bytes.Slice(_offset, stride), default, 0);
+                return new LatticeValueView(_view._storage, row, 0, _view._element);
             }
         }
 
         /// <summary>Advances to the next element and reports whether there is one.</summary>
-        public bool MoveNext() => _view._collection.MoveNext(ref _ordinal);
+        public bool MoveNext()
+        {
+            if (!_view._collection.MoveNext(ref _ordinal))
+            {
+                return false;
+            }
+
+            var stride = _block.Stride;
+            if (stride != 0)
+            {
+                _offset += stride;
+                if (_offset >= _block.Bytes.Length)
+                {
+                    // A packed record is no larger than a full chunk, so one step crosses
+                    // at most one block boundary.
+                    _offset -= _block.Bytes.Length;
+                    _blockOrdinal++;
+                    _block = _view._storage.ReadPackedListBlock(_view._collection, _blockOrdinal);
+                }
+            }
+
+            return true;
+        }
     }
 }
