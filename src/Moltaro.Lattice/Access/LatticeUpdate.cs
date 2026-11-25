@@ -180,6 +180,9 @@ public sealed class LatticeUpdate
     /// own position.
     /// </returns>
     /// <exception cref="InvalidOperationException">The update is empty or already submitted.</exception>
+    /// <exception cref="ObjectDisposedException">
+    /// The database is closed when the update is submitted. Reported through the returned task.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/> when the copied operands or resulting
     /// values violate the schema, <see cref="LatticeErrorEnum.NotFound"/> when the entity

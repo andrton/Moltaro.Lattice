@@ -37,6 +37,11 @@ namespace Moltaro.Lattice.Access;
 /// nothing.
 /// </para>
 /// <para>
+/// A valid write called after the database reaches <see cref="LatticeDatabaseStateEnum.Closed"/>
+/// reports <see cref="ObjectDisposedException"/> through the returned task, including through
+/// a set obtained earlier.
+/// </para>
+/// <para>
 /// Writes to one entity are executed in the order their calls were made: a call that is made
 /// after an earlier call has returned its task is executed after it, whether or not the earlier
 /// task was awaited. A write that first waits for the position of its session takes its place in

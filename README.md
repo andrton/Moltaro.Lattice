@@ -422,6 +422,12 @@ await child.WaitForPositionAsync(position);        // or WaitForPositionAsync(se
 var user = child.Set<User>().Index("ByEmail").Find(IndexKey.Equal(email)).FirstOrDefault();
 ```
 
+**Closing a database.** By the time a master or child reports `Closed`, it has stopped
+admitting new reads and writes. When a valid write is submitted after that point,
+the returned task fails with `ObjectDisposedException`. This includes writes through
+sets obtained earlier and commits of prepared updates or batches. Await successful
+completion of `CloseAsync` to know that the instance has released its native memory.
+
 **With dependency injection.** The `Moltaro.Lattice.DependencyInjection` package registers
 the database in the container as a singleton. A background service opens it when the
 application starts, before a web application accepts requests, and closes it when the

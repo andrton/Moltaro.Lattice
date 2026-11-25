@@ -292,8 +292,7 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     ILatticeWriteBatch CreateWriteBatch();
 
     /// <summary>
-    /// Closes the database: stops accepting operations, lets started writes reach their
-    /// outcome and releases the memory. Closing a closed database does nothing.
+    /// Closes the database, lets started writes reach their outcome and releases its native memory.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -302,11 +301,18 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// local reads.
     /// </para>
     /// <para>
+    /// By the time <see cref="State"/> reports <see cref="LatticeDatabaseStateEnum.Closed"/>,
+    /// the instance has stopped admitting new reads and writes. New calls that encounter
+    /// the closed database report <see cref="ObjectDisposedException"/>. For a valid
+    /// asynchronous write, that failure comes through the returned task. This includes
+    /// writes through a set obtained earlier and submissions of updates or batches
+    /// prepared earlier.
+    /// </para>
+    /// <para>
     /// An operation in flight on an instance that is being closed, which the close does not let
     /// finish, ends in <see cref="LatticeErrorEnum.Unavailable"/>: a wait for a position, and on
     /// a child a write its master has not taken. A started write of a master reaches its
-    /// outcome. An <see cref="OpenAsync"/> that still waits is cancelled, as it states. An
-    /// operation called after the close is <see cref="ObjectDisposedException"/>.
+    /// outcome. An <see cref="OpenAsync"/> that still waits is cancelled, as it states.
     /// </para>
     /// <para>
     /// A child does not wait for its master when it closes. A write through it whose reply has
@@ -322,11 +328,10 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// instance can listen at the address as soon as the close has completed.
     /// </para>
     /// <para>
-    /// Disposing the database closes it in the same way. A call made while an
-    /// earlier close is in progress, and a dispose, starts no other close: it completes when
-    /// that close completes, once the memory is released; the token of a call cancels the wait
-    /// of that call alone. The synchronous <see cref="IDisposable.Dispose"/> blocks its thread
-    /// until the close has completed.
+    /// A close or dispose shares the instance's close. Successful completion means the
+    /// native memory has been released. A caller's cancellation token ends only that caller's
+    /// wait. The synchronous <see cref="IDisposable.Dispose"/> blocks its thread until the
+    /// close has completed.
     /// </para>
     /// </remarks>
     /// <param name="cancellationToken">
