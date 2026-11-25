@@ -12,8 +12,13 @@ namespace Moltaro.Lattice.Engine.Maintenance;
 // (docs/design/arena-protocol.md, "Deferred reclamation").
 internal static class CompoundRelocation
 {
-    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source)
+    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source) =>
+        TryMove(parts, expected, source, 0, out _);
+
+    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
+        out ArenaAddress replacement)
     {
+        replacement = default;
         // Prepared master writes may carry the old address across the Writes
         // lock. The child keeps Writes through preparation and publication.
         if (parts.Coordinator.HoldsPreparedMemory() || expected.Slot >= (uint)parts.Roots.SlotExtent)
@@ -23,7 +28,6 @@ internal static class CompoundRelocation
 
         ref var entry = ref parts.Roots.EntryOfSlot(expected.Slot);
         var arena = parts.Arena;
-        var region = 0L;
         if (entry.Generation != expected.Generation || entry.State != RootStateEnum.Live || entry.Root == source ||
             !arena.TryFindRelocationDestination(source, ref region, out var sizeClass))
         {
@@ -37,7 +41,7 @@ internal static class CompoundRelocation
         }
 
         var retired = parts.Retired;
-        if (!RelocationCopy.TryPublish(arena, retired, source, sizeClass, region, out var replacement, out var slotBytes))
+        if (!RelocationCopy.TryPublish(arena, retired, source, sizeClass, region, out replacement, out var slotBytes))
         {
             return false;
         }
@@ -64,10 +68,7 @@ internal static class CompoundRelocation
     private static bool TryResolve(Arena arena, RootLayout layout, ArenaAddress root, RootHandle expected, ArenaAddress source,
         out RelocationBlock block)
     {
-        block = default;
-        if (!arena.TryReadLiveHeader(root, out var rootHeader) || rootHeader.Kind != BlockKindEnum.Root ||
-            !RelocationEdges.HasOwner(rootHeader, expected, default, 0, layout.LayoutVersion) ||
-            rootHeader.PayloadLength < layout.Structure.Size)
+        if (!RelocationBlock.TryReadRoot(arena, layout, root, expected, out block))
         {
             return false;
         }
@@ -86,7 +87,6 @@ internal static class CompoundRelocation
             at = header.Parent;
         }
 
-        block = new RelocationBlock(root, rootHeader, layout.Structure, 1);
         while (depth > 0)
         {
             var childAddress = path[--depth];

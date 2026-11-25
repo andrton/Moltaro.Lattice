@@ -63,7 +63,7 @@ internal sealed class AutomaticMaintenance
             {
                 if (!_source.IsNull)
                 {
-                    if (SeekDestination(parts, ref work, out source, out destination, out slotBytes))
+                    if (TryNextVacancy(parts, ref work, out source, out destination, out slotBytes))
                     {
                         break;
                     }
@@ -117,7 +117,8 @@ internal sealed class AutomaticMaintenance
 
         candidates++;
         ref readonly var header = ref arena.Header(address);
-        if (header.Kind is BlockKindEnum.Root or BlockKindEnum.Value)
+        if (header.Kind is BlockKindEnum.Root or BlockKindEnum.Value or BlockKindEnum.Chunk
+            or BlockKindEnum.ChunkDirectory or BlockKindEnum.Lookup)
         {
             _source = address;
             _owner = header.Root;
@@ -127,7 +128,7 @@ internal sealed class AutomaticMaintenance
         }
     }
 
-    private bool SeekDestination(DatabaseParts parts, ref int work, out ArenaAddress source,
+    private bool TryNextVacancy(DatabaseParts parts, ref int work, out ArenaAddress source,
         out ArenaAddress destination, out int slotBytes)
     {
         source = default;
@@ -156,13 +157,15 @@ internal sealed class AutomaticMaintenance
         _source = default;
         var moved = _kind == BlockKindEnum.Root
             ? RootRelocation.TryMove(parts, _owner, old, region, out destination)
-            : OwnedValueRelocation.TryMove(parts, _owner, old, region, out destination);
+            : CompoundRelocation.TryMove(parts, _owner, old, region, out destination);
         if (moved)
         {
             source = old;
             slotBytes = bytes;
         }
 
-        return moved;
+        // A vacancy admits one owner walk in a turn, even if validation or
+        // the retirement queue refuses the move. Resume with the next source.
+        return true;
     }
 }

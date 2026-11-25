@@ -4,23 +4,24 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Maintenance;
 
-// Under the writes lock of a counted maintenance step, moves a fixed root or
-// a root whose direct native children are supported by this move. The copied
-// root adopts those children before the root entry is release-published. Readers
-// that already opened the old root keep it through their epochs. Its raw FIFO
-// entry never follows its children (docs/design/arena-protocol.md).
+// Moves a live root under the counted writes lock. The copy adopts its direct
+// owned children before the root entry is release-published. A Text descriptor
+// keeps the same dictionary reference. Earlier readers keep the old root
+// through their epochs, and its raw FIFO entry never follows its children
+// (docs/design/arena-protocol.md, "Deferred reclamation").
 internal static class RootRelocation
 {
+    // The controlled move retains its fixed-root and raw-child scope. The
+    // automatic caller supplies a selected region and validates any root shape.
     public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source) =>
-        TryMove(parts, expected, source, 0, allowOwnedChildren: true, out _);
+        TryMove(parts, expected, source, 0, controlled: true, out _);
 
-    // The automatic turn currently selects and charges only fixed roots here.
     public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
         out ArenaAddress replacement) =>
-        TryMove(parts, expected, source, region, allowOwnedChildren: false, out replacement);
+        TryMove(parts, expected, source, region, controlled: false, out replacement);
 
     private static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
-        bool allowOwnedChildren, out ArenaAddress replacement)
+        bool controlled, out ArenaAddress replacement)
     {
         replacement = default;
         // A master write can keep the physical source between preparation and
@@ -37,11 +38,11 @@ internal static class RootRelocation
         }
 
         var layout = parts.Tables.Stored(entry.TypeId).Layout;
-        var hasDescriptors = layout.DescriptorCount != 0;
         var arena = parts.Arena;
-        if ((hasDescriptors && !allowOwnedChildren) ||
-            !arena.TryFindRelocationDestination(source, ref region, out var sizeClass) ||
-            (hasDescriptors && !HasMovableChildren(arena, layout, expected, source)))
+        if (!arena.TryFindRelocationDestination(source, ref region, out var sizeClass) ||
+            !RelocationBlock.TryReadRoot(arena, layout, source, expected, out var holder) ||
+            (controlled && layout.DescriptorCount != 0 && !HasControlledChildren(arena, layout, source)) ||
+            !RelocationChildren.Validate(arena, holder))
         {
             return false;
         }
@@ -52,17 +53,7 @@ internal static class RootRelocation
             return false;
         }
 
-        if (hasDescriptors)
-        {
-            foreach (var descriptor in new RootDescriptors(layout, arena.Payload(source)))
-            {
-                var child = RootStorage.OwnedAddress(descriptor);
-                if (!child.IsNull)
-                {
-                    arena.Header(child).Parent = replacement;
-                }
-            }
-        }
+        RelocationChildren.Adopt(arena, holder, replacement);
 
         // Publish the replacement before tagging the old slot. An epoch opened
         // after that tag can only reach the replacement or a later address.
@@ -71,35 +62,20 @@ internal static class RootRelocation
         return true;
     }
 
-    private static bool HasMovableChildren(Arena arena, RootLayout layout, RootHandle expected, ArenaAddress root)
+    private static bool HasControlledChildren(Arena arena, RootLayout layout, ArenaAddress root)
     {
-        var payload = layout.RootPayload(arena, root);
-        var descriptors = new RootDescriptors(layout, payload);
+        var descriptors = new RootDescriptors(layout, arena.Payload(root));
         var hasOwnedChild = false;
         while (descriptors.MoveNext())
         {
-            var edge = descriptors.Current;
-            if (edge.Kind is DescriptorKindEnum.Null or DescriptorKindEnum.Inline)
+            var kind = descriptors.Current.Kind;
+            if (kind is DescriptorKindEnum.Null or DescriptorKindEnum.Inline)
             {
                 continue;
             }
 
-            var child = RootStorage.OwnedAddress(edge);
-            if (!arena.TryReadLiveHeader(child, out var header) ||
-                !RelocationEdges.HasOwner(header, expected, root, (uint)descriptors.Offset, layout.LayoutVersion))
-            {
-                return false;
-            }
-
-            if (edge.Kind == DescriptorKindEnum.Block && header.Kind == BlockKindEnum.Value &&
-                header.PayloadLength == edge.Length)
-            {
-                hasOwnedChild = true;
-                continue;
-            }
-
-            if (edge.Kind != DescriptorKindEnum.Chunked || descriptors.Field.Type != StoredTypeEnum.Binary ||
-                !RelocationEdges.IsRawDirectory(header, edge.Length))
+            if (kind != DescriptorKindEnum.Block &&
+                (kind != DescriptorKindEnum.Chunked || descriptors.Field.Type != StoredTypeEnum.Binary))
             {
                 return false;
             }

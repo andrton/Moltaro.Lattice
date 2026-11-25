@@ -20,7 +20,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // source. Every vacancy and source here comes from application commits.
 public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
 {
-    private const string CompoundDispatchPending = "Automatic maintenance does not move compound owners and their descendants yet.";
     private const int CapSlot = 16_384;
     private const int CapRegionCount = 7;
     private const long TargetKey = 1;
@@ -46,7 +45,7 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         }
     }
 
-    [Theory(Skip = CompoundDispatchPending)]
+    [Theory]
     [MemberData(nameof(CompoundCases))]
     public Task The_first_eligible_compound_move_waits_for_space_in_the_reader_held_budget(LatticeRoleEnum role, string kind) =>
         RunAsync(role, Enum.Parse<SourceEnum>(kind));

@@ -30,6 +30,21 @@ internal readonly record struct RelocationBlock(
         }
     }
 
+    public static bool TryReadRoot(Arena arena, RootLayout layout, ArenaAddress root, RootHandle expected,
+        out RelocationBlock block)
+    {
+        block = default;
+        if (!arena.TryReadLiveHeader(root, out var header) || header.Kind != BlockKindEnum.Root ||
+            !RelocationEdges.HasOwner(header, expected, default, 0, layout.LayoutVersion) ||
+            header.PayloadLength < layout.Structure.Size)
+        {
+            return false;
+        }
+
+        block = new RelocationBlock(root, header, layout.Structure, 1);
+        return true;
+    }
+
     public static int RecordChunkCount(int count, int perChunk) => (count + perChunk - 1) / perChunk;
 
     public bool IsLookupWord(int index) => Header.Kind == BlockKindEnum.Lookup && index != 0;
