@@ -1,9 +1,11 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
+using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -79,7 +81,7 @@ public sealed class SharedTextChunkRelocationTests
             var revision = ExpectedCopy(node, text, encoding);
             for (var turn = 0; turn < 256; turn++)
             {
-                _ = node.TryRunMaintenanceTurn();
+                RunAdmittedTurn(node);
             }
 
             Assert.Equal(chunk, Inspect(node, id, movingTail: false).Full);
@@ -100,9 +102,11 @@ public sealed class SharedTextChunkRelocationTests
         var filler = Enumerable.Range(1, RegionBytes / slot).Select(id =>
             Depot(id, TextOf(id, fillerBytes / bytesPerChar))).ToArray();
 
-        await using var master = await ReplicationNodes.OpenMasterAsync(schema, Inputs());
+        var masterAllocator = new CountingNativeAllocator();
+        var childAllocator = new CountingNativeAllocator();
+        await using var master = await ReplicationNodes.OpenMasterAsync(schema, Inputs(masterAllocator));
         await master.Set<TextSchema.Depot>().InsertAsync(filler[0]);
-        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, Inputs());
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, Inputs(childAllocator));
         var fill = master.CreateWriteBatch();
         foreach (var entry in filler[1..])
         {
@@ -121,6 +125,7 @@ public sealed class SharedTextChunkRelocationTests
         Assert.Equal(removed.Position, master.Position);
 
         var nodes = new[] { master, child };
+        var allocators = new[] { masterAllocator, childAllocator };
         var ids = nodes.Select(node => TextIds(node, "Depot", "Area", [Target])[Target]).ToArray();
         var originals = new Placement[nodes.Length];
         var transfers = new byte[nodes.Length][];
@@ -150,14 +155,18 @@ public sealed class SharedTextChunkRelocationTests
             {
                 var node = nodes[index];
                 var original = originals[index];
+                var allocator = allocators[index];
+                var requests = allocator.Requests;
                 var current = original;
                 for (var turn = 0; current.Source == original.Source; turn++)
                 {
                     Assert.True(turn < 40_000, "The sparse shared block did not move.");
-                    _ = node.TryRunMaintenanceTurn();
+                    RunAdmittedTurn(node);
                     current = Inspect(node, ids[index], movingTail);
                 }
 
+                Assert.True(current.Source.Segment < original.Source.Segment, "The shared block did not move into an earlier native segment.");
+                Assert.Equal(requests, allocator.Requests);
                 Assert.Equal(original.Other, current.Other);
                 Assert.Equal(original.Full, current.Full);
                 Assert.True(UnderWrites(node, parts => IsAllocated(parts.Arena, original.Source)));
@@ -185,6 +194,17 @@ public sealed class SharedTextChunkRelocationTests
         Assert.Equal(removed.Position, loaded.Position);
         Assert.Equal(revisions[0], ExpectedCopy(loaded, text, encoding));
         Assert.Equal(transfers[0], Export(loaded));
+    }
+
+    private static void RunAdmittedTurn(EngineDatabase node)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var wait = new SpinWait();
+        while (!node.TryRunMaintenanceTurn())
+        {
+            Assert.True(Stopwatch.GetElapsedTime(started) < Bound, "The engine did not admit the maintenance turn.");
+            wait.SpinOnce();
+        }
     }
 
     private static void AssertGeometry(EngineDatabase node, Placement placement, bool movingTail, int slot)
@@ -302,8 +322,9 @@ public sealed class SharedTextChunkRelocationTests
     private static string TextOf(int id, int characters) =>
         new string('t', characters - 6) + id.ToString("D6", CultureInfo.InvariantCulture);
 
-    private static EngineTestInputs Inputs() => new()
+    private static EngineTestInputs Inputs(CountingNativeAllocator? allocator = null) => new()
     {
+        Allocator = allocator,
         IndexSeed = 243,
         Arena = new ArenaOptions { SegmentSize = RegionBytes, MemoryLimit = 32 * 1024 * 1024 },
         DisableBackgroundMaintenance = true,
