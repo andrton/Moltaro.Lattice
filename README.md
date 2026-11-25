@@ -423,10 +423,11 @@ var user = child.Set<User>().Index("ByEmail").Find(IndexKey.Equal(email)).FirstO
 ```
 
 **Closing a database.** By the time a master or child reports `Closed`, it has stopped
-admitting new reads and writes. When a valid write is submitted after that point,
-the returned task fails with `ObjectDisposedException`. This includes writes through
-sets obtained earlier and commits of prepared updates or batches. Await successful
-completion of `CloseAsync` to know that the instance has released its native memory.
+admitting new reads and writes. For an uncancelled write with valid arguments
+submitted after that point, the returned task fails with `ObjectDisposedException`.
+This includes writes through sets obtained earlier and commits of prepared updates
+or batches. Await successful completion of `CloseAsync` to know that the instance has
+released its native memory.
 
 **With dependency injection.** The `Moltaro.Lattice.DependencyInjection` package registers
 the database in the container as a singleton. A background service opens it when the

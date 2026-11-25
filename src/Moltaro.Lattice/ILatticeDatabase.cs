@@ -303,10 +303,10 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <para>
     /// By the time <see cref="State"/> reports <see cref="LatticeDatabaseStateEnum.Closed"/>,
     /// the instance has stopped admitting new reads and writes. New calls that encounter
-    /// the closed database report <see cref="ObjectDisposedException"/>. For a valid
-    /// asynchronous write, that failure comes through the returned task. This includes
-    /// writes through a set obtained earlier and submissions of updates or batches
-    /// prepared earlier.
+    /// the closed database report <see cref="ObjectDisposedException"/>. For an uncancelled
+    /// asynchronous write with valid arguments, that failure comes through the returned task.
+    /// This includes writes through a set obtained earlier and submissions of updates or
+    /// batches prepared earlier.
     /// </para>
     /// <para>
     /// An operation in flight on an instance that is being closed, which the close does not let

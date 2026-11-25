@@ -181,7 +181,8 @@ public sealed class LatticeUpdate
     /// </returns>
     /// <exception cref="InvalidOperationException">The update is empty or already submitted.</exception>
     /// <exception cref="ObjectDisposedException">
-    /// The database is closed when the update is submitted. Reported through the returned task.
+    /// An uncancelled submission of a valid update to a closed database. Reported through the
+    /// returned task.
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/> when the copied operands or resulting

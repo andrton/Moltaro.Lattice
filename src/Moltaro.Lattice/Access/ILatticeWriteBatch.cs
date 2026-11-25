@@ -322,7 +322,8 @@ public interface ILatticeWriteBatch
     /// The batch is empty or has already been submitted.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
-    /// The database is closed when the batch is submitted. Reported through the returned task.
+    /// An uncancelled submission of a valid batch to a closed database. Reported through the
+    /// returned task.
     /// </exception>
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
