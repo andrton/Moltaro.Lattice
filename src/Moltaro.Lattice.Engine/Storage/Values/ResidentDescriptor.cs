@@ -31,12 +31,7 @@ internal static class ResidentDescriptor
 
         if (locationAt == sizeof(ulong))
         {
-            return new ValueDescriptor
-            {
-                Kind = Unsafe.ReadUnaligned<DescriptorKindEnum>(ref first),
-                Length = Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref first, sizeof(uint))),
-                Location = location,
-            };
+            return WithAlignedMetadata(ref first, location);
         }
 
         var metadata = Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref first, MetadataAt(locationAt)));
@@ -46,6 +41,19 @@ internal static class ResidentDescriptor
             Length = metadata >> KindBits,
             Location = location,
         };
+    }
+
+    // The first descriptor in a lookup payload starts at an aligned block offset.
+    // As for a packed slot, its address must be acquired before the target is read.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ValueDescriptor ReadAligned(ReadOnlySpan<byte> place)
+    {
+        Debug.Assert(place.Length >= ValueBlocks.DescriptorSize);
+        ref var first = ref MemoryMarshal.GetReference(place);
+        Debug.Assert(LocationAt(ref first) == sizeof(ulong));
+        var location = Volatile.Read(ref Location(ref first, sizeof(ulong)));
+
+        return WithAlignedMetadata(ref first, location);
     }
 
     // Encodes a native slot that preparation has not made reachable.
@@ -93,6 +101,14 @@ internal static class ResidentDescriptor
 
     private static ref ulong Location(ref byte first, int at) =>
         ref Unsafe.As<byte, ulong>(ref Unsafe.Add(ref first, at));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ValueDescriptor WithAlignedMetadata(ref byte first, ulong location) => new()
+    {
+        Kind = Unsafe.ReadUnaligned<DescriptorKindEnum>(ref first),
+        Length = Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref first, sizeof(uint))),
+        Location = location,
+    };
 
     private static unsafe int LocationAt(ref byte first) => LocationAt((nuint)Unsafe.AsPointer(ref first));
 

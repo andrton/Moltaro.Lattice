@@ -32,11 +32,8 @@ internal readonly struct StoredCollection
 
     public bool Hashed => _collection.Kind == DescriptorKindEnum.Lookup;
 
-    public int Find(object? key)
-    {
-        var keys = new CollectionKeys(_arena, _element, _collection, _arena.Payload(_holder), _encoding);
-        return new CollectionLookup(_arena, _collection).Find(keys, IndexValue.Of(key));
-    }
+    public int Find(object? key) =>
+        CollectionLookup.Find(_arena, _element, _collection, _arena.Payload(_holder), _encoding, IndexValue.Of(key));
 
     public string Spelling(int ordinal)
     {

@@ -21,14 +21,20 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
     private readonly LatticeStringEncodingEnum _encoding;
 
     public CollectionKeys(Arena arena, StructureLayout entry, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> payload, LatticeStringEncodingEnum encoding)
+        : this(arena, entry, descriptor, payload, encoding, CollectionLookup.OpenPayload(arena, descriptor))
+    {
+    }
+
+    public CollectionKeys(Arena arena, StructureLayout entry, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> payload,
+        LatticeStringEncodingEnum encoding, ReadOnlySpan<byte> lookupPayload)
     {
         _arena = arena;
         _entry = entry;
         _encoding = encoding;
         if (descriptor.Kind == DescriptorKindEnum.Lookup)
         {
-            _payload = arena.Payload(ValueBlocks.AddressOf(descriptor));
-            _entries = ResidentDescriptor.Read(_payload);
+            _payload = lookupPayload;
+            _entries = ResidentDescriptor.ReadAligned(lookupPayload);
         }
         else
         {

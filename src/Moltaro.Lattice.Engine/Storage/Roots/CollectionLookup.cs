@@ -37,6 +37,11 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     private readonly ReadOnlySpan<ArenaAddress> _chunks;
 
     public CollectionLookup(Arena arena, scoped in ValueDescriptor descriptor)
+        : this(arena, descriptor, OpenPayload(arena, descriptor))
+    {
+    }
+
+    private CollectionLookup(Arena arena, scoped in ValueDescriptor descriptor, Span<byte> lookupPayload)
     {
         _arena = arena;
         if (descriptor.Kind != DescriptorKindEnum.Lookup)
@@ -44,15 +49,14 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
             return;
         }
 
-        var address = ValueBlocks.AddressOf(descriptor);
         if (IsChunked(descriptor))
         {
-            _chunks = Chunks(arena, address);
+            _chunks = ChunkAddresses(lookupPayload);
             Capacity = (_chunks.Length - 1) * SlotsPerChunk + arena.Payload(_chunks[^1]).Length / SlotBytes;
         }
         else
         {
-            _slots = MemoryMarshal.Cast<byte, ulong>(arena.Payload(address)[ValueBlocks.DescriptorSize..]);
+            _slots = MemoryMarshal.Cast<byte, ulong>(lookupPayload[ValueBlocks.DescriptorSize..]);
             Capacity = _slots.Length;
         }
     }
@@ -67,19 +71,27 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     public static bool IsChunked(in ValueDescriptor descriptor) => descriptor.Length > ContiguousEntries;
 
     public static ValueDescriptor Entries(Arena arena, in ValueDescriptor descriptor) =>
-        ResidentDescriptor.Read(arena.Payload(ValueBlocks.AddressOf(descriptor)));
+        ResidentDescriptor.ReadAligned(arena.Payload(ValueBlocks.AddressOf(descriptor)));
 
     // A probe is bound to the declaration of the key. The holder is the payload
     // that contains the original descriptor, including when the collection is inline.
+    // Under root protection, the slots and entry keys use the same lookup payload.
     public static int Find(Arena arena, StructureLayout entry, in ValueDescriptor descriptor, ReadOnlySpan<byte> holder,
         LatticeStringEncodingEnum encoding, in IndexValue key)
     {
-        var keys = new CollectionKeys(arena, entry, descriptor, holder, encoding);
-        return new CollectionLookup(arena, descriptor).Find(keys, key);
+        var lookupPayload = OpenPayload(arena, descriptor);
+        var keys = new CollectionKeys(arena, entry, descriptor, holder, encoding, lookupPayload);
+        return new CollectionLookup(arena, descriptor, lookupPayload).Find(keys, key);
     }
 
+    public static Span<byte> OpenPayload(Arena arena, scoped in ValueDescriptor descriptor) =>
+        descriptor.Kind == DescriptorKindEnum.Lookup ? arena.Payload(ValueBlocks.AddressOf(descriptor)) : default;
+
     public static Span<ArenaAddress> Chunks(Arena arena, ArenaAddress address) =>
-        MemoryMarshal.Cast<byte, ArenaAddress>(arena.Payload(address)[ValueBlocks.DescriptorSize..]);
+        ChunkAddresses(arena.Payload(address));
+
+    private static Span<ArenaAddress> ChunkAddresses(Span<byte> lookupPayload) =>
+        MemoryMarshal.Cast<byte, ArenaAddress>(lookupPayload[ValueBlocks.DescriptorSize..]);
 
     // Installs the descriptor only after its lookup payload is zeroed. Each initialized chunk
     // then becomes reachable from that descriptor. The caller owns cleanup on a false return.
@@ -189,7 +201,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
         return -1;
     }
 
-    public int Find(CollectionKeys keys, in IndexValue probe)
+    private int Find(CollectionKeys keys, in IndexValue probe)
     {
         Span<byte> bytes = stackalloc byte[16];
         var fixedProbe = bytes[..keys.Width];
