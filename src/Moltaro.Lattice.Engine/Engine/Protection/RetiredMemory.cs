@@ -145,6 +145,9 @@ internal sealed class RetiredMemory
     // The bytes of the retired tables of the primary indexes, counted as an index counts its table.
     public long IndexBytes { get; private set; }
 
+    // Under the writes lock: the full native slot sizes of pending physical relocations.
+    public int RelocationBytes => throw new NotSupportedException();
+
     // Makes room for one more retired thing beside those reserved before, so that retiring it after a
     // publication allocates nothing and cannot fail. Called before the publication; the reservation
     // ends when the thing is retired, or with Release for a write that is withdrawn.

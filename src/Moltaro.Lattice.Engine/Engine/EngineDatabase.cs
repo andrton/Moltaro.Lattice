@@ -459,6 +459,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
 
+    internal bool TryRunMaintenanceTurn() => throw new NotSupportedException();
+
     // Counts the attempt before reaching the parts so that close cannot free them while it runs.
     // Runs the bounded action under the lock of the writes, without waiting for that lock.
     // Returns true once the action completes, false if it was skipped, and propagates its failure.
