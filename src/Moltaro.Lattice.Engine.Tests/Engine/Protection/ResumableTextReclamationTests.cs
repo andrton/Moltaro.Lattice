@@ -154,6 +154,7 @@ public sealed class ResumableTextReclamationTests
         Assert.True(IsAllocated(entry.Arena, oldRoot));
         Assert.Equal(originalBytes, CountedSlots(database));
         Assert.Equal(returned, allocator.Returned);
+        Assert.Equal(0u, TextFreeListHead(database));
 
         await InsertAsync(items, 2, text);
         var replacement = EntryOf(database, 2);
@@ -179,6 +180,9 @@ public sealed class ResumableTextReclamationTests
             if (remaining > 0)
             {
                 Assert.Contains(entry.Address, held);
+                // All other IDs still have live owners. An empty free list
+                // directly witnesses the old ID's quarantine at this cut.
+                Assert.Equal(0u, TextFreeListHead(database));
             }
 
             Assert.Equal(held.Sum(address => slotSizes[address]) +
@@ -200,6 +204,7 @@ public sealed class ResumableTextReclamationTests
                 Assert.Equal(WhileHeld, items.Get(3L)!.Get<string>("Text"));
                 Assert.All(held, address => Assert.True(IsAllocated(entry.Arena, address)));
                 Assert.All(chunks.Except(held), address => Assert.False(IsAllocated(entry.Arena, address)));
+                Assert.Equal(0u, TextFreeListHead(database));
                 whileHeldBytes = SlotBytes(whileHeld.Arena, whileHeld.Address) + SlotBytes(whileHeld.Arena, RootOf(database, 3));
                 if (finishWithOrdinaryDrain)
                 {
@@ -215,6 +220,7 @@ public sealed class ResumableTextReclamationTests
         Assert.NotNull(whileHeld);
         Assert.Equal(replacementBytes + whileHeldBytes, CountedSlots(database));
         Assert.True(allocator.Returned >= returned + 2);
+        Assert.Equal(entry.Id + 1, TextFreeListHead(database));
 
         await InsertAsync(items, 4, "another dictionary text");
         Assert.Equal(entry.Id, EntryOf(database, 4).Id);
@@ -463,6 +469,17 @@ public sealed class ResumableTextReclamationTests
         }));
         return result;
     }
+
+    // The text table links returned IDs as their slot number plus one.
+    private static uint TextFreeListHead(EngineDatabase database)
+    {
+        var head = 0u;
+        Assert.True(database.TryRunMaintenanceStep(parts => head = FreeSlots(parts.Arena.Texts)));
+        return head;
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_freeSlots")]
+    private static extern ref uint FreeSlots(TextTable table);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_buckets")]
     private static extern ref IndexTable Buckets(TextTable table);

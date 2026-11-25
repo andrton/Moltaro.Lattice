@@ -398,7 +398,7 @@ public sealed class ResumableReclamationTests
         var initial = EpochsOf(database).Current;
         Assert.InRange(Step(database, 64), 1, 64);
         Assert.Equal(initial + 1, EpochsOf(database).Current);
-        Assert.InRange(database.Counters.RetiredIndexBytes, 0, Tables - 1);
+        Assert.InRange(database.Counters.RetiredIndexBytes, 0, Tables - 2);
 
         database.DrainRetired();
         Assert.Equal(0, database.Counters.RetiredIndexBytes);
