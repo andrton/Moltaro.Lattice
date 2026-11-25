@@ -7,8 +7,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 // Publication, notification and deadline delivery are separate events on the pending path.
 public sealed class PositionClockDeadlineTests
 {
-    private const string RegistrationOutcome = "A wait which catches up at registration does not yet settle its original deadline and cancellation.";
-
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
 
     [Theory]
@@ -96,7 +94,7 @@ public sealed class PositionClockDeadlineTests
     [Theory]
     [InlineData(-1)]
     [InlineData(0)]
-    [InlineData(1, Skip = RegistrationOutcome)]
+    [InlineData(1)]
     public async Task A_wait_keeps_its_original_deadline_when_publication_wins_registration(int ticksFromDeadline)
     {
         var elapsed = Second + TimeSpan.FromTicks(ticksFromDeadline);
@@ -111,7 +109,7 @@ public sealed class PositionClockDeadlineTests
         Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, late.Error);
     }
 
-    [Fact(Skip = RegistrationOutcome)]
+    [Fact]
     public async Task Cancellation_before_registration_ends_the_wait_even_if_the_position_is_published_before_it_resumes()
     {
         using var cancellation = new CancellationTokenSource();

@@ -270,11 +270,20 @@ internal sealed class PositionClock
     private async Task WaitForLaterAsync(LatticePosition position, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var started = _time.GetTimestamp();
-        var target = Enter(position.Sequence);
+        var target = Enter(position.Sequence, out var observedAt);
 
         if (target is null)
         {
             ThrowIfWaitEnded();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // No target was registered when the publication passed this waiter. Only the time it
+            // observed the already published position can prove that its own budget was met.
+            if (!ReachedInTime(started, observedAt, timeout))
+            {
+                throw TimedOut(position, timeout);
+            }
+
             return;
         }
 
@@ -297,9 +306,7 @@ internal sealed class PositionClock
 
                 if (reachedAt is { } stamp)
                 {
-                    // GetElapsedTime rounds to TimeSpan ticks. Compare in timestamp units so the
-                    // last timestamp at or before the deadline and the first after it stay distinct.
-                    if ((Int128)(stamp - started) * TimeSpan.TicksPerSecond <= (Int128)timeout.Ticks * _time.TimestampFrequency)
+                    if (ReachedInTime(started, stamp, timeout))
                     {
                         return;
                     }
@@ -337,15 +344,23 @@ internal sealed class PositionClock
         }
     }
 
-    // A shared target with this waiter counted, or null if a publication reached it before registration.
-    private Target? Enter(ulong sequence)
+    // GetElapsedTime rounds to TimeSpan ticks. Compare in timestamp units so the last timestamp at
+    // or before the deadline and the first after it stay distinct.
+    private bool ReachedInTime(long started, long stamp, TimeSpan timeout) =>
+        (Int128)(stamp - started) * TimeSpan.TicksPerSecond <= (Int128)timeout.Ticks * _time.TimestampFrequency;
+
+    // Returns the registered target, or samples time after finding that the position is published.
+    private Target? Enter(ulong sequence, out long observedAt)
     {
         lock (_lock)
         {
             if (sequence <= Sequence)
             {
+                observedAt = _time.GetTimestamp();
                 return null;
             }
+
+            observedAt = default;
 
             if (!_byTarget.TryGetValue(sequence, out var target))
             {
