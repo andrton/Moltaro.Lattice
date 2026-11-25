@@ -10447,6 +10447,25 @@ Keep the warm-up, fixture and runtime the same and rotate the order. Compare hot
 caller listings and run the measured scenarios in the acceptance brief. Update
 X6 and the arena protocol when the protected callback is delivered.
 
+##### Tests-first record
+
+The contract is at `d82ddf19390639e005118d650e98e7215ad52085`, followed by the
+session documentation at `9efaf307` and the tests and sample at `13907fd1`.
+The independent review closed in two rounds on
+`8b2d6282b5cbf7ecd7be3e432035ec4c68fd979f`. The first round found six gaps in
+coverage. The fixes checked both encodings, an insert racing a negative lookup,
+session waiting before epoch entry under child memory pressure, stable hits and
+misses after early fault and retirement after the last viewer, compact and hashed
+forms at the same count, and refusal of writes through a borrowed part. The same
+revision documented the callback's I/O restriction and named the fields of the
+state compared in the lifetime probe. The second review found all findings closed
+and no new blocking issue.
+
+The coordinator built that revision on Windows x64 Debug with zero warnings or
+errors. The full suite passed 3,683 tests with 154 skipped and no failures.
+The focused consumer and contract checks and format check passed. The sample
+ran on the tests-first stage and reported where the view was still pending.
+
 #### S22 · Typed protected views
 
 **Track:** full · **Needs:** S21 · **Decisions:** O6 · **Owners:** E08, E05
