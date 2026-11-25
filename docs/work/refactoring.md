@@ -111,10 +111,10 @@ Gone through by the planner and the coordinator on 18 November 2026.
      [architect's review after S19](#architects-review-after-s19-24-november-2026).
   6d. **S20I** is done on 25 November 2026. See the
      [clock correction and historical Debug controls](epic-1-core.md#s20i--investigate-the-debug-timeouts).
-  6e. **After S20I and before implementing S21,** do the bounded R2 work on packed Map
-     copies and whole writes. Verify the existing guarantees and measure owned read
-     plus lookup and whole write on the exact base and head. The common S21 ARM64
-     measurement queue also takes the two R1 experiments after their x64 preflight.
+  6e. **S20R** took the bounded R2 work on packed Map copies and whole writes
+     after S20I and before S21. See the [record](epic-1-core.md#s20r--refactor-packed-map-scalar-pairs).
+     The common S21 ARM64 measurement queue takes R2 and the two R1 experiments
+     after their x64 preflights.
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
@@ -686,7 +686,7 @@ thresholds in the S20 Acceptance stay in force.
 | --- | --- | --- | --- | --- | --- |
 | R1 | `src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs` (`MostCompactEntries`) | The [S19 lookup results](epic-1-core.md#s19-arm64-results) compare compact at 8 entries and hashed at 9. Shape and count change together. The reported clock frequency gives a nominal 1 ns tick, and many percentiles have a visible 40 ns step. The first small hit rows have long tails of unknown cause. | Compare both forms at the same count, key type and hit or miss pattern for 4, 8, 9 and 16 entries. Warm each form, time a batch of probes together, and record native bytes and creation cost with the read results. Put the figure beside the constant when it supports a decision. | The S20 transitions remain compact to hashed from 8 to 9 and hashed to compact from 5 to 4. A new threshold needs a separate decision. | x64 preflight in S20, measure in the common S21 ARM64 queue on the same platform |
 | R1, write-lock series | S19 `map-write-lock` | At 100,000 entries the admission interval starts at about 41 ms and ends at 17 to 19 ms in each run, with lookup around 11 ms. All three runs use the same size order. The run does not establish steady performance by size or identify which work caused the change. | Use a separate series with each size warmed and size order rotated. Keep lookup time beside admission and whole-write time, and keep raw rounds in order. | Equivalent inputs, placement and instrumentation across sizes. Establish a cause before attributing the change. | x64 preflight in S20, measure as its own series in the common S21 ARM64 queue |
-| R2 | `src/Moltaro.Lattice.Engine/Storage/Roots/PackedMap.cs` | A packed Map boxes its key and value in the owned copy and whole write paths. The S19 `79,112 B` figure is the entire Int64 Map owned read plus lookup at 1,000 entries. The protected lookup allocates zero. The whole replacement figure includes validation and placement as well as boxing. | Use the existing type-bound approach of `PackedSet` for the fixed pair where it fits. Measure the same owned read plus lookup and whole write before and after. | Independent owned copies with declared types, key spelling and comparison, the existing checks of null, duplicate and bound, and no reflection on the call path. Map enumeration order is unspecified. | Next after S20I and before S21 implementation, as set in the [order](#order) |
+| R2 | `src/Moltaro.Lattice.Engine/Storage/Roots/PackedMap.cs` | A packed Map boxes its key and value in the owned copy and whole write paths. The S19 `79,112 B` figure is the entire Int64 Map owned read plus lookup at 1,000 entries. The protected lookup allocates zero. The whole replacement figure includes validation and placement as well as boxing. | Use the existing type-bound approach of `PackedSet` for the fixed pair where it fits. Measure the same owned read plus lookup and whole write before and after. | Independent owned copies with declared types, key spelling and comparison, the existing checks of null, duplicate and bound, and no reflection on the call path. Map enumeration order is unspecified. | done in [S20R](epic-1-core.md#s20r--refactor-packed-map-scalar-pairs). Measure on ARM64 in the common S21 queue |
 | R3 | `src/Moltaro.Lattice.Engine/Storage/CollectionWriteTimings.cs` and the `LATTICE_COLLECTION_TIMINGS` sections in `WriteCoordinator.cs`, `NestedValues.cs` and `CollectionLookup.cs` | The default build excludes the cells. The source still places measurement code in the write path. The comment describes the special synchronous build that reads the cells on its calling thread. | After the affected-head control, remove the conditional product insertions and the obsolete scenario wiring from the current build in one commit. Exact lock timing needed by a later study belongs in its isolated measurement build. | The historical `3066ea63` build and archive remain reproducible. The default build has no timing cells or calls. | done in S20: affected-head control at `0f988e6`, removed in `c2aa7c5` |
 
 Both R1 preflights passed in Windows Git Bash in S20, on `3066ea63` with the isolated
@@ -698,6 +698,18 @@ outside Git. The ARM64 estimates are 30 to 65 seconds for lookup and 50 to 80 se
 for write lock, plus builds. The S21 queue reserves two minutes for each. It uses the
 predeclared paired and stationarity checks. The x64 results verify the recipe. Access
 to the rental follows the existing checked-queue and owner activation procedure.
+
+## Architect's review after S20 and S20I, 25 November 2026
+
+The independent review read `main` at `6f10cbd8`. It covered the packed collections,
+their write and lookup callers, and the position-clock correction. The planner and
+coordinator assigned its findings as follows.
+
+| Place | Finding and disposition |
+| --- | --- |
+| `PackedMap`, `StructureLayout`, `MapForm`, `NestedValues.PlaceCollection` | R2 takes the fixed scalar pair through the typed scalar routines and the existing Map factory. The nullable value keeps its bitmap and slot. A fully fixed owned value keeps record placement and copying. The existing collection owner still checks uniqueness and rolls back refused placement. |
+| `RootReader.FindEntry`, `CollectionKeys`, `CollectionLookup` | The S21 study checks the existing path from the owning record's payload and arena seed to the entry ordinal, and how stamp validation covers a hit or a miss under the viewer's epoch. The work belongs to the protected view. A separate sparse writer or owned copy rewrite would duplicate paths that serve the existing behavior. |
+| `PositionClock` (`_targets`, `_byTarget`, `Publish`, `Wake`) | Assess one pending-target index in S34, with Deadline and ChildDeadline checks, the clock-waiter allocation and contention scenarios, and the hot Publish listing and ARM64 measurements. Keep first reach recorded in publication and wait completions outside both locks. |
 
 ## Found while building S18, 24 November 2026
 
