@@ -11273,8 +11273,7 @@ completed successfully. The probe and its raw runs are kept outside Git.
 
 ###### Tests first
 
-The independent plan review closed on `f5b473a88d29ad6729d36ba9e48dbd6e24816726`.
-Its reading links were added in `49ddb60bf75d5691451435a4a719adb82fb3cdf4`.
+The independently reviewed plan, with its reading links, is in `49ddb60bf75d5691451435a4a719adb82fb3cdf4`.
 The independent tests-first review closed on `c163c830097a88d69a7dbea615484ccfbf1cade0`
 after two rounds. Temporarily enabling the three regression tests on the original
 behavior reproduced cancellation with the original token and success from both Wake
@@ -11283,6 +11282,31 @@ holding close notification and, for timer delivery, holding publication before W
 `OneCloseTests` holds a protected reader and then the final native free. One allocation
 is still outstanding while the first close task is pending at that free, and none
 is outstanding when close succeeds.
+
+###### Implementation and verification
+
+Closed after two independent code review rounds. The first candidate let a
+confirmed forwarded write return before the child was publicly `Closed`. The
+breaker reproduced a subsequent read of the child's earlier state on
+`41ef428cde16ccc3bce935119db803816331df06` in Windows x64 Debug and Release.
+
+On `37df673e9a954472fb57639f697e00bedfc82414` close first stops admitting reads,
+then publishes `Closed`, then notifies the clock outside the state lock.
+The pending wait and the confirmed forward both use the public close state.
+The breaker passed 10 probes in each configuration, including the Ready and
+Closed sides of the forwarding boundary and cached-set read refusal after
+`Closed`. The test-only interleaving probes are kept outside this change.
+
+From the original `882b5b09` base, the coordinator built Release and Debug on
+Windows x64 with no warnings or errors. Each full suite passed 3,776 tests
+with 129 skips. Release formatting and all 18 samples passed. The three
+historical Debug timeouts did not recur in these runs and retain their
+reopening conditions in [S20I](#s20i--investigate-the-debug-timeouts).
+
+The local merge check with the committed List append boundary `62735cd8` used
+tree `dceb7557d1efc22ce0e35fe30de31a3e2b4add00`. Its Release build passed,
+with 31 focused close and forwarding tests and all four List append tests.
+The append branch will take this correction from `main`.
 
 ##### Storage work
 
