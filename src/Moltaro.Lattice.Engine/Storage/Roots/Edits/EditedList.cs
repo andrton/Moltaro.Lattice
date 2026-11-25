@@ -28,16 +28,24 @@ internal sealed class EditedList
             return false;
         }
 
+        // A replayed append is a ListInsert at the current count.
+        if (position == Count)
+        {
+            _runs.Add(new Run(EditedEntry.New, 1, command.First));
+            Count++;
+            return true;
+        }
+
         var place = 0;
         var within = position;
-        while (place < _runs.Count && within >= _runs[place].Count)
+        while (within >= _runs[place].Count)
         {
             within -= _runs[place].Count;
             place++;
         }
 
         var deletes = !inserts;
-        if (place == _runs.Count || (inserts && within == 0))
+        if (inserts && within == 0)
         {
             _runs.Insert(place, new Run(EditedEntry.New, 1, command.First));
         }
