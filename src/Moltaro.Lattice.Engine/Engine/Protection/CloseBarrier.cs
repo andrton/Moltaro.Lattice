@@ -1,11 +1,12 @@
 namespace Moltaro.Lattice.Engine.Protection;
 
 // Counts operations that close must let finish before freeing the arena, including writes from
-// admission to outcome, received changes, and maintenance. Each operation enters before touching
-// the database parts and exits when it finishes. On a child the barrier closes after Closed is
-// published so that replication can still apply changes until Closed. Maintenance separately checks
-// for Ready. Once the barrier closes, it refuses every new entry and its task completes when the
-// last counted operation exits. Reads use ReadEpochs so that they do not all change a shared count.
+// admission to outcome, received changes, drains, counters, and maintenance. Each operation enters
+// before touching the database parts and exits when it finishes. On a child the barrier closes
+// after the database publishes Closed, notifies position waiters, and requests cancellation. A
+// maintenance attempt can enter during that interval and is refused because State is no longer
+// Ready. Once the barrier closes, it refuses every new entry and its task completes when the last
+// counted operation exits. Reads use ReadEpochs so that they do not all change a shared count.
 //
 // The count and the mark of the close are one word that every change makes atomically, so an
 // operation is either counted before the close or refused after it.
