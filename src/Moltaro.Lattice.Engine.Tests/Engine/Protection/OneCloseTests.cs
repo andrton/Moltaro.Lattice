@@ -14,10 +14,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // it found, so that the close has to wait for the read before it frees the arena. The database counts
 // the native memory of its arena (CountingNativeAllocator, exception X3), so that a test states what
 // no member of a closed database shows: a call that completes finds every piece of native memory
-// returned, and none is returned while the read is inside. Where it matters at which moment a call
-// completed, the test takes the count on the thread that completes it, before anything else runs
-// (OutstandingWhenCompleted). Every wait is bounded, and every held read is let go before the test
-// ends, also when it fails.
+// returned, and none is returned while the read is inside. The first test also holds the last native
+// return after the read has left to check whether close is still in progress. Every wait is bounded,
+// and every held read and return is let go before the test ends, also when it fails.
 public sealed class OneCloseTests
 {
     private const int Callers = 8;
@@ -30,13 +29,22 @@ public sealed class OneCloseTests
     {
         var allocator = new CountingNativeAllocator();
         var database = await EngineMaster.OpenAsync(StampSchema.Schema, Arena, allocator);
+        var freeing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishFree = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? first = null;
 
         try
         {
             using var held = await HoldRetiredMemoryAsync(database);
+            allocator.HoldLastFree(() =>
+            {
+                freeing.SetResult();
+                finishFree.Task.Wait(Bound);
+            });
 
             first = database.CloseAsync().AsTask();
+            Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
+
             var second = OutstandingWhenCompleted(database.CloseAsync().AsTask(), allocator);
             var disposed = OutstandingWhenCompleted(database.DisposeAsync().AsTask(), allocator);
 
@@ -47,13 +55,20 @@ public sealed class OneCloseTests
 
             Assert.Contains(await held.ReleaseAsync(), new long?[] { 0, 1 });
 
-            Assert.Equal(0, await second.WaitAsync(Bound));
-            Assert.Equal(0, await disposed.WaitAsync(Bound));
+            await freeing.Task.WaitAsync(Bound);
+            Assert.Equal(1, allocator.Outstanding);
+            Assert.False(first.IsCompleted, "The close completed before the last native memory was returned.");
+
+            finishFree.TrySetResult();
             await first.WaitAsync(Bound);
             allocator.ExpectEverythingReturned();
+
+            Assert.Equal(0, await second.WaitAsync(Bound));
+            Assert.Equal(0, await disposed.WaitAsync(Bound));
         }
         finally
         {
+            finishFree.TrySetResult();
             await CloseAsync(database, first);
         }
     }
@@ -227,8 +242,8 @@ public sealed class OneCloseTests
         return held;
     }
 
-    // The pieces of native memory outstanding at the moment the call completed, counted on the thread
-    // that completed it before any other continuation runs; a call that fails fails the task.
+    // Counts the pieces of native memory outstanding after the call completes. A failed call faults
+    // the returned task.
     private static Task<int> OutstandingWhenCompleted(Task call, CountingNativeAllocator allocator) =>
         call.ContinueWith(
             completed =>

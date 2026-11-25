@@ -18,8 +18,9 @@ namespace Moltaro.Lattice.Engine.Positions;
 //
 // Close, fault and loss of the master also notify waiters. A wait reads loss before looking up
 // its position or reach time because the follower publishes what it applied before it marks the
-// loss. A timely publication wins over loss. A fault mark is read after the publication evidence so
-// that a mark already visible before the wait's success decision refuses the wait.
+// loss. A timely publication wins over loss. The close and fault marks are read after the publication
+// evidence. The database already refuses new reads when Closed becomes visible, so a pending
+// wait can refuse at that state even when close has yet to notify waiters.
 internal sealed class PositionClock
 {
     // On lines of its own (SequenceLine).
@@ -37,6 +38,10 @@ internal sealed class PositionClock
 
     private Target? _ready;
 
+    // The database's public close state decides pending waits. The clock's own mark is set when
+    // close notifies the waiters and also serves a standalone clock.
+    private readonly Func<bool>? _isDatabaseClosed;
+
     private volatile bool _closed;
 
     // Set when a child lost its master: a wait in progress, and every later one that is not complete at
@@ -53,12 +58,14 @@ internal sealed class PositionClock
 
     private readonly TimeProvider _time;
 
-    public PositionClock(ulong history, object owner, TimeProvider? time = null, ReadEpochs? epochs = null)
+    public PositionClock(ulong history, object owner, TimeProvider? time = null, ReadEpochs? epochs = null,
+        Func<bool>? isDatabaseClosed = null)
     {
         History = history;
         _owner = owner;
         _time = time ?? TimeProvider.System;
         _epochs = epochs;
+        _isDatabaseClosed = isDatabaseClosed;
     }
 
     public ulong History { get; }
@@ -72,8 +79,9 @@ internal sealed class PositionClock
     // The position of a sequence of this history.
     public LatticePosition At(ulong sequence) => new(History, sequence);
 
-    // Whether the database has been closed: every wait has ended.
-    public bool IsClosed => _closed;
+    // Also used for a confirmed forwarded write: only once new reads are refused may it
+    // return its result without this child having applied the write.
+    public bool IsClosed => _isDatabaseClosed?.Invoke() ?? _closed;
 
     // ObjectDisposedException once the database has been closed, as every operation after a close.
     public void ThrowIfClosed() => ObjectDisposedException.ThrowIf(_closed, _owner);
@@ -143,8 +151,8 @@ internal sealed class PositionClock
         Complete(reached);
     }
 
-    // Ends every wait: a wait in progress fails with Unavailable, a later one with
-    // ObjectDisposedException, as every operation after a close does.
+    // After the database publishes Closed, refuse new clock waits and notify pending ones
+    // outside the state and write locks. A standalone clock publishes its close here.
     public void Close()
     {
         _closed = true;
@@ -248,14 +256,29 @@ internal sealed class PositionClock
         }
     }
 
-    private void ThrowIfWaitEnded()
+    private void ThrowIfWaitUnavailable()
     {
-        if (_closed)
+        if (IsClosed)
         {
             throw new LatticeException(LatticeErrorEnum.Unavailable, "The database was closed while the operation was waiting for a position.");
         }
 
         ThrowIfFaulted();
+    }
+
+    // A signal or timer can resume the wait before the token callback runs. Sample the token
+    // before checking the lifecycle so that cancellation requested after close cannot decide
+    // the outcome of a wait that was still pending at close.
+    private void ThrowIfWaitEnded(CancellationToken cancellationToken)
+    {
+        var cancelled = cancellationToken.IsCancellationRequested;
+
+        ThrowIfWaitUnavailable();
+
+        if (cancelled)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
     }
 
     // Completes the signals of the targets taken, outside the lock.
@@ -274,8 +297,7 @@ internal sealed class PositionClock
 
         if (target is null)
         {
-            ThrowIfWaitEnded();
-            cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfWaitEnded(cancellationToken);
 
             // No target was registered when the publication passed this waiter. Only the time it
             // observed the already published position can prove that its own budget was met.
@@ -302,10 +324,7 @@ internal sealed class PositionClock
                     remaining = reachedAt.HasValue ? TimeSpan.Zero : timeout - _time.GetElapsedTime(started);
                 }
 
-                ThrowIfWaitEnded();
-
-                // A signal or timer can resume this wait while another callback delays cancellation notification.
-                cancellationToken.ThrowIfCancellationRequested();
+                ThrowIfWaitEnded(cancellationToken);
 
                 if (reachedAt is { } stamp)
                 {
@@ -341,8 +360,8 @@ internal sealed class PositionClock
                 }
                 catch (OperationCanceledException)
                 {
-                    // A fault mark can already be visible while its notification is pending.
-                    ThrowIfWaitEnded();
+                    // A close or fault mark can already be visible while its notification is pending.
+                    ThrowIfWaitUnavailable();
                     throw;
                 }
             }

@@ -137,6 +137,142 @@ public sealed class ChildPositionDeadlineTests
         Assert.Equal(initial, child.Position);
     }
 
+    [Fact]
+    public async Task A_registered_wait_reports_Unavailable_when_cancelled_after_Closed_becomes_visible()
+    {
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        using var notification = new HeldCloseNotification();
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
+        {
+            PositionWaitTime = time,
+            AfterCloseStatePublication = notification.Hold,
+        });
+        var initial = child.Position;
+        using var cancellation = new CancellationTokenSource();
+
+        var waiting = child.WaitForPositionAsync(NextPosition(initial), Deadline, cancellation.Token).AsTask();
+        await timerArmed.Task.WaitAsync(Bound);
+        Assert.False(waiting.IsCompleted);
+        Assert.Equal(initial, child.Position);
+
+        var closing = OwnThread.Run(() => child.CloseAsync().AsTask()).Unwrap();
+        try
+        {
+            await notification.ReachedAsync();
+            Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
+            Assert.False(waiting.IsCompleted);
+
+            await cancellation.CancelAsync().WaitAsync(Bound);
+            var failure = await Record.ExceptionAsync(() => waiting.WaitAsync(Bound));
+
+            Assert.False(notification.HasContinued);
+            Assert.Equal(initial, master.Position);
+            var refused = Assert.IsType<LatticeException>(failure);
+            Assert.Equal(LatticeErrorEnum.Unavailable, refused.Error);
+        }
+        finally
+        {
+            notification.Release();
+            await closing.WaitAsync(Bound);
+        }
+    }
+
+    [Fact]
+    public Task A_registered_wait_reports_Unavailable_when_the_child_publishes_after_Closed_and_Wake_notifies_it() =>
+        ExpectCloseBeforePublicationAsync(deliverTimer: false);
+
+    [Fact]
+    public Task A_registered_wait_reports_Unavailable_when_the_child_publishes_after_Closed_and_the_timer_notifies_it() =>
+        ExpectCloseBeforePublicationAsync(deliverTimer: true);
+
+    [Fact]
+    public async Task Success_decided_while_Ready_can_be_observed_after_Closed()
+    {
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { PositionWaitTime = time });
+        var position = NextPosition(child.Position);
+        var waiting = child.WaitForPositionAsync(position, Deadline).AsTask();
+        await timerArmed.Task.WaitAsync(Bound);
+        Assert.False(waiting.IsCompleted);
+
+        var committed = await master.Set<Item>().InsertAsync(Of(14, "published while ready", group: 1)).AsTask().WaitAsync(Bound);
+        Assert.Equal(position, committed.Position);
+
+        // Observe completion without awaiting the result of the position wait.
+        await Task.WhenAny(waiting).WaitAsync(Bound);
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+
+        await child.CloseAsync().AsTask().WaitAsync(Bound);
+        Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
+        await waiting;
+    }
+
+    private static async Task ExpectCloseBeforePublicationAsync(bool deliverTimer)
+    {
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        using var notification = new HeldCloseNotification();
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
+        {
+            PositionWaitTime = time,
+            AfterCloseStatePublication = notification.Hold,
+        });
+        var initial = child.Position;
+        var target = NextPosition(initial);
+        var waiting = child.WaitForPositionAsync(target, Deadline).AsTask();
+        await timerArmed.Task.WaitAsync(Bound);
+
+        using var before = HeldPublication.Arm(child, PublicationPointEnum.BeforePosition);
+        var committed = await master.Set<Item>().InsertAsync(Of(14, "held child publication", group: 1)).AsTask().WaitAsync(Bound);
+        await before.ReachedAsync();
+        Assert.Equal(target, committed.Position);
+        Assert.Equal(target, master.Position);
+        Assert.Equal(initial, child.Position);
+
+        // Hold the child after publication too when the deadline timer must run before Wake.
+        using var after = deliverTimer ? HeldPublication.Arm(child, PublicationPointEnum.AfterPosition) : null;
+        var closing = OwnThread.Run(() => child.CloseAsync().AsTask()).Unwrap();
+        try
+        {
+            await notification.ReachedAsync();
+            Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
+            Assert.False(before.HasContinued);
+            Assert.False(waiting.IsCompleted);
+
+            before.Release();
+            if (after is not null)
+            {
+                await after.ReachedAsync();
+                Assert.False(waiting.IsCompleted);
+                time.Advance(Deadline);
+                time.DeliverDueTimers();
+            }
+
+            var failure = await Record.ExceptionAsync(() => waiting.WaitAsync(Bound));
+
+            Assert.False(notification.HasContinued);
+            if (after is not null)
+            {
+                Assert.False(after.HasContinued);
+            }
+
+            var refused = Assert.IsType<LatticeException>(failure);
+            Assert.Equal(LatticeErrorEnum.Unavailable, refused.Error);
+        }
+        finally
+        {
+            after?.Release();
+            before.Release();
+            notification.Release();
+            await closing.WaitAsync(Bound);
+        }
+    }
+
     private static async Task ExpectPriorFaultAsync(bool deliverCancellationFirst)
     {
         var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

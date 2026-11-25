@@ -253,11 +253,20 @@ original budget and its token has not been cancelled. An already satisfied first
 check uses the local sequence and lifecycle state without a gate or time sample.
 
 A publisher calls `Wake` after it releases the lock of the writes. Timer delivery is
-independent of `Wake`. After checking the database state, a registered waiter checks
-its own token before deciding the outcome from the target's reach time, a lost master
-or an expired budget. The token can already carry a cancellation request while
-another callback delays notification. When the token's callback resumes the wait,
-the clock checks the same lifecycle state before propagating cancellation.
+independent of `Wake`. A registered waiter samples the target's reach time or the
+remaining budget, then the token. It checks the lifecycle before using those
+observations to decide the outcome. While the instance is healthy, a cancelled token
+takes precedence over reach, loss of the master or expiry. The token can already be
+cancelled while another callback delays notification. When the token callback resumes
+the wait, the clock checks the lifecycle before propagating cancellation.
+
+Close stops admitting reads, publishes `Closed`, then notifies the position waiters
+outside the state lock. A registered wait whose outcome is still undecided at
+`Closed` reports `Unavailable` even if cancellation, `Wake` or the timer resumes it
+before the close notification. A result decided before `Closed` remains available
+to the caller. A forwarded write with a confirmed master reply can return that
+result on a child that is `Closed`, because it has stopped admitting reads.
+
 A wait can succeed on expiry when its target was reached in time, or time out when
 a late publication arrived before the timer ran.
 The sequence store and timestamp sample are separate operations. A scheduling pause
