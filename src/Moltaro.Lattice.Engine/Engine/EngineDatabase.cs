@@ -858,7 +858,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     private async Task MaintainAsync(CancellationToken cancellationToken)
     {
         // Yield between bounded turns so ordinary writers and the child applier can get the lock.
-        var cadence = TimeSpan.FromMilliseconds(1);
+        var cadence = TimeSpan.FromMilliseconds(16);
         try
         {
             while (State == LatticeDatabaseStateEnum.Ready)
