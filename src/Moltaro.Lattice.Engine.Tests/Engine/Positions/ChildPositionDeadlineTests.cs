@@ -142,7 +142,7 @@ public sealed class ChildPositionDeadlineTests
     {
         var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
-        using var notification = new HeldCloseNotification();
+        using var notification = new HeldEngineCallback();
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
         {
@@ -215,7 +215,7 @@ public sealed class ChildPositionDeadlineTests
     {
         var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
-        using var notification = new HeldCloseNotification();
+        using var notification = new HeldEngineCallback();
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
         {

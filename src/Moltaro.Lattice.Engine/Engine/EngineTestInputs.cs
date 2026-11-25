@@ -42,4 +42,12 @@ internal sealed class EngineTestInputs
     // Invoked outside the state lock after Closed becomes visible and before close notifies the
     // position waiters. Tests can hold the notification to observe operations at that boundary.
     public Action? AfterCloseStatePublication { get; init; }
+
+    // Invoked with a maintenance attempt counted by the close barrier, after observing Ready
+    // and before trying the lock of the writes. Tests can hold an attempt that close may overtake.
+    public Action? BeforeMaintenanceWrites { get; init; }
+
+    // Invoked after the fault is marked under the lock of the writes and that lock is released,
+    // before the database finishes marking the fault and notifying position waiters.
+    public Action? BeforeFaultNotification { get; init; }
 }

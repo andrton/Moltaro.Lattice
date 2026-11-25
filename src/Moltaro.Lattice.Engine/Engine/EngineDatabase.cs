@@ -458,6 +458,12 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
 
+    // Runs one bounded maintenance action on a Ready master or child. Returns false when the
+    // step cannot enter immediately, returns true after the action completes, and propagates
+    // any exception from the action.
+    internal bool TryRunMaintenanceStep(Action<DatabaseParts> step) =>
+        throw new NotSupportedException("Maintenance steps are not implemented yet.");
+
     // Steps 6 to 11 of the close (CloseAsync), once the operations in progress have ended. When nothing
     // is in progress it runs to its end before it returns. The wait for the reads runs on a thread of the
     // pool, because a read may be held by a test while its caller goes on; it ends as

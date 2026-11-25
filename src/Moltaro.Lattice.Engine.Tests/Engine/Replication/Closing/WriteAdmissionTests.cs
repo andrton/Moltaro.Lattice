@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Engine.Tests.Engine.Positions;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -25,7 +24,7 @@ public sealed class WriteAdmissionTests
     [Fact]
     public async Task Child_refuses_an_insert_started_after_Closed_without_forwarding_it()
     {
-        using var notification = new HeldCloseNotification();
+        using var notification = new HeldEngineCallback();
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await using var relay = FrameRelay.Start(master.ListenUri!);
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address, new EngineTestInputs
@@ -56,7 +55,7 @@ public sealed class WriteAdmissionTests
 
     private static async Task MasterRefusesAsync(Func<ILatticeDatabase, Func<ValueTask<LatticeWriteResult>>> prepare)
     {
-        using var notification = new HeldCloseNotification();
+        using var notification = new HeldEngineCallback();
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs
         {
             AfterCloseStatePublication = notification.Hold,
@@ -75,7 +74,7 @@ public sealed class WriteAdmissionTests
     }
 
     private static async Task RefusesWhileCloseIsHeldAsync(
-        ILatticeDatabase database, HeldCloseNotification notification, Func<ValueTask<LatticeWriteResult>> write)
+        ILatticeDatabase database, HeldEngineCallback notification, Func<ValueTask<LatticeWriteResult>> write)
     {
         var closing = OwnThread.Run(() => database.CloseAsync().AsTask()).Unwrap();
 
