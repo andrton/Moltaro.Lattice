@@ -11237,6 +11237,79 @@ open findings. None of the three historical timeouts recurred in these runs.
 
 #### S23 · Compaction and shrink
 
+##### Close and pending position waits
+
+**Order and owner.** E07 owns this separate full-track correction at the first
+boundary after the independently tested List append change. It precedes the
+remaining S23 storage work, including the background maintenance lifetime.
+
+**Existing contract.** A registered position wait that is still undecided when
+`Closed` becomes visible ends in `Unavailable`. A result already decided before
+close remains available to a caller that observes it later. Successful completion of
+`CloseAsync` establishes that the instance has released its native memory.
+
+**To read.** [Session consistency](../decisions/session-consistency.md#explicit-local-position-wait)
+(14 November 2026), [memory and access](../decisions/memory-and-access.md) (24 November 2026
+amendment), and [OneCloseTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/OneCloseTests.cs).
+
+**Acceptance.** Control publication of the public state separately from delivery
+of the close notification to the waiter. After observing public
+`Closed` while a registered wait is still below its target, deliver cancellation
+or publish the target. Verify `Unavailable` for cancellation, wake and timer.
+Preserve ordinary cancellation on an open instance, the earlier decided result,
+and `ObjectDisposedException` on a fresh call after close completes. Verify that
+a held protected read can keep native memory alive during close and that the
+allocator has no outstanding allocations when close completes. Correct the XML
+documentation of `LatticeDatabaseStateEnum.Closed` to distinguish the public
+state from teardown completion.
+
+**Evidence on `882b5b09`.** A research-only pause after `EngineDatabase.CloseAsync`
+set `Closed` and before `PositionClock.Close` marked the clock reproduced both
+wrong outcomes on a waiting child. Later cancellation returned its token. Later
+publication returned success through either wake or timer. All six observation
+probes ran in Debug and Release. With the pause disabled, a held protected read
+kept one native allocation alive in `Closed`. The allocator held none after close
+completed successfully. The probe and its raw runs are kept outside Git.
+
+###### Tests first
+
+The independently reviewed plan, with its reading links, is in `49ddb60bf75d5691451435a4a719adb82fb3cdf4`.
+The independent tests-first review closed on `c163c830097a88d69a7dbea615484ccfbf1cade0`
+after two rounds. Temporarily enabling the three regression tests on the original
+behavior reproduced cancellation with the original token and success from both Wake
+and the deadline timer after public `Closed`. The tests tell those paths apart by
+holding close notification and, for timer delivery, holding publication before Wake.
+`OneCloseTests` holds a protected reader and then the final native free. One allocation
+is still outstanding while the first close task is pending at that free, and none
+is outstanding when close succeeds.
+
+###### Implementation and verification
+
+Closed after two independent code review rounds. The first candidate let a
+confirmed forwarded write return before the child was publicly `Closed`. The
+breaker reproduced a subsequent read of the child's earlier state on
+`41ef428cde16ccc3bce935119db803816331df06` in Windows x64 Debug and Release.
+
+On `37df673e9a954472fb57639f697e00bedfc82414` close first stops admitting reads,
+then publishes `Closed`, then notifies the clock outside the state lock.
+The pending wait and the confirmed forward both use the public close state.
+The breaker passed 10 probes in each configuration, including the Ready and
+Closed sides of the forwarding boundary and cached-set read refusal after
+`Closed`. The test-only interleaving probes are kept outside this change.
+
+From the original `882b5b09` base, the coordinator built Release and Debug on
+Windows x64 with no warnings or errors. Each full suite passed 3,776 tests
+with 129 skips. Release formatting and all 18 samples passed. The three
+historical Debug timeouts did not recur in these runs and retain their
+reopening conditions in [S20I](#s20i--investigate-the-debug-timeouts).
+
+The local merge check with the committed List append boundary `62735cd8` used
+tree `dceb7557d1efc22ce0e35fe30de31a3e2b4add00`. Its Release build passed,
+with 31 focused close and forwarding tests and all four List append tests.
+The append branch will take this correction from `main`.
+
+##### Storage work
+
 **Collection edit cost carried from S20.** In `EditedList.Apply`, each append
 to an initially empty List scans every run created by earlier appends in that
 update. For 8,000 appends the loop visits 31,996,000 runs before placement.
