@@ -122,6 +122,7 @@ public sealed class CollectionKeyTests
                 Assert.True(map.TryGetValue(1L, out var held));
                 var cursor = map.GetEnumerator();
                 Assert.True(cursor.MoveNext());
+                var firstKey = cursor.Current.Key.Get<long>();
                 var copy = cursor;
                 state.Pause.Hold();
 
@@ -135,10 +136,13 @@ public sealed class CollectionKeyTests
                 Assert.False(map.TryGetValue((long)state.Count, out _));
 
                 Assert.True(cursor.MoveNext());
-                Assert.Equal(1L, cursor.Current.Key.Get<long>());
-                Assert.Equal(0L, copy.Current.Key.Get<long>());
+                var nextKey = cursor.Current.Key.Get<long>();
+                Assert.NotEqual(firstKey, nextKey);
+                Assert.Equal(firstKey, copy.Current.Key.Get<long>());
+                Assert.Equal(100 + (int)firstKey, copy.Current.Value.Get<int>());
                 Assert.True(copy.MoveNext());
-                Assert.Equal(101, copy.Current.Value.Get<int>());
+                Assert.Equal(nextKey, copy.Current.Key.Get<long>());
+                Assert.Equal(100 + (int)nextKey, copy.Current.Value.Get<int>());
                 return true;
             }, out _));
         }
