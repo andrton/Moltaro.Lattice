@@ -10046,12 +10046,16 @@ gauge. The three rounds ran base, gauge, head, then gauge, head, base, then head
 base, gauge. For each shape and repeat, the gauge band uses the largest paired
 base-to-gauge deviation in either direction and its reciprocal. A change counts
 when the ratio of medians and all three paired ratios cross the same bound.
+Both parts use targets that are deliberately unreachable throughout the timed
+windows. Reached-target delivery, expiry and await latency are outside the
+comparison.
 
 With the clock alone, the ratios of medians were 0.3131–0.4417. Seven of ten rows
 met the fall rule. In the second repeat without a waiter, the clock went from
-137.595 million to 58.931 million publications per second. One `Publish` and
-`Wake` pair took 7.27 ns at the base and 16.97 ns at the head, with a rate ratio
-of 0.4283 against a band of 0.8734–1.1450. The scenario reported zero whole bytes
+137.595 million to 58.931 million publications per second. The reciprocals give
+a mean of 7.27 ns per publication-loop iteration at the base and 16.97 ns at the
+head, including `Publish`, `Wake` and the rest of the loop. The rate ratio was
+0.4283 against a band of 0.8734–1.1450. The scenario reported zero whole bytes
 allocated per publication in every row.
 
 In the child scenario, the master write-rate ratios were 0.8361–1.0897 and the
