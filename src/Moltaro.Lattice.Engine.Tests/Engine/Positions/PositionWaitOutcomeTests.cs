@@ -35,13 +35,7 @@ public sealed class PositionWaitOutcomeTests
         var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        // Cancellation delivers callbacks in reverse registration order. Hold the later registration
-        // so the request is visible through the token before the position wait receives notification.
-        using var registration = cancellation.Token.Register(() =>
-        {
-            callbackStarted.SetResult();
-            releaseCallback.Task.WaitAsync(Bound).GetAwaiter().GetResult();
-        });
+        using var registration = HoldCancellationNotification(cancellation.Token, callbackStarted, releaseCallback.Task);
         var cancelling = cancelAsynchronously ? cancellation.CancelAsync() : OwnThread.Run(cancellation.Cancel);
 
         try
@@ -63,6 +57,54 @@ public sealed class PositionWaitOutcomeTests
 
             var cancelled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledWait.WaitAsync(Bound));
             Assert.Equal(cancellation.Token, cancelled.CancellationToken);
+            Assert.False(cancelling.IsCompleted);
+        }
+        finally
+        {
+            releaseCallback.TrySetResult();
+            await cancelling.WaitAsync(Bound);
+        }
+    }
+
+    [Fact(Skip = "The fix for delayed cancellation on expiry of an unpublished wait is pending.")]
+    public async Task Cancellation_requested_before_the_deadline_ends_its_wait_when_the_timer_runs_before_publication()
+    {
+        var time = new PositionWaitTime();
+        await using var master = await EngineMaster.OpenAsync(BatchSchema.Schema, new EngineTestInputs { PositionWaitTime = time });
+        var deadline = TimeSpan.FromSeconds(1);
+        var initial = master.Position;
+        var target = PositionOf(HistoryOf(initial), PositionSequence.Of(initial) + 1);
+        var session = new LatticeSession(target) { SynchronizationTimeout = deadline };
+        using var cancellation = new CancellationTokenSource();
+        var cancelledWait = master.WaitForPositionAsync(session, cancellation.Token).AsTask();
+        var otherWait = master.WaitForPositionAsync(target, deadline).AsTask();
+        Assert.False(cancelledWait.IsCompleted);
+        Assert.False(otherWait.IsCompleted);
+
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = HoldCancellationNotification(cancellation.Token, callbackStarted, releaseCallback.Task);
+        var cancelling = cancellation.CancelAsync();
+
+        try
+        {
+            await callbackStarted.Task.WaitAsync(Bound);
+            Assert.True(cancellation.IsCancellationRequested);
+            Assert.Equal(initial, master.Position);
+
+            time.Advance(deadline + TimeSpan.FromTicks(1));
+            time.DeliverDueTimers();
+
+            var timedOut = await Assert.ThrowsAsync<LatticeException>(() => otherWait.WaitAsync(Bound));
+            Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, timedOut.Error);
+            var cancelled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledWait.WaitAsync(Bound));
+            Assert.Equal(cancellation.Token, cancelled.CancellationToken);
+            Assert.Equal(initial, master.Position);
+
+            var committed = await master.Set<Item>().InsertAsync(Of(1, "late", group: 1)).AsTask().WaitAsync(Bound);
+            Assert.Equal(target, committed.Position);
+            await master.WaitForPositionAsync(target, deadline).AsTask().WaitAsync(Bound);
+            Assert.Equal("late", master.Set<Item>().Get(1L)?.Tag);
             Assert.False(cancelling.IsCompleted);
         }
         finally
@@ -105,5 +147,19 @@ public sealed class PositionWaitOutcomeTests
         Assert.Equal(committed, session.MinPosition);
         Assert.Contains("deadline", failure.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("has not applied", failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static CancellationTokenRegistration HoldCancellationNotification(
+        CancellationToken token,
+        TaskCompletionSource callbackStarted,
+        Task releaseCallback)
+    {
+        // Cancellation delivers callbacks in reverse registration order. Hold the later registration
+        // so the request is visible through the token before the position wait receives notification.
+        return token.Register(() =>
+        {
+            callbackStarted.SetResult();
+            releaseCallback.WaitAsync(Bound).GetAwaiter().GetResult();
+        });
     }
 }
