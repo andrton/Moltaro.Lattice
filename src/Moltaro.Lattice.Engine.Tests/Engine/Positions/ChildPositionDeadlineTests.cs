@@ -66,16 +66,23 @@ public sealed class ChildPositionDeadlineTests
         await child.WaitForPositionAsync(position, Bound).AsTask().WaitAsync(Bound);
     }
 
-    [Fact(Skip = PositionClockDeadlineTests.DeadlineAccounting)]
-    public async Task A_pending_wait_for_a_published_position_refuses_a_child_already_marked_Faulted_before_the_clock_is_notified()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true, Skip = PositionClockDeadlineTests.DeadlineAccounting)]
+    public async Task A_wait_for_a_published_position_refuses_a_child_already_marked_Faulted_before_the_clock_is_notified(bool alreadyWaiting)
     {
         var time = new PositionWaitTime();
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { PositionWaitTime = time });
         var position = NextPosition(child.Position);
         using var published = HeldPublication.Arm(child, PublicationPointEnum.AfterPosition);
-        var waiting = child.WaitForPositionAsync(position, Deadline).AsTask();
-        Assert.False(waiting.IsCompleted);
+        Task? waiting = null;
+
+        if (alreadyWaiting)
+        {
+            waiting = child.WaitForPositionAsync(position, Deadline).AsTask();
+            Assert.False(waiting.IsCompleted);
+        }
 
         var committed = await master.Set<Item>().InsertAsync(Of(14, "published before fault", group: 1));
         await published.ReachedAsync();
@@ -87,8 +94,15 @@ public sealed class ChildPositionDeadlineTests
         await fault.ReachedAsync();
         Assert.Equal(LatticeDatabaseStateEnum.Faulted, child.State);
 
-        time.Advance(Deadline);
-        time.DeliverDueTimers();
+        if (waiting is null)
+        {
+            waiting = child.WaitForPositionAsync(position, Deadline).AsTask();
+        }
+        else
+        {
+            time.Advance(Deadline);
+            time.DeliverDueTimers();
+        }
 
         var refused = await Assert.ThrowsAsync<LatticeException>(() => waiting.WaitAsync(Bound));
         Assert.Equal(LatticeErrorEnum.Unavailable, refused.Error);
