@@ -17,6 +17,8 @@ internal sealed class HeldPublication : IDisposable
     // True when the publication goes on, false when it fails.
     private readonly TaskCompletionSource<bool> _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    private bool _hasContinued;
+
     private HeldPublication()
     {
     }
@@ -30,7 +32,10 @@ internal sealed class HeldPublication : IDisposable
             held._reached.TrySetResult();
 
             // On the publishing thread until the test decides.
-            if (held._released.Task.Wait(Bound) && !held._released.Task.Result)
+            var released = held._released.Task.Wait(Bound);
+            Volatile.Write(ref held._hasContinued, true);
+
+            if (released && !held._released.Task.Result)
             {
                 throw new InvalidOperationException("The test failed the publication it held.");
             }
@@ -41,6 +46,9 @@ internal sealed class HeldPublication : IDisposable
 
     // Completes once a publication stands at the place, within the bound.
     public Task ReachedAsync() => _reached.Task.WaitAsync(Bound);
+
+    // The safety bound can let the publication continue without the test releasing it.
+    public bool HasContinued => Volatile.Read(ref _hasContinued);
 
     public void Release() => _released.TrySetResult(true);
 
