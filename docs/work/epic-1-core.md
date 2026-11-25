@@ -11237,6 +11237,42 @@ open findings. None of the three historical timeouts recurred in these runs.
 
 #### S23 · Compaction and shrink
 
+##### Close and pending position waits
+
+**Order and owner.** E07 owns this separate full-track correction at the first
+boundary after the independently tested List append change. It precedes the
+remaining S23 storage work, including the background maintenance lifetime.
+
+**Existing contract.** A registered position wait that is still undecided when
+`Closed` becomes visible ends in `Unavailable`. A result already decided before
+close remains available to a caller that observes it later. Successful completion of
+`CloseAsync` establishes that the instance has released its native memory.
+
+**To read.** [Session consistency](../decisions/session-consistency.md#explicit-local-position-wait)
+(14 November 2026), [memory and access](../decisions/memory-and-access.md) (24 November 2026
+amendment), and [OneCloseTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/OneCloseTests.cs).
+
+**Acceptance.** Control publication of the public state separately from delivery
+of the close notification to the waiter. After observing public
+`Closed` while a registered wait is still below its target, deliver cancellation
+or publish the target. Verify `Unavailable` for cancellation, wake and timer.
+Preserve ordinary cancellation on an open instance, the earlier decided result,
+and `ObjectDisposedException` on a fresh call after close completes. Verify that
+a held protected read can keep native memory alive during close and that the
+allocator has no outstanding allocations when close completes. Correct the XML
+documentation of `LatticeDatabaseStateEnum.Closed` to distinguish the public
+state from teardown completion.
+
+**Evidence on `882b5b09`.** A research-only pause after `EngineDatabase.CloseAsync`
+set `Closed` and before `PositionClock.Close` marked the clock reproduced both
+wrong outcomes on a waiting child. Later cancellation returned its token. Later
+publication returned success through either wake or timer. All six observation
+probes ran in Debug and Release. With the pause disabled, a held protected read
+kept one native allocation alive in `Closed`. The allocator held none after close
+completed successfully. The probe and its raw runs are kept outside Git.
+
+##### Storage work
+
 **Collection edit cost carried from S20.** In `EditedList.Apply`, each append
 to an initially empty List scans every run created by earlier appends in that
 update. For 8,000 appends the loop visits 31,996,000 runs before placement.
