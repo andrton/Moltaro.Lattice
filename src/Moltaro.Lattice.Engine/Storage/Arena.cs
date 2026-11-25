@@ -184,6 +184,50 @@ internal sealed unsafe class Arena : IDisposable
             return false;
         }
 
+        address = TakePreparedSlot(sizeClass, new BlockHeader
+        {
+            Root = root,
+            PayloadLength = (uint)payloadLength,
+            Kind = kind,
+        });
+        return true;
+    }
+
+    // Under the writes lock: only a live block in a region with strictly fewer than half
+    // its slots allocated is eligible. Retired and prepared slots still occupy the source.
+    // Only the current head of its class is considered, in an earlier active segment.
+    public bool TryFindRelocationClass(ArenaAddress source, out int sizeClass)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        sizeClass = 0;
+        var segment = Locate(source, out var regionIndex, out var slot);
+        if (segment is null || segment.IsPrepared(regionIndex, slot) || segment.IsRetired(regionIndex, slot))
+        {
+            return false;
+        }
+
+        ref var region = ref segment.Regions[regionIndex];
+        sizeClass = region.SizeClass;
+        var slotCount = ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
+        var head = _regionsWithFreeSlot[sizeClass];
+        return region.Allocated * 2 < slotCount && head != NoRegion && (uint)SegmentSlotOf(head) < source.Segment;
+    }
+
+    // Under the same uninterrupted writes lock as TryFindRelocationClass: a slot is
+    // already available at the head. Copy only the header and the bytes in use.
+    public ArenaAddress PrepareRelocatedCopy(ArenaAddress source, int sizeClass)
+    {
+        var header = Header(source);
+        var payload = Payload(source);
+        var destination = TakePreparedSlot(sizeClass, header);
+
+        payload.CopyTo(Payload(destination));
+        return destination;
+    }
+
+    private ArenaAddress TakePreparedSlot(int sizeClass, in BlockHeader header)
+    {
         var regionNumber = _regionsWithFreeSlot[sizeClass];
         var segmentSlot = SegmentSlotOf(regionNumber);
         var regionIndex = RegionIndexOf(regionNumber);
@@ -200,18 +244,11 @@ internal sealed unsafe class Arena : IDisposable
 
         var offset = regionIndex * ArenaSegment.RegionSize + slot * blockSize;
 
-        *(BlockHeader*)(segment.Memory + offset) = new BlockHeader
-        {
-            Root = root,
-            PayloadLength = (uint)payloadLength,
-            Kind = kind,
-        };
+        *(BlockHeader*)(segment.Memory + offset) = header;
 
         segment.SetPrepared(regionIndex, slot, prepared: true);
         _tally.PreparedBytes += blockSize;
-        address = new ArenaAddress((uint)segmentSlot, (uint)offset);
-
-        return true;
+        return new ArenaAddress((uint)segmentSlot, (uint)offset);
     }
 
     // Makes a prepared block live, when a write publishes it: its slot leaves
@@ -250,11 +287,11 @@ internal sealed unsafe class Arena : IDisposable
     // stays allocated and valid, and its bytes stay as they are, so a read that reached it before
     // goes on reading it, but it belongs to no owner any more. Its header and payload length leave
     // LiveBytes and the rest of its slot ClassSlackBytes, and its whole slot joins RetiredBytes, until
-    // Free. It changes no byte of the block and allocates nothing, so it cannot fail for a live block.
-    // An invalid address, or that of a block already freed, is refused with ArgumentException; a block
-    // that is prepared or already retired with InvalidOperationException, as is a header whose length
-    // exceeds the slot; then nothing changes.
-    public void Retire(ArenaAddress address)
+    // Free. Returns the size of the retired slot. It changes no byte of the block and allocates nothing,
+    // so it cannot fail for a live block. An invalid address, or that of a block already freed, is refused
+    // with ArgumentException; a block that is prepared or already retired with InvalidOperationException,
+    // as is a header whose length exceeds the slot; then nothing changes.
+    public int Retire(ArenaAddress address)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -278,6 +315,7 @@ internal sealed unsafe class Arena : IDisposable
         _tally.LiveBytes -= BlockHeader.Size + payloadLength;
         _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
         _tally.RetiredBytes += blockSize;
+        return blockSize;
     }
 
     // Whether the address is that of a prepared block: valid, and not published since its

@@ -73,6 +73,9 @@ namespace Moltaro.Lattice.Engine.Protection;
 // place. Its actions run on whichever thread drains; here only the writer frees.
 internal sealed class RetiredMemory
 {
+    // A bounded first allocation for maintenance. A nonempty queue is never copied by a step.
+    private const int RelocationSeed = 4;
+
     private readonly ReadEpochs _epochs;
 
     private readonly Arena _arena;
@@ -145,6 +148,30 @@ internal sealed class RetiredMemory
         _reserved += places;
     }
 
+    // Under the writes lock: reserve a place only if it needs no copy of queued items.
+    public bool TryReserveRelocated()
+    {
+        if (_capacity == 0)
+        {
+            try
+            {
+                _capacity = _items.EnsureCapacity(RelocationSeed);
+            }
+            catch (OutOfMemoryException)
+            {
+                return false;
+            }
+        }
+
+        if (_items.Count + _reserved == _capacity)
+        {
+            return false;
+        }
+
+        _reserved++;
+        return true;
+    }
+
     // Gives back the place a write reserved and does not use, because it was withdrawn.
     public void Release() => Release(1);
 
@@ -158,6 +185,11 @@ internal sealed class RetiredMemory
     // Retires the root of a deleted entity and its entry, which stays counted until it is released.
     public void RetireDeleted(RootLayout layout, RootHandle handle, ArenaAddress root) =>
         Add(RetiredKindEnum.DeletedRoot, layout, root, handle, RetireBlocks(layout, root));
+
+    // Retires the old slot after publishing a physical move. Its owner and other edges,
+    // if any, belong to the replacement. Only this slot can be freed from this item.
+    public void RetireRelocated(ArenaAddress source) =>
+        Add(RetiredKindEnum.RelocatedBlock, null, source, default, _arena.Retire(source));
 
     // Retires a table of an index that a larger one replaced, with its bytes.
     public void RetireTable(object table, long bytes)
@@ -189,8 +221,28 @@ internal sealed class RetiredMemory
         }
     }
 
-    public bool TryReclaimRelocated() =>
-        throw new NotSupportedException("Fixed-root relocation is not implemented yet.");
+    // One bounded turn. The ordinary drain owns an earlier non-relocation item.
+    // The one epoch scan can make an old slot reusable even while later reads are held.
+    public bool TryReclaimRelocated()
+    {
+        if (!_items.TryPeek(out var item) || item.Kind != RetiredKindEnum.RelocatedBlock || item.Epoch > _epochs.Advance())
+        {
+            return false;
+        }
+
+        _items.Dequeue();
+        Free(item);
+        if (_items.Count == 0)
+        {
+            // No work remains for publication to pace or look for.
+            _itemsSinceLook = 0;
+            _bytesSinceLook = 0;
+            _leftBehind = false;
+            _retiredSincePublication = false;
+        }
+
+        return true;
+    }
 
     // Frees every retired thing that no read in progress can reach, and returns; it does not wait.
     // With no read in progress it leaves nothing retired.
@@ -280,7 +332,7 @@ internal sealed class RetiredMemory
     }
 
     // Retires a thing into the place its write reserved.
-    private void Add(RetiredKindEnum kind, object owner, ArenaAddress address, RootHandle handle, long bytes)
+    private void Add(RetiredKindEnum kind, object? owner, ArenaAddress address, RootHandle handle, long bytes)
     {
         _newest = _epochs.Current;
         _items.Enqueue(new RetiredItem(kind, _newest, owner, address, handle, bytes));
@@ -305,6 +357,10 @@ internal sealed class RetiredMemory
 
             case RetiredKindEnum.IndexNode:
                 NodeStorage.Free(_arena, (IndexLayout)item.Owner!, item.Address);
+                break;
+
+            case RetiredKindEnum.RelocatedBlock:
+                _arena.Free(item.Address);
                 break;
 
             default:

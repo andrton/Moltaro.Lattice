@@ -1285,7 +1285,7 @@ internal sealed class WriteCoordinator
     // to its publication. Every prepared write that is not published is in one of the two, so the
     // answer is that of the whole state at every moment of a hold, also while a group is formed and a
     // write withdrawn there ends.
-    private bool HoldsPreparedMemory() => !_prepared.IsEmpty || _groupPending;
+    public bool HoldsPreparedMemory() => !_prepared.IsEmpty || _groupPending;
 
     // Under the lock: the write being resolved goes on to step 3, which waits outside every lock: on the
     // thread of its call when that call holds the lock now, otherwise on a thread of the pool.

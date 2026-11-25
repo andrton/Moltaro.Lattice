@@ -15,4 +15,7 @@ internal enum RetiredKindEnum
     // A node of the ordered tree of a secondary index that a write replaced: the references of its shared
     // keys are released and its block is freed (Storage.Ordered.NodeStorage.Free).
     IndexNode = 4,
+
+    // The old slot of a moved block: its original owner and owned edges stay live.
+    RelocatedBlock = 5,
 }

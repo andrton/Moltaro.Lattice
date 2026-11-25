@@ -21,8 +21,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // nor takes the old block away from an entered view (docs/design/arena-protocol.md).
 public sealed class FixedRootRelocationTests
 {
-    private const string RelocationNotImplemented = "Fixed-root relocation is not implemented yet.";
-
     private const int SlotBytes = 8_192;
     private const int SlotsPerRegion = Arena.MaxBlockSize / SlotBytes;
 
@@ -30,7 +28,7 @@ public sealed class FixedRootRelocationTests
     private static readonly LatticeSchema DescriptorSchema = MakeSchema(withDescriptor: true);
     private static readonly LatticeSchema FifoSchema = MakeSchema(withFiller: true);
 
-    [Theory(Skip = RelocationNotImplemented)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_held_view_keeps_the_old_root_while_new_reads_follow_the_same_handle(LatticeRoleEnum role)
@@ -108,7 +106,7 @@ public sealed class FixedRootRelocationTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Theory(Skip = RelocationNotImplemented)]
+    [Theory]
     [InlineData(4, true)]
     [InlineData(1, false)]
     public async Task A_source_at_exactly_half_or_without_an_earlier_compatible_head_is_skipped(int kept, bool makeDestination)
@@ -147,7 +145,7 @@ public sealed class FixedRootRelocationTests
         Assert.True(TryMove(database, source));
     }
 
-    [Fact(Skip = RelocationNotImplemented)]
+    [Fact]
     public async Task A_held_retired_slot_counts_toward_the_half_full_source_limit()
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
@@ -180,7 +178,7 @@ public sealed class FixedRootRelocationTests
         Assert.True(TryMove(database, source));
     }
 
-    [Fact(Skip = RelocationNotImplemented)]
+    [Fact]
     public async Task A_later_head_does_not_cause_a_search_for_an_earlier_compatible_region()
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
@@ -206,7 +204,7 @@ public sealed class FixedRootRelocationTests
         Assert.Equal(stage.Destination[0].Address.Segment, Find(database, source.Key).Address.Segment);
     }
 
-    [Theory(Skip = RelocationNotImplemented)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_stale_handle_or_address_and_a_root_with_descriptors_are_skipped(bool withDescriptor)
@@ -242,7 +240,7 @@ public sealed class FixedRootRelocationTests
         }
     }
 
-    [Theory(Skip = RelocationNotImplemented)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task A_master_with_a_prepared_replace_does_not_move_a_root_even_while_its_writes_lock_is_free(bool replacesCandidate)
@@ -299,7 +297,7 @@ public sealed class FixedRootRelocationTests
         }
     }
 
-    [Fact(Skip = RelocationNotImplemented)]
+    [Fact]
     public async Task A_full_retirement_queue_skips_an_otherwise_eligible_move_without_allocating()
     {
         var allocator = new CountingNativeAllocator();
@@ -366,7 +364,7 @@ public sealed class FixedRootRelocationTests
         Assert.Equal(revision, ExpectRecord(items, source.Key));
     }
 
-    [Fact(Skip = RelocationNotImplemented)]
+    [Fact]
     public async Task A_later_reader_holds_only_the_copy_that_was_retired_in_its_epoch()
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
@@ -417,7 +415,7 @@ public sealed class FixedRootRelocationTests
         Assert.Equal(secondRevision, ExpectRecord(items, second.Key));
     }
 
-    [Theory(Skip = RelocationNotImplemented)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_reclamation_step_releases_one_raw_head_and_ordinary_cleanup_handles_the_rest(bool close)
@@ -469,7 +467,7 @@ public sealed class FixedRootRelocationTests
         }
     }
 
-    [Fact(Skip = RelocationNotImplemented)]
+    [Fact]
     public async Task A_reclamation_step_leaves_an_earlier_ordinary_retirement_to_the_ordinary_drain()
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
