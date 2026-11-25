@@ -374,7 +374,7 @@ public sealed class OwnedValueRelocationTests
         var requests = allocator.Requests;
         var headerBefore = source.Arena.Header(source.Value);
         await ExpectEligibilityAsync(master, source.Value, true);
-        Assert.True(await RunAfterAdmissionAsync(master, parts =>
+        Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(master, parts =>
         {
             ref var entry = ref parts.Roots.Entry(source.Handle);
             return entry.State == RootStateEnum.Live && entry.Root == source.Root;
@@ -424,7 +424,7 @@ public sealed class OwnedValueRelocationTests
             var initial = master.Counters;
             var position = master.Position;
             Assert.True(initial.Arena.PreparedBytes > 0);
-            Assert.True(await RunAfterAdmissionAsync(master, parts => parts.Coordinator.HoldsPreparedMemory()));
+            Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(master, parts => parts.Coordinator.HoldsPreparedMemory()));
             await ExpectEligibilityAsync(master, source.Value, true);
             Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
             Assert.Equal(source, Find(master, source.Key));
@@ -506,7 +506,7 @@ public sealed class OwnedValueRelocationTests
         var position = master.Position;
         await ExpectEligibilityAsync(master, source.Value, true);
 
-        var attempt = await RunAfterAdmissionAsync(master, parts =>
+        var attempt = await MaintenanceStep.RunAfterAdmissionAsync(master, parts =>
         {
             var started = GC.GetAllocatedBytesForCurrentThread();
             var moved = OwnedValueRelocation.TryMove(parts, source.Handle, source.Value);
@@ -672,36 +672,20 @@ public sealed class OwnedValueRelocationTests
         ValueBlocks.AddressOf(ResidentDescriptor.Read(location.Arena.Payload(location.Root)[(DataOffset - BlockHeader.Size)..]));
 
     private static async Task ExpectEligibilityAsync(EngineDatabase node, ArenaAddress source, bool expected) =>
-        Assert.Equal(expected, await RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationClass(source, out _)));
+        Assert.Equal(expected, await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationClass(source, out _)));
 
     private static Task<bool> MoveAfterAdmissionAsync(EngineDatabase node, RootHandle handle, ArenaAddress source) =>
-        RunAfterAdmissionAsync(node, parts => OwnedValueRelocation.TryMove(parts, handle, source));
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => OwnedValueRelocation.TryMove(parts, handle, source));
 
     private static Task<RetiredItem[]> RetirementOfAsync(EngineDatabase node) =>
-        RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired).ToArray());
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired).ToArray());
 
     private static Task<(RetiredItem[] Items, int Capacity)> QueueStateAsync(EngineDatabase node) =>
-        RunAfterAdmissionAsync(node, parts =>
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
             var queue = RetiredItems(parts.Retired);
             return (queue.ToArray(), queue.EnsureCapacity(0));
         });
-
-    private static async Task<T> RunAfterAdmissionAsync<T>(EngineDatabase node, Func<DatabaseParts, T> observe)
-    {
-        // Child traffic can briefly hold Writes. Check the first admitted result
-        // so that a move refusal cannot be retried into a success.
-        using var stop = new CancellationTokenSource(Bound);
-        T result = default!;
-        Action<DatabaseParts> step = parts => result = observe(parts);
-        while (!node.TryRunMaintenanceStep(step))
-        {
-            stop.Token.ThrowIfCancellationRequested();
-            await Task.Yield();
-        }
-
-        return result;
-    }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
     private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
