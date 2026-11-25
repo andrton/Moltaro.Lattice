@@ -37,6 +37,9 @@ public sealed class OneCloseTests
             using var held = await HoldRetiredMemoryAsync(database);
 
             first = database.CloseAsync().AsTask();
+            Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
+
+            var firstOutstanding = OutstandingWhenCompleted(first, allocator);
             var second = OutstandingWhenCompleted(database.CloseAsync().AsTask(), allocator);
             var disposed = OutstandingWhenCompleted(database.DisposeAsync().AsTask(), allocator);
 
@@ -47,9 +50,9 @@ public sealed class OneCloseTests
 
             Assert.Contains(await held.ReleaseAsync(), new long?[] { 0, 1 });
 
+            Assert.Equal(0, await firstOutstanding.WaitAsync(Bound));
             Assert.Equal(0, await second.WaitAsync(Bound));
             Assert.Equal(0, await disposed.WaitAsync(Bound));
-            await first.WaitAsync(Bound);
             allocator.ExpectEverythingReturned();
         }
         finally

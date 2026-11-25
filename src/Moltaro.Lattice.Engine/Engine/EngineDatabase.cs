@@ -429,6 +429,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
         if (begins)
         {
+            _testInputs?.AfterCloseStatePublication?.Invoke();
+
             // Steps 2 to 5 (see above).
             _parts?.Clock.Close();
 

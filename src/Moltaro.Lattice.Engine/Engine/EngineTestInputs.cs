@@ -38,4 +38,8 @@ internal sealed class EngineTestInputs
     // The monotonic clock and timers of pending position waits. A test can advance time while delaying
     // timer delivery, independently of the publishing thread. Null: TimeProvider.System.
     public TimeProvider? PositionWaitTime { get; init; }
+
+    // Invoked outside the state lock after Closed becomes visible and before close notifies the
+    // position waiters. Tests can hold the notification while other threads resume their waits.
+    public Action? AfterCloseStatePublication { get; init; }
 }
