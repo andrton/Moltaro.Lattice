@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Views;
 using Moltaro.Lattice.Engine.Maintenance;
+using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
@@ -27,6 +28,7 @@ public sealed class FixedRootRelocationTests
 
     private static readonly LatticeSchema Schema = MakeSchema();
     private static readonly LatticeSchema DescriptorSchema = MakeSchema(withDescriptor: true);
+    private static readonly LatticeSchema FifoSchema = MakeSchema(withFiller: true);
 
     [Theory(Skip = RelocationNotImplemented)]
     [InlineData(LatticeRoleEnum.Master)]
@@ -80,9 +82,7 @@ public sealed class FixedRootRelocationTests
 
             Assert.Equal(revision, ExpectRecord(items, target.Key));
             AssertViewAt(items, replacement, revision);
-            var found = items.Index("ByCheck").Find(IndexKey.All.Range(
-                IndexBound.Inclusive(CheckOf(target.Key)), IndexBound.Inclusive(CheckOf(neighbor.Key))));
-            Assert.Equal(new[] { target.Key, neighbor.Key }, found.Select(record => record.Get<long>("Id")));
+            ExpectRange(items, target.Key, neighbor.Key);
 
             Assert.False(TryReclaim(node));
             Assert.Equal(bytes, target.Arena.Payload(target.Address).ToArray());
@@ -102,6 +102,7 @@ public sealed class FixedRootRelocationTests
         ExpectFreed(target);
         Assert.Equal(initial, node.Counters.Arena);
         Assert.Equal(revision, ExpectRecord(items, target.Key));
+        ExpectRange(items, target.Key, neighbor.Key);
         Assert.Equal(position, node.Position);
         await node.CloseAsync().AsTask().WaitAsync(Bound);
         allocator.ExpectEverythingReturned();
@@ -145,7 +146,6 @@ public sealed class FixedRootRelocationTests
         database.DrainRetired();
         Assert.True(TryMove(database, source));
     }
-
 
     [Fact(Skip = RelocationNotImplemented)]
     public async Task A_held_retired_slot_counts_toward_the_half_full_source_limit()
@@ -215,15 +215,20 @@ public sealed class FixedRootRelocationTests
         await InsertAsync(database, 2 * SlotsPerRegion);
         var stage = StageOf(database);
         var source = stage.Source[0];
-        await RemoveAsync(database, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
+        var other = stage.Source[1];
+        var freed = stage.Source[2];
+        await RemoveAsync(database, stage.Source.Skip(2).Concat(stage.Destination.TakeLast(1)));
         database.DrainRetired();
+        ExpectFreed(freed);
         var initial = database.Counters;
         var position = database.Position;
 
         Assert.False(TryMove(database, source with { Handle = default }));
         Assert.False(TryMove(database, source with { Handle = new RootHandle(source.Handle.Generation + 1, source.Handle.Slot) }));
         Assert.False(TryMove(database, source with { Address = default }));
-        Assert.False(TryMove(database, source with { Address = stage.Source[1].Address }));
+        Assert.False(TryMove(database, source with { Address = freed.Address }));
+        Assert.False(TryMove(database, source with { Address = other.Address }));
+        Assert.Equal(other, Find(database, other.Key));
         ExpectUnchanged(database, source, initial, position);
 
         Assert.Equal(!withDescriptor, TryMove(database, source));
@@ -237,8 +242,10 @@ public sealed class FixedRootRelocationTests
         }
     }
 
-    [Fact(Skip = RelocationNotImplemented)]
-    public async Task A_master_with_a_prepared_replace_does_not_move_a_root_even_while_its_writes_lock_is_free()
+    [Theory(Skip = RelocationNotImplemented)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_master_with_a_prepared_replace_does_not_move_a_root_even_while_its_writes_lock_is_free(bool replacesCandidate)
     {
         var persistence = new HeldPersistence(holding: false);
         await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(persistence: persistence));
@@ -249,14 +256,17 @@ public sealed class FixedRootRelocationTests
         master.DrainRetired();
 
         var items = master.Set("Item");
-        var before = ExpectRecord(items, source.Key);
+        var replaced = replacesCandidate ? source : stage.Source[1];
+        var before = ExpectRecord(items, replaced.Key);
+        var original = ExpectRecord(items, source.Key);
         persistence.Hold();
         try
         {
-            var replacing = items.ReplaceAsync(Record(items.EntityType, source.Key, CheckOf(source.Key) + 1)).AsTask();
+            var replacing = items.ReplaceAsync(Record(items.EntityType, replaced.Key, CheckOf(replaced.Key) + 1)).AsTask();
             await persistence.NextAsync();
             Assert.False(replacing.IsCompleted);
-            Assert.Equal(before, ExpectRecord(items, source.Key));
+            Assert.Equal(before, ExpectRecord(items, replaced.Key));
+            Assert.Equal(original, ExpectRecord(items, source.Key));
 
             // Preparing the replacement uses one of two compatible slots. The old
             // edge is still live, with a sparse source and an available destination.
@@ -268,15 +278,143 @@ public sealed class FixedRootRelocationTests
 
             persistence.ReleaseAll();
             await replacing.WaitAsync(Bound);
-            Assert.NotEqual(before, ExpectRecord(items, source.Key, CheckOf(source.Key) + 1));
-            Assert.False(TryMove(master, source));
+            Assert.NotEqual(before, ExpectRecord(items, replaced.Key, CheckOf(replaced.Key) + 1));
+            if (replacesCandidate)
+            {
+                Assert.False(TryMove(master, source));
+            }
+            else
+            {
+                Assert.Equal(original, ExpectRecord(items, source.Key));
+            }
+
             master.DrainRetired();
-            Assert.True(TryMove(master, stage.Source[1]));
+            var movable = replacesCandidate ? stage.Source[1] : source;
+            Assert.True(TryMove(master, movable));
+            Assert.Equal(stage.Destination[0].Address.Segment, Find(master, movable.Key).Address.Segment);
         }
         finally
         {
             persistence.ReleaseAll();
         }
+    }
+
+    [Fact(Skip = RelocationNotImplemented)]
+    public async Task A_full_retirement_queue_skips_an_otherwise_eligible_move_without_allocating()
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var database = await ReplicationNodes.OpenMasterAsync(FifoSchema, Inputs(allocator));
+        await InsertAsync(database, 2 * SlotsPerRegion);
+        var stage = StageOf(database);
+        var source = stage.Source[0];
+        await RemoveAsync(database, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
+
+        var filler = database.Set("Filler");
+        const int FillerCount = 64;
+        for (var key = 1L; key <= FillerCount; key++)
+        {
+            await filler.InsertAsync(new LatticeRecord(filler.EntityType) { ["Id"] = key }).AsTask().WaitAsync(Bound);
+        }
+
+        database.DrainRetired();
+        var (count, capacity) = RetirementQueueOf(database);
+        Assert.Equal(0, count);
+        Assert.InRange(capacity, 1, FillerCount);
+        Assert.False(TryMove(database, source with { Address = default }));
+
+        var items = database.Set("Item");
+        var revision = ExpectRecord(items, source.Key);
+        var reading = HoldView(items, source, revision, out var pause);
+        using (pause)
+        {
+            await pause.EnteredAsync(reading);
+            // The smaller roots use different slots. Their ordinary deletions each
+            // consume one FIFO place without changing either region of the move.
+            for (var key = 1L; key <= capacity; key++)
+            {
+                await filler.DeleteAsync(key).AsTask().WaitAsync(Bound);
+            }
+
+            Assert.Equal((capacity, capacity), RetirementQueueOf(database));
+            var initial = database.Counters;
+            var requests = allocator.Requests;
+            var returned = allocator.Returned;
+            var position = database.Position;
+            var moved = false;
+            var managedBytes = -1L;
+            Assert.True(database.TryRunMaintenanceStep(parts =>
+            {
+                var start = GC.GetAllocatedBytesForCurrentThread();
+                moved = RootRelocation.TryMove(parts, source.Handle, source.Address);
+                managedBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+            }));
+            Assert.False(moved);
+            Assert.Equal(0, managedBytes);
+            Assert.Equal((capacity, capacity), RetirementQueueOf(database));
+            Assert.Equal(requests, allocator.Requests);
+            Assert.Equal(returned, allocator.Returned);
+            ExpectUnchanged(database, source, initial, position);
+
+            pause.Release();
+            await reading.WaitAsync(Bound);
+        }
+
+        database.DrainRetired();
+        Assert.Equal((0, capacity), RetirementQueueOf(database));
+        Assert.True(TryMove(database, source));
+        Assert.Equal(stage.Destination[0].Address.Segment, Find(database, source.Key).Address.Segment);
+        Assert.Equal(revision, ExpectRecord(items, source.Key));
+    }
+
+    [Fact(Skip = RelocationNotImplemented)]
+    public async Task A_later_reader_holds_only_the_copy_that_was_retired_in_its_epoch()
+    {
+        await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
+        await InsertAsync(database, 2 * SlotsPerRegion);
+        var stage = StageOf(database);
+        await RemoveAsync(database, stage.Source.Skip(2).Concat(stage.Destination.TakeLast(2)));
+        database.DrainRetired();
+
+        var first = stage.Source[0];
+        var second = stage.Source[1];
+        var items = database.Set("Item");
+        var firstRevision = ExpectRecord(items, first.Key);
+        var secondRevision = ExpectRecord(items, second.Key);
+        var firstRead = HoldView(items, first, firstRevision, out var firstPause);
+        using (firstPause)
+        {
+            await firstPause.EnteredAsync(firstRead);
+            Assert.True(TryMove(database, first));
+            // The first view holds its old root, but the attempt advances the epoch
+            // before the second view enters and the second root moves.
+            Assert.False(TryReclaim(database));
+
+            var secondRead = HoldView(items, second, secondRevision, out var secondPause);
+            using (secondPause)
+            {
+                await secondPause.EnteredAsync(secondRead);
+                Assert.True(TryMove(database, second));
+                Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
+                Assert.False(TryReclaim(database));
+
+                firstPause.Release();
+                await firstRead.WaitAsync(Bound);
+                Assert.True(TryReclaim(database));
+                ExpectFreed(first);
+                _ = second.Arena.Header(second.Address);
+                Assert.Equal(SlotBytes, database.Counters.Arena.RetiredBytes);
+                Assert.False(TryReclaim(database));
+
+                secondPause.Release();
+                await secondRead.WaitAsync(Bound);
+            }
+        }
+
+        Assert.True(TryReclaim(database));
+        ExpectFreed(second);
+        Assert.Equal(0, database.Counters.Arena.RetiredBytes);
+        Assert.Equal(firstRevision, ExpectRecord(items, first.Key));
+        Assert.Equal(secondRevision, ExpectRecord(items, second.Key));
     }
 
     [Theory(Skip = RelocationNotImplemented)]
@@ -368,6 +506,20 @@ public sealed class FixedRootRelocationTests
         Assert.Equal(revision, ExpectRecord(items, target.Key));
     }
 
+    private static (int Count, int Capacity) RetirementQueueOf(EngineDatabase database)
+    {
+        var observed = (Count: 0, Capacity: 0);
+        Assert.True(database.TryRunMaintenanceStep(parts =>
+        {
+            var queue = RetiredItems(parts.Retired);
+            observed = (queue.Count, queue.EnsureCapacity(0));
+        }));
+        return observed;
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
+    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
+
     private static bool TryMove(EngineDatabase database, Location location)
     {
         var moved = false;
@@ -429,6 +581,13 @@ public sealed class FixedRootRelocationTests
         Assert.Equal(check ?? CheckOf(key), record.Get<long>("Check"));
         Assert.Null(record["Pad0"]);
         return revision;
+    }
+
+    private static void ExpectRange(ILatticeSet items, long first, long last)
+    {
+        var found = items.Index("ByCheck").Find(IndexKey.All.Range(
+            IndexBound.Inclusive(CheckOf(first)), IndexBound.Inclusive(CheckOf(last))));
+        Assert.Equal(new[] { first, last }, found.Select(record => record.Get<long>("Id")));
     }
 
     private static void ExpectUnchanged(EngineDatabase database, Location source, EngineCounters counters, LatticePosition position)
@@ -494,6 +653,11 @@ public sealed class FixedRootRelocationTests
         var locations = new List<Location>();
         database.ForEachLiveRoot((arena, layout, handle, address) =>
         {
+            if (layout.EntityType.Name != "Item")
+            {
+                return;
+            }
+
             var payload = arena.Payload(address);
             Assert.Equal(SlotBytes, Arena.BlockSizeFor(payload.Length));
             var offset = layout.StoredFieldOf(layout.EntityType.Key).Offset - BlockHeader.Size;
@@ -517,15 +681,16 @@ public sealed class FixedRootRelocationTests
 
     private static long CheckOf(long key) => key * 3;
 
-    private static LatticeSchema MakeSchema(bool withDescriptor = false)
+    private static LatticeSchema MakeSchema(bool withDescriptor = false, bool withFiller = false)
     {
         var padding = Enumerable.Range(0, 400).Select(index =>
             $$"""{"Id":{{index + 4}},"Name":"Pad{{index}}","Type":"Guid","Nullable":true}""");
         var descriptor = withDescriptor ? """,{"Id":3,"Name":"OptionalText","Type":"String","Nullable":true}""" : "";
+        var filler = withFiller ? """,{"Id":2,"Name":"Filler","Fields":[{"Id":1,"Name":"Id","Type":"Int64"}],"PrimaryKey":[1]}""" : "";
         return LatticeSchema.Compile($$"""
             {"StringEncoding":"Utf8","EntityTypes":[{"Id":1,"Name":"Item","Fields":[
               {"Id":1,"Name":"Id","Type":"Int64"},{"Id":2,"Name":"Check","Type":"Int64"}{{descriptor}},
-              {{string.Join(",", padding)}}],"PrimaryKey":[1],"Indexes":[{"Id":1,"Name":"ByCheck","Fields":[2]}]}]}
+              {{string.Join(",", padding)}}],"PrimaryKey":[1],"Indexes":[{"Id":1,"Name":"ByCheck","Fields":[2]}]}{{filler}}]}
             """);
     }
 
