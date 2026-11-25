@@ -21,7 +21,7 @@ public sealed class FailedTopUpTests
     {
         var allocator = new CountingNativeAllocator();
         var arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 16L * Arena.MaxBlockSize, ReservedSegments = 0 };
-        var database = await EngineMaster.OpenAsync(FullArena.Schema, new EngineTestInputs { Arena = arena, Allocator = allocator });
+        var database = await EngineMaster.OpenAsync(FullArena.Schema, new EngineTestInputs { Arena = arena, Allocator = allocator, DisableBackgroundMaintenance = true });
 
         // Closed within the bound, so that a write that never leaves the barrier of the close fails the
         // test instead of holding it.
