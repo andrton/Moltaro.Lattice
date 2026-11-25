@@ -368,7 +368,7 @@ internal sealed class BlockImport
     }
 
     // The values out of line of the root in _payload, in the order of its descriptors, each checked and passed
-    // over (CheckValue), and where each begins kept for Text; each descriptor that names one is then left
+    // over (CheckValue), and where each begins kept for TextKey; each descriptor that names one is then left
     // pending (see the class).
     private void CheckValuesOfRoot(RootLayout layout, int payloadLength, ref SequenceReader<byte> input)
     {
