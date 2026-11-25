@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
@@ -35,6 +36,7 @@ public sealed class MaintenanceAdmissionTests
             var writes = WritesOf(database);
             var outstanding = allocator.Outstanding;
             Assert.True(outstanding > 0);
+            var drained = ObservedCloseBarrier.DrainedOf(database);
 
             holdAttempt = pending.Hold;
             var attempt = OwnThread.Run(() => database.TryRunMaintenanceStep(UnexpectedStep));
@@ -46,6 +48,7 @@ public sealed class MaintenanceAdmissionTests
                 closing = database.CloseAsync().AsTask();
 
                 ExpectCloseWaiting(database, closing, allocator, outstanding);
+                Assert.False(drained.IsCompleted);
                 ExpectWritesAvailable(writes);
                 Assert.False(pending.HasContinued);
             }
@@ -55,6 +58,7 @@ public sealed class MaintenanceAdmissionTests
             }
 
             Assert.False(await attempt.WaitAsync(Bound));
+            await drained.WaitAsync(Bound);
             await closing.WaitAsync(Bound);
             allocator.ExpectEverythingReturned();
         });
@@ -72,6 +76,7 @@ public sealed class MaintenanceAdmissionTests
         {
             var outstanding = allocator.Outstanding;
             Assert.True(outstanding > 0);
+            var drained = ObservedCloseBarrier.DrainedOf(database);
 
             var attempt = OwnThread.Run(() => database.TryRunMaintenanceStep(parts =>
             {
@@ -87,6 +92,7 @@ public sealed class MaintenanceAdmissionTests
                 closing = database.CloseAsync().AsTask();
 
                 ExpectCloseWaiting(database, closing, allocator, outstanding);
+                Assert.False(drained.IsCompleted);
                 Assert.False(action.HasContinued);
             }
             finally
@@ -95,10 +101,39 @@ public sealed class MaintenanceAdmissionTests
             }
 
             Assert.True(await attempt.WaitAsync(Bound));
+            await drained.WaitAsync(Bound);
             await closing.WaitAsync(Bound);
             allocator.ExpectEverythingReturned();
             await ExpectSkippedAsync(database);
         });
+    }
+
+    [Theory(Skip = MaintenanceNotImplemented)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
+    public async Task An_attempt_in_Created_is_skipped_before_reaching_database_parts(LatticeRoleEnum role)
+    {
+        var options = role == LatticeRoleEnum.Child
+            ? ReplicationNodes.ChildOptions(new Uri("lattice://127.0.0.1:7400"))
+            : new LatticeDatabaseOptions
+            {
+                PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+                Schema = StampSchema.StampsOnly,
+            };
+        var database = EngineDatabase.Create(options, new EngineTestInputs
+        {
+            BeforeMaintenanceWrites = () => Assert.Fail("An attempt in Created advanced past its first Ready check."),
+        });
+
+        try
+        {
+            Assert.Equal(LatticeDatabaseStateEnum.Created, database.State);
+            await ExpectSkippedAsync(database);
+        }
+        finally
+        {
+            await CloseWithinBoundAsync(database);
+        }
     }
 
     [Theory(Skip = MaintenanceNotImplemented)]
@@ -140,8 +175,14 @@ public sealed class MaintenanceAdmissionTests
     public async Task The_role_local_fault_mark_refuses_a_step_before_database_fault_notification(
         LatticeRoleEnum role, LatticeDatabaseStateEnum stateBeforeNotification)
     {
+        using var pending = new HeldEngineCallback();
         using var notification = new HeldEngineCallback();
-        var inputs = new EngineTestInputs { BeforeFaultNotification = notification.Hold };
+        HeldEngineCallback? pendingAtWrites = null;
+        var inputs = new EngineTestInputs
+        {
+            BeforeMaintenanceWrites = () => Interlocked.Exchange(ref pendingAtWrites, null)?.Hold(),
+            BeforeFaultNotification = notification.Hold,
+        };
 
         await WithNodeAsync(role, inputs, async (master, database) =>
         {
@@ -159,10 +200,16 @@ public sealed class MaintenanceAdmissionTests
             }
 
             var stamps = master.Set<StampSchema.Stamp>();
-            var writing = OwnThread.Run(() => stamps.InsertAsync(StampSchema.StampOf(2, 0)).AsTask()).Unwrap();
+            Volatile.Write(ref pendingAtWrites, pending);
+            var attempt = OwnThread.Run(() => database.TryRunMaintenanceStep(UnexpectedStep));
+            Task<LatticeWriteResult> writing;
 
             try
             {
+                await pending.ReachedAsync(attempt);
+                Assert.Equal(LatticeDatabaseStateEnum.Ready, database.State);
+                writing = OwnThread.Run(() => stamps.InsertAsync(StampSchema.StampOf(2, 0)).AsTask()).Unwrap();
+
                 if (applying is not null)
                 {
                     await writing.WaitAsync(Bound);
@@ -174,11 +221,16 @@ public sealed class MaintenanceAdmissionTests
                 Assert.Equal(stateBeforeNotification, database.State);
                 ExpectWritesAvailable(writes);
                 Assert.False(waiting.IsCompleted);
+                Assert.False(pending.HasContinued);
+
+                pending.Release();
+                Assert.False(await attempt.WaitAsync(Bound));
                 await ExpectSkippedAsync(database);
                 Assert.False(notification.HasContinued);
             }
             finally
             {
+                pending.Release();
                 notification.Release();
                 applying?.Release();
             }
@@ -222,6 +274,8 @@ public sealed class MaintenanceAdmissionTests
 
             var result = await writing.WaitAsync(Bound);
             await database.WaitForPositionAsync(result.Position, Bound);
+            // A child's position can be visible before the publishing thread releases Writes.
+            await OwnThread.Run(() => database.Counters).WaitAsync(Bound);
             var ran = false;
 
             Assert.True(database.TryRunMaintenanceStep(_ => ran = true));
