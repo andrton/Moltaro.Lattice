@@ -857,14 +857,19 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     private async Task MaintainAsync(CancellationToken cancellationToken)
     {
-        // Yield between bounded turns so ordinary writers and the child applier can get the lock.
-        var cadence = TimeSpan.FromMilliseconds(16);
+        // A missed tick can coalesce while a turn runs. Disposing wakes a parked wait on close.
+        using var cadence = new PeriodicTimer(TimeSpan.FromMilliseconds(16));
+        using var wakeOnClose = cancellationToken.UnsafeRegister(static timer => ((PeriodicTimer)timer!).Dispose(), cadence);
         try
         {
             while (State == LatticeDatabaseStateEnum.Ready)
             {
                 _testInputs?.BeforeMaintenanceWait?.Invoke(cancellationToken);
-                await Task.Delay(cadence, cancellationToken).ConfigureAwait(false);
+                if (!await cadence.WaitForNextTickAsync().ConfigureAwait(false))
+                {
+                    break;
+                }
+
                 TryRunMaintenanceTurn();
             }
         }
