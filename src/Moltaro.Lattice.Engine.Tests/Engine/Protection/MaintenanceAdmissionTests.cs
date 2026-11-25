@@ -25,6 +25,7 @@ public sealed class MaintenanceAdmissionTests
         Action? holdAttempt = null;
         var inputs = new EngineTestInputs
         {
+            DisableBackgroundMaintenance = true,
             Allocator = allocator,
             BeforeMaintenanceWrites = () => holdAttempt?.Invoke(),
         };
@@ -70,7 +71,7 @@ public sealed class MaintenanceAdmissionTests
         var allocator = new CountingNativeAllocator();
         using var action = new HeldEngineCallback();
 
-        await WithNodeAsync(role, new EngineTestInputs { Allocator = allocator }, async (_, database) =>
+        await WithNodeAsync(role, new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true }, async (_, database) =>
         {
             var outstanding = allocator.Outstanding;
             Assert.True(outstanding > 0);
@@ -142,6 +143,7 @@ public sealed class MaintenanceAdmissionTests
         using var notification = new HeldEngineCallback();
         var inputs = new EngineTestInputs
         {
+            DisableBackgroundMaintenance = true,
             AfterCloseStatePublication = notification.Hold,
             BeforeMaintenanceWrites = () => Assert.Fail("A fresh attempt advanced past its first Ready check."),
         };
@@ -178,6 +180,7 @@ public sealed class MaintenanceAdmissionTests
         HeldEngineCallback? pendingAtWrites = null;
         var inputs = new EngineTestInputs
         {
+            DisableBackgroundMaintenance = true,
             BeforeMaintenanceWrites = () => Interlocked.Exchange(ref pendingAtWrites, null)?.Hold(),
             BeforeFaultNotification = notification.Hold,
         };
@@ -252,7 +255,7 @@ public sealed class MaintenanceAdmissionTests
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_step_skips_a_busy_publishing_thread_and_can_run_after_it_leaves(LatticeRoleEnum role)
     {
-        await WithNodeAsync(role, new EngineTestInputs(), async (master, database) =>
+        await WithNodeAsync(role, new EngineTestInputs { DisableBackgroundMaintenance = true }, async (master, database) =>
         {
             using var publication = HeldPublication.Arm(database, PublicationPointEnum.BeforePosition);
             var stamps = master.Set<StampSchema.Stamp>();
@@ -288,7 +291,7 @@ public sealed class MaintenanceAdmissionTests
     {
         var allocator = new CountingNativeAllocator();
 
-        await WithNodeAsync(role, new EngineTestInputs { Allocator = allocator }, async (_, database) =>
+        await WithNodeAsync(role, new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true }, async (_, database) =>
         {
             var failure = new InvalidOperationException("The maintenance action failed.");
             var attempt = OwnThread.Run(() => database.TryRunMaintenanceStep(_ => throw failure));

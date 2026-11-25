@@ -683,6 +683,7 @@ public sealed class FixedRootRelocationTests
 
     private static EngineTestInputs Inputs(CountingNativeAllocator? allocator = null, HeldPersistence? persistence = null) => new()
     {
+        DisableBackgroundMaintenance = true,
         Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 16L * Arena.MaxBlockSize },
         Allocator = allocator,
         Persistence = persistence,

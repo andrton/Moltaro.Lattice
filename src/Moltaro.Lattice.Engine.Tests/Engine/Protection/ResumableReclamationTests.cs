@@ -50,7 +50,7 @@ public sealed class ResumableReclamationTests
     [InlineData(-1)]
     public async Task A_step_requires_a_positive_work_limit(int workLimit)
     {
-        await using var database = await EngineMaster.OpenAsync(FixedSchema);
+        await using var database = await EngineMaster.OpenAsync(FixedSchema, new EngineTestInputs { DisableBackgroundMaintenance = true });
 
         Assert.Throws<ArgumentOutOfRangeException>(() => Step(database, workLimit));
         Assert.Equal(0, Step(database, 1));
@@ -61,7 +61,7 @@ public sealed class ResumableReclamationTests
     {
         const int Items = 17;
         const int WorkLimit = 8;
-        await using var database = await EngineMaster.OpenAsync(FixedSchema);
+        await using var database = await EngineMaster.OpenAsync(FixedSchema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var set = database.Set("Item");
         for (var key = 1L; key <= Items; key++)
         {
@@ -123,7 +123,7 @@ public sealed class ResumableReclamationTests
     [InlineData(7)]
     public async Task A_nested_lookup_root_releases_slots_in_post_order_and_counts_each_record(int workLimit)
     {
-        await using var database = await EngineMaster.OpenAsync(LookupSchema);
+        await using var database = await EngineMaster.OpenAsync(LookupSchema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var root = await RetireLookupAsync(database);
         var position = database.Position;
         var previous = root.Slots.Length;
@@ -165,7 +165,7 @@ public sealed class ResumableReclamationTests
     [Fact]
     public async Task Empty_descriptors_in_a_full_records_chunk_spend_work_before_a_later_value_can_be_returned()
     {
-        await using var database = await EngineMaster.OpenAsync(LookupSchema);
+        await using var database = await EngineMaster.OpenAsync(LookupSchema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var items = database.Set("Item");
         var layout = RootLayout.Compile(items.EntityType, LookupSchema);
         var field = items.EntityType.GetField("Entries");
@@ -218,7 +218,7 @@ public sealed class ResumableReclamationTests
     public async Task Non_retiring_publications_finish_an_older_partial_head_within_the_ordinary_look_window()
     {
         var arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 16L * Arena.MaxBlockSize };
-        await using var database = await EngineMaster.OpenAsync(AliasSchema, new EngineTestInputs { Arena = arena });
+        await using var database = await EngineMaster.OpenAsync(AliasSchema, new EngineTestInputs { Arena = arena, DisableBackgroundMaintenance = true });
         var items = database.Set("Item");
         var oldBlob = new byte[70_000];
         await items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = 1L, ["Stamp"] = 1L, ["Blob"] = oldBlob });
@@ -268,7 +268,7 @@ public sealed class ResumableReclamationTests
     public async Task Ordinary_drain_and_close_finish_a_partially_reclaimed_root(bool close)
     {
         var allocator = new CountingNativeAllocator();
-        await using var database = await EngineMaster.OpenAsync(LookupSchema, new EngineTestInputs { Allocator = allocator });
+        await using var database = await EngineMaster.OpenAsync(LookupSchema, new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true });
         var root = await RetireLookupAsync(database);
 
         var turns = 0;
@@ -317,7 +317,7 @@ public sealed class ResumableReclamationTests
     [Fact]
     public async Task A_deleted_successor_keeps_the_borrowed_branch_until_the_older_root_and_then_its_own_handle_finish()
     {
-        await using var database = await EngineMaster.OpenAsync(AliasSchema);
+        await using var database = await EngineMaster.OpenAsync(AliasSchema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var items = database.Set("Item");
         var oldBlob = new byte[70_000];
         oldBlob[^1] = 7;
@@ -381,7 +381,7 @@ public sealed class ResumableReclamationTests
     [Fact]
     public async Task A_turn_with_multiple_eligible_items_advances_the_epoch_only_once()
     {
-        await using var database = await EngineMaster.OpenAsync(FixedSchema);
+        await using var database = await EngineMaster.OpenAsync(FixedSchema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         const int Tables = 4;
         Assert.True(database.TryRunMaintenanceStep(parts =>
         {
@@ -405,7 +405,7 @@ public sealed class ResumableReclamationTests
     [Fact]
     public async Task The_managed_table_and_raw_slot_leave_the_fifo_in_order_and_spend_separate_work()
     {
-        await using var database = await EngineMaster.OpenAsync(FixedSchema);
+        await using var database = await EngineMaster.OpenAsync(FixedSchema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         const long ManagedBytes = 7_168;
         Arena? arena = null;
         ArenaAddress raw = default;

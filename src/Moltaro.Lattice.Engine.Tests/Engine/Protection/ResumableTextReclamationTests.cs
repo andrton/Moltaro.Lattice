@@ -35,21 +35,21 @@ public sealed class ResumableTextReclamationTests
     [InlineData(false)]
     public async Task A_paused_final_release_observes_a_new_owner_or_restarts_after_table_growth(bool addOwner)
     {
-        await using var reference = await EngineMaster.OpenAsync(Schema, IndexSeed);
+        await using var reference = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { IndexSeed = IndexSeed, DisableBackgroundMaintenance = true });
         var expected = await StageCollisionChainAsync(reference);
         var cost = UntilUnlinked(reference, expected);
         Finish(reference);
 
         // Equal one-descriptor roots and the same table shape. Only how far the
         // release searches differs, so each additional bucket must cost a turn.
-        await using var shallow = await EngineMaster.OpenAsync(Schema, IndexSeed);
+        await using var shallow = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { IndexSeed = IndexSeed, DisableBackgroundMaintenance = true });
         var early = await StageCollisionChainAsync(shallow, targetNumber: 1);
         Assert.Equal(1, early.Buckets);
         var earlyCost = UntilUnlinked(shallow, early);
         Assert.True(cost >= earlyCost + expected.Buckets - early.Buckets);
         Finish(shallow);
 
-        await using var database = await EngineMaster.OpenAsync(Schema, IndexSeed);
+        await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { IndexSeed = IndexSeed, DisableBackgroundMaintenance = true });
         var target = await StageCollisionChainAsync(database);
         Assert.Equal((expected.Buckets, expected.Text, expected.Version), (target.Buckets, target.Text, target.Version));
 
@@ -116,6 +116,7 @@ public sealed class ResumableTextReclamationTests
         var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 32L * Arena.MaxBlockSize, ReservedSegments = 0 };
         await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs
         {
+            DisableBackgroundMaintenance = true,
             Arena = options,
             Allocator = allocator,
             IndexSeed = IndexSeed,
@@ -232,7 +233,7 @@ public sealed class ResumableTextReclamationTests
     [Fact]
     public async Task A_retired_leaf_releases_each_shared_key_before_returning_its_own_slot()
     {
-        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
+        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var ranked = database.Set<IndexSchema.Ranked>();
         var keys = Enumerable.Range(1, 6).Select(id => (Id: (long)id,
             Text: new string('p', 80) + id.ToString("D6", CultureInfo.InvariantCulture))).ToArray();
@@ -289,7 +290,7 @@ public sealed class ResumableTextReclamationTests
     [Fact]
     public async Task A_remaining_index_separator_owns_its_text_after_the_last_entity_is_reclaimed()
     {
-        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
+        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var ranked = database.Set<IndexSchema.Ranked>();
         for (var id = 1L; id <= 600; id++)
         {
