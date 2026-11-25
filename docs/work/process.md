@@ -300,11 +300,16 @@ refactoring sprint, which changes no behavior, and the light track have no break
   the representations the brief names. A case counts when it reaches the mechanism it is
   meant to hold. Keep the smallest set of cases that distinguishes the outcomes on a
   shared path.
+  When a wait can end in cancellation or publication, the breaker controls the request,
+  its notification and publication separately if the outcome depends on their order.
 - **Measurements used for a decision.** Check the pinned base and head, equivalent
   workload, warm-up, run order or rotation, useful duration or operations per sample,
   spread, and which conclusion the evidence supports. When the evidence is inconclusive,
   say so in the existing report and assign the follow-up to a named sprint or run in the
   existing plan.
+  For an allocation assertion, verify that the runner actually uses the intended
+  fixture. When edits run under the write lock and their cost depends on earlier
+  edits in the same operation, compare the work at two different edit counts.
 - **That no assertion moved after step 1,** on the full track. The reviewer compares the
   tests as they stood at the end of step 1 with the tests at the head. An assertion that
   the sprint's own commits changed, removed or loosened after step 1 without the
@@ -325,6 +330,8 @@ refactoring sprint, which changes no behavior, and the light track have no break
   references; every limit is probed at a boundary where a structure grows; everything
   called immutable or read-only is cast and written to. The reviewer writes such a probe
   itself where the sprint has none, and reports it.
+  When rollback claims to return a resource, include a failure between acquiring it
+  and recording it for cleanup if those steps can fail separately.
 - **Simplicity.** What in this sprint's change could be removed, merged or written more
   plainly without losing a guarantee or a measured figure: a mechanism without a test or
   a number that needs it; an option, a state or a branch nobody reaches; a type that only

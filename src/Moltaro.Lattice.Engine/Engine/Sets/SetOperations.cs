@@ -3,17 +3,19 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Access.Views;
 using Moltaro.Lattice.Engine.Child.Forwarding;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Sets;
 
 // The set operations for one entity type. Owned reads, enumeration, searches and writes are shared
-// by the set of a class and the set by name. A protected read by name also uses the position clock
+// by the set of a class and the set by name. A protected read also uses the position clock
 // and table to run its callback over a resident root. A write goes to the write coordinator
 // on a master and to the master on a child
 // (Child.Forwarding.Forwarder). That submission is where a master and a child part: the one place a
@@ -106,17 +108,27 @@ internal sealed class SetOperations : IUpdateExecutor
         return new LatticeReadResult<TResult>(result, revision, position);
     }
 
+    public LatticeField[] BindView<TView, TEntity>()
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+        where TEntity : class =>
+        ViewBinding<TView, TEntity>.For(Table.EntityType, Table, static table => table.CheckViewAvailability());
     public bool TryView<TState, TResult>(in EntityKey key, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer,
         [MaybeNullWhen(false)] out TResult result, out ulong sequence, CancellationToken cancellationToken = default) =>
         Table.TryView(key, _views, state, viewer, out result, out sequence, cancellationToken);
 
-    // The session wait takes no epoch. The position of the answer comes from the
-    // protected lookup, even if a publication advances the clock during the callback.
-    public async ValueTask<LatticeViewResult<TResult>> ViewAsync<TState, TResult>(EntityKey key, LatticeSession session,
-        TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, CancellationToken cancellationToken)
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TState, TResult>(EntityKey key, LatticeSession session,
+        TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, CancellationToken cancellationToken) =>
+        ViewAsync(key, session, state, viewer, static (_, input) => input, cancellationToken);
+
+    // The session wait and any schema binding take no epoch. The position of the answer
+    // comes from the protected lookup, even if a publication advances the clock during the callback.
+    public async ValueTask<LatticeViewResult<TResult>> ViewAsync<TInput, TState, TResult>(EntityKey key, LatticeSession session,
+        TInput input, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, Func<SetOperations, TInput, TState> prepare,
+        CancellationToken cancellationToken)
     {
         await WaitAsync(session, cancellationToken).ConfigureAwait(false);
 
+        var state = prepare(this, input);
         var found = TryView(key, state, viewer, out var result, out var sequence, cancellationToken);
         var position = _clock.At(sequence);
         session.Advance(position);

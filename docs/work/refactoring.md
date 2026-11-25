@@ -804,6 +804,22 @@ coordinator assigned its findings as follows.
 | `RootReader.FindEntry`, `CollectionKeys`, `CollectionLookup` | The S21 study checks the existing path from the owning record's payload and arena seed to the entry ordinal, and how stamp validation covers a hit or a miss under the viewer's epoch. The work belongs to the protected view. A separate sparse writer or owned copy rewrite would duplicate paths that serve the existing behavior. |
 | `PositionClock` (`_targets`, `_byTarget`, `Publish`, `Wake`) | Assess one pending-target index in S34, with Deadline and ChildDeadline checks, the clock-waiter allocation and contention scenarios, and the hot Publish listing and ARM64 measurements. Keep first reach recorded in publication and wait completions outside both locks. |
 
+## Architect's review after S21I, 25 November 2026
+
+The independent review read merged `main` at `4ee9d4a2` and covered S21I, S21 and
+S20R. The planner and coordinator joined the findings below to the sprints that
+touch the same paths. No separate refactoring sprint is needed.
+
+| Place | Finding and disposition |
+| --- | --- |
+| `ClassSet`, `SetOperations`, `EntityTable.TryView` | Join to S22. Use the existing stamped protected read with a generated projection bound once to the actual schema. Keep one epoch, the same hit and miss positions, session ordering, exception cleanup and zero allocations for scalar reads. `TryRead` and `TryCopy` already share `TakeEntry`. Keep their measured front ends. |
+| `SchemaJsonReader`, `SchemaBuilder`, `ClassBinder`, `EntityBinding` | Join to the S22 generator proof. The actual analyzer and runtime class binding must apply the same schema and class agreement rules, including inherited members from a referenced assembly. Separate agreement checks from construction of runtime delegates only where the two callers require it. The compiler dependency belongs to the generator. |
+| `ResidentViews`, `CollectionKeys` | Join to the existing S23 physical collection work. Use one rule to open a resident descriptor or packed block as its stored form becomes relevant to compaction. Keep logical count separate from capacity. Verify held views, copied enumerators, split records and native byte spans, and measure the affected hot paths. The current packed List cursor and the owned Map scalar specialization serve different traversal patterns and stay as they are. |
+
+The S34 position-clock item and the concurrent scalar writer item keep their existing
+dispositions. The scalar writer check requires the original hot listing in a suitable
+independently justified ARM64 queue.
+
 ## Found while building S18, 24 November 2026
 
 | # | Place | What is wrong | The simpler form | What it must keep | Status |

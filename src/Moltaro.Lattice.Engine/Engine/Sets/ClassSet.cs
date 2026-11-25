@@ -11,7 +11,8 @@ namespace Moltaro.Lattice.Engine.Sets;
 // pooled scratch, without boxing a value of a field of the entity: a read allocates the returned
 // object, with what is reachable from it, and nothing else, but for the form a record holds of an
 // owned value or a collection, from which their objects are made. The constructors and the set accessors of
-// the classes run after the read left the protection of reads (ClassCopier). A write takes the values of the object through the
+// the classes run after the read left the protection of reads (ClassCopier). A generated view uses
+// the same stamped lookup as the view by name, with its handles bound before protection. A write takes the values of the object through the
 // binding of the core, which checks them against the schema at every depth and takes a byte array of a
 // field as the object holds it: the engine copies it once, into its own memory, while the write runs
 // (EntityBinding.ValuesForWrite), since the application keeps the input of a write unchanged until the write
@@ -66,6 +67,64 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
         return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(_copier), session, cancellationToken);
     }
+
+    public bool TryView<TKey, TView, TResult>(TKey key, LatticeViewFunc<TView, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        var entityKey = KeyArgument.Of(_operations.Table, key);
+        var fields = _operations.BindView<TView, TEntity>();
+
+        return _operations.TryView(entityKey, (fields, viewer), CallViewer<TView, TResult>, out result, out _);
+    }
+
+    public bool TryView<TKey, TView, TState, TResult>(TKey key, TState state, LatticeViewFunc<TView, TState, TResult> viewer,
+        [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        var entityKey = KeyArgument.Of(_operations.Table, key);
+        var fields = _operations.BindView<TView, TEntity>();
+
+        return _operations.TryView(entityKey, (fields, state, viewer), CallViewer<TView, TState, TResult>, out result, out _);
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TResult>(TKey key, LatticeSession session,
+        LatticeViewFunc<TView, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        var entityKey = KeyArgument.Of(_operations.Table, key);
+
+        return _operations.ViewAsync(entityKey, session, viewer, CallViewer<TView, TResult>,
+            static (operations, callback) => (operations.BindView<TView, TEntity>(), callback), cancellationToken);
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TState, TResult>(TKey key, LatticeSession session, TState state,
+        LatticeViewFunc<TView, TState, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        var entityKey = KeyArgument.Of(_operations.Table, key);
+
+        return _operations.ViewAsync(entityKey, session, (state, viewer), CallViewer<TView, TState, TResult>,
+            static (operations, input) => (operations.BindView<TView, TEntity>(), input.state, input.viewer), cancellationToken);
+    }
+
+    private static TResult CallViewer<TView, TResult>(scoped LatticeRecordView record, (LatticeField[] Fields, LatticeViewFunc<TView, TResult> Viewer) call)
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct =>
+        call.Viewer(TView.Create(record, call.Fields));
+
+    private static TResult CallViewer<TView, TState, TResult>(scoped LatticeRecordView record,
+        (LatticeField[] Fields, TState State, LatticeViewFunc<TView, TState, TResult> Viewer) call)
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct =>
+        call.Viewer(TView.Create(record, call.Fields), call.State);
 
     public IEnumerable<TEntity> Enumerate() =>
         _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier));

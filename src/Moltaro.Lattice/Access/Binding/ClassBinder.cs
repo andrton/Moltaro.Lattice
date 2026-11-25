@@ -56,16 +56,18 @@ internal sealed class ClassBinder
 
     // An object of the class is made by its public parameterless constructor, so a class
     // without one, and an abstract class, cannot hold an entity or an owned value.
-    public static ConstructorInfo Constructor(Type type, string role) =>
-        !type.IsAbstract && type.GetConstructor(Type.EmptyTypes) is { } constructor
-            ? constructor
-            : throw BindingFailed($"{type.Name}, {role}, needs a public parameterless constructor and cannot be abstract.");
-
+    public static ConstructorInfo Constructor(Type type, string role)
+    {
+        var constructor = type.GetConstructor(Type.EmptyTypes);
+        ClassAgreement.CheckConstructor(type.Name, role, type.IsAbstract, constructor is not null);
+        return constructor!;
+    }
     // The property that holds a field in an object of the class, its accessors, what turns its value
     // into what a record holds and what turns what a record holds into its value.
     public BoundProperty Bind(Type type, LatticeField field, string owner)
     {
-        var (property, getAccessor, setAccessor) = FindProperty(type, field, owner);
+        var (property, getAccessor, setAccessor) = ClassAgreement.FindProperty(type, type.Name, field.Name, owner,
+            static item => item.BaseType, DeclaredMembers);
         var place = new Place(type, property, field, owner);
         var conversion = ConversionOf(property.PropertyType, field.Declaration, place);
 
@@ -84,99 +86,51 @@ internal sealed class ClassBinder
         return new BoundProperty(field, property, getAccessor, setAccessor, get, conversion.ToRecord, take, conversion.FromRecord, conversion.Update);
     }
 
-    // The property of a field is the one C# finds by its name on the class: the public member of
-    // that name of the most derived class that declares one. A member of a base class that it
-    // hides is not considered, whatever it is; a member that is not public does not hide one, as C#
-    // does not see it from outside. The member found has to be an instance property, not a field or
-    // anything else: a public field that hides a property of a base class is refused, and the
-    // hidden property is not bound in its place.
-    //
-    // The accessors are those C# sees for that property on the class: its own, and, when it
-    // overrides a virtual property and declares only one accessor, the other one of the property it
-    // overrides, found on the nearest base class that declares it. The get accessor is public, the
-    // set accessor of any accessibility.
-    private static (PropertyInfo Property, MethodInfo GetAccessor, MethodInfo SetAccessor) FindProperty(Type type, LatticeField field, string owner)
+    private static ClassMember<PropertyInfo, MethodInfo>[] DeclaredMembers(Type type, string name)
     {
         const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
-
-        for (var declaring = type; declaring is not null; declaring = declaring.BaseType)
+        return Array.ConvertAll(type.GetMember(name, Declared), member =>
         {
-            var declared = declaring.GetMember(field.Name, Declared);
-            if (declared.Length == 0)
+            if (member is not PropertyInfo property)
             {
-                continue;
+                return new ClassMember<PropertyInfo, MethodInfo>(null, MemberKind(member), false, false, false, null, null);
             }
 
-            if (Array.Find(declared, member => member is not PropertyInfo) is { } other)
-            {
-                throw BindingFailed(
-                    $"The public member '{field.Name}' of {type.Name} is a {MemberKind(other)}, not a property; field '{field.Name}' of '{owner}' needs a public property of that name with get and set.");
-            }
-
-            var property = (PropertyInfo)declared[0];
-            if (declared.Length > 1 || property.GetIndexParameters().Length > 0)
-            {
-                throw BindingFailed($"{type.Name} has an indexer named '{field.Name}'; field '{field.Name}' of '{owner}' needs a property of that name.");
-            }
-
-            if ((property.GetMethod ?? property.SetMethod)!.IsStatic)
-            {
-                throw BindingFailed($"Property '{field.Name}' of {type.Name} is static; field '{field.Name}' of '{owner}' needs an instance property with get and set.");
-            }
-
-            var (getAccessor, setAccessor) = AccessorsSeen(declaring, property);
-
-            if (getAccessor is not { IsPublic: true } || setAccessor is null)
-            {
-                throw BindingFailed($"Property '{field.Name}' of {type.Name} has no public get or no set; field '{field.Name}' of '{owner}' needs both.");
-            }
-
-            return (property, getAccessor, setAccessor);
-        }
-
-        throw BindingFailed($"{type.Name} needs a public property '{field.Name}' with get and set, as field '{field.Name}' of '{owner}' declares.");
+            var (getter, setter) = AccessorsSeen(property);
+            return new ClassMember<PropertyInfo, MethodInfo>(property, "property", property.GetIndexParameters().Length != 0,
+                (property.GetMethod ?? property.SetMethod)!.IsStatic, getter is { IsPublic: true }, getter, setter);
+        });
     }
 
-    // The accessors C# sees for a property declared on a class: its own, and those it inherits. Only
-    // an override inherits: a property that overrides a virtual one takes the accessor it does not
-    // declare from the property it overrides, which is the property of that name on the nearest base
-    // class that declares one. That one may be an override itself, so the search goes on until both
-    // accessors are found or a property is reached that overrides nothing. A property that hides
-    // one of its base class with new inherits nothing.
-    private static (MethodInfo? Get, MethodInfo? Set) AccessorsSeen(Type declaring, PropertyInfo property)
+    // An override with one accessor inherits the other from the property at its virtual
+    // slot. A same-name property on an intervening class may be unrelated. Calling the
+    // base declaration's other accessor virtually still runs any override of that slot.
+    private static (MethodInfo? Get, MethodInfo? Set) AccessorsSeen(PropertyInfo property)
     {
         const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
         var get = property.GetMethod;
         var set = property.SetMethod;
-        var current = property;
-
-        while ((get is null || set is null) && Overrides(current))
+        if (get is not null && set is not null)
         {
-            // A base class between the two that does not override the property declares none.
-            declaring = declaring.BaseType!;
-
-            if (Array.Find(declaring.GetProperties(Declared), candidate => candidate.Name == property.Name && candidate.GetIndexParameters().Length == 0) is not { } inherited)
-            {
-                continue;
-            }
-
-            get ??= inherited.GetMethod;
-            set ??= inherited.SetMethod;
-            current = inherited;
+            return (get, set);
         }
 
-        return (get, set);
+        var accessor = (get ?? set)!;
+        var slot = accessor.GetBaseDefinition();
+        if (accessor.HasSameMetadataDefinitionAs(slot))
+        {
+            return (get, set);
+        }
+
+        var declared = Array.Find(slot.DeclaringType!.GetProperties(Declared), candidate =>
+        {
+            var method = get is null ? candidate.SetMethod : candidate.GetMethod;
+            return method?.HasSameMetadataDefinitionAs(slot) == true;
+        });
+
+        return (get ?? declared?.GetMethod, set ?? declared?.SetMethod);
     }
-
-    // Whether the accessors of a property override those of a base class.
-    private static bool Overrides(PropertyInfo property)
-    {
-        var accessor = (property.GetMethod ?? property.SetMethod)!;
-
-        return accessor.GetBaseDefinition().DeclaringType != accessor.DeclaringType;
-    }
-
     // The kind of a member that is not a property, in a message: a field, a method, an event or a
     // nested type.
     private static string MemberKind(MemberInfo member) => member.MemberType switch
@@ -191,21 +145,22 @@ internal sealed class ClassBinder
     // The two conversions of a position of this declaration for a value of the given type, which is not
     // null: what a write takes of it, and what a read gives it of what a record holds. The type is checked
     // against the table here, once.
-    private Conversion ConversionOf(Type type, LatticeValueDeclaration declaration, Place place) => declaration.Type switch
+    private Conversion ConversionOf(Type type, LatticeValueDeclaration declaration, Place place)
     {
-        LatticeFieldTypeEnum.Owned => BindOwned(type, declaration.OwnedType!, place),
-        LatticeFieldTypeEnum.List => BindList(type, declaration, place),
-        LatticeFieldTypeEnum.Set => BindSet(type, declaration, place),
-        LatticeFieldTypeEnum.Map => BindMap(type, declaration, place),
-        LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
-        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => new Conversion(ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place), Same),
-        LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
-        LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Reference when declaration.ScalarType == LatticeFieldTypeEnum.String && type == typeof(string) =>
-            new Conversion(BindText(place), Same),
-        _ when type == declaration.PositionType => new Conversion(Same, Same),
-        _ => throw place.Mismatch(),
-    };
-
+        var shape = ClassAgreement.CheckValue(ReflectionClassMetadata.Instance, type, declaration, place.Class.Name, place.Property.Name, place.Mismatch);
+        return declaration.Type switch
+        {
+            LatticeFieldTypeEnum.Owned => BindOwned(type, declaration.OwnedType!, place),
+            LatticeFieldTypeEnum.List => BindList(type, declaration, shape, place),
+            LatticeFieldTypeEnum.Set => BindSet(type, declaration, shape.Element!, place),
+            LatticeFieldTypeEnum.Map => BindMap(type, declaration, shape.Key!, shape.Value!, place),
+            LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, shape.Enum, place),
+            LatticeFieldTypeEnum.Binary => new Conversion(ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place), Same),
+            LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Reference when declaration.ScalarType == LatticeFieldTypeEnum.String =>
+                new Conversion(BindText(place), Same),
+            _ => new Conversion(Same, Same),
+        };
+    }
     // Text is taken as it is, after one pass that refuses text that is not well-formed, a surrogate
     // without its pair, at any depth: such text is never stored and never replaced by another
     // character (docs/decisions/strings.md, "Input validity and preservation"). A String, and the key of
@@ -224,7 +179,7 @@ internal sealed class ClassBinder
     // integer it holds. A write refuses an integer that the enum type does not allow (EnumValues),
     // also one that a .NET enum property holds by a cast: agreeing with the enum type does not keep a
     // .NET enum from holding a value it does not name.
-    private Conversion BindEnum(Type type, LatticeValueDeclaration declaration, Place place)
+    private Conversion BindEnum(Type type, LatticeValueDeclaration declaration, Type? dotNetEnum, Place place)
     {
         var enumType = declaration.EnumType!;
         var entityTypeName = _entityType.Name;
@@ -233,24 +188,10 @@ internal sealed class ClassBinder
             ? integer
             : throw ValidationFailed(entityTypeName, place.Holds(EnumValues.Undeclared(enumType, integer)));
 
-        if (type == declaration.PositionType)
+        if (dotNetEnum is null)
         {
             return new Conversion(Allowed, Same);
         }
-
-        var dotNetEnum = declaration.IsNullable ? Nullable.GetUnderlyingType(type) : type;
-        if (dotNetEnum is not { IsEnum: true })
-        {
-            throw place.Mismatch();
-        }
-
-        var differences = DotNetEnumAgreement.Differences(dotNetEnum, enumType);
-        if (differences.Count > 0)
-        {
-            throw BindingFailed(
-                $"Property '{place.Property.Name}' of {place.Class.Name} holds the .NET enum {dotNetEnum.Name}, which does not agree with enum type '{enumType.Name}' of the schema: {string.Join("; ", differences)}. Change the enum or the schema so that they agree.");
-        }
-
         var stored = declaration.ValueType;
 
         // The .NET enum of an integer of the underlying type, as C# casts it: (TEnum)integer.
@@ -269,23 +210,6 @@ internal sealed class ClassBinder
     // class has no form in a class, and LatticeOwnedValue is for records only.
     private Conversion BindOwned(Type type, LatticeOwnedType ownedType, Place place)
     {
-        if (ownedType.ClrTypeName is null)
-        {
-            throw BindingFailed(
-                $"Property '{place.Property.Name}' of {place.Class.Name} holds values of owned type '{ownedType.Name}', which names no ClrType: such a value has no form in a class and is accessed through records.");
-        }
-
-        if (type == typeof(LatticeOwnedValue))
-        {
-            throw BindingFailed(
-                $"Property '{place.Property.Name}' of {place.Class.Name} holds a LatticeOwnedValue, which only a record holds; in a class a value of owned type '{ownedType.Name}' is an object of {ownedType.ClrTypeName}.");
-        }
-
-        if (type.FullName != ownedType.ClrTypeName)
-        {
-            throw place.Mismatch();
-        }
-
         if (_ownedClasses.TryGetValue((ownedType, type), out var bound))
         {
             return bound;
@@ -360,17 +284,16 @@ internal sealed class ClassBinder
 
     // A List is a List<T> or an array of T. A read gives a List property of the very type a record
     // holds there the List the read made.
-    private Conversion BindList(Type type, LatticeValueDeclaration declaration, Place place)
+    private Conversion BindList(Type type, LatticeValueDeclaration declaration, ClassValueTypes<Type> shape, Place place)
     {
-        var isArray = type.IsSZArray;
-        var elementType = isArray ? type.GetElementType()! : GenericArgument(type, typeof(List<>)) ?? throw place.Mismatch();
+        var elementType = shape.Element!;
         var elementDeclaration = declaration.Element!;
         var element = ConversionOf(elementType, elementDeclaration, place);
         var toRecord = BindSequence(element.ToRecord, declaration, place);
         var sameElements = elementType == elementDeclaration.PositionType;
         var update = BindUpdateSequence(declaration, elementType, element.Update);
 
-        if (isArray)
+        if (shape.IsArray)
         {
             var fromArray = sameElements
                 ? SequenceMethod(nameof(CopyArray), elementType).CreateDelegate<Func<object, object>>()
@@ -399,9 +322,8 @@ internal sealed class ClassBinder
             : throw ValidationFailed(entityTypeName, place.Holds($"a {Place.TypeName(value.GetType())} where {Place.TypeName(arrayType)} is declared"));
     }
 
-    private Conversion BindSet(Type type, LatticeValueDeclaration declaration, Place place)
+    private Conversion BindSet(Type type, LatticeValueDeclaration declaration, Type elementType, Place place)
     {
-        var elementType = GenericArgument(type, typeof(HashSet<>)) ?? throw place.Mismatch();
         var element = ConversionOf(elementType, declaration.Element!, place);
         var toRecord = BindSequence(element.ToRecord, declaration, place);
         var update = BindUpdateSequence(declaration, elementType, element.Update);
@@ -529,18 +451,12 @@ internal sealed class ClassBinder
 
     // A Map is a Dictionary<K, V>. Its keys are added under the comparer of the key
     // declaration, not under the comparer of the Dictionary.
-    private Conversion BindMap(Type type, LatticeValueDeclaration declaration, Place place)
+    private Conversion BindMap(Type type, LatticeValueDeclaration declaration, Type keyType, Type valueType, Place place)
     {
-        if (!type.IsGenericType || type.GetGenericTypeDefinition() != typeof(Dictionary<,>))
-        {
-            throw place.Mismatch();
-        }
-
-        var arguments = type.GetGenericArguments();
         var keyDeclaration = declaration.Key!;
         var valueDeclaration = declaration.Value!;
-        var key = ConversionOf(arguments[0], keyDeclaration, place);
-        var item = ConversionOf(arguments[1], valueDeclaration, place);
+        var key = ConversionOf(keyType, keyDeclaration, place);
+        var item = ConversionOf(valueType, valueDeclaration, place);
         var boundedKey = ValueBound.Applies(keyDeclaration);
         var boundedValue = ValueBound.Applies(valueDeclaration);
         var form = declaration.Map!;
@@ -592,10 +508,10 @@ internal sealed class ClassBinder
         }
 
         var fromRecord = typeof(ClassBinder).GetMethod(nameof(MapOf), BindingFlags.NonPublic | BindingFlags.Static)!
-            .MakeGenericMethod(arguments).CreateDelegate<Func<object, Func<object, object>, Func<object, object>, TextComparison?, object>>();
+            .MakeGenericMethod(keyType, valueType).CreateDelegate<Func<object, Func<object, object>, Func<object, object>, TextComparison?, object>>();
         var comparison = keyDeclaration.TextComparison;
 
-        var update = new UpdateValueBinding(Key: key.Update, Value: item.Update, Map: MapForm.For(arguments[0], arguments[1], comparison));
+        var update = new UpdateValueBinding(Key: key.Update, Value: item.Update, Map: MapForm.For(keyType, valueType, comparison));
         return new Conversion(ToRecord, value => fromRecord(value, key.FromRecord, item.FromRecord, comparison), update);
     }
 
@@ -611,9 +527,6 @@ internal sealed class ClassBinder
 
         return result;
     }
-
-    private static Type? GenericArgument(Type type, Type definition) =>
-        type.IsGenericType && type.GetGenericTypeDefinition() == definition ? type.GetGenericArguments()[0] : null;
 
     private static LatticeException BindingFailed(string message) => new(LatticeErrorEnum.BindingFailed, message);
 

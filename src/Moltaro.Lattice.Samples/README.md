@@ -22,7 +22,7 @@ samples or another order, so a sample is added or moved in both places at once.
 | 1 | [Schema/SchemaSample.cs](Schema/SchemaSample.cs) | Compiling the schema from its JSON descriptor, `directory.schema.json`, saving the compiled form and loading it at startup | Nothing | Runs to the end |
 | 2 | [Basics/BasicCrudSample.cs](Basics/BasicCrudSample.cs) | Entities as objects of a .NET class: open a database, insert, read an owned copy with its revision, replace on that revision, upsert, enumerate, delete | Schema | Runs to the end |
 | 3 | [Basics/DynamicAccessSample.cs](Basics/DynamicAccessSample.cs) | The same operations by name, as records, without a .NET class; one entity type used both ways | BasicCrud | Runs to the end |
-| 4 | [Basics/ViewSample.cs](Basics/ViewSample.cs) | Reading one entity in place through a short synchronous viewer, by name and by a resolved field | DynamicAccess | Runs to the end |
+| 4 | [Basics/ViewSample.cs](Basics/ViewSample.cs) | Reading one entity in place through a short synchronous viewer, by name, by a resolved field and through a generated view | DynamicAccess | Runs to the end |
 | 5 | [Basics/KeyTypesSample.cs](Basics/KeyTypesSample.cs) | The types a primary key may have, and which key values are accepted or refused | DynamicAccess | Runs to the end |
 | 6 | [Basics/ClosedPropertiesSample.cs](Basics/ClosedPropertiesSample.cs) | An entity class that keeps its state behind its constructor and its methods | BasicCrud | Runs to the end |
 | 7 | [Schema/SchemaDeclarationsSample.cs](Schema/SchemaDeclarationsSample.cs) | Enum types, how text is compared and stored, stable identities, and the fingerprints of a schema | Schema | Runs to the end |

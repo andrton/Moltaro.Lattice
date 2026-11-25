@@ -628,3 +628,12 @@ in the meantime.
 | **Answer** | Answered by the planner, 24 November 2026, for the owner to read: the collections a read gives, to a record and to a class alike, have the comparer of the declaration of their key or element, so that a lookup in what was read finds what a lookup in the database finds. For text that is the schema's own comparison, as an `IEqualityComparer<string>` of the engine's, never `StringComparer.OrdinalIgnoreCase`, which is another comparison; the remarks say so in one sentence. `StringComparer.Ordinal` for Ordinal text only with a figure |
 | **What the code does** | Since S19 a read returns a `Dictionary` or `HashSet` sized to the collection, with equality from the declaration of its key or member. Both access forms use this rule, including for the String key of a reference. |
 | **Where the rule lives** | The brief of S19 in the [document of Epic 1](epic-1-core.md) |
+
+### Q65. Which properties does a view project without a schema file?
+
+| | |
+| --- | --- |
+| **Found** | 25 November 2026, independent review of the S22 contract |
+| **Question** | A CLR class can inherit both a stored property and a UI-only property from an external assembly. `Set<TEntity>()` binds only the fields declared in a schema. The generator needs to know which properties to project when the application supplies its schema only at runtime. |
+| **Answer** | Taken by the coordinator and confirmed by the planner, 25 November 2026. A view can explicitly omit a CLR-only path. The first view still verifies that every field the database declares is projected. |
+| **Where the rule lives** | [The S22 contract](epic-1-core.md#s22--typed-protected-views) |

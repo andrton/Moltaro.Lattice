@@ -1,0 +1,42 @@
+<Project>
+  <!-- The compiler still uses reference assemblies. The analyzer needs the implementation
+       metadata alongside them because a reference assembly may omit a private accessor. -->
+  <Target Name="WriteLatticeImplementationMetadataMap"
+          BeforeTargets="CoreCompile" DependsOnTargets="FindReferenceAssembliesForReferences">
+    <PropertyGroup>
+      <_LatticeMap>$(IntermediateOutputPath)Moltaro.Lattice.lattice-reference-map</_LatticeMap>
+    </PropertyGroup>
+    <ItemGroup>
+      <_LatticePackageReferences Include="@(ReferencePathWithRefAssemblies)"
+                                 Condition="'%(ReferencePathWithRefAssemblies.NuGetSourceType)' == 'Package'">
+        <MatchKey>%(ReferencePathWithRefAssemblies.NuGetPackageId)|%(ReferencePathWithRefAssemblies.NuGetPackageVersion)|%(ReferencePathWithRefAssemblies.Filename)%(ReferencePathWithRefAssemblies.Extension)</MatchKey>
+        <CompilerReference>%(ReferencePathWithRefAssemblies.FullPath)</CompilerReference>
+      </_LatticePackageReferences>
+      <!-- Class libraries resolve runtime assets even when they do not copy them to output. -->
+      <_LatticePackageImplementations Include="@(RuntimeCopyLocalItems)"
+                                      Condition="'%(RuntimeCopyLocalItems.NuGetPackageId)' != '' and '%(RuntimeCopyLocalItems.AssetType)' == 'runtime'">
+        <MatchKey>%(RuntimeCopyLocalItems.NuGetPackageId)|%(RuntimeCopyLocalItems.NuGetPackageVersion)|%(RuntimeCopyLocalItems.Filename)%(RuntimeCopyLocalItems.Extension)</MatchKey>
+        <Implementation>%(RuntimeCopyLocalItems.FullPath)</Implementation>
+      </_LatticePackageImplementations>
+    </ItemGroup>
+    <JoinItems Left="@(_LatticePackageReferences)" LeftKey="MatchKey" LeftMetadata="CompilerReference"
+               Right="@(_LatticePackageImplementations)" RightKey="MatchKey" RightMetadata="Implementation"
+               Condition="'@(_LatticePackageReferences)' != ''">
+      <Output TaskParameter="JoinResult" ItemName="_LatticePackagePairs" />
+    </JoinItems>
+    <ItemGroup>
+      <_LatticeFullMetadata Include="@(_LatticePackagePairs->'%(CompilerReference)')"
+                            Condition="'%(_LatticePackagePairs.CompilerReference)' != '%(_LatticePackagePairs.Implementation)'" />
+      <_LatticeFullMetadata Include="@(ReferencePathWithRefAssemblies)"
+                            Condition="'%(ReferencePathWithRefAssemblies.OriginalPath)' != ''">
+        <Implementation>%(ReferencePathWithRefAssemblies.OriginalPath)</Implementation>
+      </_LatticeFullMetadata>
+      <AdditionalFiles Include="$(_LatticeMap)" />
+      <!-- Changing only a private setter can leave the reference assembly byte-identical. -->
+      <CustomAdditionalCompileInputs Include="@(_LatticeFullMetadata->'%(Implementation)')" />
+      <FileWrites Include="$(_LatticeMap)" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_LatticeMap)" Lines="@(_LatticeFullMetadata->'%(FullPath)|%(Implementation)')"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+</Project>

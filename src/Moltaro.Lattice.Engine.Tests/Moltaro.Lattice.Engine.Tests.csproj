@@ -20,4 +20,5 @@
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
     <Using Include="Xunit" />
   </ItemGroup>
+  <Import Project="../Moltaro.Lattice.Generators/UseGenerator.targets" />
 </Project>

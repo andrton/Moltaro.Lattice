@@ -1,0 +1,10 @@
+<Project>
+  <!-- The samples and tests use the project build of the analyzer. Its Core dependency
+       is registered at the compiler alongside the generator, as with the package. -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)Moltaro.Lattice.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <Analyzer Include="$(MSBuildThisFileDirectory)../Moltaro.Lattice/bin/$(Configuration)/$(TargetFramework)/Moltaro.Lattice.dll" />
+  </ItemGroup>
+  <Import Project="LatticeMetadata.targets" />
+</Project>

@@ -16,23 +16,32 @@ internal static class DotNetEnumAgreement
     // How the .NET enum differs from the enum type; empty when they agree.
     public static List<string> Differences(Type dotNetEnum, LatticeEnumType enumType)
     {
+        var underlying = Enum.GetUnderlyingType(dotNetEnum);
+        var matches = underlying == FieldTypes.ValueType(enumType.UnderlyingType);
+        var flags = dotNetEnum.IsDefined(typeof(FlagsAttribute), inherit: false);
+        var members = dotNetEnum.GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(field => (field.Name, field.GetRawConstantValue()!));
+        return Differences(enumType, matches, underlying.Name, flags, members);
+    }
+
+    public static List<string> Differences(LatticeEnumType enumType, bool matchesUnderlying, string underlyingName, bool isFlags,
+        IEnumerable<(string Name, object Value)> members)
+    {
         var stored = FieldTypes.ValueType(enumType.UnderlyingType);
         var differences = new List<string>();
 
-        // Values of another integer type would be read as other values, so the members are
-        // not compared then.
-        var underlyingType = Enum.GetUnderlyingType(dotNetEnum);
-        if (underlyingType != stored)
+        // Values of another integer type are read as other values, so only compare their types.
+        if (!matchesUnderlying)
         {
-            differences.Add($"its underlying type is {underlyingType.Name}, and the enum type is stored as {stored.Name}");
+            differences.Add($"its underlying type is {underlyingName}, and the enum type is stored as {stored.Name}");
         }
         else
         {
             var declaredValues = enumType.Members.ToDictionary(member => member.Name, member => member.Value, StringComparer.Ordinal);
             var namesOfDotNetEnum = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var member in dotNetEnum.GetFields(BindingFlags.Public | BindingFlags.Static))
+            foreach (var member in members)
             {
-                var value = Int128Of(member.GetRawConstantValue()!);
+                var value = Int128Of(member.Value);
                 namesOfDotNetEnum.Add(member.Name);
 
                 if (!declaredValues.TryGetValue(member.Name, out var declaredValue))
@@ -54,7 +63,6 @@ internal static class DotNetEnumAgreement
             }
         }
 
-        var isFlags = dotNetEnum.IsDefined(typeof(FlagsAttribute), inherit: false);
         if (isFlags != enumType.IsFlags)
         {
             differences.Add(enumType.IsFlags

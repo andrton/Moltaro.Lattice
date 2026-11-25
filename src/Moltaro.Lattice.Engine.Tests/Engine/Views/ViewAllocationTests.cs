@@ -5,7 +5,7 @@ using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
-[Collection(nameof(ManagedAllocationCollection))]
+[Collection<ManagedAllocationCollection>]
 public sealed class ViewAllocationTests
 {
     private const int Split = 5_038;

@@ -187,6 +187,58 @@ public interface ILatticeSet<TEntity>
     ValueTask<LatticeReadResult<TEntity>> GetAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
         where TKey : notnull;
 
+    /// <inheritdoc cref="ILatticeSet.TryView{TKey, TResult}"/>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TView">The generated view of the set's entity class.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.BindingFailed"/> if a field of the generated view disagrees
+    /// with the set's schema. The viewer is skipped.
+    /// </exception>
+    bool TryView<TKey, TView, TResult>(TKey key, LatticeViewFunc<TView, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct;
+
+    /// <inheritdoc cref="ILatticeSet.TryView{TKey, TState, TResult}"/>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TView">The generated view of the set's entity class.</typeparam>
+    /// <typeparam name="TState">The type of state supplied to the viewer.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.BindingFailed"/> if a field of the generated view disagrees
+    /// with the set's schema. The viewer is skipped.
+    /// </exception>
+    bool TryView<TKey, TView, TState, TResult>(TKey key, TState state, LatticeViewFunc<TView, TState, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct;
+
+    /// <inheritdoc cref="ILatticeSet.ViewAsync{TKey, TResult}"/>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TView">The generated view of the set's entity class.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.BindingFailed"/> if a field of the generated view disagrees
+    /// with the set's schema. The task fails before the viewer runs.
+    /// </exception>
+    ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TResult>(TKey key, LatticeSession session,
+        LatticeViewFunc<TView, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct;
+
+    /// <inheritdoc cref="ILatticeSet.ViewAsync{TKey, TState, TResult}"/>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TView">The generated view of the set's entity class.</typeparam>
+    /// <typeparam name="TState">The type of state supplied to the viewer.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.BindingFailed"/> if a field of the generated view disagrees
+    /// with the set's schema. The task fails before the viewer runs.
+    /// </exception>
+    ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TState, TResult>(TKey key, LatticeSession session, TState state,
+        LatticeViewFunc<TView, TState, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct;
+
     /// <summary>
     /// Enumerates owned copies of all entities of the entity type from what this node has
     /// now, in no particular order, within the read limits of the database options. The

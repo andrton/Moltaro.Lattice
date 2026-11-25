@@ -122,9 +122,10 @@ has every child reload; lazy mixed-format conversion is deferred.</li>
 <p>Fixed fields stay together in the root, including fields flattened from its owned values.
 Small strings and packed collections can be inline. Larger values use separate blocks and
 bounded chunks. Collection entries with descriptors are stored as records, each whole in
-one chunk. Maps and Sets with up to eight entries scan their compact entries. Larger Maps
-and Sets use a hash lookup with entry ordinals. Each node builds its own lookup from the
-entries it receives. <a href="arena-protocol.md#stored-structures-and-root-transfer">Arena layout and transfer</a></p>
+one chunk. A whole Map or Set written or received with up to eight entries uses a
+compact scan. A larger one uses a hash lookup with entry ordinals. During partial
+edits a collection stays hashed until its count falls to four. Each node builds
+its own lookup from the entries it receives. <a href="arena-protocol.md#stored-structures-and-root-transfer">Arena layout and transfer</a></p>
 <figure class="diagram" aria-labelledby="memory-caption">
   <figcaption class="diagram-head" id="memory-caption"><span class="diagram-title">Stable identity, movable storage</span><span class="diagram-label">Native arena</span></figcaption>
   <div class="diagram-grid">
@@ -189,13 +190,14 @@ The PostgreSQL <strong>256-byte saved unit is separate from native allocation si
 <a id="queries-and-indexes"></a></p>
 <h2 id="reads-and-indexes">Reads and indexes</h2>
 <p><strong>Ordinary reads return owned copies.</strong> Later updates cannot change a value already
-returned to application code. The set by name also offers a short synchronous
+returned to application code. Both sets offer a short synchronous
 <a href="arena-protocol.md#protected-views">protected view</a> of one entity in the arena. The
-compiler keeps the view and its read-only byte parts inside the callback. The caller
-keeps the callback short and avoids waiting, I/O and database calls. Publication can
-advance while the viewer keeps the original state. Reclamation waits for the viewer,
-which can delay writes and child application under memory pressure, closing and entry
-when every protection slot is occupied. Generated views for .NET classes are planned.</p>
+set by name uses schema fields. The optional build-time generator supplies typed
+properties for a class set. Both views keep the same stamped state while a write
+publishes. The compiler keeps borrowed values and read-only byte parts inside the
+callback. The caller keeps the callback short and avoids waiting, I/O and database
+calls. A viewer can delay reclamation, which can delay writes and child application
+under memory pressure, closing and entry when every protection slot is occupied.</p>
 <p>A read is protected by an epoch and takes no lock: what a write replaces or removes is
 freed only after every read that could reach it has left. A read is coherent for one
 entity. Several reads, an enumeration or a graph walk do not create a shared snapshot.</p>

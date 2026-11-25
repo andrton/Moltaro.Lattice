@@ -25,6 +25,9 @@ jobs:
           global-json-file: src/global.json
       - run: dotnet build --configuration Release
       - run: dotnet format --verify-no-changes
+        # The formatter's workspace loads the generator built in the previous step.
+        env:
+          Configuration: Release
       - run: dotnet test --configuration Release --no-build
       # The samples run to the end, and Program.cs refuses to run when the README of the samples
       # lists them in another order.

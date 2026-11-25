@@ -28,9 +28,9 @@ A database whose schema breaks either layout rule fails to open with `InvalidSch
 which names the entity type. Partial updates assign named fields and edit Lists, Maps and
 Sets. The master executes them alone or in a write batch, also when a child submits them.
 Children apply the changed fields and collection entries at the committed position.
-A protected view by name reads one entity directly from its local arena inside a short
-synchronous callback. Generated views for .NET classes are planned. PostgreSQL
-persistence is not implemented yet, and the contract may still change.
+Both by-name and generated typed views read one entity directly from its local arena
+inside a short synchronous callback. PostgreSQL persistence is planned, and the
+contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -214,6 +214,31 @@ state. A viewer delays reclamation of memory retired while it is active, which c
 delay a write or a child's application under memory pressure, new reads once all
 protection slots are occupied, and closing. See the [view sample](src/Moltaro.Lattice.Samples/Basics/ViewSample.cs).
 
+**Reading in place through a class.** Reference the optional
+`Moltaro.Lattice.Generators` build-time package, then declare a view for the entity
+class. The compiler generates properties for the view. A nested view declaration
+requires partial containing types.
+
+```csharp
+var users = database.Set<User>();
+if (users.TryView(1L, static (UserView view) => view.Name.GetString(), out var name))
+{
+    Console.WriteLine(name);
+}
+
+[LatticeView(typeof(User))]
+public readonly ref partial struct UserView;
+```
+
+Use `ViewAsync` with a session for the same position guarantees as reads by name.
+When the schema is a file, include it as an `AdditionalFiles` item with a
+`.schema.json` suffix to check field binding during the build. For a schema built
+in code, the first view checks its fields against the database's schema.
+`LatticeViewField` on the partial view selects Binary or List for a `byte[]`
+property, supplies nullability for a borrowed field, or omits a CLR-only property
+with `Ignore = true`. Nullable owned, List, Map and Set fields use
+`LatticeOptionalView<TView>`. Check `HasValue` before using `Value`.
+
 **Finding by index.** An entity type
 declares its secondary indexes in the schema, each with a name and the ids of the fields it
 covers, in order; here `ByEmail` covers the field `Email`, id 5, of a user, and
@@ -361,8 +386,10 @@ The decision and its reasons are in
 **Reading your own writes.** A child follows its master with a small delay. Two rules make
 that safe to build on:
 
-- A write submitted through a child completes only when that child has applied it, so the
-  child's next read sees it. It does not wait for other children.
+- A write submitted through an open child completes when that child has applied it, so
+  the child's next read sees it. If the child closes after receiving the master's
+  successful reply, the caller still receives the committed result. Other children
+  can catch up later.
 - A `LatticeSession` carries "what I have already seen" from one operation to the next. An
   operation that takes a session first waits until the node that serves it has caught up,
   and fails with `SynchronizationTimeout` rather than answer from older data.
@@ -482,7 +509,8 @@ path, from simple to complex.
 | | `LatticeFingerprint` | The fingerprint of a schema and the layout fingerprint of an entity type |
 | `Moltaro.Lattice.Access` | `ILatticeSet<TEntity>` | Entities as objects of a .NET class |
 | | `ILatticeSet`, `LatticeRecord`, `LatticeOwnedValue` | Entities by name, as records, and the owned values a record holds |
-| | `LatticeRecordView`, `LatticeValueView`, `LatticeViewFunc`, `LatticeViewResult` | Scoped access by name to one entity, its owned values and collections, and the result of the viewer |
+| | `LatticeRecordView`, `LatticeValueView`, `LatticeViewFunc`, `LatticeViewResult` | Scoped access to one entity, its owned values and collections, and the result of the viewer |
+| | `LatticeViewAttribute`, `LatticeViewFieldAttribute`, `LatticeOptionalView<TView>` | Generated typed views for a .NET class and access to nullable borrowed values |
 | | `ILatticeIndex<TEntity>`, `IndexKey`, `IndexBound` | Finding entities through a declared secondary index |
 | | `LatticeUpdate`, `LatticeCommandResult` | Ordered field assignments and collection edits for one entity, with each command's result after commit |
 | | `ILatticeWriteBatch` | Several writes, also of different entity types, executed together or not at all |
@@ -541,11 +569,11 @@ dotnet run --project Moltaro.Lattice.Samples
 
 ## Package
 
-Three NuGet packages are published to [nuget.org](https://www.nuget.org) when a version
-is released: `Moltaro.Lattice`, the public contract with no dependencies;
-`Moltaro.Lattice.Engine`, the engine with `LatticeDatabase`, the entry point, which brings
-the contract with it; and `Moltaro.Lattice.DependencyInjection`, the dependency injection
-support. No version has been released yet.
+A release publishes four packages to [nuget.org](https://www.nuget.org).
+`Moltaro.Lattice` is the public contract. `Moltaro.Lattice.Engine` adds
+`LatticeDatabase` and brings the contract with it. `Moltaro.Lattice.DependencyInjection`
+supports container registration. `Moltaro.Lattice.Generators` provides typed
+protected views at build time. The first release is pending.
 
 **Releasing a version.** Tag a commit of `main` and push the tag; the version is the tag
 without the leading `v`. The [Publish](.github/workflows/publish.yml) workflow builds,
@@ -569,6 +597,12 @@ dotnet add package Moltaro.Lattice.Engine --prerelease
 
 ```bash
 dotnet add package Moltaro.Lattice.DependencyInjection --prerelease
+```
+
+An application that declares generated views adds the analyzer package.
+
+```bash
+dotnet add package Moltaro.Lattice.Generators --prerelease
 ```
 
 ## License
