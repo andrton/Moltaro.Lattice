@@ -206,6 +206,13 @@ stops and has the plan corrected before the next sprint.
    diagnostic insertion a disposition in the existing report. An item left for later has
    a place and a closing condition in the backlog. Any departure from `AGENTS.md` has an
    approved entry in the exceptions register.
+   Before Close, the coordinator gives the final measurement record to the independent
+   reviewer. The review covers confirmed losses, including required comparisons of
+   equivalent work through different paths. It checks the evidence for the cause, the
+   measured alternatives and the disposition under
+   [When to stop and ask the owner](#when-to-stop-and-ask-the-owner). A follow-up
+   permitted under [Review](#review) names its sprint or run and the evidence that
+   closes it.
 7. **Close.** With no P1, P2 or P3 open and the documents current, the coordinator marks
    the sprint done in the epic document. A finding is no longer open when an independent
    review found its fix sufficient, when the owner accepted it or moved it to a named
