@@ -31,6 +31,15 @@ public sealed class ConsumerCompilationTests
                     foreach (var item in list)
                         sum += item.Map.Count;
 
+                    var entries = list.GetEnumerator();
+                    if (entries.MoveNext())
+                    {
+                        var first = entries.Current;
+                        var copy = entries;
+                        _ = entries.MoveNext();
+                        sum += first.Map.Count + copy.Current.Map.Count;
+                    }
+
                     var part = view["Title"].GetPart(0);
                     return sum + part.Length;
                 }, out int total);
@@ -57,6 +66,8 @@ public sealed class ConsumerCompilationTests
     [InlineData("public static void UseState(ILatticeSet set, scoped LatticeRecordView state) => set.TryView(\"store\", state, static (_, saved) => 0, out int result);", "CS9244")]
     [InlineData("public static void ReturnViewAsync(ILatticeSet set, LatticeSession session) => _ = set.ViewAsync(\"store\", session, static view => view[\"Title\"].GetPart(0));", "CS9244")]
     [InlineData("public static LatticeValueView Escape(scoped LatticeRecordView view) => view[\"Nested\"].Owned[\"Items\"].List[0];", "CS8352")]
+    [InlineData("public static LatticeListView.Enumerator Escape(scoped LatticeRecordView view) => view[\"Items\"].List.GetEnumerator();", "CS8352")]
+    [InlineData("public static LatticeValueView Escape(scoped LatticeRecordView view) => view[\"Items\"].List.GetEnumerator().Current;", "CS8352")]
     [InlineData("public static LatticeMapView.Enumerator Escape(scoped LatticeRecordView view) => view[\"Map\"].Map.GetEnumerator();", "CS8352")]
     [InlineData("public static LatticeValueView Escape(scoped LatticeRecordView view) => view[\"Map\"].Map.GetEnumerator().Current.Value;", "CS8352")]
     [InlineData("public static ReadOnlySpan<byte> Escape(scoped LatticeRecordView view) => view[\"Title\"].GetPart(0);", "CS8352")]
