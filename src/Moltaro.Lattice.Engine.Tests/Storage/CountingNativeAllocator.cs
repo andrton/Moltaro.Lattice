@@ -21,6 +21,7 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     private readonly HashSet<nint> _outstanding = [];
 
     private Action? _hold;
+    private Action? _holdLastFree;
 
     // How many times memory was obtained.
     public int Obtained { get; private set; }
@@ -44,6 +45,9 @@ internal sealed class CountingNativeAllocator : NativeAllocator
 
     // Arms the action that the next request runs once.
     public void HoldNextAllocation(Action hold) => Volatile.Write(ref _hold, hold);
+
+    // Runs once when Free is about to return the allocator's last outstanding piece.
+    public void HoldLastFree(Action hold) => Volatile.Write(ref _holdLastFree, hold);
 
     // Fails the test unless every piece of memory obtained has been returned, exactly once: what a
     // test states once a database has closed or its open has failed.
@@ -83,6 +87,11 @@ internal sealed class CountingNativeAllocator : NativeAllocator
 
     public override void Free(nint memory)
     {
+        if (_outstanding.Count == 1)
+        {
+            Interlocked.Exchange(ref _holdLastFree, null)?.Invoke();
+        }
+
         Assert.True(_outstanding.Remove(memory), "The arena returned memory that was not outstanding.");
 
         Returned++;
