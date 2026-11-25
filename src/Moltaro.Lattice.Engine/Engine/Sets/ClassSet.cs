@@ -19,6 +19,8 @@ namespace Moltaro.Lattice.Engine.Sets;
 internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     where TEntity : class
 {
+    private const string TypedViewsNotSupported = "Typed protected views are not implemented.";
+
     private readonly SetOperations _operations;
 
     private readonly EntityBinding<TEntity> _binding;
@@ -65,6 +67,51 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         ArgumentNullException.ThrowIfNull(session);
 
         return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(_copier), session, cancellationToken);
+    }
+
+    public bool TryView<TKey, TView, TResult>(TKey key, LatticeViewFunc<TView, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        _ = KeyArgument.Of(_operations.Table, key);
+
+        throw new NotSupportedException(TypedViewsNotSupported);
+    }
+
+    public bool TryView<TKey, TView, TState, TResult>(TKey key, TState state, LatticeViewFunc<TView, TState, TResult> viewer,
+        [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        _ = KeyArgument.Of(_operations.Table, key);
+
+        throw new NotSupportedException(TypedViewsNotSupported);
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TResult>(TKey key, LatticeSession session,
+        LatticeViewFunc<TView, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        _ = KeyArgument.Of(_operations.Table, key);
+
+        return ValueTask.FromException<LatticeViewResult<TResult>>(new NotSupportedException(TypedViewsNotSupported));
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TState, TResult>(TKey key, LatticeSession session, TState state,
+        LatticeViewFunc<TView, TState, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        _ = KeyArgument.Of(_operations.Table, key);
+
+        return ValueTask.FromException<LatticeViewResult<TResult>>(new NotSupportedException(TypedViewsNotSupported));
     }
 
     public IEnumerable<TEntity> Enumerate() =>
