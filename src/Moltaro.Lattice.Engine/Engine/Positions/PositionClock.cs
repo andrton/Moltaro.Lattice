@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace Moltaro.Lattice.Engine.Positions;
 
 // The positions of one open database: its history and the sequence of the last published position
@@ -73,10 +71,13 @@ internal sealed class PositionClock
     // The database, which a wait after the close names as disposed.
     private readonly object _owner;
 
-    public PositionClock(ulong history, object owner)
+    private readonly TimeProvider _time;
+
+    public PositionClock(ulong history, object owner, TimeProvider? time = null)
     {
         History = history;
         _owner = owner;
+        _time = time ?? TimeProvider.System;
     }
 
     public ulong History { get; }
@@ -240,7 +241,7 @@ internal sealed class PositionClock
 
     private async Task WaitForLaterAsync(LatticePosition position, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        var started = Stopwatch.GetTimestamp();
+        var started = _time.GetTimestamp();
         var target = Enter(position.Sequence);
 
         try
@@ -273,7 +274,7 @@ internal sealed class PositionClock
                     throw Lost(position);
                 }
 
-                var remaining = timeout - Stopwatch.GetElapsedTime(started);
+                var remaining = timeout - _time.GetElapsedTime(started);
 
                 try
                 {
@@ -282,7 +283,7 @@ internal sealed class PositionClock
                         throw new TimeoutException();
                     }
 
-                    await target.Signal.Task.WaitAsync(remaining, cancellationToken).ConfigureAwait(false);
+                    await target.Signal.Task.WaitAsync(remaining, _time, cancellationToken).ConfigureAwait(false);
                 }
                 catch (TimeoutException)
                 {

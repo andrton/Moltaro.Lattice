@@ -34,4 +34,8 @@ internal sealed class EngineTestInputs
     // without waiting (Entities.ReadSettings). It is called on the thread of the read, inside the step, and
     // must neither wait nor call the database. Null: Stopwatch.GetTimestamp.
     public Func<long>? ReadTimestamps { get; init; }
+
+    // The monotonic clock and timers of pending position waits. A test can advance time while delaying
+    // timer delivery, independently of the publishing thread. Null: TimeProvider.System.
+    public TimeProvider? PositionWaitTime { get; init; }
 }
