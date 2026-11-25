@@ -11369,6 +11369,21 @@ ordinary result. The study and its raw runs are kept outside Git.
 **Out of scope.** A new public state, load limits, a policy for simultaneous close and
 submission, Q66, compaction, and reconnect or reload in S34.
 
+###### Tests first
+
+The independent brief review closed in two rounds on
+`4d1d2559414077163f58211de5c583128620d8bf`. The tests-first review closed
+in one round on `5108a7962bc6154dfd199a185d3c88e4b43f7457`.
+The hardest part was establishing when the live observer had consumed the
+closing master's stream, so it could witness an absence of effects.
+
+The coordinator built that tests-first commit in Windows x64 Release and ran
+29 close, forwarding, position and memory controls, with three planned skips.
+Temporarily removing only the skips on the original engine made each new
+case fail at the await assertion. The master insert, child insert and prepared
+master batch all returned without the expected `ObjectDisposedException`.
+The skips were restored before implementation started.
+
 ##### Storage work
 
 **Collection edit cost carried from S20.** In `EditedList.Apply`, each append
