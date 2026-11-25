@@ -41,12 +41,32 @@ public sealed class ViewPositionTests
 
         if (fail)
         {
-            held.Fail();
+            using (var early = HeldPublication.Arm(nodes.Reader, PublicationPointEnum.AfterFault))
+            {
+                held.Fail();
+                await early.ReachedAsync();
+                Assert.Equal(LatticeDatabaseStateEnum.Faulted, nodes.Reader.State);
 
-            var unavailable = await Assert.ThrowsAsync<LatticeException>(() => reading.WaitAsync(Bound));
-            Assert.Equal(LatticeErrorEnum.Unavailable, unavailable.Error);
-            Assert.False(runs.Task.IsCompleted);
-            Assert.Null(session.MinPosition);
+                var unavailable = await Assert.ThrowsAsync<LatticeException>(() => reading.WaitAsync(Bound));
+                Assert.Equal(LatticeErrorEnum.Unavailable, unavailable.Error);
+                Assert.False(runs.Task.IsCompleted);
+                Assert.Null(session.MinPosition);
+
+                LatticeViewFunc<LatticeRecordView, long> unexpected = static _ =>
+                    throw new InvalidOperationException("A faulted database ran a viewer.");
+
+                foreach (var key in new[] { 2L, Other, long.MaxValue })
+                {
+                    var direct = Assert.Throws<LatticeException>(() => items.TryView(key, unexpected, out _));
+                    Assert.Equal(LatticeErrorEnum.Unavailable, direct.Error);
+
+                    var afterFault = new LatticeSession();
+                    var pending = items.ViewAsync(key, afterFault, unexpected);
+                    var asynchronous = await Assert.ThrowsAsync<LatticeException>(() => pending.AsTask().WaitAsync(Bound));
+                    Assert.Equal(LatticeErrorEnum.Unavailable, asynchronous.Error);
+                    Assert.Null(afterFault.MinPosition);
+                }
+            }
 
             if (nodes.Child is null)
             {
@@ -103,6 +123,39 @@ public sealed class ViewPositionTests
 
         held.Release();
         await committing.WaitAsync(Bound);
+    }
+
+    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    public async Task A_view_retries_a_negative_lookup_if_the_position_changes_before_it_can_confirm_a_miss()
+    {
+        await using var database = await StampSchema.OpenAsync();
+        var stamps = database.Set("NamedStamp");
+        var key = StampSchema.NameOf(1);
+        var session = new LatticeSession();
+        using var cut = new ViewerPause();
+
+        // The protected lookup offers the read switch with a default handle after its
+        // candidate miss and before the clock sample that confirms the miss.
+        database.ArmReadSwitch(handle =>
+        {
+            Assert.Equal(default, handle);
+            cut.Hold();
+        });
+
+        var reading = OwnThread.Run(() => OwnThread.Wait(stamps.ViewAsync(key, session, static view =>
+            (Number: view["Number"].Get<long>(), view.Revision))));
+        await cut.EnteredAsync(reading);
+
+        var inserted = await OwnThread.Run(() => OwnThread.Wait(stamps.InsertAsync(StampSchema.RecordOf(stamps.EntityType, 1, 27)))).WaitAsync(Bound);
+        cut.Release();
+
+        var answer = await reading.WaitAsync(Bound);
+        Assert.True(answer.Found);
+        Assert.Equal(27L, answer.Result.Number);
+        Assert.True(stamps.TryGet(key, out _, out var revision));
+        Assert.Equal(revision, answer.Result.Revision);
+        Assert.Equal(inserted.Position, answer.Position);
+        Assert.Equal(answer.Position, session.MinPosition);
     }
 
     [Fact(Skip = ProtectedViewsRequired.Skip)]

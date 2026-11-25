@@ -119,8 +119,8 @@ public interface ILatticeSet
     /// <remarks>
     /// <para>
     /// The viewer and everything it borrows are valid only during the call. The viewer must
-    /// return promptly, without waiting or calling the database. The entity can be replaced
-    /// during the call, while the viewer keeps reading the state it started with.
+    /// return promptly, without performing I/O, waiting or calling the database. The entity
+    /// can be replaced during the call, while the viewer keeps reading the state it started with.
     /// </para>
     /// <para>
     /// An open viewer holds back reclamation of all memory replaced since it began. Exhausting

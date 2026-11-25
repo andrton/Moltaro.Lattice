@@ -2,7 +2,7 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
-// Holds application code inside the real protected callback. Disposing releases it on a test
+// Holds the thread at a protected callback or read switch. Disposing releases it on a test
 // failure, and the wait has a bound even if the test cannot reach the release.
 internal sealed class ViewerPause : IDisposable
 {

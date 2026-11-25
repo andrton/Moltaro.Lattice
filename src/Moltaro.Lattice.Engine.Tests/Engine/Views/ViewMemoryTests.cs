@@ -62,7 +62,7 @@ public sealed class ViewMemoryTests
     }
 
     [Fact(Skip = ProtectedViewsRequired.Skip)]
-    public async Task A_child_applier_waits_for_memory_held_by_a_view_and_continues_after_it_returns()
+    public async Task A_child_applier_reclaims_a_viewers_memory_while_a_second_view_waits_for_its_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         var pieces = master.Set<PieceSchema.Piece>();
@@ -74,22 +74,48 @@ public sealed class ViewMemoryTests
         var reading = ReadPiece(1L, recordSet, pause);
         await pause.EnteredAsync(reading);
 
-        var deleted = await pieces.DeleteAsync(1L);
-        await child.WaitForPositionAsync(deleted.Position, Bound);
-        Assert.Null(recordSet.Get(1L));
-        Assert.True(child.Counters.Arena.RetiredBytes > 0);
+        using var applying = child.SuspendApplying();
+        using var cancel = new CancellationTokenSource();
 
-        var waiting = RefusedWriteWait.Begins(child);
-        var inserted = await pieces.InsertAsync(PieceSchema.Of(2, name: 11, data: ChildValue));
-        await waiting.WaitAsync(Bound);
+        try
+        {
+            var beforeDelete = child.Position;
+            var deleted = await pieces.DeleteAsync(1L);
+            var inserted = await pieces.InsertAsync(PieceSchema.Of(2, name: 11, data: ChildValue));
 
-        Assert.Equal(deleted.Position, child.Position);
-        pause.Release();
+            // This read starts before the delete can retire anything. An early epoch
+            // would keep that memory, leaving the applier unable to reach the second view.
+            var session = new LatticeSession(inserted.Position) { SynchronizationTimeout = Bound + Bound };
+            var following = recordSet.ViewAsync(2L, session, static view => view["Name"].GetString().Length, cancel.Token).AsTask();
+            Assert.False(following.IsCompleted);
+            Assert.Equal(beforeDelete, child.Position);
 
-        Assert.Equal((10, ChildValue), await reading.WaitAsync(Bound));
-        await child.WaitForPositionAsync(inserted.Position, Bound);
-        Assert.Equal(11, recordSet.Get(2L)!.Get<string>("Name")!.Length);
-        Assert.Equal(0, child.Counters.Arena.RetiredBytes);
+            var waiting = RefusedWriteWait.Begins(child);
+            applying.Dispose();
+            await child.WaitForPositionAsync(deleted.Position, Bound);
+            await waiting.WaitAsync(Bound);
+
+            Assert.Null(recordSet.Get(1L));
+            Assert.Equal(deleted.Position, child.Position);
+            Assert.False(following.IsCompleted);
+            Assert.True(child.Counters.Arena.RetiredBytes > 0);
+            pause.Release();
+
+            Assert.Equal((10, ChildValue), await reading.WaitAsync(Bound));
+            var answer = await following.WaitAsync(Bound);
+            Assert.True(answer.Found);
+            Assert.Equal(11, answer.Result);
+            Assert.Equal(inserted.Position, answer.Position);
+            Assert.Equal(answer.Position, session.MinPosition);
+            await child.WaitForPositionAsync(inserted.Position, Bound);
+            Assert.Equal(11, recordSet.Get(2L)!.Get<string>("Name")!.Length);
+            Assert.Equal(0, child.Counters.Arena.RetiredBytes);
+        }
+        finally
+        {
+            pause.Release();
+            await cancel.CancelAsync();
+        }
     }
 
     private static Task<(int Name, int Bytes)> ReadPiece(long key, ILatticeSet pieces, ViewerPause pause) =>

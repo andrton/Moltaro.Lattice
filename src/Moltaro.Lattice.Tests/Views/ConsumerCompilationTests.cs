@@ -40,6 +40,16 @@ public sealed class ConsumerCompilationTests
             """));
     }
 
+    [Fact]
+    public void A_consumer_cannot_write_through_a_borrowed_part()
+    {
+        var errors = ErrorsFrom("""
+            public static void Mutate(ILatticeSet set) => set.TryView("store", static view => view["Title"].GetPart(0)[0] = 42, out byte result);
+            """);
+
+        Assert.Contains(errors, error => error.Id == "CS8331" && error.Location.GetLineSpan().StartLinePosition.Line == 8);
+    }
+
     [Theory]
     [InlineData("private LatticeRecordView _stored;", "CS8345")]
     [InlineData("private ReadOnlySpan<byte> _stored;", "CS8345")]

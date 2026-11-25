@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Views;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -33,7 +34,11 @@ public sealed class ViewLifetimeTests
             Assert.Equal(0L, context.Set.Get(context.Other)!.Get<long>("Number"));
             context.Pause.Hold();
 
-            return (view.Revision, view["Number"].Get<long>(), view["Label"].GetString(), view["Text"].GetString(), view["Data"].GetPart(0).ToArray());
+            return (view.Revision,
+                Number: view["Number"].Get<long>(),
+                Label: view["Label"].GetString(),
+                Text: view["Text"].GetString(),
+                Data: view["Data"].GetPart(0).ToArray());
         })));
         await pause.EnteredAsync(reading);
 
@@ -48,8 +53,8 @@ public sealed class ViewLifetimeTests
 
         var answer = await reading.WaitAsync(Bound);
         Assert.True(answer.Found);
-        Assert.Equal((revision, 0L, copy.Get<string>("Label"), copy.Get<string>("Text")), (answer.Result.Revision, answer.Result.Item2, answer.Result.Item3, answer.Result.Item4));
-        Assert.Equal(copy.Get<byte[]>("Data"), answer.Result.Item5);
+        Assert.Equal((revision, 0L, copy.Get<string>("Label"), copy.Get<string>("Text")), (answer.Result.Revision, answer.Result.Number, answer.Result.Label, answer.Result.Text));
+        Assert.Equal(copy.Get<byte[]>("Data"), answer.Result.Data);
         Assert.Equal(initial.Position, answer.Position);
         Assert.Equal(answer.Position, session.MinPosition);
         Assert.NotEqual(database.Position, answer.Position);
@@ -164,6 +169,59 @@ public sealed class ViewLifetimeTests
 
         Assert.Equal(copy.Get<byte[]>("Data"), await reading.WaitAsync(Bound));
         await closing.WaitAsync(Bound);
+        allocator.ExpectEverythingReturned();
+    }
+
+    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    public async Task Faulted_database_keeps_retired_memory_after_the_last_viewer_leaves_until_close()
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var database = await EngineMaster.OpenAsync(StampSchema.Schema, new EngineTestInputs { Allocator = allocator });
+        var stamps = database.Set("NamedStamp");
+        var key = StampSchema.NameOf(1);
+        await stamps.InsertAsync(StampSchema.RecordOf(stamps.EntityType, 1, 0));
+
+        // Faulted closes regular introspection. Keep the arena reference from the live root
+        // and read the counters only after the failed publication has finished.
+        Arena? observedArena = null;
+        database.ForEachLiveRoot((arena, _, _, _) => observedArena = arena);
+        var storage = Assert.IsType<Arena>(observedArena);
+        using var pause = new ViewerPause();
+        var reading = OwnThread.Run(() =>
+        {
+            Assert.True(stamps.TryView(key, pause, static (view, held) =>
+            {
+                held.Hold();
+                return view["Number"].Get<long>();
+            }, out var number));
+            return number;
+        });
+        await pause.EnteredAsync(reading);
+        await OwnThread.Run(() => OwnThread.Wait(stamps.ReplaceAsync(StampSchema.RecordOf(stamps.EntityType, 1, 1)))).WaitAsync(Bound);
+        Assert.True(database.Counters.Arena.RetiredBytes > 0);
+
+        using var held = HeldPublication.Arm(database, PublicationPointEnum.BeforePosition);
+        var batch = database.CreateWriteBatch();
+        batch.Replace(StampSchema.RecordOf(stamps.EntityType, 1, 2));
+        batch.Insert(StampSchema.RecordOf(stamps.EntityType, 2, 2));
+        var writing = OwnThread.Run(() => OwnThread.Wait(batch.CommitAsync()));
+        await held.ReachedAsync();
+        held.Fail();
+        var failed = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
+        Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, failed.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
+        var retired = storage.Counters.RetiredBytes;
+        var returned = allocator.Returned;
+        Assert.True(retired > 0);
+
+        pause.Release();
+
+        Assert.Equal(0L, await reading.WaitAsync(Bound));
+        Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
+        Assert.Equal(retired, storage.Counters.RetiredBytes);
+        Assert.Equal(returned, allocator.Returned);
+
+        await database.CloseAsync().AsTask().WaitAsync(Bound);
         allocator.ExpectEverythingReturned();
     }
 
