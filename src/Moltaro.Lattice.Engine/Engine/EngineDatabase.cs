@@ -55,16 +55,17 @@ namespace Moltaro.Lattice.Engine;
 // what it protects), under which writes are admitted, prepared, handed to the persistence step and
 // published, under which a drain or a count of the counters runs, under which the capture of a child
 // starts and ends and its acknowledgments release the tail on a master, and under which a root is
-// placed and a transaction applied on a child, held for synchronous work in memory only. The lock of
-// the state is taken alone; no thread that holds a lock takes the other one. The listener of a master
+// placed and a transaction applied on a child, and under which a maintenance step runs. It is held
+// for synchronous work in memory only. The lock of the state is taken alone. No thread that holds a
+// lock takes the other one. The listener of a master
 // has a lock of its own for its connections; the follower of a child has one for its suspensions, its
 // sender one for its queue and the table of its pending requests one; each is taken alone as well. No
 // lock is held while bytes are sent or received.
 // A read takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
 // nothing is taken inside it. What a read can reach lives at least as long as the read: a write unlinks it
 // and retires it, and the writer frees it only once the reads that entered before have left (RetiredMemory);
-// the close frees the arena only after the reads and the writes in progress have ended. No code of the
-// application runs, and nothing waits, while a read is inside.
+// the close frees the arena only after the reads and the operations counted by CloseBarrier have
+// ended. No code of the application runs, and nothing waits, while a read is inside.
 //
 internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExecutor
 {
@@ -458,11 +459,55 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
 
-    // Runs one bounded maintenance action on a Ready master or child. Returns false when the
-    // step cannot enter immediately, returns true after the action completes, and propagates
-    // any exception from the action.
-    internal bool TryRunMaintenanceStep(Action<DatabaseParts> step) =>
-        throw new NotSupportedException("Maintenance steps are not implemented yet.");
+    // Counts the attempt before reaching the parts so that close cannot free them while it runs.
+    // Runs the bounded action under the lock of the writes, without waiting for that lock.
+    // Returns true once the action completes, false if it was skipped, and propagates its failure.
+    internal bool TryRunMaintenanceStep(Action<DatabaseParts> step)
+    {
+        if (!_barrier.TryEnter())
+        {
+            return false;
+        }
+
+        try
+        {
+            if (State != LatticeDatabaseStateEnum.Ready)
+            {
+                return false;
+            }
+
+            _testInputs?.BeforeMaintenanceWrites?.Invoke();
+
+            var parts = Part(_parts);
+            if (!parts.Writes.TryEnter())
+            {
+                return false;
+            }
+
+            try
+            {
+                // State includes the child's fault mark. The master coordinator can mark its
+                // own fault before the state observes it.
+                if (State != LatticeDatabaseStateEnum.Ready ||
+                    (_options.Role == LatticeRoleEnum.Master && parts.Coordinator.IsFaulted))
+                {
+                    return false;
+                }
+
+                step(parts);
+
+                return true;
+            }
+            finally
+            {
+                parts.Writes.Exit();
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+    }
 
     // Steps 6 to 11 of the close (CloseAsync), once the operations in progress have ended. When nothing
     // is in progress it runs to its end before it returns. The wait for the reads runs on a thread of the
@@ -540,10 +585,9 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             // The last drain frees what is retired, and with the roots it frees go their references to
             // text entries (Storage.Text.TextTable): a change of a count, which runs only on the thread
             // that holds the lock of the writes (Storage.Text.TextTable).
-            // Nothing can contend for the lock here — the barrier has let every write, drain, count and
-            // placement end and admits none, the network has stopped, and the reads have left — so the
-            // close takes it all the same, to keep that rule without an exception, and frees the arena
-            // under it.
+            // The barrier has drained every counted operation, the network has stopped, and the
+            // reads have left. Nothing can contend for the writes lock here. Close takes the lock
+            // anyway so that the rule for changing the arena still holds.
             if (_parts is { } parts)
             {
                 lock (parts.Writes)
@@ -880,6 +924,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // faulted has lost its data.
     private void Fault()
     {
+        _testInputs?.BeforeFaultNotification?.Invoke();
+
         if (_epochs.Fault())
         {
             Part(_parts).Publisher.OfferFaultSwitch();

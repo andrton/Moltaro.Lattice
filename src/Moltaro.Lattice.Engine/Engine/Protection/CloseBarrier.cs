@@ -1,14 +1,11 @@
 namespace Moltaro.Lattice.Engine.Protection;
 
-// What a close waits for besides the reads (ReadEpochs): the operations in progress that may change
-// the arena — every write admitted, from its admission to its outcome, in whatever step it is
-// (Writes.WriteCoordinator), the drains and the counts of the counters (brief of S06, "States";
-// milestone contract: a close cannot free an arena until outstanding protected scopes release it).
-// Every such operation enters before it touches the database and exits when it is done. After the
-// close no operation enters, and Drained completes when the last operation in progress has exited, or
-// at once when none is in progress. Reads do not pass here: a count that every read changes is memory
-// every read writes, which ReadEpochs exists to avoid. A write passes here twice, at its admission and
-// at its outcome, beside the lock it takes anyway.
+// Counts operations that close must let finish before freeing the arena, including writes from
+// admission to outcome, received changes, and maintenance. Each operation enters before touching
+// the database parts and exits when it finishes. On a child the barrier closes after Closed is
+// published so that replication can still apply changes until Closed. Maintenance separately checks
+// for Ready. Once the barrier closes, it refuses every new entry and its task completes when the
+// last counted operation exits. Reads use ReadEpochs so that they do not all change a shared count.
 //
 // The count and the mark of the close are one word that every change makes atomically, so an
 // operation is either counted before the close or refused after it.
@@ -32,11 +29,23 @@ internal sealed class CloseBarrier
     // Enters an operation, or refuses it with ObjectDisposedException after the close.
     public void Enter()
     {
-        if (Interlocked.Increment(ref _word) < 0)
+        if (!TryEnter())
         {
-            Exit();
             ObjectDisposedException.ThrowIf(true, _owner);
         }
+    }
+
+    // Counts the operation if the barrier is open. A refused operation undoes its increment.
+    public bool TryEnter()
+    {
+        if (Interlocked.Increment(ref _word) >= 0)
+        {
+            return true;
+        }
+
+        Exit();
+
+        return false;
     }
 
     // Exits an operation that entered.

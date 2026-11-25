@@ -346,6 +346,10 @@ internal sealed class WriteCoordinator
     // The writes admitted and not completed (EngineCounters.QueuedWrites).
     public int QueuedWrites => Volatile.Read(ref _queued);
 
+    // Under the lock of the writes: this mark refuses maintenance before the database hears
+    // about the fault, while its state can still be Ready.
+    public bool IsFaulted => _faulted;
+
     // The most writes, and the most bytes, one group held since the open, each taken by itself.
     public int LargestCommitGroup => Volatile.Read(ref _largestGroup);
 
