@@ -52,6 +52,13 @@ public sealed class SdkTypedViewTests
             public List<int>? Weights { get; set; }
 
             public Dictionary<string, int> Mappings { get; set; } = [];
+
+            public EntryDetails Home { get; set; } = new();
+        }
+
+        public sealed class EntryDetails
+        {
+            public List<long>? Readings { get; set; }
         }
 
         internal static class ModelGuard
@@ -69,6 +76,14 @@ public sealed class SdkTypedViewTests
 
     private const string ModelSchema = """
         {
+          "OwnedTypes": [
+            {
+              "Id": 1, "Name": "EntryDetails", "ClrType": "ViewModels.EntryDetails",
+              "Fields": [
+                { "Id": 1, "Name": "Readings", "Type": "List", "Element": { "Type": "Int64" }, "Nullable": true }
+              ]
+            }
+          ],
           "EntityTypes": [
             {
               "Id": 1, "Name": "Entry", "ClrType": "ViewModels.Entry",
@@ -77,7 +92,8 @@ public sealed class SdkTypedViewTests
                 { "Id": 2, "Name": "Age", "Type": "Int32" },
                 { "Id": 3, "Name": "Data", "Type": "Binary" },
                 { "Id": 4, "Name": "Weights", "Type": "List", "Element": { "Type": "Int32" } },
-                { "Id": 5, "Name": "Mappings", "Type": "Map", "Key": { "Type": "String" }, "Value": { "Type": "Int32" } }
+                { "Id": 5, "Name": "Mappings", "Type": "Map", "Key": { "Type": "String" }, "Value": { "Type": "Int32" } },
+                { "Id": 6, "Name": "Home", "Type": "Owned", "OwnedType": "EntryDetails" }
               ],
               "PrimaryKey": [1]
             }
@@ -210,6 +226,20 @@ public sealed class SdkTypedViewTests
         sdk.Write(project, project + ".csproj", ConsumerProject(executable: false, analyzer: true, schema: true));
         sdk.Write(project, "entry.schema.json", ModelSchema);
         sdk.Write(project, "EntryView.cs", ViewDeclaration);
+        sdk.Write(project, "Reader.cs", """
+            using Moltaro.Lattice.Access;
+            using ViewModels;
+
+            public static class Reader
+            {
+                public static bool TryRead(ILatticeSet<Entry> entries, int key, out long? first) =>
+                    entries.TryView(key, static (EntryView view) =>
+                    {
+                        var readings = view.Home.Readings;
+                        return readings.HasValue ? readings.Value[0].Get<long>() : (long?)null;
+                    }, out first);
+            }
+            """);
         var compiled = await sdk.BuildAsync(project);
         Assert.True(compiled.ExitCode == 0, compiled.Output);
 
@@ -241,6 +271,10 @@ public sealed class SdkTypedViewTests
             ("public static void Await(ILatticeSet<Entry> rows) => rows.TryView(1, async (scoped EntryView v) => await Task.FromResult(1), out Task<int> result);", "CS4012"),
             ("public static IEnumerable<int> Yield(scoped EntryView v) { yield return v.Age; }", "CS4007"),
             ("public static LatticeOptionalView<LatticeValueView> EscapeOptional(scoped LatticeOptionalView<LatticeValueView> v) => v;", "CS8352"),
+            ("public static Func<int> CaptureOwned(scoped EntryView v) { var home = v.Home; return () => home.Readings.Value.Count; }", "CS8175"),
+            ("public static LatticeOptionalView<LatticeListView> EscapeOwnedOptional(scoped EntryView v) => v.Home.Readings;", "CS8352"),
+            ("public static LatticeListView EscapeOwnedList(scoped EntryView v) => v.Home.Readings.Value;", "CS8352"),
+            ("public static LatticeValueView EscapeOwnedItem(scoped EntryView v) => v.Home.Readings.Value[0];", "CS8352"),
         ]);
     }
 
