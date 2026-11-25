@@ -28,7 +28,7 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
         if (descriptor.Kind == DescriptorKindEnum.Lookup)
         {
             _payload = arena.Payload(ValueBlocks.AddressOf(descriptor));
-            _entries = ValueBlocks.Read(_payload);
+            _entries = ResidentDescriptor.Read(_payload);
         }
         else
         {
@@ -120,7 +120,7 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
     public string Spelling(int ordinal)
     {
         var payload = RecordPayload(ordinal, out var start);
-        var text = ValueBlocks.Read(payload[(start + Key.Offset)..]);
+        var text = ResidentDescriptor.Read(payload[(start + Key.Offset)..]);
         return StoredText.Read(_arena, text, payload, _encoding);
     }
 
@@ -153,7 +153,7 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
     private StoredTextReader Text(int ordinal)
     {
         var payload = RecordPayload(ordinal, out var start);
-        var text = ValueBlocks.Read(payload[(start + Key.Offset)..]);
+        var text = ResidentDescriptor.Read(payload[(start + Key.Offset)..]);
         return new StoredTextReader(_arena, text, payload, _encoding);
     }
 

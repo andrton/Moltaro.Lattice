@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 
 // The consecutive descriptors that close the fixed part of a root payload (RootLayout.DescriptorOffset).
 // RootWriter uses the sequence to adopt blocks when completing a root. BlockExport uses it to walk
-// the root's descriptors in their layout order and to zero addresses in the copy it sends. Ownership
+// the root's native descriptors and to encode the copy it sends. Ownership
 // operations and walks into the records of Lists use StructureWalk.
 //
 // A ref struct over a caller-owned span. Each step exposes the descriptor and the bytes it occupies,
@@ -26,8 +26,8 @@ internal ref struct RootDescriptors
         _index = -1;
     }
 
-    // The descriptor at the place.
-    public readonly ValueDescriptor Current => ValueBlocks.Read(Place);
+    // The descriptor at the place in a native root.
+    public readonly ValueDescriptor Current => ResidentDescriptor.Read(Place);
 
     // The 16 bytes the descriptor lies in, in the payload.
     public readonly Span<byte> Place => _payload.Slice(Offset - BlockHeader.Size, ValueBlocks.DescriptorSize);

@@ -182,7 +182,7 @@ internal sealed class IndexOrder
     // CompareText orders a part of an entry: the text the root stores is the text its entry holds.
     private static int CompareRootText(in EntryPart part, in RootReader root, scoped in SearchKey key, int place)
     {
-        var descriptor = ValueBlocks.Read(root.StoredBytes(part.Stored));
+        var descriptor = root.ReadDescriptor(part.Stored);
 
         if (key.TryTextBytes(place, out var given) && !ValueBlocks.LiesInChunks(descriptor))
         {

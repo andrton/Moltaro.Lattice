@@ -67,7 +67,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     public static bool IsChunked(in ValueDescriptor descriptor) => descriptor.Length > ContiguousEntries;
 
     public static ValueDescriptor Entries(Arena arena, in ValueDescriptor descriptor) =>
-        ValueBlocks.Read(arena.Payload(ValueBlocks.AddressOf(descriptor)));
+        ResidentDescriptor.Read(arena.Payload(ValueBlocks.AddressOf(descriptor)));
 
     // A probe is bound to the declaration of the key. The holder is the payload
     // that contains the original descriptor, including when the collection is inline.
@@ -100,7 +100,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
 
         var payload = holder.Arena.Payload(address);
         payload.Clear();
-        ValueBlocks.Write(holder.At(offset, ValueBlocks.DescriptorSize), new ValueDescriptor
+        holder.SetDescriptor(offset, new ValueDescriptor
         {
             Kind = DescriptorKindEnum.Lookup,
             Length = (uint)count,

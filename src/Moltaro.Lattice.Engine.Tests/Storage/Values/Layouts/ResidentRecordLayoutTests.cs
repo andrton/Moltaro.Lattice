@@ -8,7 +8,6 @@ using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
-using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 
@@ -18,7 +17,7 @@ public sealed class ResidentRecordLayoutTests
 {
     internal static LatticeSchema NarrowSchema { get; } = SchemaFor(wide: false);
 
-    [Theory(Skip = ResidentDescriptorTests.Pending)]
+    [Theory]
     [InlineData(false, 19, 789, 3_230_166, 62, 56)]
     [InlineData(true, 23, 752, 3_078_688, 70, 64)]
     public async Task Packed_records_keep_their_stride_and_wire_at_each_side_of_a_chunk_boundary(

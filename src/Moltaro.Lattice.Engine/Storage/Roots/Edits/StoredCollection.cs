@@ -54,7 +54,7 @@ internal readonly struct StoredCollection
         var chunk = ordinal / _element.RecordsPerChunk;
         var within = ordinal % _element.RecordsPerChunk;
         var directory = ValueBlocks.Directory(_arena, _entries);
-        var entry = ValueBlocks.Read(directory[(chunk * ValueBlocks.DescriptorSize)..]);
+        var entry = ResidentDescriptor.Read(directory[(chunk * ValueBlocks.DescriptorSize)..]);
         return (ValueBlocks.AddressOf(entry), BlockHeader.Size + within * _element.Size);
     }
 

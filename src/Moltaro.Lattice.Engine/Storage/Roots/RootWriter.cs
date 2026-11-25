@@ -67,7 +67,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // back as it is: the bytes of the last root stay in it until its next user overwrites them. They are
 // bytes and reference nothing, so they keep no memory alive, and the pool is the process's own, so
 // clearing them would protect nothing. The size of the root block is known only when every value
-// is placed, so the root block itself is allocated by Complete, which copies the image into it. A
+// is placed, so Complete allocates the root block, copies the canonical image and encodes its
+// descriptors in the native format. A
 // value too long to lie inline is copied into native memory at its Set… member, into its value
 // block or its chunks, because the span it comes in lives only for that call. A value is stored
 // whole or not at all (ValueBlocks.TryStore), so a descriptor in the image names a whole value or
@@ -438,15 +439,18 @@ internal ref struct RootWriter
 
         // TryAllocatePrepared wrote the root, the kind and the length; a root has no parent and the offset 0.
         _values.Arena.Header(root).LayoutVersion = _layout.LayoutVersion;
-        Image[BlockHeader.Size.._values.InlineEnd].CopyTo(_values.Arena.Payload(root));
+        var payload = _values.Arena.Payload(root);
+        Image[BlockHeader.Size.._values.InlineEnd].CopyTo(payload);
 
         // The value blocks, the directories and the blocks of records the root block holds the descriptors of
         // were allocated before their parent existed.
-        var descriptors = new RootDescriptors(_layout, Image[BlockHeader.Size..]);
+        var descriptors = new RootDescriptors(_layout, payload);
 
         while (descriptors.MoveNext())
         {
-            RootStorage.AdoptValue(_values.Arena, descriptors.Current, root, descriptors.Offset);
+            var descriptor = ValueBlocks.Read(descriptors.Place);
+            ResidentDescriptor.Write(descriptors.Place, descriptor);
+            RootStorage.AdoptValue(_values.Arena, descriptor, root, descriptors.Offset);
         }
 
         End(WriterStateEnum.Completed);

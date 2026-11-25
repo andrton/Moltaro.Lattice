@@ -7,7 +7,6 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
-using Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
@@ -31,7 +30,7 @@ public sealed class ResidentDescriptorViewTests
         { 'Id': 6, 'Name': 'Absent', 'Type': 'String', 'Nullable': true }
         """);
 
-    [Fact(Skip = ResidentDescriptorTests.Pending)]
+    [Fact]
     public async Task A_held_view_and_export_follow_a_published_edge_without_invalidating_an_older_span()
     {
         var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 32L * Arena.MaxBlockSize };

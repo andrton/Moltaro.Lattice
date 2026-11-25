@@ -34,11 +34,11 @@ public sealed class CollectionFormTests
         var larger = count == 4 ? item.Publish(Write(item, map, 9)) : default;
         if (!larger.IsNull)
         {
-            Assert.Equal(DescriptorKindEnum.Lookup, ValueBlocks.Read(item.Arena.Payload(larger)[sizeof(long)..]).Kind);
+            Assert.Equal(DescriptorKindEnum.Lookup, ResidentDescriptor.Read(item.Arena.Payload(larger)[sizeof(long)..]).Kind);
         }
 
         var written = Write(item, map, count);
-        var descriptor = ValueBlocks.Read(item.Arena.Payload(written)[sizeof(long)..]);
+        var descriptor = ResidentDescriptor.Read(item.Arena.Payload(written)[sizeof(long)..]);
 
         Assert.Equal(count >= 9 ? DescriptorKindEnum.Lookup : DescriptorKindEnum.Inline, descriptor.Kind);
         AssertMatches(item.Reader(written), field, count);
@@ -82,10 +82,10 @@ public sealed class CollectionFormTests
         Assert.True(arena.TryAllocatePrepared(bytes, BlockKindEnum.Value, RootArena.Handle, out var entries));
         var rootPayload = arena.Payload(root);
         MemoryMarshal.Write(rootPayload, 1L);
-        ValueBlocks.Write(rootPayload[sizeof(long)..], new ValueDescriptor { Kind = DescriptorKindEnum.Lookup, Length = (uint)count, Location = lookup.Value });
+        ResidentDescriptor.Write(rootPayload[sizeof(long)..], new ValueDescriptor { Kind = DescriptorKindEnum.Lookup, Length = (uint)count, Location = lookup.Value });
         var directory = arena.Payload(lookup);
         directory.Clear();
-        ValueBlocks.Write(directory, new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)bytes, Location = entries.Value });
+        ResidentDescriptor.Write(directory, new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)bytes, Location = entries.Value });
         var slots = MemoryMarshal.Cast<byte, ulong>(directory[16..]);
 
         arena.Header(root).LayoutVersion = item.Layout.LayoutVersion;

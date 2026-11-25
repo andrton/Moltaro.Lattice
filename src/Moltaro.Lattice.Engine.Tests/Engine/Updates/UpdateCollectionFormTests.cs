@@ -63,7 +63,7 @@ public sealed class UpdateCollectionFormTests
         database.ForEachLiveRoot((arena, layout, _, address) =>
         {
             ref readonly var field = ref layout.StoredFieldOf(layout.EntityType.GetField("Tags"));
-            var descriptor = ValueBlocks.Read(arena.Payload(address)[(field.Offset - BlockHeader.Size)..]);
+            var descriptor = ResidentDescriptor.Read(arena.Payload(address)[(field.Offset - BlockHeader.Size)..]);
             hashed = descriptor.Kind == DescriptorKindEnum.Lookup;
         });
 

@@ -12,9 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 // ("Collections and strings") leaves the logical value and inline offsets intact.
 public sealed class ResidentDescriptorTests
 {
-    internal const string Pending = "The resident descriptor layout is not implemented yet.";
-
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(0, 8, 4)]
     [InlineData(1, 7, 3)]
     [InlineData(2, 6, 2)]
@@ -83,7 +81,7 @@ public sealed class ResidentDescriptorTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void Lengths_in_a_skewed_fixed_part_copy_use_the_offsets_of_the_native_root()
     {
         using var item = RootArena.Of("""

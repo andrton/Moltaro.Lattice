@@ -76,8 +76,8 @@ public sealed class UpdateOwnershipTests
                 var changedAt = layout.StoredFieldOf([home, declaration]).Offset;
                 var neighborAt = layout.StoredFieldOf(sibling).Offset;
                 var payload = arena.Payload(root);
-                var changed = ValueBlocks.Read(payload[(changedAt - BlockHeader.Size)..]);
-                var untouched = ValueBlocks.Read(payload[(neighborAt - BlockHeader.Size)..]);
+                var changed = ResidentDescriptor.Read(payload[(changedAt - BlockHeader.Size)..]);
+                var untouched = ResidentDescriptor.Read(payload[(neighborAt - BlockHeader.Size)..]);
                 Assert.Equal(kind, changed.Kind);
                 Assert.Equal((uint)expected.Length, changed.Length);
                 Assert.Equal(DescriptorKindEnum.Inline, untouched.Kind);
@@ -305,7 +305,7 @@ public sealed class UpdateOwnershipTests
     }
 
     private static ArenaAddress AddressOf(Arena arena, ArenaAddress parent, int offset) =>
-        ValueBlocks.AddressOf(ValueBlocks.Read(arena.Payload(parent)[(offset - BlockHeader.Size)..]));
+        ValueBlocks.AddressOf(ResidentDescriptor.Read(arena.Payload(parent)[(offset - BlockHeader.Size)..]));
 
     private static byte[] Bytes(int count, byte first)
     {

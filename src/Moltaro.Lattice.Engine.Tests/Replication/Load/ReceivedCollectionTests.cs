@@ -284,7 +284,7 @@ public sealed class ReceivedCollectionTests
             }
 
             found = true;
-            var descriptor = ValueBlocks.Read(arena.Payload(root)[sizeof(long)..]);
+            var descriptor = ResidentDescriptor.Read(arena.Payload(root)[sizeof(long)..]);
             Assert.Equal(DescriptorKindEnum.Lookup, descriptor.Kind);
             Assert.Equal((uint)entries.Length, descriptor.Length);
             var lookup = arena.Payload(ValueBlocks.AddressOf(descriptor));

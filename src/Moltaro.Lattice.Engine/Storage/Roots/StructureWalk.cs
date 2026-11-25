@@ -16,8 +16,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // of a value still to be placed. It names no storage, so the walk needs no special case for it. The walk
 // serves a root its writer or its import left half written as well as a whole one.
 //
-// The caller holds what keeps the blocks of the root from being freed or changed while it walks: the lock of
-// the writes, or the protection of reads for a published root.
+// The caller holds what protects the native blocks it follows: the lock of the writes, or a
+// published root's read epoch. A writer's canonical image starts the same walk into native blocks.
 internal static class StructureWalk
 {
     // Walks the root at the address using its layout. Each edge the visitor
@@ -35,20 +35,20 @@ internal static class StructureWalk
         ArgumentNullException.ThrowIfNull(arena);
         ArgumentNullException.ThrowIfNull(layout);
 
-        WalkStructure(arena, layout.Structure, layout.RootPayload(arena, root), BlockHeader.Size, 0, root, ref visitor);
+        WalkStructure(arena, layout.Structure, layout.RootPayload(arena, root), BlockHeader.Size, 0, root, canonical: false, ref visitor);
     }
 
     // Walks the root whose payload is given, for a visitor that needs no holder, which this walk gives as the
     // null address for a descriptor of the root: a reader that counts what a root holds (RootReader).
     public static void WalkPayload<TVisitor>(Arena arena, RootLayout layout, ReadOnlySpan<byte> payload, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor =>
-        WalkStructure(arena, layout.Structure, payload, BlockHeader.Size, 0, default, ref visitor);
+        WalkStructure(arena, layout.Structure, payload, BlockHeader.Size, 0, default, canonical: false, ref visitor);
 
     // Walks the image of a root its writer collects, whose first bytes stand for the header of a root block
     // that does not exist yet, so the holder of its descriptors is the null address (RootWriter).
     public static void WalkImage<TVisitor>(Arena arena, RootLayout layout, Span<byte> image, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor =>
-        WalkStructure(arena, layout.Structure, image, 0, 0, default, ref visitor);
+        WalkStructure(arena, layout.Structure, image, 0, 0, default, canonical: true, ref visitor);
 
     // Walks the value one descriptor names, the records of a List of kind Records with the layout of its
     // element, then visits the descriptor itself, as it lies at the offset of the block of the holder.
@@ -83,7 +83,7 @@ internal static class StructureWalk
     // the offset origin of the block on. They close the structure one after another (StructureLayout), so a
     // descriptor is found by its index, and the layout of an element is looked up only for a List of kind
     // Records: a root without one reads no table of its layout here.
-    private static void WalkStructure<TVisitor>(Arena arena, StructureLayout structure, ReadOnlySpan<byte> bytes, int origin, int at, ArenaAddress holder, ref TVisitor visitor)
+    private static void WalkStructure<TVisitor>(Arena arena, StructureLayout structure, ReadOnlySpan<byte> bytes, int origin, int at, ArenaAddress holder, bool canonical, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor
     {
         var count = structure.DescriptorCount;
@@ -91,7 +91,8 @@ internal static class StructureWalk
         for (var index = 0; index < count; index++)
         {
             var offset = at + structure.DescriptorOffset + (index * ValueBlocks.DescriptorSize);
-            var descriptor = ValueBlocks.Read(bytes[(offset - origin)..]);
+            var place = bytes[(offset - origin)..];
+            var descriptor = canonical ? ValueBlocks.Read(place) : ResidentDescriptor.Read(place);
             var element = descriptor.Kind is DescriptorKindEnum.Records or DescriptorKindEnum.Lookup ? structure.DescriptorElement(index) : null;
 
             WalkValue(arena, descriptor, element, holder, offset, ref visitor);
@@ -121,7 +122,7 @@ internal static class StructureWalk
 
         for (var record = 0; record < count; record++)
         {
-            WalkStructure(arena, element, payload, BlockHeader.Size, BlockHeader.Size + (record * element.Size), block, ref visitor);
+            WalkStructure(arena, element, payload, BlockHeader.Size, BlockHeader.Size + (record * element.Size), block, canonical: false, ref visitor);
         }
     }
 }

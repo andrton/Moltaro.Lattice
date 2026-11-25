@@ -56,18 +56,18 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
     }
 
     public string ReadString(scoped in ViewRecord row, int position) =>
-        StoredText.Read(arena, ValueBlocks.Read(row.Bytes[DescriptorOffset(row, position)..]), row.Bytes, encoding);
+        StoredText.Read(arena, ResidentDescriptor.Read(row.Bytes[DescriptorOffset(row, position)..]), row.Bytes, encoding);
 
     public (int Length, int Parts) ByteShape(scoped in ViewRecord row, int position)
     {
-        var descriptor = ValueBlocks.Read(row.Bytes[DescriptorOffset(row, position)..]);
+        var descriptor = ResidentDescriptor.Read(row.Bytes[DescriptorOffset(row, position)..]);
         var length = (int)descriptor.Length;
         return (length, PartCount(length, ValueBlocks.LiesInChunks(descriptor)));
     }
 
     public ReadOnlySpan<byte> GetPart(ViewRecord row, int position, int part)
     {
-        var descriptor = ValueBlocks.Read(row.Bytes[DescriptorOffset(row, position)..]);
+        var descriptor = ResidentDescriptor.Read(row.Bytes[DescriptorOffset(row, position)..]);
         var chunked = ValueBlocks.LiesInChunks(descriptor);
         ArgumentOutOfRangeException.ThrowIfNegative(part);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(part, PartCount((int)descriptor.Length, chunked));
@@ -81,7 +81,7 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
     {
         var entry = LayoutOf(row).ElementOf(position);
         var offset = DescriptorOffset(row, position);
-        var descriptor = ValueBlocks.Read(row.Bytes[offset..]);
+        var descriptor = ResidentDescriptor.Read(row.Bytes[offset..]);
         var entries = descriptor.Kind == DescriptorKindEnum.Lookup ? CollectionLookup.Entries(arena, descriptor) : descriptor;
         return new ViewCollection(entry, row.Bytes, offset, entry.StoredEntryCount(entries));
     }
@@ -89,7 +89,7 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
     public ViewRecord Entry(ViewCollection collection, int ordinal)
     {
         var layout = (StructureLayout)collection.EntryLayout;
-        var descriptor = ValueBlocks.Read(collection.Holder[collection.DescriptorOffset..]);
+        var descriptor = ResidentDescriptor.Read(collection.Holder[collection.DescriptorOffset..]);
         var entries = new CollectionKeys(arena, layout, descriptor, collection.Holder, encoding);
         var bytes = entries.EntryParts(ordinal, out var tail, out var start);
         return new ViewRecord(layout, bytes, tail, start);
@@ -103,7 +103,7 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
             return default;
         }
 
-        var descriptor = ValueBlocks.Read(collection.Holder[collection.DescriptorOffset..]);
+        var descriptor = ResidentDescriptor.Read(collection.Holder[collection.DescriptorOffset..]);
         var bytes = ValueBlocks.LiesInChunks(descriptor)
             ? ValueBlocks.Chunk(arena, ValueBlocks.Directory(arena, descriptor), block)
             : ValueBlocks.Contiguous(arena, descriptor, collection.Holder);
@@ -112,7 +112,7 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
 
     public int FindEntry(scoped in ViewCollection collection, in IndexValue key)
     {
-        var descriptor = ValueBlocks.Read(collection.Holder[collection.DescriptorOffset..]);
+        var descriptor = ResidentDescriptor.Read(collection.Holder[collection.DescriptorOffset..]);
         return CollectionLookup.Find(arena, (StructureLayout)collection.EntryLayout, descriptor, collection.Holder, encoding, key);
     }
 

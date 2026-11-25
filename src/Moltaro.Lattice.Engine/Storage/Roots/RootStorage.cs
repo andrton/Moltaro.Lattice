@@ -22,7 +22,7 @@ internal static class RootStorage
     // block, which holds them, last.
     //
     // A root that a node did not finish placing from what it received is freed so too: what it did not place
-    // is pending and names nothing (ValueBlocks.WritePending).
+    // is a resident pending descriptor and names nothing (Replication.Load.BlockImport).
     //
     // The caller frees a root only when no reader can reach its blocks any more
     // (docs/design/arena-protocol.md, "Deferred reclamation"). A retired root is freed in the same

@@ -128,7 +128,7 @@ internal struct AuditVisitor : IStructureVisitor
         for (var chunk = 0; chunk < chunks; chunk++)
         {
             var records = Math.Min(element.RecordsPerChunk, count - ((long)chunk * element.RecordsPerChunk));
-            var length = arena.Header(ValueBlocks.AddressOf(ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]))).PayloadLength;
+            var length = arena.Header(ValueBlocks.AddressOf(ResidentDescriptor.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]))).PayloadLength;
 
             Assert.True(length >= records * element.Size, $"Chunk {chunk} of {records} records of {element.Size} bytes holds {length}.");
         }
@@ -143,7 +143,7 @@ internal struct AuditVisitor : IStructureVisitor
 
         for (var chunk = 0; chunk < chunks; chunk++)
         {
-            var entry = ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]);
+            var entry = ResidentDescriptor.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]);
 
             Assert.Equal(DescriptorKindEnum.Block, entry.Kind);
             Own(arena, ValueBlocks.AddressOf(entry), directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), BlockKindEnum.Chunk, entry.Length);

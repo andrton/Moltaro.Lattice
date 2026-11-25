@@ -79,10 +79,9 @@ internal sealed class BlockImport
         return new ReceivedRoot(layout, payloadLength, values);
     }
 
-    // A reader of the fixed part of the root checked last, which reads its fixed fields and descriptors
-    // (Storage.Roots.RootReader, a reader of a copy).
+    // A reader of the canonical fixed part of the root checked last, for its fixed-width key.
     public RootReader FixedPart(in ReceivedRoot root) =>
-        new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)));
+        new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)), canonical: true);
 
     // A newer local root makes placement unnecessary. Every supplied entry still has to
     // be unique before any effect of its transaction can publish. The checked root and
@@ -178,6 +177,7 @@ internal sealed class BlockImport
         var target = _arena.Payload(block);
 
         _payload.AsSpan(0, root.PayloadLength).CopyTo(target);
+        PrepareDescriptors(layout.Structure, target);
 
         // The root block holds what it received: every value placed into it lies out of line, as it came.
         var holder = new ValueHolder(_arena, layout, handle, target, BlockHeader.Size, block, BlockHeader.Size + root.PayloadLength);
@@ -216,7 +216,7 @@ internal sealed class BlockImport
         {
             ref readonly var place = ref structure.DescriptorField(index);
             var offset = at + place.Offset;
-            var pending = ValueBlocks.Read(holder.At(offset, ValueBlocks.DescriptorSize));
+            var pending = ResidentDescriptor.Read(holder.At(offset, ValueBlocks.DescriptorSize));
 
             if (place.Type is StoredTypeEnum.Map or StoredTypeEnum.Set)
             {
@@ -279,15 +279,28 @@ internal sealed class BlockImport
         values = records.Values;
     }
 
-    // Leaves the descriptor at the place, received as given, pending (see the class) when it names a value that
-    // follows its structure on the wire: a value out of line, or a nonempty collection of records.
-    public static void LeavePending(Span<byte> place, in ValueDescriptor received)
+    // The canonical structure has already been checked. Encode every slot before any placement:
+    // on refusal the ownership walk reads the entire prepared structure as native storage,
+    // including the inline, empty and pending slots that placement has yet to visit.
+    public static void PrepareDescriptors(StructureLayout structure, Span<byte> bytes)
     {
-        if (ValueBlocks.LiesOutOfLine(received) || (received.Kind == DescriptorKindEnum.Records && received.Length != 0))
+        for (var index = 0; index < structure.DescriptorCount; index++)
         {
-            ValueBlocks.WritePending(place, received.Length);
+            var offset = structure.DescriptorField(index).Offset - structure.Start;
+            var place = bytes[offset..];
+            var descriptor = ValueBlocks.Read(place);
+            if (NeedsPlacement(descriptor))
+            {
+                descriptor = new ValueDescriptor { Length = descriptor.Length };
+            }
+
+            ResidentDescriptor.Write(place, descriptor);
         }
     }
+
+    // On the wire this descriptor names the value that follows its containing structure.
+    private static bool NeedsPlacement(in ValueDescriptor descriptor) =>
+        ValueBlocks.LiesOutOfLine(descriptor) || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Length != 0);
 
     private static LatticeException Invalid(RootLayout layout, string message) =>
         new(LatticeErrorEnum.ValidationFailed, $"A root of {layout.EntityType.Name} received from the master is not valid: {message}");
@@ -392,7 +405,10 @@ internal sealed class BlockImport
                 checkedBytes = input.Consumed - start;
             }
 
-            LeavePending(at, received);
+            if (NeedsPlacement(received))
+            {
+                ValueBlocks.WritePending(at, received.Length);
+            }
         }
 
         Pass(layout, passed, ref input);

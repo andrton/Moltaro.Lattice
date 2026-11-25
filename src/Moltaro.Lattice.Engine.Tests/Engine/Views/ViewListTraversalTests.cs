@@ -324,7 +324,7 @@ public sealed class ViewListTraversalTests
         {
             roots++;
             var field = layout.StoredFieldOf(layout.EntityType.GetField(name));
-            var descriptor = ValueBlocks.Read(arena.Payload(address)[(field.Offset - BlockHeader.Size)..]);
+            var descriptor = ResidentDescriptor.Read(arena.Payload(address)[(field.Offset - BlockHeader.Size)..]);
             Assert.Equal(kind, descriptor.Kind);
             Assert.Equal((uint)length, descriptor.Length);
             if (chunks > 0)

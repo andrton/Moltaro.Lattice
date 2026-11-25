@@ -86,7 +86,7 @@ internal sealed class RootUpdate
                 throw MissingCollection(command);
             }
 
-            var descriptor = ValueBlocks.Read(payload[(place.Offset - BlockHeader.Size)..]);
+            var descriptor = ResidentDescriptor.Read(payload[(place.Offset - BlockHeader.Size)..]);
             var stored = new StoredCollection(_arena, element, _layout.StringEncoding, _source, descriptor);
             staged = new EditedCollection(element, stored, assigned: null);
         }

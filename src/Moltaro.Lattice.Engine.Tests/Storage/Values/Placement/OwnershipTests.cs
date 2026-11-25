@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
@@ -52,7 +51,7 @@ public sealed class OwnershipTests
 
         for (var chunk = 0; chunk < 4; chunk++)
         {
-            var entry = MemoryMarshal.Read<ValueDescriptor>(entries[(16 * chunk)..]);
+            var entry = ResidentDescriptor.Read(entries[(16 * chunk)..]);
             var header = item.Arena.Header(AddressOf(entry.Location));
 
             AssertOwned(header, BlockKindEnum.Chunk, parent: directory, 32 + 16 * chunk);
@@ -120,7 +119,7 @@ public sealed class OwnershipTests
 
     // The descriptor at an offset counted from the start of the root block, its header included.
     private static ValueDescriptor DescriptorAt(Arena arena, ArenaAddress root, int offset) =>
-        MemoryMarshal.Read<ValueDescriptor>(arena.Payload(root)[(offset - 32)..]);
+        ResidentDescriptor.Read(arena.Payload(root)[(offset - 32)..]);
 
     private static ArenaAddress AddressOf(ulong location) => new((uint)(location >> 32), (uint)location);
 

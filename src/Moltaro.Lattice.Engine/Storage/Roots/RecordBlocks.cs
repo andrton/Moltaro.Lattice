@@ -72,7 +72,7 @@ internal ref struct RecordBlocks
         while (_next * _perChunk < count)
         {
             var chunk = _next++;
-            var entry = ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]);
+            var entry = ResidentDescriptor.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]);
 
             if (entry.Location == 0)
             {

@@ -491,7 +491,7 @@ internal sealed class IndexLayout
     // which the layout of the root places in an entry (StoredField.LiesInTextEntry).
     private static int WriteText(in RootReader root, in StoredField stored, Span<byte> destination)
     {
-        var descriptor = ValueBlocks.Read(root.StoredBytes(stored));
+        var descriptor = root.ReadDescriptor(stored);
 
         if (descriptor.Length <= TextCopyLimit)
         {
@@ -514,8 +514,8 @@ internal sealed class IndexLayout
     // (WriteText): the same copy, or the same reference to a text entry.
     private static bool SameText(in RootReader left, in RootReader right, in StoredField stored)
     {
-        var leftText = ValueBlocks.Read(left.StoredBytes(stored));
-        var rightText = ValueBlocks.Read(right.StoredBytes(stored));
+        var leftText = left.ReadDescriptor(stored);
+        var rightText = right.ReadDescriptor(stored);
 
         if (leftText.Length != rightText.Length)
         {

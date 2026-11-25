@@ -131,10 +131,10 @@ internal static class NestedValues
                 return owned;
 
             case StoredTypeEnum.String:
-                return StoredText.Read(arena, ValueBlocks.Read(structure[offset..]), payload, encoding);
+                return StoredText.Read(arena, ResidentDescriptor.Read(structure[offset..]), payload, encoding);
 
             case StoredTypeEnum.Binary:
-                var descriptor = ValueBlocks.Read(structure[offset..]);
+                var descriptor = ResidentDescriptor.Read(structure[offset..]);
 
                 if (descriptor.Length == 0)
                 {
@@ -148,9 +148,9 @@ internal static class NestedValues
                 return copy;
 
             case StoredTypeEnum.List:
-                return ReadList(arena, layout.ElementOf(position), ValueBlocks.Read(structure[offset..]), payload, encoding);
+                return ReadList(arena, layout.ElementOf(position), ResidentDescriptor.Read(structure[offset..]), payload, encoding);
             case StoredTypeEnum.Map or StoredTypeEnum.Set:
-                return ReadCollection(arena, layout.ElementOf(position), ValueBlocks.Read(structure[offset..]), payload, encoding);
+                return ReadCollection(arena, layout.ElementOf(position), ResidentDescriptor.Read(structure[offset..]), payload, encoding);
 
             default:
                 return StoredScalars.ReadBoxed(structure.Slice(offset, place.Width), declaration.ScalarType);
@@ -182,7 +182,7 @@ internal static class NestedValues
         if (descriptor.Kind == DescriptorKindEnum.Lookup)
         {
             payload = arena.Payload(ValueBlocks.AddressOf(descriptor));
-            descriptor = ValueBlocks.Read(payload);
+            descriptor = ResidentDescriptor.Read(payload);
         }
 
         if (element.Packed is { } packed)
@@ -234,7 +234,7 @@ internal static class NestedValues
     // frees everything it took and the holder is Refused; an OutOfMemoryException of the native allocator
     // passes after the same free. Its descriptor then names nothing: written as zero once it named a block,
     // or still as it was when the arena refused the first one, zero in the image of a root and pending in a
-    // block that was received (ValueBlocks.WritePending). So the descriptor names a whole List
+    // block that was received (Replication.Load.BlockImport). So the descriptor names a whole List
     // or nothing. The descriptor names the block or the directory before they are filled, so that a free of
     // the List halfway reaches what it took. For a root for a forwarded write each block is kept apart, with
     // the values of its records (ExportedValues.StoreRecords), and the descriptor has the location 0.
@@ -246,11 +246,9 @@ internal static class NestedValues
             throw AboveTheBound(place, count, element);
         }
 
-        var descriptorPlace = holder.At(offset, ValueBlocks.DescriptorSize);
-
         if (count == 0)
         {
-            ValueBlocks.Write(descriptorPlace, new ValueDescriptor { Kind = DescriptorKindEnum.Records });
+            holder.SetDescriptor(offset, new ValueDescriptor { Kind = DescriptorKindEnum.Records });
 
             return;
         }
@@ -273,19 +271,19 @@ internal static class NestedValues
 
         try
         {
-            if (TryPlaceRecords(ref holder, element, offset, count, descriptorPlace, ref descriptor, ref source))
+            if (TryPlaceRecords(ref holder, element, offset, count, ref descriptor, ref source))
             {
                 return;
             }
         }
         catch
         {
-            FreeRecords(ref holder, element, offset, descriptorPlace, descriptor, slotBytes);
+            FreeRecords(ref holder, element, offset, descriptor, slotBytes);
 
             throw;
         }
 
-        FreeRecords(ref holder, element, offset, descriptorPlace, descriptor, slotBytes);
+        FreeRecords(ref holder, element, offset, descriptor, slotBytes);
         holder.Refused = true;
     }
 
@@ -470,7 +468,7 @@ internal static class NestedValues
 
     public static void CheckUnique(in ValueHolder holder, in StoredField place, StructureLayout element, int offset)
     {
-        var descriptor = ValueBlocks.Read(holder.At(offset, ValueBlocks.DescriptorSize));
+        var descriptor = holder.DescriptorAt(offset);
         var payload = holder.Bytes[(BlockHeader.Size - holder.Origin)..];
         var keys = new CollectionKeys(holder.Arena, element, descriptor, payload, holder.Encoding);
         var slots = new CollectionLookup(holder.Arena, descriptor);
@@ -489,7 +487,7 @@ internal static class NestedValues
     public static void DiscardCollection(ref ValueHolder holder, StructureLayout element, int offset, long before, int inline)
     {
         var bytes = holder.At(offset, ValueBlocks.DescriptorSize);
-        var descriptor = ValueBlocks.Read(bytes);
+        var descriptor = holder.DescriptorAt(offset);
         RootStorage.FreeValue(holder.Arena, descriptor, element, holder.Address, offset);
         bytes.Clear();
         holder.SlotBytes = before;
@@ -528,7 +526,7 @@ internal static class NestedValues
     // The blocks of a List of records, each allocated, named by the descriptor or the directory, and filled
     // in turn (PlaceRecords); false when the arena refused a block, with the descriptor in place naming what
     // was taken so far, or still as it was when nothing was.
-    private static bool TryPlaceRecords<TSource>(ref ValueHolder holder, StructureLayout element, int offset, int count, Span<byte> descriptorPlace, ref ValueDescriptor descriptor, ref TSource source)
+    private static bool TryPlaceRecords<TSource>(ref ValueHolder holder, StructureLayout element, int offset, int count, ref ValueDescriptor descriptor, ref TSource source)
         where TSource : struct, IRecordSource
     {
         var perChunk = element.RecordsPerChunk;
@@ -541,7 +539,7 @@ internal static class NestedValues
             }
 
             descriptor.Location = block.Value;
-            ValueBlocks.Write(descriptorPlace, descriptor);
+            holder.SetDescriptor(offset, descriptor);
 
             return TryFill(ref holder, element, block, 0, count, ref source);
         }
@@ -558,7 +556,7 @@ internal static class NestedValues
 
         entries.Clear();
         descriptor.Location = directory.Value;
-        ValueBlocks.Write(descriptorPlace, descriptor);
+        holder.SetDescriptor(offset, descriptor);
 
         for (var chunk = 0; chunk < chunks; chunk++)
         {
@@ -571,7 +569,7 @@ internal static class NestedValues
                 return false;
             }
 
-            ValueBlocks.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
+            ResidentDescriptor.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
 
             if (!TryFill(ref holder, element, block, first, records, ref source))
             {
@@ -599,12 +597,12 @@ internal static class NestedValues
 
     // Frees a List of records the placement did not complete, from what its descriptor names, writes its
     // descriptor as zero and gives back what the holder counted for it.
-    private static void FreeRecords(ref ValueHolder holder, StructureLayout element, int offset, Span<byte> descriptorPlace, in ValueDescriptor descriptor, long slotBytes)
+    private static void FreeRecords(ref ValueHolder holder, StructureLayout element, int offset, in ValueDescriptor descriptor, long slotBytes)
     {
         if (descriptor.Location != 0)
         {
             RootStorage.FreeValue(holder.Arena, descriptor, element, holder.Address, offset);
-            ValueBlocks.Write(descriptorPlace, default);
+            holder.SetDescriptor(offset, default);
         }
 
         holder.SlotBytes = slotBytes;
@@ -629,7 +627,7 @@ internal static class NestedValues
             holder.Exported!.StoreRecords(offset, block, holderOfBlock.Exported!);
         }
 
-        ValueBlocks.Write(holder.At(offset, ValueBlocks.DescriptorSize), new ValueDescriptor { Kind = DescriptorKindEnum.Records, Length = (uint)count });
+        holder.SetDescriptor(offset, new ValueDescriptor { Kind = DescriptorKindEnum.Records, Length = (uint)count });
     }
 
     // A packed List read from where its descriptor says it lies, a record that a chunk boundary divides read
