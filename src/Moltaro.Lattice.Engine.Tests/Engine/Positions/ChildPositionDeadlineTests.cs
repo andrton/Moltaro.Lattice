@@ -13,8 +13,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 // (docs/decisions/session-consistency.md, "Explicit local position wait").
 public sealed class ChildPositionDeadlineTests
 {
-    private const string FaultBeforeCancellation = "The registered wait does not yet check for a prior fault when its token callback wakes it.";
-
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(1);
 
     [Fact]
@@ -110,7 +108,7 @@ public sealed class ChildPositionDeadlineTests
         Assert.Equal(LatticeErrorEnum.Unavailable, refused.Error);
     }
 
-    [Fact(Skip = FaultBeforeCancellation)]
+    [Fact]
     public Task A_registered_child_wait_reports_a_prior_fault_when_its_token_callback_runs_first() =>
         ExpectPriorFaultAsync(deliverCancellationFirst: true);
 

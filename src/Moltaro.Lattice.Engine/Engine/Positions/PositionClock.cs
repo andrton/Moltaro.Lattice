@@ -339,6 +339,12 @@ internal sealed class PositionClock
                     // The signal can still be pending after a coherent publication. Recheck its
                     // reach time, the lifecycle and the token even when timer delivery won.
                 }
+                catch (OperationCanceledException)
+                {
+                    // A fault mark can already be visible while its notification is pending.
+                    ThrowIfWaitEnded();
+                    throw;
+                }
             }
         }
         finally
