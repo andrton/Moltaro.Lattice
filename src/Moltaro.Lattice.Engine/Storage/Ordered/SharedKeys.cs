@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Moltaro.Lattice.Storage.Ordered;
 
 // The shared keys of one entry of an ordered index, one at a time: the String parts that reference a
@@ -45,28 +47,31 @@ internal ref struct SharedKeys
     {
         while (_place < _parts.Length)
         {
-            ref readonly var part = ref _parts[_place++];
-
-            if (!part.IsText)
+            var descriptor = ReadPart(_parts[_place++], _entry, ref _offset);
+            if (descriptor.Kind == DescriptorKindEnum.Text)
             {
-                _offset += part.Width;
-
-                continue;
-            }
-
-            var at = _offset;
-            var head = _entry[at];
-
-            _offset += IndexLayout.TextPartBytes(head);
-
-            if (head == IndexLayout.SharedTextHead)
-            {
-                _current = IndexLayout.SharedDescriptorOf(_entry[at..]);
-
+                _current = descriptor;
                 return true;
             }
         }
 
         return false;
+    }
+
+    // Reads one part, including an unshared or fixed-width part, so a reclamation
+    // turn can count it even when it does not hold a text reference.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ValueDescriptor ReadPart(in EntryPart part, ReadOnlySpan<byte> entry, ref int offset)
+    {
+        if (!part.IsText)
+        {
+            offset += part.Width;
+            return default;
+        }
+
+        var at = offset;
+        var head = entry[at];
+        offset += IndexLayout.TextPartBytes(head);
+        return head == IndexLayout.SharedTextHead ? IndexLayout.SharedDescriptorOf(entry[at..]) : default;
     }
 }

@@ -113,7 +113,7 @@ internal static class RootStorage
             ? ValueBlocks.AddressOf(descriptor)
             : default;
 
-    private static bool Owns(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset)
+    public static bool Owns(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset)
     {
         var address = OwnedAddress(descriptor);
         if (address.IsNull)

@@ -30,7 +30,7 @@ public sealed class ResumableTextReclamationTests
         { 'Id': 2, 'Name': 'Text', 'Type': 'String', 'StringStorage': 'Dictionary' }
         """);
 
-    [Theory(Skip = ResumableDrainNotImplemented)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task A_paused_final_release_observes_a_new_owner_or_restarts_after_table_growth(bool addOwner)
@@ -107,7 +107,7 @@ public sealed class ResumableTextReclamationTests
         Assert.All(colliderTexts, entry => Assert.Equal(entry.Text, items.Get(entry.Key)!.Get<string>("Text")));
     }
 
-    [Theory(Skip = ResumableDrainNotImplemented)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Unlinked_text_keeps_its_id_and_native_storage_until_its_last_chunk_is_returned(bool finishWithOrdinaryDrain)
@@ -229,7 +229,7 @@ public sealed class ResumableTextReclamationTests
         Assert.Equal(1L, References(database, text));
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task A_retired_leaf_releases_each_shared_key_before_returning_its_own_slot()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
@@ -286,7 +286,7 @@ public sealed class ResumableTextReclamationTests
             ranked.Index("ByLogin").Find(range).Select(item => item.Id));
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task A_remaining_index_separator_owns_its_text_after_the_last_entity_is_reclaimed()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);

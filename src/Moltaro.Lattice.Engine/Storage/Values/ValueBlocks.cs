@@ -197,6 +197,10 @@ internal static class ValueBlocks
     public static ReadOnlySpan<byte> Directory(Arena arena, scoped in ValueDescriptor descriptor) =>
         arena.Payload(AddressOf(descriptor));
 
+    // Reads one directory entry, including an unallocated slot in an unfinished value.
+    public static ArenaAddress ChunkAddressAt(Arena arena, ArenaAddress directory, int chunk) =>
+        AddressOf(ResidentDescriptor.Read(arena.Payload(directory)[(chunk * DescriptorSize)..]));
+
     // The bytes of one chunk, by its entry in the directory.
     public static ReadOnlySpan<byte> Chunk(Arena arena, ReadOnlySpan<byte> entries, int chunk)
     {

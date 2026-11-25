@@ -18,8 +18,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // free the shared block (docs/design/arena-protocol.md, "Deferred reclamation").
 public sealed class ResumableReclamationTests
 {
-    internal const string ResumableDrainNotImplemented = "Bounded retirement reclamation is not implemented yet.";
-
     private const int MapRecords = 37;
 
     private static readonly LatticeSchema FixedSchema = ItemSchema.Compile("""
@@ -47,7 +45,7 @@ public sealed class ResumableReclamationTests
         }
         """);
 
-    [Theory(Skip = ResumableDrainNotImplemented)]
+    [Theory]
     [InlineData(0)]
     [InlineData(-1)]
     public async Task A_step_requires_a_positive_work_limit(int workLimit)
@@ -58,7 +56,7 @@ public sealed class ResumableReclamationTests
         Assert.Equal(0, Step(database, 1));
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task A_held_read_pins_the_backlog_and_the_first_turn_after_exit_returns_only_a_prefix()
     {
         const int Items = 17;
@@ -120,7 +118,7 @@ public sealed class ResumableReclamationTests
         Assert.Equal(position, database.Position);
     }
 
-    [Theory(Skip = ResumableDrainNotImplemented)]
+    [Theory]
     [InlineData(1)]
     [InlineData(7)]
     public async Task A_nested_lookup_root_releases_slots_in_post_order_and_counts_each_record(int workLimit)
@@ -164,7 +162,7 @@ public sealed class ResumableReclamationTests
         Assert.Equal(position, database.Position);
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task Empty_descriptors_in_a_full_records_chunk_spend_work_before_a_later_value_can_be_returned()
     {
         await using var database = await EngineMaster.OpenAsync(LookupSchema);
@@ -216,7 +214,7 @@ public sealed class ResumableReclamationTests
         Assert.False(HandleIsCurrent(database, root.Handle));
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task Non_retiring_publications_finish_an_older_partial_head_within_the_ordinary_look_window()
     {
         var arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 16L * Arena.MaxBlockSize };
@@ -264,7 +262,7 @@ public sealed class ResumableReclamationTests
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
     }
 
-    [Theory(Skip = ResumableDrainNotImplemented)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Ordinary_drain_and_close_finish_a_partially_reclaimed_root(bool close)
@@ -316,7 +314,7 @@ public sealed class ResumableReclamationTests
         }
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task A_deleted_successor_keeps_the_borrowed_branch_until_the_older_root_and_then_its_own_handle_finish()
     {
         await using var database = await EngineMaster.OpenAsync(AliasSchema);
@@ -380,7 +378,7 @@ public sealed class ResumableReclamationTests
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task A_turn_with_multiple_eligible_items_advances_the_epoch_only_once()
     {
         await using var database = await EngineMaster.OpenAsync(FixedSchema);
@@ -404,7 +402,7 @@ public sealed class ResumableReclamationTests
         Assert.Equal(0, database.Counters.RetiredIndexBytes);
     }
 
-    [Fact(Skip = ResumableDrainNotImplemented)]
+    [Fact]
     public async Task The_managed_table_and_raw_slot_leave_the_fifo_in_order_and_spend_separate_work()
     {
         await using var database = await EngineMaster.OpenAsync(FixedSchema);

@@ -93,6 +93,9 @@ internal sealed class TextTable
     // The entries the table holds: the texts some block that is not freed refers to.
     public int Count { get; private set; }
 
+    // Detached text slots still count in the arena until their individual frees.
+    public long DetachedBytes { get; private set; }
+
     // The managed bytes of the table: the array of its slots and the bucket table.
     public long Bytes => ((long)_slots.Length * Unsafe.SizeOf<TextSlot>()) + _buckets.Bytes;
 
@@ -157,9 +160,85 @@ internal sealed class TextTable
         _buckets.Remove(slot.Hash, number);
         ValueBlocks.FreeText(_arena, address, slot.Length);
 
-        slot = new TextSlot { Length = _freeSlots };
-        _freeSlots = number + 1;
+        ReturnSlot(number);
         Count--;
+    }
+
+    // One unit under the writes lock. A later writer may have added a reference
+    // or grown the bucket table since the last probe. After unlink the cursor
+    // owns only the native slots and the ID stays outside the free list.
+    public bool ReleaseStep(ref TextReclamation work)
+    {
+        AssertTheLockIsHeld();
+        if (!work.Detached)
+        {
+            return ProbeRelease(ref work);
+        }
+
+        if (!work.PendingChunk.IsNull)
+        {
+            FreeDetached(work.PendingChunk);
+            work.PendingChunk = default;
+            return false;
+        }
+
+        if (work.NextChunk < work.ChunkCount)
+        {
+            work.PendingChunk = ValueBlocks.ChunkAddressAt(_arena, work.Address, work.NextChunk++);
+            return false;
+        }
+
+        if (!work.Address.IsNull)
+        {
+            FreeDetached(work.Address);
+            work.Address = default;
+            return false;
+        }
+
+        ReturnSlot(work.Id);
+        work = default;
+        return true;
+    }
+
+    private bool ProbeRelease(ref TextReclamation work)
+    {
+        var number = ValueBlocks.TextSlotOf(_arena, work.Address);
+        ref var slot = ref _slots[number];
+        Debug.Assert(slot.Address == work.Address && slot.References > 0, "A reference names the entry of its slot.");
+
+        if (slot.References > 1)
+        {
+            slot.References--;
+            work = default;
+            return true;
+        }
+
+        if (work.BucketVersion != _buckets.Version)
+        {
+            work.BucketVersion = _buckets.Version;
+            work.Bucket = -_buckets.BucketOf(slot.Hash);
+        }
+
+        if (!_buckets.TryRemoveFromBucket(IndexTable.EntryOf(slot.Hash, number), work.Bucket, out var next))
+        {
+            work.Bucket = next;
+            return false;
+        }
+
+        work.Id = number;
+        work.ChunkCount = slot.Length > ValueBlocks.SingleBlockLimit ? ValueBlocks.ChunkCount((int)slot.Length) : 0;
+        work.Detached = true;
+        DetachedBytes += ValueBlocks.SlotBytesOf((int)slot.Length);
+        slot = default;
+        Count--;
+        return false;
+    }
+
+    private void FreeDetached(ArenaAddress address)
+    {
+        var bytes = Arena.BlockSizeFor((int)_arena.Header(address).PayloadLength);
+        _arena.Free(address);
+        DetachedBytes -= bytes;
     }
 
     // Publishes the entry at the address when it is still prepared, which the arena knows of its first

@@ -85,6 +85,16 @@ internal sealed class RetiredMemory
     // In the order they were retired, and so in the order of their epochs.
     private readonly Queue<RetiredItem> _items = new();
 
+    // Only the FIFO head can be partial. A safe head stays safe across yields,
+    // even when later publications enqueue younger items.
+    private RootReclamation? _rootWork;
+
+    private NodeReclamation _nodeWork;
+
+    private bool _headActive;
+
+    private bool _releaseHandle;
+
     // The things and the bytes retired since the last look, a write that retired nothing counted as one
     // thing while the count of such writes is armed, and how many of each make a look (see the class).
     private readonly int _itemsPerLook;
@@ -221,14 +231,107 @@ internal sealed class RetiredMemory
         }
     }
 
-    public int DrainStep(int workLimit) =>
-        throw new NotSupportedException("Bounded retirement reclamation is not implemented yet.");
+    // Shares one horizon across fresh heads, and carries an already safe
+    // partial head without a scan. The caller holds the writes lock.
+    public int DrainStep(int workLimit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
+
+        var spent = 0;
+        long? safe = null;
+        while (spent < workLimit && _items.TryPeek(out var item))
+        {
+            if (!_headActive)
+            {
+                safe ??= _epochs.Advance();
+                if (item.Epoch > safe.Value)
+                {
+                    break;
+                }
+            }
+
+            if (StepHead(item))
+            {
+                FinishHead();
+            }
+
+            spent++;
+        }
+
+        if (_items.Count == 0)
+        {
+            ForgetLook();
+        }
+
+        return spent;
+    }
+
+    // One unit belongs to the head: open its cursor, inspect one part, release
+    // one slot or handle, or drop one managed table. No later item can bypass it.
+    private bool StepHead(in RetiredItem item)
+    {
+        if (!_headActive)
+        {
+            switch (item.Kind)
+            {
+                case RetiredKindEnum.Root:
+                case RetiredKindEnum.DeletedRoot:
+                    _rootWork ??= new RootReclamation(_arena);
+                    _rootWork.Start((RootLayout)item.Owner!, item.Address);
+                    _headActive = true;
+                    return false;
+
+                case RetiredKindEnum.IndexNode:
+                    _headActive = true;
+                    return false;
+
+                default:
+                    Free(item);
+                    return true;
+            }
+        }
+
+        if (item.Kind == RetiredKindEnum.IndexNode)
+        {
+            return _nodeWork.Step(_arena, (IndexLayout)item.Owner!, item.Address);
+        }
+
+        if (_releaseHandle)
+        {
+            _roots.Release(item.Handle);
+            return true;
+        }
+
+        if (!_rootWork!.Step())
+        {
+            return false;
+        }
+
+        _releaseHandle = item.Kind == RetiredKindEnum.DeletedRoot;
+        return !_releaseHandle;
+    }
+
+    private void FinishHead()
+    {
+        _items.Dequeue();
+        _nodeWork = default;
+        _headActive = false;
+        _releaseHandle = false;
+    }
+
+    private void ForgetLook()
+    {
+        _itemsSinceLook = 0;
+        _bytesSinceLook = 0;
+        _leftBehind = false;
+        _retiredSincePublication = false;
+    }
 
     // One bounded turn. The ordinary drain owns an earlier non-relocation item.
     // The one epoch scan can make an old slot reusable even while later reads are held.
     public bool TryReclaimRelocated()
     {
-        if (!_items.TryPeek(out var item) || item.Kind != RetiredKindEnum.RelocatedBlock || item.Epoch > _epochs.Advance())
+        if (_headActive || !_items.TryPeek(out var item) || item.Kind != RetiredKindEnum.RelocatedBlock || item.Epoch > _epochs.Advance())
         {
             return false;
         }
@@ -237,11 +340,7 @@ internal sealed class RetiredMemory
         Free(item);
         if (_items.Count == 0)
         {
-            // No work remains for publication to pace or look for.
-            _itemsSinceLook = 0;
-            _bytesSinceLook = 0;
-            _leftBehind = false;
-            _retiredSincePublication = false;
+            ForgetLook();
         }
 
         return true;
@@ -259,12 +358,24 @@ internal sealed class RetiredMemory
             return;
         }
 
-        var safe = _epochs.Advance();
-
-        while (_items.TryPeek(out var item) && item.Epoch <= safe)
+        if (_headActive)
         {
-            _items.Dequeue();
-            Free(item);
+            var partial = _items.Peek();
+            while (!StepHead(partial))
+            {
+            }
+
+            FinishHead();
+        }
+
+        if (_items.Count != 0)
+        {
+            var safe = _epochs.Advance();
+            while (_items.TryPeek(out var item) && item.Epoch <= safe)
+            {
+                _items.Dequeue();
+                Free(item);
+            }
         }
 
         _leftBehind = _items.Count > 0;
@@ -321,6 +432,10 @@ internal sealed class RetiredMemory
     public void Clear()
     {
         _items.Clear();
+        _rootWork?.Clear();
+        _nodeWork = default;
+        _headActive = false;
+        _releaseHandle = false;
         IndexBytes = 0;
     }
 
