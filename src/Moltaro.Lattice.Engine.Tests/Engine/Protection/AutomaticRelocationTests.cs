@@ -720,16 +720,21 @@ public sealed class AutomaticRelocationTests
     }
 
     private static Dictionary<ArenaAddress, byte[]> SnapshotEarlierVacancies(EngineDatabase node,
-        CountingNativeAllocator allocator, Location candidate, Location[] retained)
+        CountingNativeAllocator allocator, Location candidate, Location[] retained) =>
+        SnapshotEarlierVacancies(node, allocator, candidate.Address, candidate.SlotBytes,
+            Locations(node).Concat(retained).Select(location => location.Address));
+
+    internal static Dictionary<ArenaAddress, byte[]> SnapshotEarlierVacancies(EngineDatabase node,
+        CountingNativeAllocator allocator, ArenaAddress candidate, int slotBytes, IEnumerable<ArenaAddress> liveWitnesses)
     {
-        var witnesses = Locations(node).Concat(retained).ToLookup(location => location.Address.Segment);
+        var witnesses = liveWitnesses.ToLookup(address => address.Segment);
         var vacancies = new Dictionary<ArenaAddress, byte[]>();
         Inspect(node, parts =>
         {
             var arena = parts.Arena;
-            var sizeClass = SizeClasses.IndexFor(candidate.SlotBytes - BlockHeader.Size);
-            var candidateHeader = HeaderBytes(arena, candidate.Address);
-            for (var segmentIndex = 1u; segmentIndex < candidate.Address.Segment; segmentIndex++)
+            var sizeClass = SizeClasses.IndexFor(slotBytes - BlockHeader.Size);
+            var candidateHeader = HeaderBytes(arena, candidate);
+            for (var segmentIndex = 1u; segmentIndex < candidate.Segment; segmentIndex++)
             {
                 if (ArenaSegments(arena)[segmentIndex] is not { } segment)
                 {
@@ -748,16 +753,16 @@ public sealed class AutomaticRelocationTests
                     if (native == 0)
                     {
                         var witness = witnesses[segmentIndex].First();
-                        var header = HeaderBytes(arena, witness.Address);
+                        var header = HeaderBytes(arena, witness);
                         var probe = new byte[BlockHeader.Size];
                         native = Assert.Single(NativeSegments(allocator), address =>
                         {
-                            Marshal.Copy(address + (int)witness.Address.Offset, probe, 0, probe.Length);
+                            Marshal.Copy(address + (int)witness.Offset, probe, 0, probe.Length);
                             return probe.AsSpan().SequenceEqual(header);
                         });
                     }
 
-                    for (var slot = 0; slot < Arena.MaxBlockSize / candidate.SlotBytes; slot++)
+                    for (var slot = 0; slot < Arena.MaxBlockSize / slotBytes; slot++)
                     {
                         if (segment.IsAllocated(region, slot))
                         {
@@ -766,8 +771,8 @@ public sealed class AutomaticRelocationTests
 
                         // Each vacancy once held a different real root. The actual native
                         // arena keeps its bytes until a write takes the slot again.
-                        var offset = region * Arena.MaxBlockSize + slot * candidate.SlotBytes;
-                        var bytes = new byte[candidate.SlotBytes];
+                        var offset = region * Arena.MaxBlockSize + slot * slotBytes;
+                        var bytes = new byte[slotBytes];
                         Marshal.Copy(native + offset, bytes, 0, bytes.Length);
                         Assert.False(bytes.AsSpan(0, BlockHeader.Size).SequenceEqual(candidateHeader));
                         vacancies.Add(new ArenaAddress(segmentIndex, (uint)offset), bytes);

@@ -111,6 +111,10 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         Assert.Equal(requests, allocator.Requests);
         Assert.Equal(returned, allocator.Returned);
         await ExpectVacancyAsync(node, before.Source, destination);
+        var witnesses = RootsOf(node, "Hole").Concat(RootsOf(node, "Cap")).Append(before)
+            .Select(root => root.Root).ToArray();
+        var vacantBytes = AutomaticRelocationTests.SnapshotEarlierVacancies(node, allocator, before.Source, input.SlotBytes, witnesses);
+        Assert.Contains(destination, vacantBytes.Keys);
         for (var count = 0; count < 3; count++)
         {
             var quiet = RunTurn(node, samples);
@@ -118,6 +122,9 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
             Assert.Equal(Arena.MaxBlockSize, quiet.RelocationBytes);
             Assert.Equal(0, quiet.ReclamationWork);
             Assert.Equal(pinned, node.Counters.Arena);
+            var after = AutomaticRelocationTests.SnapshotEarlierVacancies(node, allocator, before.Source, input.SlotBytes, witnesses);
+            Assert.Equal(vacantBytes.Keys, after.Keys);
+            Assert.All(vacantBytes, slot => Assert.Equal(slot.Value, after[slot.Key]));
             Assert.Equal(before, Capture(node, input));
             Assert.Equal(requests, allocator.Requests);
             Assert.Equal(returned, allocator.Returned);
