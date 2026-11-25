@@ -40,6 +40,9 @@ internal sealed class EngineTestInputs
     // timer delivery, independently of the publishing thread. Null: TimeProvider.System.
     public TimeProvider? PositionWaitTime { get; init; }
 
+    // The monotonic clock for collection capacity eligibility. Null: TimeProvider.System.
+    public TimeProvider? MaintenanceTimeProvider { get; init; }
+
     // Invoked outside the state lock after Closed becomes visible and before close notifies the
     // position waiters. Tests can hold the notification to observe operations at that boundary.
     public Action? AfterCloseStatePublication { get; init; }

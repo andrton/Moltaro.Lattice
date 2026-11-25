@@ -556,6 +556,10 @@ internal sealed unsafe class Arena : IDisposable
         return new Span<byte>(block + BlockHeader.Size, (int)payloadLength);
     }
 
+    // Tests take this snapshot under Writes. Before cold leases exist, every detached
+    // slot remains reader-retired or is already returned to the allocator.
+    internal CollectionSlotOwnership[] CollectionSlotOwnershipForTest() => [];
+
     // The counters as they stand at the moment of the call.
     public ArenaCounters Counters
     {
