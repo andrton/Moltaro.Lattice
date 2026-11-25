@@ -1097,7 +1097,7 @@ S01 ground
                      └─ S13 text entries ── S14 exact search ── S15 ranges, binding
                          └─ S16 unique ── S17 write batch ── S18 owned values, lists
                              └─ S19 maps, sets ── S20 partial updates
-                                 └─ S21 views by name ── S22 typed views
+                                 └─ S21 views by name ── S21I List traversal ── S22 typed views
                                      └─ S23 compaction ── S24 memory budget
                                          └─ S25 memory gate ── S26 operation identity
                                              └─ S27 provider ── S28 durable commit
@@ -1311,6 +1311,7 @@ Why this order:
 | S20I | Investigate the Debug timeouts | Investigation | Done on 25 November 2026. Historical causes remain open |
 | S20R | Packed Map scalar pairs in owned reads and whole writes | Refactoring | Done on 25 November 2026. [ARM64 measured with S21](refactoring.md#r2-fixed-scalar-pair-comparison) |
 | S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
+| S21I | Protected List traversal | Full, critical | In progress |
 | S22 | Typed protected views | Full | Not started |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
@@ -10583,9 +10584,87 @@ The full window was 17 minutes and 1 second from launch to the last result.
 The raw evidence, separate original and continuation archives, and repair
 provenance are kept outside Git. [R1, R2 and K4 results](refactoring.md#s21-arm64-follow-up)
 
+#### S21I · Protected List traversal
+
+**Track:** full · **Needs:** S21 · **Decisions:** [Q06.2](../decisions/memory-and-access.md) · **Owners:** E08, E05
+
+- **Goal.** Explain and reduce the cost of a full packed List traversal under a
+  protected view. Preserve the caller's read epoch, the stored order and zero
+  managed allocations for a fixed-width scalar traversal.
+- **Contract.** S21's existing public surface and error contract apply. The
+  enumerator reads the same revision even across a chunk boundary after a
+  replacement. An enumerator copy advances independently and a value already
+  obtained from `Current` can be read while the viewer is still active. Before
+  the first successful move or once `MoveNext` returns false, `Current` raises
+  `InvalidOperationException`. The indexer, Map and Set operations, and owned
+  reads retain their S21 semantics.
+- **Acceptance.** Validate the order and actual physical forms of Int64 Lists
+  at 8/9 elements (inline/block), 512/513 (block/one chunk) and 8,188/8,189
+  (one/two chunks). Exercise empty and descriptor-bearing Lists. For a nullable
+  Int64 List with stride 9, ordinal 7,278 splits the scalar at byte 65,504
+  and ordinal 36,391 has the null bitmap before the fifth boundary and the
+  entire scalar after it. Compare the traversed values, including actual nulls
+  and the adjacent entries, with independently expected values, the indexer,
+  and an owned copy. A fixed-width Owned entry with two bitmap bytes and stride
+  31 at ordinal 2,113 places its second bitmap byte in the tail. Exercise a
+  nullable field there and the start of the scalar data. Under a held viewer,
+  complete a replacement, keep the old chunks alive until release, and cross
+  the first boundary through both the original and copied enumerators. Test
+  `Current` before and after a traversal, as well as the retained element across
+  moves. Assert exactly zero managed allocations after warm-up. Compile against
+  the public assembly to verify the accepted local use and refusal to return
+  the enumerator or `Current` from a scoped view.
+- **Measured.** Repeat the original by-name owned Get and sum against the
+  protected traversal at 1,000 and 100,000 Int64 elements. Compare each candidate
+  with the exact S21I parent `5c1a1c4e` and an independent build of it for the gauge.
+  Use the same warm-up, verified sums and allocations with six rotated process
+  orders. An effect requires a paired median outside the gauge with a 3 percent
+  floor and five of six paired directions agreeing. Include the original short
+  view and ordinary owned-read controls. Record the supported causes and
+  residual differences per platform with the emitted hot callers and the
+  independent measurement review. An ARM64 rental requires the owner's approval.
+- **Out of scope.** Public API additions, typed views, storage or wire format
+  changes, and changes to publication or reader protection.
+
+##### Bounded study and candidate boundary
+
+The current owned Packed List path opens its directory once, advances across
+spans by record stride, and uses the shared scalar codec. The S21 protected
+enumerator resolves an entry from its ordinal on every `Current`. For a
+100,000-element Int64 List this entails 100,000 directory and 100,000 chunk
+resolutions through the current source path. Its 13 chunks contain whole
+Int64 values. JIT evidence and isolated runs are required to attribute the
+elapsed difference. [Owned ReadPacked](../../src/Moltaro.Lattice.Engine/Storage/Roots/NestedValues.cs)
+
+The .NET SequenceReader borrows the current span and advances to the next at
+a boundary. Its binary extensions use the current span for a fixed-width read
+and gather only a split value. The sources were consulted under MIT.
+[Span traversal](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Memory/src/System/Buffers/SequenceReader.cs#L170-L192)
+[Boundary handling](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Memory/src/System/Buffers/SequenceReader.cs#L259-L301)
+[Binary reads](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Memory/src/System/Buffers/SequenceReaderExtensions.Binary.cs#L23-L49)
+
+Arrow's execution path passes spans per chunk to its compute kernels. Its
+random access and whole-kernel ownership are separate concerns. The source
+was consulted under Apache-2.0. The study takes the traversal patterns
+from these sources. It adapts no code.
+[Batch spans](https://github.com/apache/arrow/blob/272715f6df2a042d69881ffa03d5078c58e4b345/cpp/src/arrow/compute/exec.cc#L349-L441)
+[Kernel execution](https://github.com/apache/arrow/blob/272715f6df2a042d69881ffa03d5078c58e4b345/cpp/src/arrow/compute/exec.cc#L1047-L1093)
+
+The first experiment caches a resident block for sequential traversal while
+keeping scalar dispatch. The narrower implementation candidate exposes one
+internal operation,
+`ViewPackedBlock ReadPackedListBlock(ViewCollection collection, int block)`,
+using the existing `ValueBlocks` resolution rules.
+The borrowed block has a stride and no additional holder. The cursor advances
+only within the viewer's epoch. A zero stride selects ordinary `Entry` for
+descriptor records. Ordinary `Entry` also supplies the two parts of a split
+record. A packed Owned entry with no descriptors uses the packed traversal.
+The x64 six-pair check selected the one-boundary cursor as the first correction.
+The scalar alternatives await measurement and selection.
+
 #### S22 · Typed protected views
 
-**Track:** full · **Needs:** S21 · **Decisions:** O6 · **Owners:** E08, E05
+**Track:** full · **Needs:** S21I · **Decisions:** O6 · **Owners:** E08, E05
 
 - **Goal.** The same protected read is available through the application's entity class:
   a view with a property for each field, written for the class when the application is
