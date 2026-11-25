@@ -82,12 +82,6 @@ internal sealed class SdkViewProject : IDisposable
         start.Environment["NUGET_PACKAGES"] = Path.Combine(_root, "packages");
         start.Environment["LATTICE_BUILD_MARKER"] = Path.Combine(_root, "model-executed");
 
-        // A normal run uses the inherited setter on the runtime assembly. The marker
-        // only belongs to the compiler's process and detects code run by the analyzer.
-        if (arguments[0] == "run")
-        {
-            start.Environment.Remove("LATTICE_BUILD_MARKER");
-        }
 
         foreach (var argument in arguments)
         {

@@ -61,7 +61,7 @@ public sealed class SdkTypedViewTests
             {
                 if (Environment.GetEnvironmentVariable("LATTICE_BUILD_MARKER") is { } path)
                 {
-                    File.WriteAllText(path, "Consumer code was executed in the compiler process.");
+                    File.WriteAllText(path, "The consumer model executed.");
                 }
             }
         }
@@ -140,13 +140,16 @@ public sealed class SdkTypedViewTests
             """<ProjectReference Include="../ViewLibrary/ViewLibrary.csproj" />"""));
         sdk.Write(application, "Program.cs", ConsumerSource);
         sdk.Write(application, "entry.schema.json", ModelSchema);
+        var marker = sdk.FileOf("", "model-executed");
         var built = await sdk.BuildAsync(application);
         Assert.True(built.ExitCode == 0, built.Output);
-        Assert.False(File.Exists(sdk.FileOf("", "model-executed")));
+        Assert.False(File.Exists(marker));
 
         var ran = await sdk.RunAsync(application);
         Assert.True(ran.ExitCode == 0, ran.Output);
         Assert.Contains("Protected values: 41 42 2", ran.Output, StringComparison.Ordinal);
+        Assert.Equal("The consumer model executed.", File.ReadAllText(marker));
+        File.Delete(marker);
 
         foreach (var (oldText, newText, field) in new[]
         {
@@ -158,10 +161,18 @@ public sealed class SdkTypedViewTests
             sdk.Write(library, "entry.schema.json", ModelSchema.Replace(oldText, newText, StringComparison.Ordinal));
             var rejected = await sdk.BuildAsync(library);
             AssertNamedDiagnostic(rejected, field);
-            Assert.False(File.Exists(sdk.FileOf("", "model-executed")));
+            Assert.False(File.Exists(marker));
         }
 
+        sdk.Write(library, "entry.schema.json", ModelSchema);
+        sdk.Write(library, "EntryView.cs", ViewDeclaration.Replace("[LatticeView(typeof(Entry))]", """
+            [LatticeView(typeof(Entry))]
+            [LatticeViewField(nameof(Entry.Age), Ignore = true)]
+            """, StringComparison.Ordinal));
+        AssertNamedDiagnostic(await sdk.BuildAsync(library), "Age");
+
         sdk.Write(library, library + ".csproj", ConsumerProject(executable: false, analyzer: true, schema: false));
+        sdk.Write(library, "EntryView.cs", ViewDeclaration);
         AssertNamedDiagnostic(await sdk.BuildAsync(library), "Data");
 
         sdk.Write(library, "EntryView.cs", ViewDeclaration.Replace("[LatticeView(typeof(Entry))]", """

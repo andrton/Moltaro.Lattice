@@ -74,8 +74,19 @@ public sealed class TypedViewCallsTests
         var typedCalls = 0;
         var namedCalls = 0;
 
-        var typed = people.ViewAsync("ada", typedSession, (PersonView _) => ++typedCalls);
-        var named = records.ViewAsync("ada", namedSession, _ => ++namedCalls);
+        LatticeViewFunc<PersonView, int> typedViewer = _ => ++typedCalls;
+        LatticeViewFunc<LatticeRecordView, int> namedViewer = _ => ++namedCalls;
+        var typedLocal = await people.ViewAsync("ada", new LatticeSession(), typedViewer);
+        var namedLocal = await records.ViewAsync("ada", new LatticeSession(), namedViewer);
+        Assert.True(typedLocal.Found);
+        Assert.True(namedLocal.Found);
+        Assert.Equal(1, typedLocal.Result);
+        Assert.Equal(1, namedLocal.Result);
+        typedCalls = 0;
+        namedCalls = 0;
+
+        var typed = people.ViewAsync("ada", typedSession, typedViewer);
+        var named = records.ViewAsync("ada", namedSession, namedViewer);
 
         Assert.Equal(LatticeErrorEnum.HistoryMismatch, (await Assert.ThrowsAsync<LatticeException>(() => typed.AsTask())).Error);
         Assert.Equal(LatticeErrorEnum.HistoryMismatch, (await Assert.ThrowsAsync<LatticeException>(() => named.AsTask())).Error);
