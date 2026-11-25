@@ -11271,6 +11271,19 @@ probes ran in Debug and Release. With the pause disabled, a held protected read
 kept one native allocation alive in `Closed`. The allocator held none after close
 completed successfully. The probe and its raw runs are kept outside Git.
 
+###### Tests first
+
+The independent plan review closed on `f5b473a88d29ad6729d36ba9e48dbd6e24816726`.
+Its reading links were added in `49ddb60bf75d5691451435a4a719adb82fb3cdf4`.
+The independent tests-first review closed on `c163c830097a88d69a7dbea615484ccfbf1cade0`
+after two rounds. Temporarily enabling the three regression tests on the original
+behavior reproduced cancellation with the original token and success from both Wake
+and the deadline timer after public `Closed`. The tests tell those paths apart by
+holding close notification and, for timer delivery, holding publication before Wake.
+`OneCloseTests` holds a protected reader and then the final native free. One allocation
+is still outstanding while the first close task is pending at that free, and none
+is outstanding when close succeeds.
+
 ##### Storage work
 
 **Collection edit cost carried from S20.** In `EditedList.Apply`, each append
