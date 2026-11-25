@@ -1,9 +1,7 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Maintenance;
-using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
@@ -77,7 +75,7 @@ public sealed class MaintenanceLifetimeTests
 
             closing = node.CloseAsync().AsTask();
             await canceled.Task.WaitAsync(Bound);
-            await BarrierDrained(BarrierOf(node)).Task.WaitAsync(Bound);
+            await ObservedCloseBarrier.DrainedOf(node).WaitAsync(Bound);
             Assert.Equal(LatticeDatabaseStateEnum.Closed, node.State);
             Assert.False(closing.IsCompleted);
             Assert.Equal(1, allocator.Outstanding);
@@ -108,18 +106,19 @@ public sealed class MaintenanceLifetimeTests
             : ReplicationNodes.ChildOptions(upstream.ListenUri!);
         var allocator = new CountingNativeAllocator();
         using var pause = new ViewerPause();
-        using var admissionPause = new ViewerPause();
-        var admission = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var admissionPause = new HeldEngineCallback();
+        using var freeing = new HeldEngineCallback();
+        long admission = 0;
         var observed = new TaskCompletionSource<MaintenanceTurnSample>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observations = 0;
         var inputs = new EngineTestInputs
         {
-            Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = Arena.MaxBlockSize },
+            Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = Arena.MaxBlockSize, ReservedSegments = 0 },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             BeforeMaintenanceWrites = () =>
             {
-                if (admission.TrySetResult(Stopwatch.GetTimestamp()))
+                if (Interlocked.CompareExchange(ref admission, Stopwatch.GetTimestamp(), 0) == 0)
                 {
                     admissionPause.Hold();
                 }
@@ -136,29 +135,59 @@ public sealed class MaintenanceLifetimeTests
         };
         await using var node = EngineDatabase.Create(options, inputs);
         await node.OpenAsync().AsTask().WaitAsync(Bound);
+        var items = node.Set("Item");
+        await items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = 1L }).AsTask().WaitAsync(Bound);
+        using (var reading = new HeldEngineCallback())
+        {
+            var reader = OwnThread.Run(() => Assert.True(items.TryView(1L, view =>
+            {
+                reading.Hold();
+                return view.Revision;
+            }, out _)));
+            try
+            {
+                await reading.ReachedAsync(reader);
+                await items.DeleteAsync(1L).AsTask().WaitAsync(Bound);
+                Assert.True(node.Counters.Arena.RetiredBytes > 0);
+                Assert.Equal(1, allocator.Outstanding);
+            }
+            finally
+            {
+                reading.Release();
+            }
+
+            await reader.WaitAsync(Bound);
+        }
+
+        allocator.HoldLastFree(freeing.Hold);
         var started = Stopwatch.GetTimestamp();
         var attempt = OwnThread.Run(() => SpinWait.SpinUntil(node.TryRunMaintenanceTurn, Bound));
         int attemptsThroughObservation;
         try
         {
-            var enteredAdmission = await admission.Task.WaitAsync(Bound);
+            await admissionPause.ReachedAsync(attempt);
             Assert.False(observed.Task.IsCompleted);
-            var releasingAdmission = Stopwatch.GetTimestamp();
             admissionPause.Release();
+            await freeing.ReachedAsync(attempt);
+            Assert.False(observed.Task.IsCompleted);
+            Assert.Equal(1, allocator.Outstanding);
+            var releasingFree = Stopwatch.GetTimestamp();
+            freeing.Release();
             var sample = await observed.Task.WaitAsync(Bound);
             attemptsThroughObservation = Volatile.Read(ref observations);
             Assert.True(sample.Admitted);
-            Assert.InRange(sample.ElapsedTicks, releasingAdmission - enteredAdmission, Stopwatch.GetTimestamp() - started);
+            Assert.InRange(sample.ElapsedTicks, releasingFree - Volatile.Read(ref admission), Stopwatch.GetTimestamp() - started);
             Assert.Equal(0, sample.SlotBytes);
-            Assert.Equal(0, sample.ReclamationWork);
-            Assert.Equal(0L, sample.ReturnedNativeBytes);
+            Assert.True(sample.ReclamationWork > 0);
+            Assert.Equal(1, sample.SegmentsReturned);
+            Assert.Equal(Arena.MaxBlockSize, sample.ReturnedNativeBytes);
+            allocator.ExpectEverythingReturned();
 
             // The turn is called by this test, so there is no background task to
             // join. Both a normal write and close can finish while the observer is held.
-            var items = node.Set("Item");
-            var writing = OwnThread.Run(() => items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = 1L }).AsTask()).Unwrap();
+            var writing = OwnThread.Run(() => items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = 2L }).AsTask()).Unwrap();
             await writing.WaitAsync(Bound);
-            Assert.True(items.TryGet(1L, out _, out _));
+            Assert.True(items.TryGet(2L, out _, out _));
             Assert.Equal(1, allocator.Outstanding);
             var closing = OwnThread.Run(() => node.CloseAsync().AsTask()).Unwrap();
             await closing.WaitAsync(Bound);
@@ -169,6 +198,7 @@ public sealed class MaintenanceLifetimeTests
         finally
         {
             admissionPause.Release();
+            freeing.Release();
             pause.Release();
         }
 
@@ -243,10 +273,4 @@ public sealed class MaintenanceLifetimeTests
             Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, failure.Error);
         }
     }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_barrier")]
-    private static extern ref CloseBarrier BarrierOf(EngineDatabase node);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_drained")]
-    private static extern ref TaskCompletionSource BarrierDrained(CloseBarrier barrier);
 }

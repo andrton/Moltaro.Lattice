@@ -437,31 +437,35 @@ public sealed class AutomaticRelocationTests
         filler.Where(IsAllocated).Select(location => location.Key).Order().ToArray();
 
     [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
-    [InlineData(LatticeRoleEnum.Master)]
-    [InlineData(LatticeRoleEnum.Child)]
-    public async Task A_selection_turn_spends_its_bounded_search_work_and_a_later_turn_finds_the_earlier_slot(LatticeRoleEnum role)
+    [InlineData(LatticeRoleEnum.Master, false)]
+    [InlineData(LatticeRoleEnum.Child, false)]
+    [InlineData(LatticeRoleEnum.Master, true)]
+    [InlineData(LatticeRoleEnum.Child, true)]
+    public async Task A_selection_turn_spends_its_bounded_search_work_and_a_later_turn_finds_the_earlier_slot(
+        LatticeRoleEnum role, bool combinedBudget)
     {
-        const int RegionCount = AutomaticMaintenance.SelectionWorkLimit + 3;
+        const int Limit = AutomaticMaintenance.SelectionWorkLimit;
+        var regionCount = combinedBudget ? 3 * Limit / 4 + 4 : Limit + 3;
         var allocator = new CountingNativeAllocator();
         var observed = new List<MaintenanceTurnSample>();
         await using var master = await ReplicationNodes.OpenMasterAsync(Schema,
             Inputs(role == LatticeRoleEnum.Master ? allocator : null, reserve: 0,
-                observe: role == LatticeRoleEnum.Master ? observed.Add : null, maxSegments: RegionCount));
+                observe: role == LatticeRoleEnum.Master ? observed.Add : null, maxSegments: regionCount));
         await using var child = role == LatticeRoleEnum.Child
             ? await ReplicationNodes.OpenChildAsync(master.ListenUri!,
-                Inputs(allocator, reserve: 0, observe: observed.Add, maxSegments: RegionCount))
+                Inputs(allocator, reserve: 0, observe: observed.Add, maxSegments: regionCount))
             : null;
         var node = child ?? master;
         var slots = Arena.MaxBlockSize / Big;
-        await InsertAsync(master, "Big", 1, RegionCount * slots);
+        await InsertAsync(master, "Big", 1, regionCount * slots);
         await FollowAsync(master, node);
         node.DrainRetired();
         var regions = Locations(node).GroupBy(RegionOf).OrderBy(region => region.Key)
             .Select(region => region.ToArray()).ToArray();
-        Assert.Equal(RegionCount, regions.Length);
+        Assert.Equal(regionCount, regions.Length);
         Assert.All(regions, region => Assert.Equal(slots, region.Length));
         Assert.All(regions.SelectMany(region => region), location => Assert.Equal(Big, location.SlotBytes));
-        Assert.Equal(RegionCount, allocator.Outstanding);
+        Assert.Equal(regionCount, allocator.Outstanding);
         var vacancies = regions[^2].Skip(slots / 2).ToArray();
         var source = regions[^1][0];
         await DeleteAsync(master, vacancies);
@@ -470,8 +474,21 @@ public sealed class AutomaticRelocationTests
         await DeleteAsync(master, regions[^1].Skip(1));
         await FollowAsync(master, node);
         node.DrainRetired();
-        Assert.True(RegionOf(source).Segment > AutomaticMaintenance.SelectionWorkLimit);
-        Assert.True(RegionOf(vacancies[0]).Segment > AutomaticMaintenance.SelectionWorkLimit);
+        var sourcePrefix = RegionOf(source).Segment;
+        var destinationPrefix = RegionOf(vacancies[0]).Segment;
+        if (combinedBudget)
+        {
+            // Each prefix fits on its own, so independent selection budgets
+            // could publish in the first turn. The single turn budget cannot.
+            Assert.True(sourcePrefix < Limit);
+            Assert.True(destinationPrefix < Limit);
+            Assert.True(sourcePrefix + destinationPrefix > Limit);
+        }
+        else
+        {
+            Assert.True(sourcePrefix > Limit);
+            Assert.True(destinationPrefix > Limit);
+        }
         Assert.Equal(RegionOf(source), HeadOfClass(source));
         Assert.All(vacancies, DemandFreed);
         var revision = DemandRecord(node, source);
@@ -483,17 +500,23 @@ public sealed class AutomaticRelocationTests
         Assert.True(firstTurn.Admitted);
         Assert.Equal(AutomaticMaintenance.SelectionWorkLimit, firstTurn.SelectionWork);
         Assert.Equal(0, firstTurn.SlotBytes);
+        if (combinedBudget)
+        {
+            Assert.True(firstTurn.CandidatesExamined > 0);
+        }
         Assert.Equal(source.Address, Find(node, source).Address);
         Assert.Equal(arena, node.Counters.Arena);
         Assert.Equal(position, node.Position);
         Assert.All(vacancies, DemandFreed);
 
-        // The source lies beyond the first ascending scan prefix. Once the
-        // worker reaches it, the unsuitable class head also forces an earlier
-        // vacancy search whose target is beyond one whole selection budget.
         RunUntil(node, () => Find(node, source).Address != source.Address);
-        Assert.Contains(observed.Skip(1), sample => sample.Admitted && sample.CandidatesExamined > 0 &&
-            sample.SelectionWork == AutomaticMaintenance.SelectionWorkLimit && sample.SlotBytes == 0);
+        if (!combinedBudget)
+        {
+            // The long control must also yield after seeing the candidate and
+            // before its earlier-vacancy search can have reached the target.
+            Assert.Contains(observed.Skip(1), sample => sample.Admitted && sample.CandidatesExamined > 0 &&
+                sample.SelectionWork == Limit && sample.SlotBytes == 0);
+        }
         var current = Find(node, source);
         var moved = Assert.Single(observed, sample => sample.SlotBytes != 0);
         ExpectMove(moved, source, current);
@@ -854,11 +877,11 @@ public sealed class AutomaticRelocationTests
     private static (int Count, int Capacity) QueueOf(EngineDatabase node)
     {
         var result = (Count: 0, Capacity: 0);
-        Assert.True(node.TryRunMaintenanceStep(parts =>
+        Inspect(node, parts =>
         {
             var queue = RetiredItems(parts.Retired);
             result = (queue.Count, queue.EnsureCapacity(0));
-        }));
+        });
         return result;
     }
 
