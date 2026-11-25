@@ -23,7 +23,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // See docs/design/arena-protocol.md, "Deferred reclamation".
 public sealed class CompoundRelocationTests
 {
-    private const string MovingNotImplemented = "Moving an owned root or raw chunk is not implemented yet.";
     private const int BigSlotBytes = 8_192;
     private const int DirectorySlotBytes = 64;
     private const int BigFillers = Arena.MaxBlockSize / BigSlotBytes;
@@ -56,7 +55,7 @@ public sealed class CompoundRelocationTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Theory(Skip = MovingNotImplemented)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master, true, true)]
     [InlineData(LatticeRoleEnum.Child, true, true)]
     [InlineData(LatticeRoleEnum.Master, false, true)]
@@ -301,7 +300,7 @@ public sealed class CompoundRelocationTests
     }
 
 
-    [Theory(Skip = MovingNotImplemented)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_directory_with_an_inconsistent_later_child_is_refused_before_any_child_is_repaired(LatticeRoleEnum role)
@@ -364,7 +363,7 @@ public sealed class CompoundRelocationTests
         Assert.Equal(position, node.Position);
     }
 
-    [Theory(Skip = MovingNotImplemented)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_tail_with_a_valid_local_edge_but_a_replaced_ancestor_edge_is_refused(LatticeRoleEnum role)

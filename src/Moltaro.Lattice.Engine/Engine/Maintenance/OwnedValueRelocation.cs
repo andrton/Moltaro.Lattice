@@ -41,9 +41,7 @@ internal static class OwnedValueRelocation
             return false;
         }
 
-        var offsetInDescriptors = (long)header.DescriptorOffset - layout.DescriptorOffset;
-        if (offsetInDescriptors < 0 || offsetInDescriptors >= layout.DescriptorCount * ValueBlocks.DescriptorSize ||
-            offsetInDescriptors % ValueBlocks.DescriptorSize != 0)
+        if (!layout.TryGetDescriptorIndex(header.DescriptorOffset, out _))
         {
             return false;
         }

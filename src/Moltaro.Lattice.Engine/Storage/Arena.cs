@@ -502,6 +502,22 @@ internal sealed unsafe class Arena : IDisposable
         ReturnRegion((int)address.Segment, segment, regionIndex);
     }
 
+    // Under the writes lock: reads a header only while its slot is live.
+    // A retired physical copy is readable under an epoch but cannot own a move.
+    public bool TryReadLiveHeader(ArenaAddress address, out BlockHeader header)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var segment = Locate(address, out var region, out var slot);
+        if (segment is null || segment.IsPrepared(region, slot) || segment.IsRetired(region, slot))
+        {
+            header = default;
+            return false;
+        }
+
+        header = *(BlockHeader*)(segment.Memory + address.Offset);
+        return true;
+    }
+
     // A reference to the header of a valid block, in native memory. It refers to the block only
     // until the block is freed or moved or the arena is disposed, and it must not leave the
     // protected scope in which it was obtained (arena protocol, "Lock and lifetime order").
