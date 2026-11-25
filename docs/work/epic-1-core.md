@@ -10662,6 +10662,13 @@ record. A packed Owned entry with no descriptors uses the packed traversal.
 The x64 six-pair check selected the one-boundary cursor as the first correction.
 The scalar alternatives await measurement and selection.
 
+##### Tests-first review
+
+The final tests-first commit was `0845cc7ff0aa4e9c762c79ffb21f7da4ab188dfc`.
+The coordinator verified the Release build and all 10 traversal cases on that
+commit. Independent review closed the retention finding on the same commit
+in its second pass before implementation was assigned.
+
 #### S22 · Typed protected views
 
 **Track:** full · **Needs:** S21I · **Decisions:** O6 · **Owners:** E08, E05
