@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -79,9 +80,16 @@ internal sealed class BlockImport
         return new ReceivedRoot(layout, payloadLength, values);
     }
 
-    // A reader of the canonical fixed part of the root checked last, for its fixed-width key.
-    public RootReader FixedPart(in ReceivedRoot root) =>
-        new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)), canonical: true);
+    // Only the fixed-width key bytes from the canonical scratch of the root checked last.
+    // The caller reads them before the scratch is reused.
+    public ReadOnlySpan<byte> FixedKeyBytes(in ReceivedRoot root)
+    {
+        var layout = root.Layout;
+        ref readonly var key = ref layout.StoredFieldOf(layout.EntityType.Key);
+        Debug.Assert(key.Type is StoredTypeEnum.SignedInteger or StoredTypeEnum.UnsignedInteger or StoredTypeEnum.Guid);
+
+        return _payload.AsSpan(key.Offset - BlockHeader.Size, key.Width);
+    }
 
     // A newer local root makes placement unnecessary. Every supplied entry still has to
     // be unique before any effect of its transaction can publish. The checked root and
@@ -114,18 +122,19 @@ internal sealed class BlockImport
         }
     }
 
-    // The text of a String field of the root checked last, which is not null, as a new string decoded
-    // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
-    // for the key of the root (Engine.Child.Loading.ReceivedChanges). ValidationFailed when it is
+    // The text key of the root checked last, as a new string decoded from the encoding of the
+    // database, where the root holds it: inline in its payload, or out of line. ValidationFailed when it is
     // not well-formed in that encoding, as a key
     // received in a Delete is not (Engine.Entities.PrimaryKeys.ReadKey): a key that a master stores is
     // well-formed, since every write checks its text (docs/decisions/strings.md, "Input validity and
     // preservation"), so such a root did not come from one. The text bytes of other fields are placed as
     // received.
-    public string Text(in ReceivedRoot root, LatticeField field)
+    public string TextKey(in ReceivedRoot root)
     {
         var layout = root.Layout;
+        var field = layout.EntityType.Key;
         ref readonly var stored = ref layout.StoredFieldOf(field);
+        Debug.Assert(stored.Type == StoredTypeEnum.String);
         var descriptor = ValueBlocks.Read(_payload.AsSpan(stored.Offset - BlockHeader.Size));
         var bytes = descriptor.Kind == DescriptorKindEnum.Inline
             ? new ReadOnlySequence<byte>(_payload, (int)descriptor.Location - BlockHeader.Size, (int)descriptor.Length)

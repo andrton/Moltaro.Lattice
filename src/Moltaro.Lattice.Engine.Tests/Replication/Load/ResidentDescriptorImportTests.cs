@@ -74,7 +74,8 @@ public sealed class ResidentDescriptorImportTests
         var input = new SequenceReader<byte>(new ReadOnlySequence<byte>(body));
         var received = import.Check(ref input, layout);
         Assert.True(input.End);
-        Assert.Equal(2L, import.FixedPart(received).GetInteger(type.Key));
+        var keys = new PrimaryKeys(type, layout.StringEncoding, seed: 0);
+        Assert.Equal(2L, keys.ReadFixedKey(import.FixedKeyBytes(received)).Integer);
         Assert.Equal(before, arena.Counters);
 
         if (nativeFailure)

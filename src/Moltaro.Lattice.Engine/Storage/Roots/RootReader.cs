@@ -31,8 +31,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // protection: a read copies under the protection of the root and builds its result after releasing
 // it. The values of String and Binary fields lie outside the fixed part; a reader of a copy refuses
 // GetString, GetBinary and ReadText with InvalidOperationException. GetLength interprets the
-// immutable metadata at its original block offset. The importer's copy is canonical scratch
-// from a received root, used for reading fixed-width keys.
+// immutable resident metadata at its original block offset.
 internal readonly ref struct RootReader
 {
     // Null for a reader of a copy.
@@ -44,8 +43,6 @@ internal readonly ref struct RootReader
     // reader of a copy, the copy of the fixed part. The layout counts its offsets from the start of
     // the block, header included, so a field at offset o lies at o - BlockHeader.Size here.
     private readonly ReadOnlySpan<byte> _payload;
-
-    private readonly bool _canonical;
 
     // Reads the root whose root block is at the address, written with the layout. Refuses with
     // ArgumentException an address that is not a valid block of the arena, a block whose kind is not
@@ -61,8 +58,7 @@ internal readonly ref struct RootReader
 
     // Reads a copy of the fixed part of a root written with the layout, which CopyFixedPart made. A
     // span of another length than FixedPartLength of the layout is refused with ArgumentException.
-    // A copy of a received root keeps the canonical format and has no local address.
-    public RootReader(RootLayout layout, ReadOnlySpan<byte> fixedPart, bool canonical = false)
+    public RootReader(RootLayout layout, ReadOnlySpan<byte> fixedPart)
     {
         ArgumentNullException.ThrowIfNull(layout);
 
@@ -74,7 +70,6 @@ internal readonly ref struct RootReader
         _payload = fixedPart;
         _arena = null;
         _layout = layout;
-        _canonical = canonical;
     }
 
     // Everything stored for the entity of the root, by the stored lengths: the bytes of the root block, its
@@ -245,7 +240,7 @@ internal readonly ref struct RootReader
         }
 
         var place = NotNull(stored);
-        return (int)(_canonical ? ValueBlocks.Read(place).Length : ResidentDescriptor.ReadLength(place, stored.Offset));
+        return (int)ResidentDescriptor.ReadLength(place, stored.Offset);
     }
 
     // The arena needed to read a String, Binary, owned value or List. A reader of a fixed-part

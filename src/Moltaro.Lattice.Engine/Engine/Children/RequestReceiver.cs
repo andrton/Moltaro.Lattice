@@ -225,9 +225,9 @@ internal sealed class RequestReceiver
     {
         if (table.Keys.KeyKind == KeyKindEnum.Text)
         {
-            return string.Equals(_import.Text(received, table.EntityType.Key), key.Text, StringComparison.Ordinal);
+            return string.Equals(_import.TextKey(received), key.Text, StringComparison.Ordinal);
         }
 
-        return table.Keys.KeysEqual(table.Keys.StoredKey(_import.FixedPart(received)), key);
+        return table.Keys.KeysEqual(table.Keys.ReadFixedKey(_import.FixedKeyBytes(received)), key);
     }
 }
