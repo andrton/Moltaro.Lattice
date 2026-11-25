@@ -344,11 +344,12 @@ internal sealed class Forwarder
         }
         catch (LatticeException exception)
         {
-            // The timeout, the loss of the master or a fault of the child: the position does not arrive
-            // in time, or cannot arrive (see the class).
+            // A late position may be visible when the caller observes a timeout. The underlying
+            // failure also identifies a lost master or a fault that ended the wait early.
             throw new LatticeException(
                 LatticeErrorEnum.SynchronizationTimeout,
-                $"The write is committed by the master at position {committed}, but this child has not applied it: {exception.Message} It is not rolled back; do not submit it again. An operation that requires this position will see it.",
+                $"The master committed the write at position {committed}. This child could not confirm application within its synchronization deadline. " +
+                $"{exception.Message} Do not submit the write again. Operations that require this position wait for it or fail.",
                 exception)
             {
                 CommittedPosition = committed,

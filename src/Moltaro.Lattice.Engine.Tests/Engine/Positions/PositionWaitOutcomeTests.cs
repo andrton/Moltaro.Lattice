@@ -12,9 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 // a confirmed master write that a child applies late (docs/decisions/session-consistency.md).
 public sealed class PositionWaitOutcomeTests
 {
-    private const string PendingOutcomeFix = "The position wait outcomes for delayed cancellation and late application are pending.";
-
-    [Theory(Skip = PendingOutcomeFix)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Cancellation_requested_before_publication_ends_only_its_wait_even_while_notification_is_delayed(bool cancelAsynchronously)
@@ -74,7 +72,7 @@ public sealed class PositionWaitOutcomeTests
         }
     }
 
-    [Fact(Skip = PendingOutcomeFix)]
+    [Fact]
     public async Task Forwarded_write_reports_its_missed_application_deadline_after_the_child_has_applied_it()
     {
         var deadline = TimeSpan.FromSeconds(1);

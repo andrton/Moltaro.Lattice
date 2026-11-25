@@ -306,6 +306,9 @@ internal sealed class PositionClock
 
                 if (reachedAt is { } stamp)
                 {
+                    // Wake or timer delivery can get here while another callback delays cancellation notification.
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     if (ReachedInTime(started, stamp, timeout))
                     {
                         return;
