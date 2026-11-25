@@ -11198,6 +11198,17 @@ the order of the fault mark and cancellation request distinct from the two possi
 orders of notification. The existing publication, timer and cancellation holds
 allow the tests to establish that distinction through the public wait.
 
+###### Tests first
+
+The independent tests-first review of `a1bf23cdfcca50ad8b351fbd3183f22042713db9`
+closed without findings. On Release with the engine from the exact parent, the
+activated cancellation-first case returned `TaskCanceledException` while the
+fault notification was still held. The clock-first case returned `Unavailable`,
+and the healthy child preserved its supplied token. The hardest part of the
+review was proving that the second notification remained held through the result:
+the clock hold exposes when the publishing thread can continue, and the token
+hold's bounded callback is checked through cancellation completion.
+
 #### S23 · Compaction and shrink
 
 **Collection edit cost carried from S20.** In `EditedList.Apply`, each append
