@@ -133,7 +133,7 @@ internal sealed class RootReclamation(Arena arena)
             return;
         }
 
-        var chunk = CollectionLookup.Chunks(arena, frame.Address)[frame.Next++];
+        var chunk = CollectionLookup.ReadChunk(CollectionLookup.Chunks(arena, frame.Address), frame.Next++);
         if (!chunk.IsNull)
         {
             Push(new Frame(KindEnum.Block, chunk));

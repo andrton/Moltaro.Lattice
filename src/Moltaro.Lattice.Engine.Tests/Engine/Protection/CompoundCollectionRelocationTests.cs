@@ -22,7 +22,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // their previous addresses until its epoch ends (docs/design/arena-protocol.md).
 public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
 {
-    private const string MovingNotImplemented = "Moving a Records or lookup block is not implemented yet.";
     private const long InitialStamp = 71;
     private const long UpdatedStamp = 72;
     private const int SmallSlot = 64;
@@ -60,7 +59,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
         """);
 
 
-    [Theory(Skip = MovingNotImplemented)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master, false)]
     [InlineData(LatticeRoleEnum.Child, false)]
     [InlineData(LatticeRoleEnum.Master, true)]
@@ -310,7 +309,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
     }
 
 
-    [Theory(Skip = MovingNotImplemented)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task The_lookup_holder_and_slot_tail_preserve_old_boundary_probes_until_after_replay(LatticeRoleEnum role)

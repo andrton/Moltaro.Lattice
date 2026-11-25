@@ -538,6 +538,7 @@ internal static class NestedValues
                 return false;
             }
 
+            holder.Arena.Header(block).Flags = BlockHeader.RecordBlockFlag;
             descriptor.Location = block.Value;
             holder.SetDescriptor(offset, descriptor);
 
@@ -569,6 +570,7 @@ internal static class NestedValues
                 return false;
             }
 
+            holder.Arena.Header(block).Flags = BlockHeader.RecordBlockFlag;
             ResidentDescriptor.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
 
             if (!TryFill(ref holder, element, block, first, records, ref source))

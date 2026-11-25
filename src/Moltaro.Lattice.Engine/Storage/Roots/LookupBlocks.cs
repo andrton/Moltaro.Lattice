@@ -29,7 +29,7 @@ internal ref struct LookupBlocks
     {
         while (_next < _chunks.Length)
         {
-            var address = _chunks[_next++];
+            var address = CollectionLookup.ReadChunk(_chunks, _next++);
             if (!address.IsNull)
             {
                 Current = address;

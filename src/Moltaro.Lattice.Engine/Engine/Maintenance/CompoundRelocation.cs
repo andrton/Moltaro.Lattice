@@ -1,20 +1,21 @@
+using Moltaro.Lattice.Schema.Compilation;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Maintenance;
 
-// Moves a raw Binary directory or its short final chunk under the counted
-// writes lock. An edge is repaired only when its owner is reachable from
-// the current root. A copied directory adopts its children before publication.
-// The old slot stays available to earlier readers until raw FIFO reclamation
+// Moves a live owned block under the counted writes lock. Backlinks identify
+// a bounded path; each edge must still reach the block from its current root.
+// A copied owner adopts validated children before its edge is published.
+// Earlier readers keep the old bytes until raw FIFO reclamation
 // (docs/design/arena-protocol.md, "Deferred reclamation").
 internal static class CompoundRelocation
 {
     public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source)
     {
-        // Prepared master writes may still carry the old address. A child
-        // keeps the writes lock through preparation and publication.
+        // Prepared master writes may carry the old address across the Writes
+        // lock. The child keeps Writes through preparation and publication.
         if (parts.Coordinator.HoldsPreparedMemory() || expected.Slot >= (uint)parts.Roots.SlotExtent)
         {
             return false;
@@ -23,63 +24,16 @@ internal static class CompoundRelocation
         ref var entry = ref parts.Roots.EntryOfSlot(expected.Slot);
         var arena = parts.Arena;
         var region = 0L;
-        if (entry.Generation != expected.Generation || entry.State != RootStateEnum.Live ||
+        if (entry.Generation != expected.Generation || entry.State != RootStateEnum.Live || entry.Root == source ||
             !arena.TryFindRelocationDestination(source, ref region, out var sizeClass))
         {
             return false;
         }
 
-        var sourceHeader = arena.Header(source);
         var layout = parts.Tables.Stored(entry.TypeId).Layout;
-        if (sourceHeader.Kind is not (BlockKindEnum.ChunkDirectory or BlockKindEnum.Chunk) ||
-            sourceHeader.Root != expected || sourceHeader.LayoutVersion != layout.LayoutVersion)
+        if (!TryResolve(arena, layout, entry.Root, expected, source, out var holder) || !RelocationChildren.Validate(arena, holder))
         {
             return false;
-        }
-
-        var movesDirectory = sourceHeader.Kind == BlockKindEnum.ChunkDirectory;
-        var directory = movesDirectory ? source : sourceHeader.Parent;
-        if (!arena.TryReadLiveHeader(directory, out var directoryHeader) ||
-            directoryHeader.Parent != entry.Root || directoryHeader.Root != expected ||
-            directoryHeader.LayoutVersion != layout.LayoutVersion ||
-            !layout.TryGetDescriptorIndex(directoryHeader.DescriptorOffset, out var index) ||
-            layout.DescriptorField(index).Type != StoredTypeEnum.Binary)
-        {
-            return false;
-        }
-
-        var rootOffset = (int)directoryHeader.DescriptorOffset - BlockHeader.Size;
-        var rootEdge = layout.RootPayload(arena, entry.Root).Slice(rootOffset, ValueBlocks.DescriptorSize);
-        var incoming = ResidentDescriptor.Read(rootEdge);
-        if (incoming.Kind != DescriptorKindEnum.Chunked || ValueBlocks.AddressOf(incoming) != directory ||
-            !RelocationEdges.IsRawDirectory(directoryHeader, incoming.Length))
-        {
-            return false;
-        }
-
-        var directoryBytes = arena.Payload(directory);
-        var edge = rootEdge;
-        if (movesDirectory)
-        {
-            if (!ValidateChildren(arena, directoryBytes, directory, expected, layout.LayoutVersion, (int)incoming.Length))
-            {
-                return false;
-            }
-        }
-        else
-        {
-            // Only the short final chunk can leave a strictly sparse region.
-            // Its immediate descriptor and the root edge above must both agree.
-            var tailOffset = directoryBytes.Length - ValueBlocks.DescriptorSize;
-            var tailLength = (int)incoming.Length - ((tailOffset / ValueBlocks.DescriptorSize) * ValueBlocks.ChunkPayload);
-            edge = directoryBytes.Slice(tailOffset, ValueBlocks.DescriptorSize);
-            var chunk = ResidentDescriptor.ReadAligned(edge);
-            if (sourceHeader.DescriptorOffset != (uint)(BlockHeader.Size + tailOffset) ||
-                sourceHeader.PayloadLength != (uint)tailLength || chunk.Kind != DescriptorKindEnum.Block ||
-                chunk.Length != (uint)tailLength || ValueBlocks.AddressOf(chunk) != source)
-            {
-                return false;
-            }
         }
 
         var retired = parts.Retired;
@@ -88,37 +42,62 @@ internal static class CompoundRelocation
             return false;
         }
 
-        if (movesDirectory)
+        RelocationChildren.Adopt(arena, holder, replacement);
+        var header = holder.Header;
+        if (header.Flags == BlockHeader.LookupSlotsFlag)
         {
-            for (var offset = 0; offset < directoryBytes.Length; offset += ValueBlocks.DescriptorSize)
-            {
-                var child = ValueBlocks.AddressOf(ResidentDescriptor.ReadAligned(directoryBytes[offset..]));
-                arena.Header(child).Parent = replacement;
-            }
+            var index = ((int)header.DescriptorOffset - CollectionLookup.FirstChunkOffset) / sizeof(ulong);
+            CollectionLookup.PublishChunk(CollectionLookup.Chunks(arena, header.Parent), index, replacement);
+        }
+        else
+        {
+            var edge = arena.Payload(header.Parent)[((int)header.DescriptorOffset - BlockHeader.Size)..];
+            ResidentDescriptor.PublishLocation(edge, replacement);
         }
 
-        ResidentDescriptor.PublishLocation(edge, replacement);
         retired.RetireRelocated(source, slotBytes);
         return true;
     }
 
-    private static bool ValidateChildren(Arena arena, ReadOnlySpan<byte> directoryBytes, ArenaAddress directory,
-        RootHandle owner, uint layoutVersion, int valueLength)
+    // At each admitted schema depth a collection can add a lookup, a directory
+    // and a record block. Bound the parent path before reading any edge.
+    private static bool TryResolve(Arena arena, RootLayout layout, ArenaAddress root, RootHandle expected, ArenaAddress source,
+        out RelocationBlock block)
     {
-        var remaining = valueLength;
-        for (var offset = 0; offset < directoryBytes.Length; offset += ValueBlocks.DescriptorSize)
+        block = default;
+        if (!arena.TryReadLiveHeader(root, out var rootHeader) || rootHeader.Kind != BlockKindEnum.Root ||
+            !RelocationEdges.HasOwner(rootHeader, expected, default, 0, layout.LayoutVersion) ||
+            rootHeader.PayloadLength < layout.Structure.Size)
         {
-            var expected = (uint)Math.Min(remaining, ValueBlocks.ChunkPayload);
-            var chunk = ResidentDescriptor.ReadAligned(directoryBytes[offset..]);
-            if (chunk.Kind != DescriptorKindEnum.Block || chunk.Length != expected ||
-                !arena.TryReadLiveHeader(ValueBlocks.AddressOf(chunk), out var header) ||
-                header.Kind != BlockKindEnum.Chunk || header.PayloadLength != expected ||
-                !RelocationEdges.HasOwner(header, owner, directory, (uint)(BlockHeader.Size + offset), layoutVersion))
+            return false;
+        }
+
+        Span<ArenaAddress> path = stackalloc ArenaAddress[3 * (SchemaBuilder.MaximumDepth + 1)];
+        var depth = 0;
+        for (var at = source; at != root;)
+        {
+            if (depth == path.Length || !arena.TryReadLiveHeader(at, out var header) ||
+                header.Root != expected || header.LayoutVersion != layout.LayoutVersion)
             {
                 return false;
             }
 
-            remaining -= (int)expected;
+            path[depth++] = at;
+            at = header.Parent;
+        }
+
+        block = new RelocationBlock(root, rootHeader, layout.Structure, 1);
+        while (depth > 0)
+        {
+            var childAddress = path[--depth];
+            var offset = arena.Header(childAddress).DescriptorOffset;
+            if (!block.TryGetIndex(offset, out var index) ||
+                !RelocationChildren.TryRead(arena, block, arena.Payload(block.Address), index, out var child) || child.Address != childAddress)
+            {
+                return false;
+            }
+
+            block = child;
         }
 
         return true;
