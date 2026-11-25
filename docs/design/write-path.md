@@ -252,9 +252,9 @@ the sequence under the gate. The wait can succeed if that observation is within 
 original budget and its token has not been cancelled. An already satisfied first
 check uses the local sequence and lifecycle state without a gate or time sample.
 
-`Wake` delivers signals after the publication leaves the lock of the writes. Timer
-delivery is independent of `Wake`. A wait can succeed on expiry when its target was
-reached in time, or time out when a late publication arrived before the timer ran.
+A publisher calls `Wake` after it releases the lock of the writes. Timer delivery is
+independent of `Wake`. A wait can succeed on expiry when its target was reached in
+time, or time out when a late publication arrived before the timer ran.
 The sequence store and timestamp sample are separate operations. A scheduling pause
 between them can move the sample past the deadline. The clock then reports timeout
 because it lacks timely evidence. A wait checks `ReadEpochs.Fault`'s authoritative
@@ -263,7 +263,8 @@ during the interval before the position clock has been notified of the fault.
 
 The clock gate protects in-memory waiter bookkeeping and its order is always the
 lock of the writes followed by the clock gate. A waiter takes only the clock gate
-and waits outside it. Signals are completed after both locks have been released.
+and waits outside it. The notifying thread holds neither lock when it completes
+signals.
 The [session-consistency decision](../decisions/session-consistency.md) owns the
 guarantee exposed to the application.
 
