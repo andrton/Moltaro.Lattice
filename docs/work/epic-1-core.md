@@ -10660,7 +10660,6 @@ only within the viewer's epoch. A zero stride selects ordinary `Entry` for
 descriptor records. Ordinary `Entry` also supplies the two parts of a split
 record. A packed Owned entry with no descriptors uses the packed traversal.
 The x64 six-pair check selected the one-boundary cursor as the first correction.
-The scalar alternatives await measurement and selection.
 
 ##### Tests-first review
 
@@ -10668,6 +10667,62 @@ The final tests-first commit was `0845cc7ff0aa4e9c762c79ffb21f7da4ab188dfc`.
 The coordinator verified the Release build and all 10 traversal cases on that
 commit. Independent review closed the retention finding on the same commit
 in its second pass before implementation was assigned.
+
+##### Windows x64 results
+
+The exact original-window repeat used S21I parent `5c1a1c4e`, an independent
+build of it for the gauge and final source `c9e0cd8c`. All six paired view
+times fell at both sizes, with zero managed bytes per traversal.
+
+| Int64 List size | Parent view | Final view | Final owned | Paired final view / parent view | Paired final view / final owned |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 32.927 µs | 13.860 µs | 17.508 µs | 0.4120 | 0.8442 |
+| 100,000 | 3.057 ms | 1.301 ms | 0.335 ms | 0.4107 | 4.0035 |
+
+The warmed repeat confirmed the improvement in all six pairs at each size,
+with paired final-to-parent ratios of 0.5614 and 0.4273. Each comparison uses
+the paired windows of its own repeat. The original short entry and held and
+unheld Replace timings, the owned List timings, and all 16 ordinary owned
+read-by-key timings stayed within their gauges. Some control bands were wide,
+so those comparisons establish no timing change at this resolution.
+
+The address-only experiment dropped two arena payload resolutions per entry
+to two per traversal at 1,000 elements and 14 at 100,000. The selected cursor
+resolves the directory and a chunk together at each boundary, for two and
+26 respectively. It makes no per-element `Entry` call for the aligned Int64
+rows. The separate 100,000-element factorial run measured 0.4663 for the
+address cache alone. The Int64 scalar dispatch experiment used the same codec
+and was neutral on its own at 0.9297, but measured 0.6995 compared with the
+address cache alone. The outcome depends on the address path. The generic
+null-check fusion and per-value prebinding alternatives each missed the
+incremental criterion against the selected cursor, including in the separate
+non-List scalar controls. They were left out.
+
+The final hot loop still builds a value view for each element, checks its
+declaration and nullability, and reads the scalar through the schema layout.
+The owned path decodes whole spans into the typed collection and then sums
+its typed values. The source and tiered x64 listings show this remaining
+difference in work without resolving its individual timing contributions.
+
+A separate warmed diagnostic kept the cursor's block resolver and the same
+protected acquisition. It checked the nonnullable Int64 declaration once
+and the shape of each chunk, then summed the borrowed native values without
+projecting individual views. Medians fell from 16.260 to 4.294 µs at 1,000
+elements and from 1.249 to 0.055 ms at 100,000. Paired ratios were 0.2496 and
+0.0414, with all six pairs below their lower gauges of 0.89984 and 0.84385.
+Both paths returned equal sums and allocated zero managed bytes. This
+estimates a computational floor for the Int64 fixture and isolates the
+per-element API route as a substantial remaining cost. The specialized sum
+is diagnostic only.
+
+The final source `c9e0cd8c` closed the P3 from production review. Tests from
+`0845cc7f` kept their assertions. Debug and Release built cleanly and each
+passed 3,731 tests with 129 expected skips. Format and all 18 samples passed
+and the independent breaker passed both probes after the P3 fix.
+
+The raw timing, allocation, rotation and JIT evidence is kept outside Git.
+The ARM64 run awaits the owner's approval. The final measurement record will
+be reviewed under [Step 6](process.md#a-sprint-on-the-full-track) before Close.
 
 #### S22 · Typed protected views
 
