@@ -1,14 +1,13 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
-using Moltaro.Lattice.TestSupport.Views;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
 public sealed class TypedViewProtectionTests
 {
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_generated_view_keeps_the_state_and_position_it_sampled_while_a_replacement_is_published()
     {
         await using var database = await StampSchema.OpenAsync();
@@ -45,7 +44,7 @@ public sealed class TypedViewProtectionTests
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_throwing_generated_view_releases_protection_before_the_callers_exception_filter()
     {
         await using var database = await StampSchema.OpenAsync();
@@ -87,7 +86,7 @@ public sealed class TypedViewProtectionTests
         }
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_child_waits_for_the_session_before_the_typed_viewer_and_honors_cancellation()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(StampSchema.Schema);
@@ -134,7 +133,7 @@ public sealed class TypedViewProtectionTests
         }
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_typed_view_that_finds_an_entry_before_its_delete_reports_the_tombstones_position()
     {
         await using var database = await StampSchema.OpenAsync();

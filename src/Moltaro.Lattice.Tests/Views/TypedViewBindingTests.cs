@@ -1,10 +1,8 @@
-using Moltaro.Lattice.TestSupport.Views;
-
 namespace Moltaro.Lattice.Tests.Views;
 
 public sealed class TypedViewBindingTests
 {
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task The_same_CLR_byte_array_is_viewed_as_binary_or_a_list_using_its_chosen_projection()
     {
         await using var binary = await TestDatabases.OpenMasterAsync(Schema("Binary", true));
@@ -34,7 +32,7 @@ public sealed class TypedViewBindingTests
         AssertFieldFailure("Data", () => anotherBinaryItems.TryView(99, static (ListProjection _) => Unexpected(), out _));
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task Optional_views_distinguish_a_present_default_scalar_and_empty_list_from_absence()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema("Binary", true));
@@ -65,7 +63,7 @@ public sealed class TypedViewBindingTests
         Assert.Throws<InvalidOperationException>(() => items.TryView(2, static (BinaryProjection view) => view.Numbers.Value.Count, out _));
     }
 
-    [Theory(Skip = TypedViewSupport.NotImplemented)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_nullable_list_projection_disagreement_is_named_before_the_viewer(bool schemaNullable)
@@ -94,7 +92,7 @@ public sealed class TypedViewBindingTests
         Assert.Null(session.MinPosition);
     }
 
-    [Theory(Skip = TypedViewSupport.NotImplemented)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task An_oblivious_model_uses_the_explicit_nullability_of_the_view(bool schemaNullable)

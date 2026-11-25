@@ -13,6 +13,8 @@
   <ItemGroup>
     <!-- The engine implements the contract and uses its internal members. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine" />
+    <!-- The generator uses this same schema compiler and the class agreement without the runtime binder. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Generators" />
     <!-- The unshipped lookup tests and measurements bind probes with the same IndexValue as the engine. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
     <InternalsVisibleTo Include="Moltaro.Lattice.Measurements" />

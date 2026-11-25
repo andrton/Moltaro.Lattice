@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Build-time generator for typed protected views in Moltaro.Lattice.</Description>
+    <PackageTags>database;source-generator;protected-views</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);PackAnalyzer</TargetsForTfmSpecificContentInPackage>
+    <!-- The generator uses Lattice's .NET 10 schema compiler in the .NET SDK host. -->
+    <NoWarn>$(NoWarn);RS1036;RS1041;RS1042;RS2008</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Moltaro.Lattice/Moltaro.Lattice.csproj" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+  <Target Name="PackAnalyzer">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(TargetPath)" PackagePath="analyzers/dotnet/cs/" />
+      <TfmSpecificPackageFile Include="$(TargetDir)Moltaro.Lattice.dll" PackagePath="analyzers/dotnet/cs/" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/LatticeMetadata.targets" PackagePath="build/$(PackageId).targets" />
+    </ItemGroup>
+  </Target>
+</Project>

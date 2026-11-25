@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Tests.NestedValues;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Tests.Views;
 
@@ -25,7 +24,7 @@ public sealed class TypedViewCallsTests
         Assert.Throws<ArgumentNullException>(() => { _ = people.ViewAsync<string, PersonView, int, int>("ada", session, 1, null!); });
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_typed_view_reports_the_same_hit_and_miss_positions_as_a_view_by_name()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -58,7 +57,7 @@ public sealed class TypedViewCallsTests
         }
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_foreign_session_refuses_both_views_through_the_returned_task_even_when_the_key_exists()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

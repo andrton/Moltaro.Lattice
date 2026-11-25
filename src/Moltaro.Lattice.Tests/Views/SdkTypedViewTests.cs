@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Views;
-
 namespace Moltaro.Lattice.Tests.Views;
 
 public sealed class SdkTypedViewTests
@@ -137,7 +135,7 @@ public sealed class SdkTypedViewTests
         Console.WriteLine("Protected values: 41 42 2");
         """;
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task An_SDK_consumer_uses_the_package_analyzer_and_binds_inherited_private_accessors_against_implementation_metadata()
     {
         using var sdk = new SdkViewProject();
@@ -213,7 +211,7 @@ public sealed class SdkTypedViewTests
         AssertNamedDiagnostic(await sdk.BuildAsync(library), "Data");
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task The_compiler_refuses_the_same_lifetime_escapes_for_sdk_generated_views()
     {
         using var sdk = new SdkViewProject();
@@ -343,7 +341,7 @@ public sealed class SdkTypedViewTests
         Assert.DoesNotContain(AnalyzerPackage, File.ReadAllText(sdk.FileOf(project, "obj/project.assets.json")), StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public void Of_the_shipped_assemblies_only_the_source_generator_references_the_compiler()
     {
         using var sdk = new SdkViewProject();

@@ -1,11 +1,10 @@
 using System.Text.RegularExpressions;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Tests.Views;
 
 public sealed class TypedViewMembershipTests
 {
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_view_generated_without_a_schema_file_can_read_inherited_fields_and_ignore_CLR_only_properties()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema());
@@ -21,7 +20,7 @@ public sealed class TypedViewMembershipTests
         Assert.Null(typeof(MembershipView).GetProperty(nameof(MembershipItem.Home))!.PropertyType.GetProperty(nameof(MembershipAddress.DisplayOrder)));
     }
 
-    [Theory(Skip = TypedViewSupport.NotImplemented)]
+    [Theory]
     [InlineData("DisplayOrder")]
     [InlineData("Home.DisplayOrder")]
     public async Task A_persisted_field_omitted_from_the_generated_view_is_refused_at_first_binding(string path)
@@ -39,7 +38,7 @@ public sealed class TypedViewMembershipTests
         AssertMissingField(path, error);
     }
 
-    [Theory(Skip = TypedViewSupport.NotImplemented)]
+    [Theory]
     [InlineData("Home.DisplayOrder", "DisplayOrder")]
     [InlineData("DisplayOrder", "Home.DisplayOrder")]
     public async Task A_generated_projection_without_a_matching_schema_field_is_refused_at_first_binding(string persisted, string missing)

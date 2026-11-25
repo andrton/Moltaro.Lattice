@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
@@ -10,7 +9,7 @@ public sealed class TypedViewAllocationTests
 {
     private const int Repetitions = 1_000;
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task Warm_typed_and_by_name_scalar_views_allocate_no_managed_memory()
     {
         await using var database = await StampSchema.OpenAsync();

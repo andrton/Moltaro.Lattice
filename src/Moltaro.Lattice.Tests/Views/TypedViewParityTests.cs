@@ -3,13 +3,12 @@ using Moltaro.Lattice.Tests.NestedValues;
 using Moltaro.Lattice.Tests.NestedValues.Collections;
 using Moltaro.Lattice.Tests.NestedValues.Copies;
 using Moltaro.Lattice.Tests.NestedValues.References;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Tests.Views;
 
 public sealed class TypedViewParityTests
 {
-    [Theory(Skip = TypedViewSupport.NotImplemented)]
+    [Theory]
     [MemberData(nameof(BindingSchema.Encodings), MemberType = typeof(BindingSchema))]
     public async Task Generated_views_read_all_scalar_families_with_the_same_values_and_absence_as_views_by_name(string encoding)
     {
@@ -47,7 +46,7 @@ public sealed class TypedViewParityTests
         Assert.Equal(namedRequired, generatedRequired);
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task Generated_nested_views_read_their_own_fields_and_keep_collection_elements_in_the_borrowed_representation()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -88,7 +87,7 @@ public sealed class TypedViewParityTests
         Assert.Throws<InvalidOperationException>(() => people.TryView("other", static (PersonView view) => view.Home.Value.Zip, out _));
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task Generated_optional_maps_and_sets_distinguish_absent_empty_and_populated_values()
     {
         await using var database = await TestDatabases.OpenMasterAsync(CollectionSchema.Compile());
@@ -146,7 +145,7 @@ public sealed class TypedViewParityTests
         Assert.Equal(named, generated);
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task A_generated_enum_property_preserves_the_CLR_type_and_distinguishes_a_present_zero_from_null()
     {
         await using var database = await TestDatabases.OpenMasterAsync(FormSchema.Schema);
@@ -168,7 +167,7 @@ public sealed class TypedViewParityTests
         Assert.Equal(byName, byClass);
     }
 
-    [Fact(Skip = TypedViewSupport.NotImplemented)]
+    [Fact]
     public async Task Generated_views_read_reference_keys_without_resolving_their_targets()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);

@@ -23,4 +23,5 @@
     <Using Include="Moltaro.Lattice.TestSupport.Replication" />
     <Using Include="Xunit" />
   </ItemGroup>
+  <Import Project="../Moltaro.Lattice.Generators/UseGenerator.targets" />
 </Project>
