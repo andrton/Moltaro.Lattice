@@ -96,6 +96,19 @@ internal sealed class TextTable
     // The managed bytes of the table: the array of its slots and the bucket table.
     public long Bytes => ((long)_slots.Length * Unsafe.SizeOf<TextSlot>()) + _buckets.Bytes;
 
+    // Under Writes, performs at most workLimit units of text maintenance and returns the units used.
+    public int Maintain(int workLimit) => throw new NotSupportedException();
+
+    // Under Writes, measures actual managed capacities without running work.
+    public TextCapacitySnapshot MeasureCapacity() => throw new NotSupportedException();
+
+    // Under Writes, describes the live entry if it exists. For tests and measurements.
+    public bool TryMeasureEntry(uint id, out TextEntrySnapshot entry) => throw new NotSupportedException();
+
+    // Under Writes, captures the allocations currently referenced by the leaf of a live ID.
+    // For the test of CLR-local retention. A capture never protects a native address.
+    public bool TryCaptureLocatorLeaf(uint id, out IReadOnlyList<TextLocatorAllocation> actual) => throw new NotSupportedException();
+
     // Finds or adds the entry for the text of a write and takes one reference to it under
     // the lock of the writes. On success it returns a Text descriptor that ValueHolder installs
     // to record the reference. The text is well-formed and takes length stored bytes, at least
