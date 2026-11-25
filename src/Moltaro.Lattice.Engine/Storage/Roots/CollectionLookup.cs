@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
@@ -35,7 +36,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
 
     private readonly ReadOnlySpan<ArenaAddress> _chunks;
 
-    public CollectionLookup(Arena arena, in ValueDescriptor descriptor)
+    public CollectionLookup(Arena arena, scoped in ValueDescriptor descriptor)
     {
         _arena = arena;
         if (descriptor.Kind != DescriptorKindEnum.Lookup)
@@ -67,6 +68,15 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
 
     public static ValueDescriptor Entries(Arena arena, in ValueDescriptor descriptor) =>
         ValueBlocks.Read(arena.Payload(ValueBlocks.AddressOf(descriptor)));
+
+    // A probe is bound to the declaration of the key. The holder is the payload
+    // that contains the original descriptor, including when the collection is inline.
+    public static int Find(Arena arena, StructureLayout entry, in ValueDescriptor descriptor, ReadOnlySpan<byte> holder,
+        LatticeStringEncodingEnum encoding, in IndexValue key)
+    {
+        var keys = new CollectionKeys(arena, entry, descriptor, holder, encoding);
+        return new CollectionLookup(arena, descriptor).Find(keys, key);
+    }
 
     public static Span<ArenaAddress> Chunks(Arena arena, ArenaAddress address) =>
         MemoryMarshal.Cast<byte, ArenaAddress>(arena.Payload(address)[ValueBlocks.DescriptorSize..]);

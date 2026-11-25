@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
@@ -14,11 +16,11 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Engine.Entities;
 
 // The entities of one entity type in an open database: the root layout they are stored with, the
-// primary index that finds them, and the reads of them by key (TryRead), by enumeration (TryReadNext)
-// and through a secondary index (TrySearch, with IndexSearch). A read returns one written state of an
-// entity, copied whole into memory of the engine, with the position of its answer; an enumeration
-// returns once every entity that nobody changes during the pass, and a search every entity that has the
-// key for the whole search. Reads take no lock and run inside the protection of reads
+// primary index that finds them, and reads by key, through enumeration and through a secondary index.
+// A read takes one written state and the position of its answer. An ordinary read copies the root.
+// A protected view keeps the root in place while its callback runs. An enumeration returns once every
+// entity unchanged during the pass, and a search returns every entity with its key for the whole search.
+// Reads take no lock and run inside the protection of reads
 // (Protection.ReadEpochs), while the write executor changes the index and the root entries under the
 // lock of the writes; a read takes the state of an entry by its stamp (TakeEntry; ChangePublisher writes
 // it). A write being prepared looks its key up under that lock (TryFind), outside the protection.
@@ -285,6 +287,71 @@ internal sealed class EntityTable
         {
             _epochs.Exit(protection);
         }
+    }
+
+    // Takes one stamped root under its own epoch and holds that epoch while the
+    // viewer runs. The answer's sequence is the one sampled by this lookup.
+    public bool TryView<TState, TResult>(in EntityKey key, ResidentViews views, TState state,
+        LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, [MaybeNullWhen(false)] out TResult result,
+        out ulong sequence, CancellationToken cancellationToken)
+    {
+        var protection = _epochs.Enter(cancellationToken);
+        Exception failure;
+
+        try
+        {
+            var hash = Keys.HashOf(key);
+            var found = TryFindSlot(key, hash, out var slot);
+            while (!found)
+            {
+                var before = _clock.Sequence;
+                found = TryFindSlot(key, hash, out slot);
+                if (found)
+                {
+                    break;
+                }
+
+                // For the tests: a candidate miss is confirmed only by the next clock sample.
+                _epochs.OfferReadSwitch(default);
+                if (_clock.Sequence == before)
+                {
+                    result = default;
+                    sequence = before;
+                    return false;
+                }
+            }
+
+            ref var entry = ref _roots.EntryOfSlot(slot);
+            _epochs.OfferReadSwitch(new RootHandle(entry.Generation, slot));
+            var stamp = TakeEntry(ref entry, _epochs, _clock, cancellationToken, out var rootState, out var root, out var member, out sequence);
+            if (rootState != RootStateEnum.Live)
+            {
+                result = default;
+                sequence = stamp;
+                return false;
+            }
+
+            var revision = RevisionOf(_clock.History, stamp, member);
+            var view = views.Root(Layout, root, revision);
+            try
+            {
+                result = viewer(view, state);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                // Caller filters run before finally. Catch here so that the epoch is
+                // released before the original callback failure reaches a caller filter.
+                failure = exception;
+            }
+        }
+        finally
+        {
+            _epochs.Exit(protection);
+        }
+
+        ExceptionDispatchInfo.Throw(failure);
+        throw new UnreachableException();
     }
 
     // A new enumeration of the entity type under the read limits of the options, standing before its

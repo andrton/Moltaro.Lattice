@@ -272,7 +272,6 @@ internal static class StoredScalars
 
     // Reads back what WriteValue wrote, as a value of TValue, without a box.
     public static TValue ReadValue<TValue>(ReadOnlySpan<byte> place)
-        where TValue : struct
     {
         if (typeof(TValue) == typeof(bool))
         {

@@ -3,14 +3,13 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
 using Moltaro.Lattice.TestSupport.PartialUpdates;
-using Moltaro.Lattice.TestSupport.Views;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
 public sealed class ViewLookupFormTests
 {
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task Protected_lookup_uses_each_nodes_resident_form_for_the_same_Map_and_Set_count()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UpdateSchema.Schema, new EngineTestInputs { IndexSeed = 11 });

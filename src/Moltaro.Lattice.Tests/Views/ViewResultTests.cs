@@ -1,11 +1,10 @@
 using Moltaro.Lattice.Tests.NestedValues;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Tests.Views;
 
 public sealed class ViewResultTests
 {
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_null_callback_result_is_a_hit_and_an_absent_key_skips_the_callback()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -40,7 +39,7 @@ public sealed class ViewResultTests
         Assert.Equal(2, calls);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task An_async_view_reports_a_closed_or_foreign_history_through_its_task()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

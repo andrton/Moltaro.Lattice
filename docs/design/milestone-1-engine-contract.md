@@ -185,23 +185,27 @@ acquisition; which gates remain beside the epoch — the allocator, the dictiona
 stated by the sprint that builds each. One logical root
 protection still covers all its owned blocks. No separate heap lock per object.
 
-Since 16 November 2026 a read takes no gate: it enters the epoch, looks up, copies and
-leaves. A write is published under the lock of the writes, and takes nothing after
+A read takes no gate. An owned read enters the epoch, looks up, copies and leaves. A write is published under the lock of the writes, and takes nothing after
 it; the dictionary and the allocator state their
 place in the order when they are built. There are no root stripes, no catalog gate and
 no claims. A deleted entry becomes reusable only after the reads that could see it have
 left, and a read never follows an old entry to a recreated key.
 
-Ordinary reads are inside the epoch only while evaluating/copying
-one root. Borrowed reads are synchronous, read-only scoped callbacks/ref-struct views;
-no await, retained native pointer or writable alias is supported. Generated and
-dynamic views use the same lifetime. The engine cannot safely preempt arbitrary user code inside a protected callback: prolonged borrowing delays no publication; it keeps every state retired in the instance meanwhile from being freed, and so holds back a write that the memory budget cannot hold, a child's application in the same case, and the close. This caller obligation is documented; nothing bounds or reports it. A close frees nothing until the open views return; a fault frees nothing and refuses new views (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write).
+Ordinary reads protect a root while the engine evaluates or copies it. The set by
+name also lends a read-only view of one stamped root to a synchronous callback.
+The callback takes a scoped ref struct and returns an ordinary result. The compiler
+keeps borrowed values and read-only spans inside the callback. A view holds the epoch
+until the callback returns or throws, including when another write publishes a new
+state. Generated views for .NET classes will use the same lifetime.
 
-A nested public database call during a borrowed callback is forbidden to the caller and not checked: a guard would cost every public call, and the engine keeps no thread-local state (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Copy reference keys and leave the scope before resolving another root.
-Generated callbacks take a scoped ref-struct view and return a result type that
-cannot itself be a ref struct; expose borrowed bytes only as read-only scoped spans,
-not escapable Memory owners. Compiler/lifetime misuse tests and callback-exception
-cleanup are mandatory. Unsafe caller code is outside the managed borrowing contract.
+The caller keeps the callback short and avoids awaiting, yielding, I/O, external
+waits and nested database calls. Copy reference keys and leave the view before
+resolving another root. The engine does not guard against nested calls or preempt
+user code. An open viewer can delay reclamation and the four waits that depend on it.
+A fault refuses new views and keeps retired memory until close. See the
+[protected view protocol](arena-protocol.md#protected-views) for position sampling,
+memory lifetime and exception propagation. Unsafe caller code is outside the managed
+borrowing contract.
 
 Publication is one at a time under the lock of the writes and excludes no read. An
 explicit WriteBatch is published so that no read takes one of its entities in its new state

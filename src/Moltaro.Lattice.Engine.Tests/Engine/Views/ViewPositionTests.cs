@@ -4,7 +4,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
-using Moltaro.Lattice.TestSupport.Views;
 using static Moltaro.Lattice.Engine.Tests.Engine.Batches.BatchSchema;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -12,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
 public sealed class ViewPositionTests
 {
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData("master", false)]
     [InlineData("child", false)]
     [InlineData("master", true)]
@@ -96,7 +95,7 @@ public sealed class ViewPositionTests
         Assert.Equal(revision, answer.Result.Revision);
     }
 
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData("master")]
     [InlineData("child")]
     public async Task A_view_started_at_the_published_batch_cut_sees_the_member_and_its_revision(string node)
@@ -125,7 +124,7 @@ public sealed class ViewPositionTests
         await committing.WaitAsync(Bound);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_view_retries_a_negative_lookup_if_the_position_changes_before_it_can_confirm_a_miss()
     {
         await using var database = await StampSchema.OpenAsync();
@@ -158,7 +157,7 @@ public sealed class ViewPositionTests
         Assert.Equal(answer.Position, session.MinPosition);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_view_that_found_an_entry_then_meets_its_tombstone_answers_at_the_delete_stamp()
     {
         await using var database = await StampSchema.OpenAsync();
@@ -187,7 +186,7 @@ public sealed class ViewPositionTests
         Assert.NotEqual(later.Position, answer.Position);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_child_waits_for_the_session_before_running_a_viewer_and_cancellation_ends_the_wait()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(StampSchema.Schema);

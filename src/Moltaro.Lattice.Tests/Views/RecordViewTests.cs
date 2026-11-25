@@ -1,12 +1,11 @@
 using Moltaro.Lattice.Tests.NestedValues;
 using Moltaro.Lattice.Tests.NestedValues.References;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Tests.Views;
 
 public sealed class RecordViewTests
 {
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task View_reads_the_same_written_state_and_nested_values_as_an_owned_copy()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -59,7 +58,7 @@ public sealed class RecordViewTests
         Assert.Equal(revision, seen);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_view_reads_reference_keys_without_resolving_the_referenced_entities()
     {
         await using var database = await TestDatabases.OpenMasterAsync(ReferenceSchema.Schema);
@@ -92,7 +91,7 @@ public sealed class RecordViewTests
         Assert.Equal(Guid.Empty, key);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_field_handle_must_be_the_exact_field_of_the_declaring_type()
     {
         await using var database = await NestedSchema.OpenMasterAsync();
@@ -120,7 +119,7 @@ public sealed class RecordViewTests
         Assert.Throws<ArgumentException>(() => people.TryView("ada", static view => view["Home"].Owned["Geo.Lat"].Get<double>(), out _));
     }
 
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(4)]
     public async Task List_position_outside_the_element_range_is_refused(int index)
@@ -133,7 +132,7 @@ public sealed class RecordViewTests
             () => people.TryView("ada", index, static (view, position) => view["Scores"].List[position].Get<long>(), out _));
     }
 
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(1)]
     public async Task Part_outside_the_range_of_a_single_part_is_refused(int part)
@@ -146,7 +145,7 @@ public sealed class RecordViewTests
             () => people.TryView("ada", part, static (view, index) => view["Photo"].GetPart(index).Length, out _));
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task Reading_a_null_or_wrong_kind_is_refused_and_scalar_type_must_match_exactly()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

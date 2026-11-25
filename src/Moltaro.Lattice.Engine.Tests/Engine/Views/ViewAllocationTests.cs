@@ -2,7 +2,6 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Collections;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
@@ -31,7 +30,7 @@ public sealed class ViewAllocationTests
         }
         """);
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task Warm_scalar_views_do_not_allocate()
     {
         await using var database = await EngineMaster.OpenAsync(Schema);
@@ -51,7 +50,7 @@ public sealed class ViewAllocationTests
         Assert.Equal(0, bytes);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_packed_Map_reads_a_split_nullable_scalar_and_adjacent_records_without_allocating()
     {
         await using var database = await EngineMaster.OpenAsync(Schema);

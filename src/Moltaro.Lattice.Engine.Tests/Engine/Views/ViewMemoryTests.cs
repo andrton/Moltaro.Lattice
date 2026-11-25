@@ -3,7 +3,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
-using Moltaro.Lattice.TestSupport.Views;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
@@ -16,7 +15,7 @@ public sealed class ViewMemoryTests
 
     private static readonly int Segment = new ArenaOptions().SegmentSize;
 
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task A_write_waits_for_memory_held_by_a_view_then_succeeds_or_is_refused_by_the_budget(bool fits)
@@ -61,7 +60,7 @@ public sealed class ViewMemoryTests
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_child_applier_reclaims_a_viewers_memory_while_a_second_view_waits_for_its_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

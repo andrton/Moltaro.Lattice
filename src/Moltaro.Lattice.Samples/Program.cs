@@ -27,7 +27,7 @@ LatticeSchema schema = null!;
     (SchemaSample.Run, Implemented),
     (BasicCrudSample.RunAsync, Implemented),
     (DynamicAccessSample.RunAsync, Implemented),
-    (ViewSample.RunAsync, Planned),
+    (ViewSample.RunAsync, Implemented),
     (KeyTypesSample.RunAsync, Implemented),
     (ClosedPropertiesSample.RunAsync, Implemented),
     (SchemaDeclarationsSample.Run, Implemented),

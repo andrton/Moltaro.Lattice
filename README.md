@@ -28,7 +28,9 @@ A database whose schema breaks either layout rule fails to open with `InvalidSch
 which names the entity type. Partial updates assign named fields and edit Lists, Maps and
 Sets. The master executes them alone or in a write batch, also when a child submits them.
 Children apply the changed fields and collection entries at the committed position.
-PostgreSQL persistence is not implemented yet, and the contract may still change.
+A protected view by name reads one entity directly from its local arena inside a short
+synchronous callback. Generated views for .NET classes are planned. PostgreSQL
+persistence is not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -156,8 +158,11 @@ var settings = database.Set("Setting");
 
 await settings.InsertAsync(new LatticeRecord(settings.EntityType)
 {
+    ["Id"] = "ui.theme",
+    ["Section"] = "ui",
     ["Name"] = "theme",
     ["Value"] = "dark",
+    ["Priority"] = 10,
 });
 
 foreach (var record in settings.Enumerate())
@@ -167,6 +172,30 @@ foreach (var record in settings.Enumerate())
 ```
 
 Both ways work on the same data and follow the same rules.
+
+**Reading in place by name.** A short synchronous viewer can work directly with the
+fields of one written state. Resolve a field once when the same field is read frequently.
+
+```csharp
+if (settings.TryView("ui.theme", static view => view["Priority"].Get<int>(), out var priority))
+{
+    Console.WriteLine(priority);
+}
+
+var valueField = settings.EntityType.GetField("Value");
+var theme = await settings.ViewAsync(
+    "ui.theme", new LatticeSession(), valueField,
+    static (view, field) => view[field].GetString());
+```
+
+`ViewAsync` waits for the session before taking a view and advances it to the position
+of the answer. The callback can read scalars, nested fields, collections and the stored
+bytes of text or binary values. `GetPart` borrows a read-only span and `GetString`
+returns an owned string. The callback must finish promptly and avoid waiting, I/O and
+database calls. A concurrent write can publish while the viewer reads its original
+state. A viewer delays reclamation of memory retired while it is active, which can
+delay a write or a child's application under memory pressure, new reads once all
+protection slots are occupied, and closing. See the [view sample](src/Moltaro.Lattice.Samples/Basics/ViewSample.cs).
 
 **Finding by index.** An entity type
 declares its secondary indexes in the schema, each with a name and the ids of the fields it
@@ -409,7 +438,8 @@ path, from simple to complex.
 - One database instance opens one database with its own schema and entities.
 - An entity belongs to an entity type declared in the schema and is addressed by its
   immutable primary key.
-- Reads are served from local memory and return owned copies. A revision read with an
+- Reads are served from local memory. Ordinary reads return owned copies, and a
+  synchronous protected viewer can read one state in place. A revision read with an
   entity lets a later write detect intervening changes.
 - One master executes all writes. Children load the whole database from the master,
   apply its changes and serve reads locally; a child can lag behind its master.
@@ -435,6 +465,7 @@ path, from simple to complex.
 | | `LatticeFingerprint` | The fingerprint of a schema and the layout fingerprint of an entity type |
 | `Moltaro.Lattice.Access` | `ILatticeSet<TEntity>` | Entities as objects of a .NET class |
 | | `ILatticeSet`, `LatticeRecord`, `LatticeOwnedValue` | Entities by name, as records, and the owned values a record holds |
+| | `LatticeRecordView`, `LatticeValueView`, `LatticeViewFunc`, `LatticeViewResult` | Scoped access by name to one entity, its owned values and collections, and the result of the viewer |
 | | `ILatticeIndex<TEntity>`, `IndexKey`, `IndexBound` | Finding entities through a declared secondary index |
 | | `LatticeUpdate`, `LatticeCommandResult` | Ordered field assignments and collection edits for one entity, with each command's result after commit |
 | | `ILatticeWriteBatch` | Several writes, also of different entity types, executed together or not at all |

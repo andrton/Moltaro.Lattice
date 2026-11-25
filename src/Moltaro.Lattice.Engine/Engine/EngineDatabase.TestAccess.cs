@@ -218,8 +218,10 @@ internal sealed partial class EngineDatabase
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next read by key that
     // finds its root in the index, or the next root a step of a search through a secondary index takes,
     // runs the action, once, on its own thread and inside the protection of reads, after it has found the
-    // root and before it reads it, with the handle of the root entry it found. A step that ends a round to
-    // make room outside the protection takes the same root again in its next round. A test waits inside the
+    // root and before it reads it, with the handle of the root entry it found. A protected view with a
+    // candidate miss offers the switch with a default handle before confirming the miss by sequence.
+    // A step that makes room outside the protection takes the same root again in its next round.
+    // A test waits inside the
     // action, with a bounded wait, to keep that read inside the protection while the test writes, drains,
     // counts and closes; when the action returns, the read goes on as it would have. Every other read
     // passes the point without running anything. The switch can be armed again while a read it held earlier

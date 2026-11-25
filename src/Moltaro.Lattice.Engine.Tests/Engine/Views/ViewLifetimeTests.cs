@@ -5,14 +5,13 @@ using Moltaro.Lattice.Engine.Tests.Engine.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Views;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
 public sealed class ViewLifetimeTests
 {
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_reentrant_read_does_not_release_the_view_and_publication_keeps_its_original_state()
     {
         await using var database = await StampSchema.OpenAsync();
@@ -62,7 +61,7 @@ public sealed class ViewLifetimeTests
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_throwing_viewer_releases_its_epoch_before_the_callers_exception_filter()
     {
         await using var database = await StampSchema.OpenAsync();
@@ -112,7 +111,7 @@ public sealed class ViewLifetimeTests
         }
     }
 
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Close_keeps_native_memory_while_a_viewer_runs_including_after_a_fault(bool fault)
@@ -172,7 +171,7 @@ public sealed class ViewLifetimeTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task Faulted_database_keeps_retired_memory_after_the_last_viewer_leaves_until_close()
     {
         var allocator = new CountingNativeAllocator();

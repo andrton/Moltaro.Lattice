@@ -5,7 +5,6 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
 
@@ -37,7 +36,7 @@ public sealed class ViewStorageTests
         }
         """);
 
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task Borrowed_parts_keep_their_native_addresses_and_decoding_uses_the_schema_encoding(LatticeStringEncodingEnum format)

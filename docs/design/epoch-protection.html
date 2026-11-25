@@ -73,14 +73,15 @@
   <p class="lead">Moltaro.Lattice · an explanation, not a specification. The same text without the
     animation is in <a href="epoch-protection.md">epoch-protection.md</a>; the rule is in the
     <a href="arena-protocol.md">arena protocol</a>.</p>
-  <p class="status"><b>Status.</b> Decided on 16 November 2026 and built in Epic 1, sprint S08, part 1,
-    for reads by key and the primary index.</p>
+  <p class="status"><b>Status.</b> The engine uses epochs for owned reads and
+    <a href="arena-protocol.md#protected-views">protected views by name</a>.
+    The animation follows two owned reads.</p>
 
   <h2>The idea</h2>
   <blockquote>A writer never frees memory a reader might still be looking at. It puts that memory
     aside, and it is freed a moment later, once every reader that could have seen it has left.</blockquote>
-  <p>Nobody waits: a reader does not wait for the writer, and the writer does not wait for readers.
-    Step through one replace of an entity while two readers are at work.</p>
+  <p>A write publishes while readers are in progress. Step through one replace
+    of an entity while two readers are at work.</p>
 
   <figure>
     <svg viewBox="0 0 900 400" role="img" aria-labelledby="capTitle capText">
@@ -152,7 +153,7 @@
   <ul>
     <li>The only thing a read writes is its own slot. No other reader writes there, so processors
       do not pass one piece of memory around, as they do with a shared lock.</li>
-    <li>The writer switches one pointer and goes on. It never waits for readers to finish.</li>
+    <li>The writer can publish while readers still hold the state they took.</li>
     <li>The index is read the same way: an entry is one machine word, and a table that has to grow
       is built beside the old one, switched in, and the old table retired like an old state.</li>
   </ul>
@@ -160,21 +161,21 @@
   <h2>What an application can rely on</h2>
   <table>
     <tr><th>Guarantee</th><th>What it means</th></tr>
-    <tr><td>Nothing changes in the API</td><td>No call, option or error is added for this.</td></tr>
+    <tr><td>Protected views by name</td><td><code>TryView</code> and <code>ViewAsync</code> lend an entity's state to a short synchronous callback.</td></tr>
     <tr><td>A read is coherent for one entity</td><td>It returns one written state, never a mixture. Several reads are still not a snapshot.</td></tr>
-    <tr><td>Reads and writes do not block each other</td><td>More reading threads read more in total, up to the number of processors, and writes keep their pace. Any number of threads may write; their changes are published one after another, and &ldquo;the writer&rdquo; on this page is whichever of them is publishing at that moment.</td></tr>
+    <tr><td>Publication proceeds alongside readers</td><td>Any number of threads may write. Their changes are published one after another.</td></tr>
     <tr><td>A close is complete</td><td>Closing waits for the reads in progress and frees everything.</td></tr>
   </table>
 
   <h2>What it costs</h2>
   <ul>
-    <li>Old memory lives slightly longer: a small, bounded amount waits for the writer's next look at
-      the readers. A read holds memory back only while it copies an entity; no application code runs
-      and nothing waits while a read is inside.</li>
+    <li>An owned read holds an epoch while it copies an entity. A protected view holds the epoch
+      for the duration of the callback, which can delay writes and child application under memory
+      pressure, closing and entry once all slots are held.</li>
     <li>Retired memory is counted and counts against the memory budget of the instance. A write
       that meets the budget first frees what can be freed.</li>
     <li>It is not a snapshot and not versioning: an old state lives only until the readers that
-      were already copying it are done.</li>
+      could reach it finish and a drain reclaims it.</li>
   </ul>
 
   <h2>A known technique</h2>

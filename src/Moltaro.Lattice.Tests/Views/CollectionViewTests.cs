@@ -1,4 +1,3 @@
-using Moltaro.Lattice.TestSupport.Views;
 
 namespace Moltaro.Lattice.Tests.Views;
 
@@ -35,7 +34,7 @@ public sealed class CollectionViewTests
         }
         """);
 
-    [Theory(Skip = ProtectedViewsRequired.Skip)]
+    [Theory]
     [InlineData(4)]
     [InlineData(8)]
     [InlineData(9)]
@@ -94,7 +93,7 @@ public sealed class CollectionViewTests
         Assert.Equal(count, actualCount);
     }
 
-    [Fact(Skip = ProtectedViewsRequired.Skip)]
+    [Fact]
     public async Task A_Map_and_a_Set_refuse_keys_outside_the_search_allowlist()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);

@@ -97,9 +97,13 @@ The PostgreSQL **256-byte saved unit is separate from native allocation sizes**.
 ## Reads and indexes
 
 **Ordinary reads return owned copies.** Later updates cannot change a value already
-returned to application code. A separate short, synchronous protected read offers a
-read-only arena view; it cannot escape, await, perform I/O or make nested database calls.
-Keeping it short is the caller's obligation: while it is held, publication can be delayed.
+returned to application code. The set by name also offers a short synchronous
+[protected view](arena-protocol.md#protected-views) of one entity in the arena. The
+compiler keeps the view and its read-only byte parts inside the callback. The caller
+keeps the callback short and avoids waiting, I/O and database calls. Publication can
+advance while the viewer keeps the original state. Reclamation waits for the viewer,
+which can delay writes and child application under memory pressure, closing and entry
+when every protection slot is occupied. Generated views for .NET classes are planned.
 
 A read is protected by an epoch and takes no lock: what a write replaces or removes is
 freed only after every read that could reach it has left. A read is coherent for one

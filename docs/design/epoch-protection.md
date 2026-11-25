@@ -4,10 +4,9 @@ An explanation for a reader who uses the database or wants to understand it, not
 specification. The rule itself is in the [arena protocol](arena-protocol.md); an
 animated version of this page is [epoch-protection.html](epoch-protection.html).
 
-**Status.** Decided by the owner on 16 November 2026 and built in Epic 1, sprint S08,
-part 1, for reads by key and the primary index. The figures below are measurements on
-one development machine with 20 logical processors; they compare the three protections
-and judge nothing else.
+**Status.** The engine uses epochs for its owned reads and protected views by name.
+The figures below compare the earlier owned-read protections on one development
+machine with 20 logical processors.
 
 ## The problem in one picture
 
@@ -42,9 +41,8 @@ second beside 20 readers, against 0.02 M under the shared locks.
 > aside, and it is freed a moment later, once every reader that could have seen it has
 > left.
 
-Nobody waits for the other side to finish its work. A reader does not wait for the
-writer, and the writer does not wait for readers. The price is that old memory lives a
-little longer than it has to.
+A write publishes while reads are in progress. A reader that already took an entity
+can keep reading that state. Retired memory stays until those readers leave.
 
 An everyday comparison: a reading room. Each visitor signs in on their own sheet at the
 door and signs out on leaving. When the librarian replaces a book with a new edition,
@@ -73,9 +71,13 @@ hands.
 3. Copy the entity out.
 4. Leave: mark the slot empty.
 
-No lock is taken. A read repeats its copy when a write of the same entity was being
-published at that instant. The copy is the caller's own, as every read of this database
-returns; nothing the caller holds points into the database.
+No lock is taken. Before taking a root, a read checks the entry's stamp and the
+published position. The owned copy belongs to the caller and holds no arena memory.
+
+A [protected view](arena-protocol.md#protected-views) takes the same epoch and root.
+It lends the state to a scoped synchronous callback, which leaves the epoch on return
+or exception. `ViewAsync` waits for its session before taking a slot. Publication can
+advance while the viewer keeps reading that root.
 
 ## A write that replaces an entity
 
@@ -118,22 +120,22 @@ key up while the writer inserts, deletes or enlarges the table:
 
 ## What an application can rely on
 
-- **Nothing changes in the API.** No call, option or error is added for this.
+- **The set by name offers a protected view.** `TryView` and `ViewAsync` lend
+  the state during a short synchronous callback.
 - **A read is coherent for one entity.** It returns one written state. Several reads are
   still not a snapshot of the database.
-- **Reads do not block writes and writes do not block reads.** Adding reading threads
-  adds reads, up to the number of processors, and writes keep their pace. Any number of
-  threads may write; their changes are published one after another, and "the writer" on
-  this page is whichever of them is publishing at that moment.
+- **Publication proceeds alongside active readers.** Any number of threads may write.
+  Their changes are published one after another. The writer on this page is the thread
+  publishing at that moment.
 - **A close is complete.** Closing the database waits for the reads in progress and
   frees everything.
 
 ## What it costs
 
-- **Memory is freed slightly later.** A small, bounded amount of retired memory waits
-  for the writer's next look at the readers. A read holds memory back only while it
-  copies an entity: the database runs no application code and waits for nothing while a
-  read is inside, and a slow caller between two steps of an enumeration holds nothing.
+- **Memory is freed later.** An owned read holds an epoch while it copies an entity.
+  An enumeration holds nothing between steps. A viewer holds an epoch until its
+  callback finishes. Under memory pressure it can delay a write or child application.
+  Closing and new reads when the slot table is full can also wait for a viewer.
 - **Retired memory is counted.** It has its own counter, and it counts against the
   memory budget of the instance. A write that meets the budget first frees what can be
   freed and waits for the reads in progress before it is refused.
@@ -143,7 +145,8 @@ key up while the writer inserts, deletes or enlarges the table:
 ## What it is not
 
 - Not a snapshot and not versioning: old states are not kept for readers to choose
-  from. An old state lives only until the readers that were already copying it are done.
+  from. An old state lives until the readers that could reach it finish and the next
+  drain reclaims it.
 - Not a garbage collector: nothing of the data is scanned. The writer looks only at the
   readers' slots, and knows exactly what it
   retired and when it may free it.

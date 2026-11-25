@@ -248,13 +248,12 @@ detached from its owner, counted as retired, and freed once every read that had 
 before it was retired has left. A write being published never waits for readers, and a reader
 never waits for the writer on its ordinary path.
 
-What does not move: a read is coherent for one entity, it sees one written state and
-never a mixture; a retired entry is reused only after the reads that could see it have
-left, and a read never follows an old entry to a key that was created again; a close
-waits for the reads in progress and frees everything retired; no code of the
-application runs, and nothing waits — no I/O, no `await`, no wait for a position —
-while a read is inside the protection, so a read holds retired memory back only for the
-length of one step. A read of an absent key repeats its lookup when a write was published
+Each read sees one written state of an entity. A retired entry becomes reusable once the
+reads that could see it have left. A read cannot follow an old entry to a recreated key.
+A close waits for reads in progress before freeing memory. An owned copy is taken in one
+step inside the epoch. Application code that builds an owned result runs after the
+read leaves. A read that meets an unpublished stamp waits for that publication in memory.
+A read of an absent key repeats its lookup when a write was published
 during it; the step ends with the first lookup no write crossed. The publishing thread
 looks at the readers when the items retired since its last look reach the number of slots
 or their bytes reach one segment, and whenever memory is short, a drain is asked for or
@@ -285,6 +284,31 @@ freed and waits for the reads that hold the rest before it is refused. The engin
 retired memory on the path of its own operations, as the mechanism it follows does; it
 starts no thread and no timer for it. A database nobody uses may therefore hold the last
 retired memory until its next operation or its close.
+
+### Protected views
+
+`TryView` and `ViewAsync` on the set by name use the same epoch table and take
+one stamped root. They run the synchronous viewer inside the epoch and read every
+field from that root. A hit samples the root, its member revision and the answer's
+sequence together. A raced delete answers at its tombstone's stamp. A stable miss
+answers at the sequence that remained unchanged across the lookup. `ViewAsync`
+waits for its session before entering an epoch and advances it to the captured answer
+position after the operation returns. The callback can borrow only read-only parts of
+the stored bytes. A scalar split across chunks is gathered by value from its parts.
+`GetString` decodes the parts in the schema encoding into an owned string.
+
+An open view holds its original state across later writes. Publication proceeds while
+the viewer runs. The epoch keeps memory retired since it began from being freed. A
+new read can wait for a free slot if all slots are held. Under memory pressure a write
+or a child's application of a change can wait for reclamation. A close waits for the
+viewer before freeing any memory. Those four waits can last as long as the viewer runs
+([exception X6](../work/exceptions.md#x6-waits-inside-the-engine-that-have-no-timeout)).
+A fault refuses new views and leaves retired memory for close. An exception from the
+viewer leaves the epoch before it reaches a caller's exception filter.
+
+The caller must avoid waiting, I/O and nested database operations in the viewer. The
+engine adds no guard. A separate read still takes its own slot. Independent views share
+no snapshot.
 
 ### Ownership across partial updates
 

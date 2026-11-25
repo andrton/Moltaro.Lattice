@@ -4,14 +4,14 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Access;
 
 /// <summary>
-/// The entities of one entity type as records, without a .NET class: read, enumerate,
-/// insert, replace, upsert and delete. Obtained from <see cref="ILatticeDatabase.Set(string)"/>.
+/// The entities of one entity type by name. Supports owned reads, protected views, enumeration
+/// and writes. Obtained from <see cref="ILatticeDatabase.Set(string)"/>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Every entity type of the schema is available this way, whether or not a .NET class is
-/// declared for it. The data and the rules are the same as for
-/// <see cref="ILatticeSet{TEntity}"/>, member for member: records are owned copies; the
+/// declared for it. Owned records and writes follow the same rules as
+/// <see cref="ILatticeSet{TEntity}"/>. Records are owned copies. The
 /// synchronous reads return what this node has now, the asynchronous ones first wait for
 /// the position of a <see cref="LatticeSession"/>; writes are executed by the master and,
 /// through a child, complete when that child has applied them or has been closed; do not

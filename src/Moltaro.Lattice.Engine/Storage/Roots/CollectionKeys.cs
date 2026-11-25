@@ -4,9 +4,10 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// A protected view of the first member of each collection entry. Packed records can cross a
-// byte chunk, so the caller supplies scratch for the key itself. A record with descriptors
-// lies whole in a block and its inline locations are relative to that block.
+// Protected access to collection entries and to the first member of each for a lookup.
+// Packed records may cross a byte chunk. EntryParts keeps both slices, and key comparison
+// uses scratch only for a split key. A record with descriptors lies whole in a block and
+// its inline locations are relative to that block. See docs/design/arena-protocol.md.
 internal readonly ref struct CollectionKeys : ICollectionKeySource
 {
     private readonly Arena _arena;
@@ -19,7 +20,7 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
 
     private readonly LatticeStringEncodingEnum _encoding;
 
-    public CollectionKeys(Arena arena, StructureLayout entry, in ValueDescriptor descriptor, ReadOnlySpan<byte> payload, LatticeStringEncodingEnum encoding)
+    public CollectionKeys(Arena arena, StructureLayout entry, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> payload, LatticeStringEncodingEnum encoding)
     {
         _arena = arena;
         _entry = entry;
@@ -123,6 +124,18 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
         return StoredText.Read(_arena, text, payload, _encoding);
     }
 
+    public ReadOnlySpan<byte> EntryParts(int ordinal, out ReadOnlySpan<byte> tail, out int start)
+    {
+        if (_entry.HoldsDescriptors)
+        {
+            tail = default;
+            return RecordPayload(ordinal, out start);
+        }
+
+        start = 0;
+        return PackedParts(ordinal * _entry.Size, _entry.Size, out tail);
+    }
+
     public static uint NullHash(ulong seed) => ValueComparer.IntegerHash(-1, seed);
 
     private bool IsNull(int ordinal)
@@ -152,7 +165,20 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
             return payload.Slice(start + offset, length);
         }
 
-        var at = ordinal * _entry.Size + offset;
+        var part = PackedParts(ordinal * _entry.Size + offset, length, out var tail);
+        if (tail.IsEmpty)
+        {
+            return part;
+        }
+
+        part.CopyTo(scratch);
+        tail.CopyTo(scratch[part.Length..]);
+        return scratch[..length];
+    }
+
+    private ReadOnlySpan<byte> PackedParts(int at, int length, out ReadOnlySpan<byte> tail)
+    {
+        tail = default;
         if (!ValueBlocks.LiesInChunks(_entries))
         {
             return ValueBlocks.Contiguous(_arena, _entries, _payload).Slice(at, length);
@@ -167,9 +193,8 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
             return part[..length];
         }
 
-        part.CopyTo(scratch);
-        ValueBlocks.Chunk(_arena, chunks, chunk + 1)[..(length - part.Length)].CopyTo(scratch[part.Length..]);
-        return scratch[..length];
+        tail = ValueBlocks.Chunk(_arena, chunks, chunk + 1)[..(length - part.Length)];
+        return part;
     }
 
     private ReadOnlySpan<byte> RecordPayload(int ordinal, out int start)
