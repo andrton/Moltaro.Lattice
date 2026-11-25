@@ -54,7 +54,7 @@ public sealed class RetiredNodeTests
     {
         var slots = new ReadEpochs(new object()).SlotCount;
 
-        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
+        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var counted = database.Set<IndexSchema.Counted>();
         await InsertAsync(database, counted);
 
