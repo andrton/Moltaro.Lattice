@@ -177,6 +177,7 @@ public interface ILatticeSet
     /// <exception cref="ObjectDisposedException">The database is closed.</exception>
     /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
     /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.HistoryMismatch"/> when the session belongs to another history;
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/> when the session wait times out;
     /// <see cref="LatticeErrorEnum.Unavailable"/> when the database is unavailable.
     /// </exception>
@@ -202,6 +203,7 @@ public interface ILatticeSet
     /// <exception cref="ObjectDisposedException">The database is closed.</exception>
     /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
     /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.HistoryMismatch"/> when the session belongs to another history;
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/> when the session wait times out;
     /// <see cref="LatticeErrorEnum.Unavailable"/> when the database is unavailable.
     /// </exception>
