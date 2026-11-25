@@ -53,6 +53,7 @@ internal static class BindingSchema
         "TimeOnly" => [TimeOnly.MinValue, TimeOnly.MaxValue],
         "TimeSpan" => [TimeSpan.MinValue, TimeSpan.MaxValue],
         "Level" => [(short)-300, (short)300],
+        "Wide" => [1UL, ulong.MaxValue],
         "Rights" => [0, 7],
         "Exact" or "Folded" => ["", "\U0010FFFF"],
         _ => throw new ArgumentOutOfRangeException(nameof(field), field, "Item has no nullable field of this name."),
