@@ -289,6 +289,15 @@ internal sealed class EntityTable
         }
     }
 
+    // Before the first binding of a typed view, which does not hold an epoch. The lookup
+    // still checks this same state when it enters the protection of reads.
+    public void CheckViewAvailability()
+    {
+        if (_epochs.Refuses)
+        {
+            _epochs.ThrowForState();
+        }
+    }
     // Takes one stamped root under its own epoch and holds that epoch while the
     // viewer runs. The answer's sequence is the one sampled by this lookup.
     public bool TryView<TState, TResult>(in EntityKey key, ResidentViews views, TState state,

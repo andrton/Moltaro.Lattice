@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Writes;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Views;
@@ -161,6 +162,31 @@ public sealed class TypedViewProtectionTests
         Assert.NotEqual(database.Position, answer.Position);
     }
 
+    [Fact]
+    public async Task A_fault_is_reported_before_the_first_binding_of_a_typed_view()
+    {
+        await using var database = await StampSchema.OpenAsync();
+        var typed = database.Set<StampSchema.Stamp>();
+        var named = database.Set("Stamp");
+        await typed.InsertAsync(StampSchema.StampOf(1, 0));
+        database.ArmFault(EngineFaultPointEnum.BeforePublication);
+        await Assert.ThrowsAsync<LatticeException>(async () => await typed.InsertAsync(StampSchema.StampOf(2, 1)));
+        Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
+
+        var namedError = Assert.Throws<LatticeException>(() => named.TryView(1L, static _ => Unexpected(), out _));
+        var typedError = Assert.Throws<LatticeException>(() => typed.TryView(1L, static (StampListView _) => Unexpected(), out _));
+        Assert.Equal(LatticeErrorEnum.Unavailable, typedError.Error);
+        Assert.Equal(namedError.Message, typedError.Message);
+
+        var namedPending = named.ViewAsync(1L, new LatticeSession(), static _ => Unexpected());
+        var typedPending = typed.ViewAsync(1L, new LatticeSession(), static (StampListView _) => Unexpected());
+        namedError = await Assert.ThrowsAsync<LatticeException>(() => namedPending.AsTask());
+        typedError = await Assert.ThrowsAsync<LatticeException>(() => typedPending.AsTask());
+        Assert.Equal(LatticeErrorEnum.Unavailable, typedError.Error);
+        Assert.Equal(namedError.Message, typedError.Message);
+
+        static int Unexpected() => throw new InvalidOperationException("A faulted database ran a viewer.");
+    }
     private static long ThrowViewer(scoped StampView _, (ViewerPause Pause, ArgumentException Failure) state)
     {
         state.Pause.Hold();

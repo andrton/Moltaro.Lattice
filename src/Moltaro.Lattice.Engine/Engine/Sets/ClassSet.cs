@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Binding;
-using Moltaro.Lattice.Access.Views;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Sets;
@@ -75,7 +74,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         ArgumentNullException.ThrowIfNull(viewer);
         var entityKey = KeyArgument.Of(_operations.Table, key);
-        var fields = ViewBinding<TView, TEntity>.For(EntityType);
+        var fields = _operations.BindView<TView, TEntity>();
 
         return _operations.TryView(entityKey, (fields, viewer), CallViewer<TView, TResult>, out result, out _);
     }
@@ -87,7 +86,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         ArgumentNullException.ThrowIfNull(viewer);
         var entityKey = KeyArgument.Of(_operations.Table, key);
-        var fields = ViewBinding<TView, TEntity>.For(EntityType);
+        var fields = _operations.BindView<TView, TEntity>();
 
         return _operations.TryView(entityKey, (fields, state, viewer), CallViewer<TView, TState, TResult>, out result, out _);
     }
@@ -102,7 +101,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         var entityKey = KeyArgument.Of(_operations.Table, key);
 
         return _operations.ViewAsync(entityKey, session, viewer, CallViewer<TView, TResult>,
-            static (entityType, callback) => (ViewBinding<TView, TEntity>.For(entityType), callback), cancellationToken);
+            static (operations, callback) => (operations.BindView<TView, TEntity>(), callback), cancellationToken);
     }
 
     public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TState, TResult>(TKey key, LatticeSession session, TState state,
@@ -115,7 +114,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         var entityKey = KeyArgument.Of(_operations.Table, key);
 
         return _operations.ViewAsync(entityKey, session, (state, viewer), CallViewer<TView, TState, TResult>,
-            static (entityType, input) => (ViewBinding<TView, TEntity>.For(entityType), input.state, input.viewer), cancellationToken);
+            static (operations, input) => (operations.BindView<TView, TEntity>(), input.state, input.viewer), cancellationToken);
     }
 
     private static TResult CallViewer<TView, TResult>(scoped LatticeRecordView record, (LatticeField[] Fields, LatticeViewFunc<TView, TResult> Viewer) call)

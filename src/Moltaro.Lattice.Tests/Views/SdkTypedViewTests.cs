@@ -32,8 +32,15 @@ public sealed class SdkTypedViewTests
 
         namespace ViewModels;
 
-        public class EntryBase
+        public class EntryRoot
         {
+            public virtual int Rating { get; set; }
+        }
+
+        public class EntryBase : EntryRoot
+        {
+            private new int Rating => 3;
+
             public int Age { get; private set; }
 
             public int GetterOnly => 81;
@@ -44,6 +51,8 @@ public sealed class SdkTypedViewTests
         public sealed class Entry : EntryBase
         {
             public int Id { get; set; }
+
+            public override int Rating => base.Rating + 1;
 
             public byte[] Data { get; set; } = [];
 
@@ -91,7 +100,8 @@ public sealed class SdkTypedViewTests
                 { "Id": 3, "Name": "Data", "Type": "Binary" },
                 { "Id": 4, "Name": "Weights", "Type": "List", "Element": { "Type": "Int32" } },
                 { "Id": 5, "Name": "Mappings", "Type": "Map", "Key": { "Type": "String" }, "Value": { "Type": "Int32" } },
-                { "Id": 6, "Name": "Home", "Type": "Owned", "OwnedType": "EntryDetails" }
+                { "Id": 6, "Name": "Home", "Type": "Owned", "OwnedType": "EntryDetails" },
+                { "Id": 7, "Name": "Rating", "Type": "Int32" }
               ],
               "PrimaryKey": [1]
             }
@@ -124,6 +134,7 @@ public sealed class SdkTypedViewTests
         var records = database.Set("Entry");
         var item = new Entry { Id = 1, Data = [42], Weights = [17, 23] };
         item.ChangeAge(41);
+        ((EntryRoot)item).Rating = 40;
         await items.InsertAsync(item);
         if (!items.TryView(1, static (EntryView view) => (view.Age, view.Data.GetPart(0)[0], view.Weights.Count), out var byClass) ||
             !records.TryView(1, static view => (view["Age"].Get<int>(), view["Data"].GetPart(0)[0], view["Weights"].List.Count), out var byName) ||
@@ -132,6 +143,28 @@ public sealed class SdkTypedViewTests
             throw new InvalidOperationException("The inherited private setter did not produce the expected protected value.");
         }
 
+        if (!items.TryView(1, static (EntryView view) => view.Rating, out var rating) || rating != 41 ||
+            records.Get(1)!.Get<int>("Rating") != rating || items.Get(1)!.Rating != 42)
+        {
+            throw new InvalidOperationException("The property did not bind to its actual inherited virtual slot.");
+        }
+
+        var getterOnly = LatticeSchema.Compile(File.ReadAllText("entry.schema.json")
+            .Replace("\"Age\", \"Type\": \"Int32\"", "\"GetterOnly\", \"Type\": \"Int32\"", StringComparison.Ordinal));
+        await using var rejected = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
+        {
+            Schema = getterOnly,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+        });
+        try
+        {
+            _ = rejected.Set<Entry>();
+            throw new InvalidOperationException("The getter-only property unexpectedly bound.");
+        }
+        catch (LatticeException error) when (error.Error == LatticeErrorEnum.BindingFailed &&
+            error.Message.Contains("'GetterOnly'", StringComparison.Ordinal))
+        {
+        }
         Console.WriteLine("Protected values: 41 42 2");
         """;
 
@@ -301,6 +334,121 @@ public sealed class SdkTypedViewTests
     }
 
     [Fact]
+    public async Task A_schema_file_binds_the_runtime_name_of_a_generic_model_and_preserves_aliased_types_in_the_view()
+    {
+        using var sdk = new SdkViewProject();
+        await PackViewPackagesAsync(sdk);
+
+        const string model = "AliasedModel";
+        sdk.Write(model, model + ".csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """);
+        sdk.Write(model, "EntryBase.cs", """
+            namespace AliasedModel;
+
+            public enum StatusEnum { Pending = 1 }
+
+            public sealed class Marker;
+
+            public class EntryBase
+            {
+                public StatusEnum Status { get; private set; }
+
+                public void ChangeStatus(StatusEnum status) => Status = status;
+            }
+            """);
+
+        const string project = "GenericViewConsumer";
+        const string projectReference = """<ProjectReference Include="../AliasedModel/AliasedModel.csproj" Aliases="external" />""";
+        sdk.Write(project, project + ".csproj", ConsumerProject(executable: true, analyzer: false, schema: false, projectReference));
+        sdk.Write(project, "Bag.cs", """
+            extern alias external;
+
+            public sealed class Bag<TFramework, TExternal> : external::AliasedModel.EntryBase
+            {
+                public int Id { get; set; }
+            }
+            """);
+        sdk.Write(project, "Program.cs", """"
+            extern alias external;
+            using System;
+            using System.IO;
+            using Marker = external::AliasedModel.Marker;
+
+            File.WriteAllText("entry.schema.json", $$"""
+                {
+                  "Enums": [{ "Id": 1, "Name": "Status", "UnderlyingType": "Int32", "Members": [{ "Name": "Pending", "Value": 1 }] }],
+                  "EntityTypes": [{
+                    "Id": 1, "Name": "Bag", "ClrType": "{{typeof(Bag<Uri, Marker>).FullName}}",
+                    "Fields": [{ "Id": 1, "Name": "Id", "Type": "Int32" }, { "Id": 2, "Name": "Status", "Type": "Enum", "Enum": "Status" }],
+                    "PrimaryKey": [1]
+                  }]
+                }
+                """);
+            """");
+        var built = await sdk.BuildAsync(project);
+        Assert.True(built.ExitCode == 0, built.Output);
+        var ran = await sdk.RunAsync(project);
+        Assert.True(ran.ExitCode == 0, ran.Output);
+        Assert.Contains(typeof(Uri).Assembly.FullName!, File.ReadAllText(sdk.FileOf(project, "entry.schema.json")), StringComparison.Ordinal);
+
+        sdk.Write(project, project + ".csproj", ConsumerProject(executable: true, analyzer: true, schema: true, projectReference, packagedModel: false));
+        const string declaration = """
+            extern alias external;
+            using System;
+            using Moltaro.Lattice.Access;
+            using Marker = external::AliasedModel.Marker;
+
+            [LatticeView(typeof(Bag<Uri, Marker>))]
+            public readonly ref partial struct BagView;
+            """;
+        sdk.Write(project, "BagView.cs", declaration);
+        sdk.Write(project, "Program.cs", """
+            extern alias external;
+            using System;
+            using System.IO;
+            using Moltaro.Lattice;
+            using Moltaro.Lattice.Access;
+            using Moltaro.Lattice.Schema;
+            using Marker = external::AliasedModel.Marker;
+            using StatusEnum = external::AliasedModel.StatusEnum;
+
+            var schema = LatticeSchema.Compile(File.ReadAllText("entry.schema.json"));
+            await using var database = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
+            {
+                Schema = schema,
+                PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            });
+            var bags = database.Set<Bag<Uri, Marker>>();
+            var item = new Bag<Uri, Marker> { Id = 7 };
+            item.ChangeStatus(StatusEnum.Pending);
+            await bags.InsertAsync(item);
+
+            if (!bags.TryView(7, static (BagView view) => view.Status, out StatusEnum status) ||
+                !database.Set("Bag").TryView(7, static view => view["Status"].Get<int>(), out var named) ||
+                status != StatusEnum.Pending || (int)status != named || bags.Get(7)!.Status != status)
+            {
+                throw new InvalidOperationException("The protected views did not read the aliased enum.");
+            }
+
+            Console.WriteLine("Aliased status: " + status);
+            """);
+        built = await sdk.BuildAsync(project);
+        Assert.True(built.ExitCode == 0, built.Output);
+        ran = await sdk.RunAsync(project);
+        Assert.True(ran.ExitCode == 0, ran.Output);
+        Assert.Contains("Aliased status: Pending", ran.Output, StringComparison.Ordinal);
+
+        sdk.Write(project, "BagView.cs", declaration.Replace("struct BagView;", "struct BagView(int state);", StringComparison.Ordinal));
+        var rejected = await sdk.BuildAsync(project);
+        AssertNamedDiagnostic(rejected, "BagView");
+        Assert.Contains("cannot declare a primary constructor", rejected.Output, StringComparison.Ordinal);
+    }
+    [Fact]
     public async Task The_sdk_builds_and_runs_an_ordinary_consumer_without_the_analyzer()
     {
         using var sdk = new SdkViewProject();
@@ -353,7 +501,7 @@ public sealed class SdkTypedViewTests
         Assert.Contains(sdk.References(AnalyzerPackage), IsCompilerReference);
     }
 
-    private static string ConsumerProject(bool executable, bool analyzer, bool schema, string reference = "") => $$"""
+    private static string ConsumerProject(bool executable, bool analyzer, bool schema, string reference = "", bool packagedModel = true) => $$"""
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
             <TargetFramework>net10.0</TargetFramework>
@@ -366,7 +514,7 @@ public sealed class SdkTypedViewTests
           <ItemGroup>
             <PackageReference Include="{{EnginePackage}}" Version="{{SdkViewProject.Version}}" />
             {{(analyzer ? Package(AnalyzerPackage) : "")}}
-            {{(analyzer ? Package(ModelPackage) : "")}}
+            {{(analyzer && packagedModel ? Package(ModelPackage) : "")}}
             {{(schema ? """<AdditionalFiles Include="entry.schema.json" />""" : "")}}
             {{reference}}
           </ItemGroup>

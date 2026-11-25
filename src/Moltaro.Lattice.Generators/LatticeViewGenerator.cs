@@ -71,7 +71,7 @@ public sealed class LatticeViewGenerator : IIncrementalGenerator
                     : builder.FromSchema(entity, FindEntity(schemas, classes.FullName(entity)!));
                 var hintName = view.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hintName)));
-                output.AddSource($"{view.Name}.{identity[..16]}.g.cs", new ViewEmitter(view, entity, fields).Emit());
+                output.AddSource($"{view.Name}.{identity[..16]}.g.cs", new ViewEmitter(metadata.Compilation, view, entity, fields).Emit());
             }
             catch (LatticeException error)
             {
@@ -164,6 +164,10 @@ public sealed class LatticeViewGenerator : IIncrementalGenerator
             throw Failure($"Declare view '{view.Name}' as a readonly ref partial struct accessible from another source file.");
         }
 
+        if (view.DeclaringSyntaxReferences.Any(reference => reference.GetSyntax() is TypeDeclarationSyntax { ParameterList: not null }))
+        {
+            throw Failure($"View '{view.Name}' cannot declare a primary constructor. Its constructor receives the protected record and field handles.");
+        }
         for (var enclosing = view.ContainingType; enclosing is not null; enclosing = enclosing.ContainingType)
         {
             if (enclosing.IsFileLocal || enclosing.DeclaringSyntaxReferences.Any(reference =>

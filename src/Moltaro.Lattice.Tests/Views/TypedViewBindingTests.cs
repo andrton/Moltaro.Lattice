@@ -33,6 +33,24 @@ public sealed class TypedViewBindingTests
     }
 
     [Fact]
+    public async Task Closure_is_reported_before_the_first_binding_of_a_typed_view()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(Schema("Binary", true));
+        var typed = database.Set<ByteProjectionModel>();
+        var named = database.Set("Item");
+        await typed.InsertAsync(new ByteProjectionModel { Id = 1, Data = [42] });
+        Assert.NotNull(typed.Get(1));
+
+        await database.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => named.TryView(1, static _ => Unexpected(), out _));
+        Assert.Throws<ObjectDisposedException>(() => typed.TryView(1, static (ListProjection _) => Unexpected(), out _));
+        var namedPending = named.ViewAsync(1, new LatticeSession(), static _ => Unexpected());
+        var typedPending = typed.ViewAsync(1, new LatticeSession(), static (ListProjection _) => Unexpected());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => namedPending.AsTask());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => typedPending.AsTask());
+    }
+    [Fact]
     public async Task Optional_views_distinguish_a_present_default_scalar_and_empty_list_from_absence()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema("Binary", true));

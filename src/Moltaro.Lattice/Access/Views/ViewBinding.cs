@@ -13,7 +13,12 @@ internal static class ViewBinding<TView, TEntity>
 {
     private static readonly ConditionalWeakTable<LatticeEntityType, LatticeField[]> Bindings = [];
 
-    public static LatticeField[] For(LatticeEntityType type) => Bindings.GetValue(type, Bind);
+    public static LatticeField[] For<TState>(LatticeEntityType type, TState state, Action<TState> checkAvailability) =>
+        Bindings.GetOrAdd(type, static (entityType, input) =>
+        {
+            input.Check(input.State);
+            return Bind(entityType);
+        }, (State: state, Check: checkAvailability));
 
     private static LatticeField[] Bind(LatticeEntityType type)
     {

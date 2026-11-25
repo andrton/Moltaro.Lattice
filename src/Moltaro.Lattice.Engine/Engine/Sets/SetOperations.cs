@@ -3,6 +3,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Access.Views;
 using Moltaro.Lattice.Engine.Child.Forwarding;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Indexes;
@@ -107,6 +108,10 @@ internal sealed class SetOperations : IUpdateExecutor
         return new LatticeReadResult<TResult>(result, revision, position);
     }
 
+    public LatticeField[] BindView<TView, TEntity>()
+        where TView : ILatticeEntityView<TView, TEntity>, allows ref struct
+        where TEntity : class =>
+        ViewBinding<TView, TEntity>.For(Table.EntityType, Table, static table => table.CheckViewAvailability());
     public bool TryView<TState, TResult>(in EntityKey key, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer,
         [MaybeNullWhen(false)] out TResult result, out ulong sequence, CancellationToken cancellationToken = default) =>
         Table.TryView(key, _views, state, viewer, out result, out sequence, cancellationToken);
@@ -118,12 +123,12 @@ internal sealed class SetOperations : IUpdateExecutor
     // The session wait and any schema binding take no epoch. The position of the answer
     // comes from the protected lookup, even if a publication advances the clock during the callback.
     public async ValueTask<LatticeViewResult<TResult>> ViewAsync<TInput, TState, TResult>(EntityKey key, LatticeSession session,
-        TInput input, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, Func<LatticeEntityType, TInput, TState> prepare,
+        TInput input, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, Func<SetOperations, TInput, TState> prepare,
         CancellationToken cancellationToken)
     {
         await WaitAsync(session, cancellationToken).ConfigureAwait(false);
 
-        var state = prepare(Table.EntityType, input);
+        var state = prepare(this, input);
         var found = TryView(key, state, viewer, out var result, out var sequence, cancellationToken);
         var position = _clock.At(sequence);
         session.Advance(position);

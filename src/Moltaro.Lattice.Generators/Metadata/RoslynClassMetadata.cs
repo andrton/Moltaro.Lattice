@@ -9,6 +9,7 @@ namespace Moltaro.Lattice.Generators.Metadata;
 internal sealed class RoslynClassMetadata(ModelMetadata model) : ClassTypeMetadata<ITypeSymbol>
 {
     private readonly Compilation _compilation = model.Compilation;
+    private readonly FrameworkMetadata _framework = new();
 
     public override string Name(ITypeSymbol type) => type.Name;
 
@@ -149,11 +150,12 @@ internal sealed class RoslynClassMetadata(ModelMetadata model) : ClassTypeMetada
         identity.Name.StartsWith("System.", StringComparison.Ordinal) && !identity.PublicKeyToken.IsDefaultOrEmpty;
 
     // CLR full names separate nesting with '+' and qualify each closed generic argument
-    // by assembly. Framework references can expose a core-library type through a facade.
-    private static string? RuntimeName(ITypeSymbol type) => type switch
+    // by assembly. Framework references can expose a type through a facade.
+    private string? RuntimeName(ITypeSymbol type) => type switch
     {
         IArrayTypeSymbol array => RuntimeName(array.ElementType) + ArrayDimensions(array),
         INamedTypeSymbol named => ConstructedName(named),
+        IDynamicTypeSymbol => RuntimeName(_compilation.GetSpecialType(SpecialType.System_Object)),
         _ => null,
     };
 
@@ -167,7 +169,7 @@ internal sealed class RoslynClassMetadata(ModelMetadata model) : ClassTypeMetada
         return type.Rank == 1 ? "[*]" : "[" + new string(',', type.Rank - 1) + "]";
     }
 
-    private static string ConstructedName(INamedTypeSymbol type)
+    private string ConstructedName(INamedTypeSymbol type)
     {
         var name = MetadataName(type);
         var arguments = ContainingTypeArguments(type).ToArray();
@@ -190,7 +192,7 @@ internal sealed class RoslynClassMetadata(ModelMetadata model) : ClassTypeMetada
         }
     }
 
-    private static string QualifiedArgument(ITypeSymbol type)
+    private string QualifiedArgument(ITypeSymbol type)
     {
         var name = RuntimeName(type);
         var element = type;
@@ -199,13 +201,13 @@ internal sealed class RoslynClassMetadata(ModelMetadata model) : ClassTypeMetada
             element = array.ElementType;
         }
 
-        var assembly = element.ContainingAssembly.Identity;
-        if (element is INamedTypeSymbol named && IsFramework(assembly) && typeof(object).Assembly.GetType(MetadataName(named)) is not null)
+        if (element is IDynamicTypeSymbol)
         {
-            return name + ", " + typeof(object).Assembly.FullName;
+            element = _compilation.GetSpecialType(SpecialType.System_Object);
         }
 
-        return name + ", " + assembly.GetDisplayName();
+        var identity = element is INamedTypeSymbol named ? _framework.DefiningAssembly(named) : null;
+        return name + ", " + (identity ?? element.ContainingAssembly?.Identity.GetDisplayName());
     }
 
     private static string MetadataName(INamedTypeSymbol type)

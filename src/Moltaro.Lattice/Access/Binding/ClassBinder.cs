@@ -96,51 +96,41 @@ internal sealed class ClassBinder
                 return new ClassMember<PropertyInfo, MethodInfo>(null, MemberKind(member), false, false, false, null, null);
             }
 
-            var (getter, setter) = AccessorsSeen(type, property);
+            var (getter, setter) = AccessorsSeen(property);
             return new ClassMember<PropertyInfo, MethodInfo>(property, "property", property.GetIndexParameters().Length != 0,
                 (property.GetMethod ?? property.SetMethod)!.IsStatic, getter is { IsPublic: true }, getter, setter);
         });
     }
-    // The accessors C# sees for a property declared on a class: its own, and those it inherits. Only
-    // an override inherits: a property that overrides a virtual one takes the accessor it does not
-    // declare from the property it overrides, which is the property of that name on the nearest base
-    // class that declares one. That one may be an override itself, so the search goes on until both
-    // accessors are found or a property is reached that overrides nothing. A property that hides
-    // one of its base class with new inherits nothing.
-    private static (MethodInfo? Get, MethodInfo? Set) AccessorsSeen(Type declaring, PropertyInfo property)
+
+    // An override with one accessor inherits the other from the property at its virtual
+    // slot. A same-name property on an intervening class may be unrelated. Calling the
+    // base declaration's other accessor virtually still runs any override of that slot.
+    private static (MethodInfo? Get, MethodInfo? Set) AccessorsSeen(PropertyInfo property)
     {
         const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
         var get = property.GetMethod;
         var set = property.SetMethod;
-        var current = property;
-
-        while ((get is null || set is null) && Overrides(current))
+        if (get is not null && set is not null)
         {
-            // A base class between the two that does not override the property declares none.
-            declaring = declaring.BaseType!;
-
-            if (Array.Find(declaring.GetProperties(Declared), candidate => candidate.Name == property.Name && candidate.GetIndexParameters().Length == 0) is not { } inherited)
-            {
-                continue;
-            }
-
-            get ??= inherited.GetMethod;
-            set ??= inherited.SetMethod;
-            current = inherited;
+            return (get, set);
         }
 
-        return (get, set);
+        var accessor = (get ?? set)!;
+        var slot = accessor.GetBaseDefinition();
+        if (accessor.HasSameMetadataDefinitionAs(slot))
+        {
+            return (get, set);
+        }
+
+        var declared = Array.Find(slot.DeclaringType!.GetProperties(Declared), candidate =>
+        {
+            var method = get is null ? candidate.SetMethod : candidate.GetMethod;
+            return method?.HasSameMetadataDefinitionAs(slot) == true;
+        });
+
+        return (get ?? declared?.GetMethod, set ?? declared?.SetMethod);
     }
-
-    // Whether the accessors of a property override those of a base class.
-    private static bool Overrides(PropertyInfo property)
-    {
-        var accessor = (property.GetMethod ?? property.SetMethod)!;
-
-        return accessor.GetBaseDefinition().DeclaringType != accessor.DeclaringType;
-    }
-
     // The kind of a member that is not a property, in a message: a field, a method, an event or a
     // nested type.
     private static string MemberKind(MemberInfo member) => member.MemberType switch
