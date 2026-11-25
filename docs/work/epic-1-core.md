@@ -11308,6 +11308,67 @@ tree `dceb7557d1efc22ce0e35fe30de31a3e2b4add00`. Its Release build passed,
 with 31 focused close and forwarding tests and all four List append tests.
 The append branch will take this correction from `main`.
 
+##### Close and new write admission
+
+**Track:** full · **Owner:** E07 · **Base:** `72899d5f2041e7b7e2cc086612b8ae2dc6919964`
+
+**Goal and contract.** By the time either role exposes `Closed`, it has stopped
+admitting new writes. A valid asynchronous write started through an existing set,
+or a commit of a prepared batch, then returns a task that fails with
+`ObjectDisposedException`. Obtaining a set or preparing the values or batch before
+close does not start a write. Writes already admitted retain their
+[`CloseAsync` outcomes](../../src/Moltaro.Lattice/ILatticeDatabase.cs). A successful
+close completes after native memory is released.
+
+**To read.** The earlier S23 close correction above, the XML for
+[`ILatticeSet<TEntity>`](../../src/Moltaro.Lattice/Access/ILatticeSet.Generic.cs),
+[`ILatticeSet`](../../src/Moltaro.Lattice/Access/ILatticeSet.cs) and
+[`ILatticeWriteBatch`](../../src/Moltaro.Lattice/Access/ILatticeWriteBatch.cs),
+the [write path](../design/write-path.md), [session consistency](../decisions/session-consistency.md)
+(14 November 2026) and [memory and access](../decisions/memory-and-access.md)
+(24 November 2026 amendment).
+
+**Acceptance.** Hold close just after publication of `Closed`, before the clock
+notification and teardown. Issue a valid asynchronous insert through a set obtained
+in `Ready`, once on a closing master and once on a closing child. In each case the
+call returns a task and awaiting it reports `ObjectDisposedException`. After the
+observing child consumes its master's orderly end, it still has the same position
+and no new row. For a closing child, observe its connection to the end, verify that
+it sent no write request, and check the live master's position and absence of the row.
+Exercise the distinct commit entry once with a nonempty batch prepared in `Ready`
+and submitted after `Closed`; require the same task refusal and absence of effects.
+Both batch roles converge on the same
+admission mechanisms as their respective single writes. Use the existing controls
+for a started master write (including its published result on a child), the three
+outcomes of a forwarded write during child close, registered position waits and
+cached reads, and an outstanding protected read whose native memory is released
+before successful close completion. Add a control only where the existing suite
+cannot distinguish a changed outcome. Check the exact tests-first commit on the
+base behavior and then the exact implementation head. Reconcile the public XML,
+README and engine design with the distinction between refusal of new operations
+at `Closed` and release of native memory at successful `CloseAsync` completion.
+
+**Measured.** If the ordinary write path changes, compare the affected role on the
+exact base and candidate with equivalent warmed Release workloads. Hold workload
+and setup fixed, alternate run order, and report latency or throughput, allocation
+where applicable, and spread. An effect that does not exceed run-to-run variation
+is inconclusive. Inspect the unaffected path when admission only moves work into
+close. Record the cause and disposition of any confirmed loss.
+
+**Breaker targets.** New local writes after public `Closed` on both roles and a
+prepared batch; an already admitted master write and the outcomes of child requests
+at different stages of delivery; preservation of cached reads, registered waits
+and native-memory teardown. Establish the order with gates.
+
+**Base observation.** A separate Release and Debug study held close just after
+`Closed` on the exact base. A valid insert issued through a previously obtained set
+returned `Changed` on each role and advanced the position from 0 to 1. A live peer
+read the inserted row. The already admitted master-write control reached its
+ordinary result. The study and its raw runs are kept outside Git.
+
+**Out of scope.** A new public state, load limits, a policy for simultaneous close and
+submission, Q66, compaction, and reconnect or reload in S34.
+
 ##### Storage work
 
 **Collection edit cost carried from S20.** In `EditedList.Apply`, each append
