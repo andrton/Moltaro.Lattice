@@ -1324,7 +1324,7 @@ Why this order:
 | S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
 | S21I | Protected List traversal | Full, critical | Done on 25 November 2026 |
 | S22 | Typed protected views | Full | Done on 25 November 2026 |
-| S22C | Cancellation of a registered position wait | Full, critical | Part 1 done on 25 November 2026. Part 2 in progress |
+| S22C | Cancellation of a registered position wait | Full, critical | Both parts done on 25 November 2026 |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
@@ -11204,10 +11204,36 @@ The independent tests-first review of `a1bf23cdfcca50ad8b351fbd3183f22042713db9`
 closed without findings. On Release with the engine from the exact parent, the
 activated cancellation-first case returned `TaskCanceledException` while the
 fault notification was still held. The clock-first case returned `Unavailable`,
-and the healthy child preserved its supplied token. The hardest part of the
-review was proving that the second notification remained held through the result:
-the clock hold exposes when the publishing thread can continue, and the token
-hold's bounded callback is checked through cancellation completion.
+and the healthy child preserved its supplied token. The hardest part of review
+was verifying that the second notification stayed held until the result. A
+continuation flag shows when the clock's hold ends. The test awaits cancellation
+completion to detect expiry of the token callback's hold.
+
+The coordinator's Release build, format check and full suite passed at that
+tests-first commit with 3,770 tests passed and 130 skipped.
+
+###### Implementation and verification
+
+The independent code review closed in one round without findings on
+`af2790745a7cb58e299e130697233755f743524c`. The hardest part was following
+the two ways the wait resumes through the task and confirming that both now apply
+the same lifecycle check and clean up the registered target. When the token's
+callback resumes a registered wait, the clock checks lifecycle state before it
+propagates the original cancellation. All tests-first assertions were retained.
+Publication and Wake use the same code as the exact parent, so the
+`clock-waiters` comparison was outside this correction's acceptance condition.
+
+The independent breaker ran 13 probes and 35 existing position tests at that
+head in Windows x64 Release and Debug. All 48 passed in each configuration. A
+separate Release repeat passed all 13 probes. The probes covered both notification
+orders for pending and already-published targets, typed session reads, the
+healthy token and an unaffected waiter, and timer and Wake delivery with first
+publication before, at and after the deadline.
+
+The coordinator built the same head in Windows x64 Release and Debug with no
+warnings or errors. Each full suite passed 3,771 tests with 129 skips. The
+Release format check and all 18 samples passed. The second part closed without
+open findings. None of the three historical timeouts recurred in these runs.
 
 #### S23 · Compaction and shrink
 
