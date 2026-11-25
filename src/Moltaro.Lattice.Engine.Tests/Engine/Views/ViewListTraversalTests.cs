@@ -234,6 +234,11 @@ public sealed class ViewListTraversalTests
         var count = LastInFirstChunk + 2;
         await documents.InsertAsync(Document(documents, numbers: Enumerable.Range(0, count).Select(NumberAt).ToList()));
 
+        AssertPackedShape(database, "Numbers", count * 8, DescriptorKindEnum.Chunked, 2);
+        database.DrainRetired();
+        var before = database.Counters.Arena;
+        var oldSlots = before.LiveBytes + before.ClassSlackBytes;
+
         using var pause = new ViewerPause();
         var reading = OwnThread.Run(() =>
         {
@@ -270,7 +275,7 @@ public sealed class ViewListTraversalTests
         await OwnThread.Run(() => OwnThread.Wait(documents.ReplaceAsync(Document(documents, numbers: [-1L])))).WaitAsync(Bound);
         Assert.Equal(-1L, Assert.Single(documents.Get("doc")!.Get<List<long>>("Numbers")!));
         database.DrainRetired();
-        Assert.True(database.Counters.Arena.RetiredBytes > 0);
+        Assert.Equal(oldSlots, database.Counters.Arena.RetiredBytes);
 
         pause.Release();
         Assert.Equal(NumberAt(LastInFirstChunk + 1), await reading.WaitAsync(Bound));
