@@ -59,7 +59,7 @@ public enum LatticeDatabaseStateEnum
     Faulted = 5,
 
     /// <summary>
-    /// The instance is closed to new operations. Successful completion of
+    /// The instance has begun closing. Successful completion of
     /// <see cref="ILatticeDatabase.CloseAsync"/> guarantees that its native memory has been released.
     /// </summary>
     Closed = 6,

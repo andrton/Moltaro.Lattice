@@ -19,8 +19,8 @@ namespace Moltaro.Lattice.Engine.Positions;
 // Close, fault and loss of the master also notify waiters. A wait reads loss before looking up
 // its position or reach time because the follower publishes what it applied before it marks the
 // loss. A timely publication wins over loss. The close and fault marks are read after the publication
-// evidence. The database marks the clock before it publishes Closed, so a wait resumed by another
-// event after that state became visible refuses even when close has yet to notify waiters.
+// evidence. The database already refuses new reads when Closed becomes visible, so a pending
+// wait can refuse at that state even when close has yet to notify waiters.
 internal sealed class PositionClock
 {
     // On lines of its own (SequenceLine).
@@ -38,6 +38,10 @@ internal sealed class PositionClock
 
     private Target? _ready;
 
+    // The database's public close state decides pending waits. The clock's own mark is set when
+    // close notifies the waiters and also serves a standalone clock.
+    private readonly Func<bool>? _isDatabaseClosed;
+
     private volatile bool _closed;
 
     // Set when a child lost its master: a wait in progress, and every later one that is not complete at
@@ -54,12 +58,14 @@ internal sealed class PositionClock
 
     private readonly TimeProvider _time;
 
-    public PositionClock(ulong history, object owner, TimeProvider? time = null, ReadEpochs? epochs = null)
+    public PositionClock(ulong history, object owner, TimeProvider? time = null, ReadEpochs? epochs = null,
+        Func<bool>? isDatabaseClosed = null)
     {
         History = history;
         _owner = owner;
         _time = time ?? TimeProvider.System;
         _epochs = epochs;
+        _isDatabaseClosed = isDatabaseClosed;
     }
 
     public ulong History { get; }
@@ -73,8 +79,9 @@ internal sealed class PositionClock
     // The position of a sequence of this history.
     public LatticePosition At(ulong sequence) => new(History, sequence);
 
-    // Whether the close has been marked, including while its notification is still pending.
-    public bool IsClosed => _closed;
+    // Also used for a confirmed forwarded write: only once new reads are refused may it
+    // return its result without this child having applied the write.
+    public bool IsClosed => _isDatabaseClosed?.Invoke() ?? _closed;
 
     // ObjectDisposedException once the database has been closed, as every operation after a close.
     public void ThrowIfClosed() => ObjectDisposedException.ThrowIf(_closed, _owner);
@@ -144,19 +151,12 @@ internal sealed class PositionClock
         Complete(reached);
     }
 
-    // Before the database publishes Closed, mark the outcome of undecided waits without taking
-    // the position gate. A wait in progress fails with Unavailable and a later one with
-    // ObjectDisposedException.
-    public void MarkClosed() => _closed = true;
-
-    // After the mark, notify waiters outside the state and write locks.
-    public void NotifyClosed() => WakeAll();
-
-    // For a standalone clock, publish the mark and send the notification together.
+    // After the database publishes Closed, refuse new clock waits and notify pending ones
+    // outside the state and write locks. A standalone clock publishes its close here.
     public void Close()
     {
-        MarkClosed();
-        NotifyClosed();
+        _closed = true;
+        WakeAll();
     }
 
     // Ends every wait of a child that lost its master: no later position will arrive, so a wait in
@@ -258,7 +258,7 @@ internal sealed class PositionClock
 
     private void ThrowIfWaitUnavailable()
     {
-        if (_closed)
+        if (IsClosed)
         {
             throw new LatticeException(LatticeErrorEnum.Unavailable, "The database was closed while the operation was waiting for a position.");
         }

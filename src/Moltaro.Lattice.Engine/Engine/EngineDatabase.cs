@@ -389,12 +389,12 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // suspension of the application held at the close does not keep it from completing.
     //
     // The steps, in the order of the code, here and in FreeAfterOperationsAsync:
-    // 1. Under the lock of the state the task of the close is made. The position clock is marked
-    //    closed before the state becomes Closed, so an undecided wait refuses a later cancellation,
-    //    publication or deadline even before it receives the close notification.
-    // 2. Outside the lock of the state, notify all position waiters (PositionClock.NotifyClosed).
-    // 3. The reads are marked closed (ReadEpochs.Close): a read that enters from then on leaves at once,
-    //    and those that entered before announce an epoch below the mark, which step 8 waits for.
+    // 1. Under the lock of the state, make the close task and close read admission (ReadEpochs.Close).
+    //    A read that entered before the mark keeps its epoch, which step 8 waits for.
+    // 2. Under the same lock, publish Closed. This state decides pending position waits. A confirmed
+    //    write through a child can now return its result because new reads, including those through
+    //    existing sets, are refused.
+    // 3. Outside the lock of the state, notify all position waiters (PositionClock.Close).
     // 4. The open of a child in progress is cancelled: it ends at its next wait, or at its next
     //    placement, which the barrier refuses.
     // 5. The barrier of the close admits no write, drain, count of the counters or placement any more,
@@ -414,31 +414,26 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
     {
         TaskCompletionSource closed;
-        PositionClock? clock = null;
-        var begins = false;
+        long? readMark = null;
 
         lock (_stateLock)
         {
             if (_closed is null)
             {
                 _closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                clock = _parts?.Clock;
-                clock?.MarkClosed();
+                readMark = _epochs.Close();
                 _state = LatticeDatabaseStateEnum.Closed;
-                begins = true;
             }
 
             closed = _closed;
         }
 
-        if (begins)
+        if (readMark is { } mark)
         {
             _testInputs?.AfterCloseStatePublication?.Invoke();
 
-            // Steps 2 to 5 (see above).
-            clock?.NotifyClosed();
-
-            var mark = _epochs.Close();
+            // Steps 3 to 5 (see above).
+            _parts?.Clock.Close();
 
             _closing.Cancel();
 
@@ -791,7 +786,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         {
             var roots = new RootTable();
             var retired = new RetiredMemory(_epochs, arena, roots);
-            var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime, _epochs);
+            var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime, _epochs,
+                isDatabaseClosed: () => _state == LatticeDatabaseStateEnum.Closed);
             var delivery = new DeliveryTail();
             var tables = new EntityTables([.. schema.EntityTypes.Select(entityType => EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed))]);
             var changes = new ChangePublisher(arena, roots, retired, clock, tables);

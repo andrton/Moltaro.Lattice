@@ -110,6 +110,63 @@ public sealed class PositionWaitOutcomeTests
     }
 
     [Fact]
+    public async Task Confirmed_forwarded_write_returns_its_result_when_the_timer_resumes_it_after_Closed()
+    {
+        var deadline = TimeSpan.FromSeconds(1);
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        using var notification = new HeldCloseNotification();
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await master.Set<Item>().InsertAsync(Of(2, "already applied", group: 1)).AsTask().WaitAsync(Bound);
+
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
+        {
+            PositionWaitTime = time,
+            AfterCloseStatePublication = notification.Hold,
+        });
+        var initial = child.Position;
+        var items = child.Set<Item>();
+        Assert.Equal("already applied", items.Get(2L)?.Tag);
+
+        var session = new LatticeSession { SynchronizationTimeout = deadline };
+        using var publication = HeldPublication.Arm(child, PublicationPointEnum.BeforePosition);
+
+        var writing = items.InsertAsync(Of(1, "forwarded", group: 1), session).AsTask();
+        await publication.ReachedAsync();
+        // The forwarding wait arms its timer only after receiving the master's reply.
+        await timerArmed.Task.WaitAsync(Bound);
+        var committed = master.Position;
+        Assert.NotEqual(initial, committed);
+        Assert.Equal(initial, child.Position);
+        Assert.False(writing.IsCompleted);
+
+        var closing = OwnThread.Run(() => child.CloseAsync().AsTask()).Unwrap();
+        try
+        {
+            await notification.ReachedAsync();
+            Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
+            Assert.False(writing.IsCompleted);
+
+            time.Advance(deadline);
+            time.DeliverDueTimers();
+
+            var result = await writing.WaitAsync(Bound);
+            Assert.False(notification.HasContinued);
+            Assert.False(publication.HasContinued);
+            Assert.True(result.Changed);
+            Assert.Equal(committed, result.Position);
+            Assert.Equal(committed, session.MinPosition);
+            Assert.Throws<ObjectDisposedException>(() => items.Get(2L));
+        }
+        finally
+        {
+            publication.Release();
+            notification.Release();
+            await closing.WaitAsync(Bound);
+        }
+    }
+
+    [Fact]
     public async Task Forwarded_write_reports_its_missed_application_deadline_after_the_child_has_applied_it()
     {
         var deadline = TimeSpan.FromSeconds(1);
