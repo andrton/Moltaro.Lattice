@@ -58,7 +58,13 @@ public sealed class ResidentDescriptorViewTests
         // Read the initial edge under the engine's ordinary epoch through a view.
         Assert.True(items.TryView(1L, view =>
         {
-            var descriptor = ResidentDescriptor.Read(storage.Payload(address)[(place - BlockHeader.Size)..]);
+            var payload = storage.Payload(address);
+            // The Int64 key has the same bytes as the transferred key. The neighboring Binary
+            // descriptor instead stores combined metadata at payload offset 12, two bytes into
+            // the native slot. Its transferred length is four bytes into the canonical slot.
+            Assert.Equal(1L, MemoryMarshal.Read<long>(payload[1..]));
+            Assert.Equal(((uint)data.Length << 4) | 2U, MemoryMarshal.Read<uint>(payload[12..]));
+            var descriptor = ResidentDescriptor.Read(payload[(place - BlockHeader.Size)..]);
             Assert.Equal(DescriptorKindEnum.Block, descriptor.Kind);
             var initial = ValueBlocks.AddressOf(descriptor);
             AssertBorrowed(view["Data"].GetPart(0), storage, initial, data);
