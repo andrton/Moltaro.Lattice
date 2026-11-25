@@ -24,5 +24,7 @@ internal interface IViewStorage
 
     ViewRecord Entry(ViewCollection collection, int ordinal);
 
+    ViewPackedBlock ReadPackedListBlock(ViewCollection collection, int block);
+
     int FindEntry(scoped in ViewCollection collection, in IndexValue key);
 }
