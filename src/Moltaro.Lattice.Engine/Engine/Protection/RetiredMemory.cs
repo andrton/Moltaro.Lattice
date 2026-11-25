@@ -146,7 +146,7 @@ internal sealed class RetiredMemory
     public long IndexBytes { get; private set; }
 
     // Under the writes lock: the full native slot sizes of pending physical relocations.
-    public int RelocationBytes => throw new NotSupportedException();
+    public int RelocationBytes { get; private set; }
 
     // Makes room for one more retired thing beside those reserved before, so that retiring it after a
     // publication allocates nothing and cannot fail. Called before the publication; the reservation
@@ -161,9 +161,15 @@ internal sealed class RetiredMemory
         _reserved += places;
     }
 
-    // Under the writes lock: reserve a place only if it needs no copy of queued items.
-    public bool TryReserveRelocated()
+    // Under the writes lock: charge the full new slot and reserve a FIFO place without copying
+    // queued items. The charge follows the old slot at publication until it is actually freed.
+    public bool TryReserveRelocated(int slotBytes = 0)
     {
+        if (slotBytes > Arena.MaxBlockSize - RelocationBytes)
+        {
+            return false;
+        }
+
         if (_capacity == 0)
         {
             try
@@ -182,7 +188,14 @@ internal sealed class RetiredMemory
         }
 
         _reserved++;
+        RelocationBytes += slotBytes;
         return true;
+    }
+
+    public void ReleaseRelocation(int slotBytes)
+    {
+        Release();
+        RelocationBytes -= slotBytes;
     }
 
     // Gives back the place a write reserved and does not use, because it was withdrawn.
@@ -200,9 +213,14 @@ internal sealed class RetiredMemory
         Add(RetiredKindEnum.DeletedRoot, layout, root, handle, RetireBlocks(layout, root));
 
     // Retires the old slot after publishing a physical move. Its owner and other edges,
-    // if any, belong to the replacement. Only this slot can be freed from this item.
-    public void RetireRelocated(ArenaAddress source) =>
-        Add(RetiredKindEnum.RelocatedBlock, null, source, default, _arena.Retire(source));
+    // if any, belong to the replacement. The drain test can retire an already allocated
+    // block without a copy reservation.
+    public void RetireRelocated(ArenaAddress source, int reservedBytes = 0)
+    {
+        var slotBytes = _arena.Retire(source);
+        RelocationBytes += slotBytes - reservedBytes;
+        Add(RetiredKindEnum.RelocatedBlock, null, source, default, slotBytes);
+    }
 
     // Retires a table of an index that a larger one replaced, with its bytes.
     public void RetireTable(object table, long bytes)
@@ -482,6 +500,7 @@ internal sealed class RetiredMemory
 
             case RetiredKindEnum.RelocatedBlock:
                 _arena.Free(item.Address);
+                RelocationBytes -= (int)item.Bytes;
                 break;
 
             default:

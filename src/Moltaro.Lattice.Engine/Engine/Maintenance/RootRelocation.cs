@@ -8,8 +8,13 @@ namespace Moltaro.Lattice.Engine.Maintenance;
 // reached the old address hold it through their epochs (docs/design/arena-protocol.md).
 internal static class RootRelocation
 {
-    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source)
+    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source) =>
+        TryMove(parts, expected, source, 0, out _);
+
+    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
+        out ArenaAddress replacement)
     {
+        replacement = default;
         // A master write can keep the physical source between preparation and
         // publication. A child's preparation and publication both hold this lock.
         if (parts.Coordinator.HoldsPreparedMemory() || expected.Slot >= (uint)parts.Roots.SlotExtent)
@@ -26,8 +31,8 @@ internal static class RootRelocation
 
         var arena = parts.Arena;
         var retired = parts.Retired;
-        if (!arena.TryFindRelocationClass(source, out var sizeClass) ||
-            !RelocationCopy.TryPublish(arena, retired, source, sizeClass, out var replacement))
+        if (!arena.TryFindRelocationDestination(source, ref region, out var sizeClass) ||
+            !RelocationCopy.TryPublish(arena, retired, source, sizeClass, region, out replacement, out var slotBytes))
         {
             return false;
         }
@@ -35,7 +40,7 @@ internal static class RootRelocation
         // Publish the replacement before tagging the old slot. An epoch opened
         // after that tag can only reach the replacement or a later address.
         entry.ReleaseRoot(replacement);
-        retired.RetireRelocated(source);
+        retired.RetireRelocated(source, slotBytes);
         return true;
     }
 }

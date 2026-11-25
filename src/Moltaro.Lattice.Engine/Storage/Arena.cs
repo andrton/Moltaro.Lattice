@@ -189,14 +189,20 @@ internal sealed unsafe class Arena : IDisposable
             Root = root,
             PayloadLength = (uint)payloadLength,
             Kind = kind,
-        });
+        }, _regionsWithFreeSlot[sizeClass]);
         return true;
     }
 
-    // Under the writes lock: only a live block in a region with strictly fewer than half
-    // its slots allocated is eligible. Retired and prepared slots still occupy the source.
-    // Only the current head of its class is considered, in an earlier active segment.
     public bool TryFindRelocationClass(ArenaAddress source, out int sizeClass)
+    {
+        long destination = NoRegion;
+        return TryFindRelocationDestination(source, ref destination, out sizeClass);
+    }
+
+    // Under the writes lock: recheck the source and selected earlier vacancy. With no
+    // destination supplied, the controlled move keeps its stricter allocated-slot test
+    // and considers only the current head of the size class.
+    public bool TryFindRelocationDestination(ArenaAddress source, ref long destination, out int sizeClass)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -210,25 +216,116 @@ internal sealed unsafe class Arena : IDisposable
         ref var region = ref segment.Regions[regionIndex];
         sizeClass = region.SizeClass;
         var slotCount = ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
-        var head = _regionsWithFreeSlot[sizeClass];
-        return region.Allocated * 2 < slotCount && head != NoRegion && (uint)SegmentSlotOf(head) < source.Segment;
+        if (destination != NoRegion)
+        {
+            return region.Live * 2 < slotCount && (uint)SegmentSlotOf(destination) < source.Segment &&
+                HasRelocationVacancy(SegmentSlotOf(destination), RegionIndexOf(destination), sizeClass);
+        }
+
+        destination = RelocationHead(sizeClass, source.Segment);
+        return region.Allocated * 2 < slotCount && destination != NoRegion;
     }
 
-    // Under the same uninterrupted writes lock as TryFindRelocationClass: a slot is
-    // already available at the head. Copy only the header and the bytes in use.
-    public ArenaAddress PrepareRelocatedCopy(ArenaAddress source, int sizeClass)
+    // Under the writes lock: numeric coordinates give a bounded view of the current arena.
+    // Their extent includes gaps where native segments were returned.
+    public long RelocationRegionExtent => (long)(_tally.NextUnusedSegmentSlot - 1) * _regionsPerSegment;
+
+    public int RelocationSlotsAt(long coordinate)
+    {
+        var (segment, region) = RelocationCoordinates(coordinate);
+        return _segments[segment] is { } entry ? SparseSlots(entry.Regions[region]) : 0;
+    }
+
+    public ArenaAddress RelocationSlotAt(long coordinate, int slot, out int slots, out int sizeClass)
+    {
+        var (segment, region) = RelocationCoordinates(coordinate);
+        slots = 0;
+        sizeClass = 0;
+        if (_segments[segment] is not { } entry)
+        {
+            return default;
+        }
+
+        ref var metadata = ref entry.Regions[region];
+        slots = SparseSlots(metadata);
+        sizeClass = metadata.SizeClass;
+        if (slot >= slots || !entry.IsAllocated(region, slot) ||
+            entry.IsPrepared(region, slot) || entry.IsRetired(region, slot))
+        {
+            return default;
+        }
+
+        var offset = region * ArenaSegment.RegionSize + slot * SizeClasses.SizeOf(sizeClass);
+        return new ArenaAddress((uint)segment, (uint)offset);
+    }
+
+    // Reopen a pending source under the writes lock after an intervening turn or write.
+    public bool IsRelocationSource(ArenaAddress source, int sizeClass, RootHandle owner, BlockKindEnum kind)
+    {
+        var segment = Locate(source, out var region, out var slot);
+        if (segment is null || segment.Regions[region].SizeClass != sizeClass ||
+            SparseSlots(segment.Regions[region]) == 0 || segment.IsPrepared(region, slot) || segment.IsRetired(region, slot))
+        {
+            return false;
+        }
+
+        ref readonly var header = ref *(BlockHeader*)(segment.Memory + source.Offset);
+        return header.Root == owner && header.Kind == kind;
+    }
+
+    public long EarlierRelocationExtent(ArenaAddress source) => (long)(source.Segment - 1) * _regionsPerSegment;
+
+    public long RelocationHead(int sizeClass, uint before)
+    {
+        var head = _regionsWithFreeSlot[sizeClass];
+        return (uint)SegmentSlotOf(head) < before ? head : NoRegion;
+    }
+
+    public long RelocationVacancyAt(long coordinate, int sizeClass)
+    {
+        var (segment, region) = RelocationCoordinates(coordinate);
+        return HasRelocationVacancy(segment, region, sizeClass) ? RegionNumber(segment, region) : NoRegion;
+    }
+
+    private (int Segment, int Region) RelocationCoordinates(long coordinate) =>
+        ((int)(coordinate / _regionsPerSegment) + 1, (int)(coordinate % _regionsPerSegment));
+
+    private bool HasRelocationVacancy(int segment, int region, int sizeClass)
+    {
+        if (_segments[segment] is not { } entry)
+        {
+            return false;
+        }
+
+        ref readonly var metadata = ref entry.Regions[region];
+        return metadata.SizeClass == sizeClass && metadata.Allocated > 0 &&
+            metadata.Allocated < ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
+    }
+
+    private static int SparseSlots(in ArenaRegion region)
+    {
+        if (region.Live == 0)
+        {
+            return 0;
+        }
+
+        var slots = ArenaSegment.RegionSize / SizeClasses.SizeOf(region.SizeClass);
+        return region.Live * 2 < slots ? slots : 0;
+    }
+
+    // Under the same uninterrupted writes lock as the destination check. Copy only the bytes in use.
+    public ArenaAddress PrepareRelocatedCopy(ArenaAddress source, int sizeClass, long region)
     {
         var header = Header(source);
         var payload = Payload(source);
-        var destination = TakePreparedSlot(sizeClass, header);
+        var destination = TakePreparedSlot(sizeClass, header, region);
 
         payload.CopyTo(Payload(destination));
         return destination;
     }
 
-    private ArenaAddress TakePreparedSlot(int sizeClass, in BlockHeader header)
+    private ArenaAddress TakePreparedSlot(int sizeClass, in BlockHeader header, long regionNumber)
     {
-        var regionNumber = _regionsWithFreeSlot[sizeClass];
         var segmentSlot = SegmentSlotOf(regionNumber);
         var regionIndex = RegionIndexOf(regionNumber);
         var segment = _segments[segmentSlot]!;
@@ -277,6 +374,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         segment.SetPrepared(regionIndex, slot, prepared: false);
+        segment.Regions[regionIndex].Live++;
 
         _tally.PreparedBytes -= blockSize;
         _tally.LiveBytes += BlockHeader.Size + payloadLength;
@@ -311,6 +409,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         segment.SetRetired(regionIndex, slot, retired: true);
+        segment.Regions[regionIndex].Live--;
 
         _tally.LiveBytes -= BlockHeader.Size + payloadLength;
         _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
@@ -331,8 +430,8 @@ internal sealed unsafe class Arena : IDisposable
 
     // Returns the block's slot to its region, where the next allocation of its class can reuse it.
     // A region left without blocks returns to its segment. A segment left empty enters the reserve
-    // when the reserve has room, and is otherwise freed at once, inside this call; the background
-    // release of Q17 comes with S23. An invalid address, or that of a block already freed, is
+    // when the reserve has room, and is otherwise returned to the allocator inside this call.
+    // An invalid address, or that of a block already freed, is
     // refused with ArgumentException before anything is read through it.
     //
     // A live block makes LiveBytes and ClassSlackBytes lose what its header says, because the arena
@@ -377,6 +476,7 @@ internal sealed unsafe class Arena : IDisposable
         }
         else
         {
+            region.Live--;
             _tally.LiveBytes -= BlockHeader.Size + payloadLength;
             _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
         }

@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
@@ -14,6 +15,7 @@ using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Sets;
@@ -119,7 +121,15 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     private Task? _following;
 
-    // Cancelled when the close begins: it ends the open of a child that is in progress.
+    // Registered at Ready under the state lock. Only admitted turns touch the parts; close
+    // joins the cadence outside that lock before returning the arena.
+    private readonly AutomaticMaintenance _maintenance = new();
+
+    private readonly Action<DatabaseParts> _runMaintenance;
+
+    private Task? _maintaining;
+
+    // Cancelled when close begins: ends the open of a child and the maintenance wait.
     private readonly CancellationTokenSource _closing = new();
 
     // An instance for the options, which Check has accepted, without opening it: LatticeDatabase.Create, and
@@ -130,6 +140,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         _testInputs = testInputs;
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
+        _runMaintenance = _maintenance.Run;
     }
 
     // The refusals of LatticeDatabase.Create, in their order, and of the Create of the tests:
@@ -459,7 +470,19 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
 
-    internal bool TryRunMaintenanceTurn() => throw new NotSupportedException();
+    internal bool TryRunMaintenanceTurn()
+    {
+        if (_testInputs?.ObserveMaintenanceTurn is not { } observe)
+        {
+            return TryRunMaintenanceStep(_runMaintenance);
+        }
+
+        var started = Stopwatch.GetTimestamp();
+        MaintenanceTurnSample sample = default;
+        var admitted = TryRunMaintenanceStep(parts => sample = _maintenance.Step(parts));
+        observe(sample with { Admitted = admitted, ElapsedTicks = Stopwatch.GetTimestamp() - started });
+        return admitted;
+    }
 
     // Counts the attempt before reaching the parts so that close cannot free them while it runs.
     // Runs the bounded action under the lock of the writes, without waiting for that lock.
@@ -527,11 +550,25 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         MasterLink? master;
         Task? loaded;
         Task? following;
+        Task? maintaining;
 
         lock (_stateLock)
         {
             listener = _listener;
             loaded = _loaded?.Task;
+            maintaining = _maintaining;
+        }
+
+        try
+        {
+            if (maintaining is not null)
+            {
+                await maintaining.ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
         }
 
         try
@@ -543,7 +580,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         }
         catch (Exception exception)
         {
-            failure = exception;
+            failure ??= exception;
         }
 
         try
@@ -615,6 +652,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             _master = null;
             _follower = null;
             _following = null;
+            _maintaining = null;
         }
 
         if (failure is null)
@@ -682,7 +720,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 throw new ObjectDisposedException(GetType().FullName);
             }
 
-            _state = LatticeDatabaseStateEnum.Ready;
+            BecomeReady();
         }
     }
 
@@ -797,12 +835,41 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 CatchUp = catchUp;
                 _follower = follower;
                 _following = Task.Run(() => follower.FollowAsync(_closing.Token));
-                _state = LatticeDatabaseStateEnum.Ready;
+                BecomeReady();
             }
         }
         finally
         {
             _loaded!.SetResult();
+        }
+    }
+
+    // Under the state lock: publish Ready and register its asynchronous worker before close can
+    // take the lock. The worker captures neither the arena nor the writes lock while it waits.
+    private void BecomeReady()
+    {
+        _state = LatticeDatabaseStateEnum.Ready;
+        if (_testInputs?.DisableBackgroundMaintenance != true)
+        {
+            _maintaining = Task.Run(() => MaintainAsync(_closing.Token));
+        }
+    }
+
+    private async Task MaintainAsync(CancellationToken cancellationToken)
+    {
+        // Yield between bounded turns so ordinary writers and the child applier can get the lock.
+        var cadence = TimeSpan.FromMilliseconds(1);
+        try
+        {
+            while (State == LatticeDatabaseStateEnum.Ready)
+            {
+                _testInputs?.BeforeMaintenanceWait?.Invoke(cancellationToken);
+                await Task.Delay(cadence, cancellationToken).ConfigureAwait(false);
+                TryRunMaintenanceTurn();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 

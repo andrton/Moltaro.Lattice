@@ -17,14 +17,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // lock, and close cancels and joins it before returning the arena (arena-protocol.md).
 public sealed class MaintenanceLifetimeTests
 {
-    internal const string AutomaticMaintenancePending = "Automatic maintenance is not implemented.";
-
     private static readonly LatticeSchema Schema = LatticeSchema.Compile("""
         {"StringEncoding":"Utf8","EntityTypes":[
           {"Id":1,"Name":"Item","Fields":[{"Id":1,"Name":"Id","Type":"Int64"}],"PrimaryKey":[1]}]}
         """);
 
-    [Theory(Skip = AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task Maintenance_waits_only_after_Ready_and_close_joins_it_before_returning_the_arena(LatticeRoleEnum role)
@@ -93,7 +91,7 @@ public sealed class MaintenanceLifetimeTests
         Assert.False(node.TryRunMaintenanceTurn());
     }
 
-    [Theory(Skip = AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_blocked_turn_observer_does_not_keep_the_writes_lock_or_the_close_barrier(LatticeRoleEnum role)
@@ -206,7 +204,7 @@ public sealed class MaintenanceLifetimeTests
         Assert.Equal(attemptsThroughObservation, Volatile.Read(ref observations));
     }
 
-    [Theory(Skip = AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master, LatticeDatabaseStateEnum.Ready)]
     [InlineData(LatticeRoleEnum.Child, LatticeDatabaseStateEnum.Faulted)]
     public async Task The_automatic_turn_refuses_the_role_local_fault_before_notification(

@@ -10,8 +10,13 @@ namespace Moltaro.Lattice.Engine.Maintenance;
 // (docs/design/arena-protocol.md, "Deferred reclamation").
 internal static class OwnedValueRelocation
 {
-    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source)
+    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source) =>
+        TryMove(parts, expected, source, 0, out _);
+
+    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
+        out ArenaAddress replacement)
     {
+        replacement = default;
         // Prepared master writes can carry the old edge across the writes lock.
         // A child holds this lock through preparation and publication.
         if (parts.Coordinator.HoldsPreparedMemory() || expected.Slot >= (uint)parts.Roots.SlotExtent)
@@ -22,7 +27,7 @@ internal static class OwnedValueRelocation
         ref var entry = ref parts.Roots.EntryOfSlot(expected.Slot);
         var arena = parts.Arena;
         if (entry.Generation != expected.Generation || entry.State != RootStateEnum.Live ||
-            !arena.TryFindRelocationClass(source, out var sizeClass))
+            !arena.TryFindRelocationDestination(source, ref region, out var sizeClass))
         {
             return false;
         }
@@ -48,7 +53,7 @@ internal static class OwnedValueRelocation
         var edge = ResidentDescriptor.Read(place);
         // Records can also use a Value block. Only Block is a leaf at a root edge.
         if (edge.Kind != DescriptorKindEnum.Block || ValueBlocks.AddressOf(edge) != source ||
-            !RelocationCopy.TryPublish(arena, parts.Retired, source, sizeClass, out var replacement))
+            !RelocationCopy.TryPublish(arena, parts.Retired, source, sizeClass, region, out replacement, out var slotBytes))
         {
             return false;
         }
@@ -56,7 +61,7 @@ internal static class OwnedValueRelocation
         // The old header still points to the current holder, so reclamation of
         // an older alias skips the old block before its raw retirement frees it.
         ResidentDescriptor.PublishLocation(place, replacement);
-        parts.Retired.RetireRelocated(source);
+        parts.Retired.RetireRelocated(source, slotBytes);
         return true;
     }
 }

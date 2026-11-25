@@ -29,7 +29,7 @@ public sealed class AutomaticRelocationTests
     private const int FillerCount = 64;
     private static readonly LatticeSchema Schema = MakeSchema();
 
-    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task Mixed_slot_sizes_use_at_most_one_largest_slot_while_old_copies_are_held(LatticeRoleEnum role)
@@ -90,7 +90,7 @@ public sealed class AutomaticRelocationTests
         Assert.Equal(allocator.Outstanding, node.Counters.Arena.Segments);
     }
 
-    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task At_sixty_KiB_the_worker_skips_an_eight_KiB_slot_and_uses_a_four_KiB_slot(LatticeRoleEnum role)
@@ -159,7 +159,7 @@ public sealed class AutomaticRelocationTests
         Assert.Equal(requests, allocator.Requests);
     }
 
-    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master, false)]
     [InlineData(LatticeRoleEnum.Child, false)]
     [InlineData(LatticeRoleEnum.Master, true)]
@@ -229,7 +229,7 @@ public sealed class AutomaticRelocationTests
         }
     }
 
-    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task An_automatically_selected_root_waits_for_an_earlier_slot_and_finds_it_amid_head_changes(LatticeRoleEnum role)
@@ -302,7 +302,7 @@ public sealed class AutomaticRelocationTests
         Assert.Equal(3, allocator.Outstanding);
     }
 
-    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task One_admitted_turn_reclaims_a_native_segment_and_moves_one_root_while_leaving_the_FIFO_bounded(LatticeRoleEnum role)
@@ -436,7 +436,7 @@ public sealed class AutomaticRelocationTests
     private static long[] PendingFillerKeys(Location[] filler) =>
         filler.Where(IsAllocated).Select(location => location.Key).Order().ToArray();
 
-    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master, false)]
     [InlineData(LatticeRoleEnum.Child, false)]
     [InlineData(LatticeRoleEnum.Master, true)]
@@ -529,7 +529,7 @@ public sealed class AutomaticRelocationTests
         Assert.Equal(position, node.Position);
     }
 
-    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task The_Ready_worker_selects_and_moves_a_root_after_leaving_its_wait_boundary(LatticeRoleEnum role)
