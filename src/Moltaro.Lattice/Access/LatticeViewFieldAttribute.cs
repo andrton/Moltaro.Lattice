@@ -36,4 +36,11 @@ public sealed class LatticeViewFieldAttribute : Attribute
     /// argument is written on the attribute.
     /// </summary>
     public bool IsNullable { get; set; }
+
+    /// <summary>Omits a CLR-only field path from a projection generated without a schema file.</summary>
+    /// <remarks>
+    /// The actual schema must also omit that path. When a schema file is supplied to the
+    /// build, applying this option to a field in that file is a build error.
+    /// </remarks>
+    public bool Ignore { get; set; }
 }
