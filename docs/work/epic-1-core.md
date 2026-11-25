@@ -10466,6 +10466,70 @@ errors. The full suite passed 3,683 tests with 154 skipped and no failures.
 The focused consumer and contract checks and format check passed. The sample
 ran on the tests-first stage and reported where the view was still pending.
 
+##### Implementation review and Windows measurements
+
+The implementation was first reviewed at `90bd8f2807bde420a26bfb95fa785a7b5d603fc4`.
+The reviewer found four matters to correct. The fixes validate the part number
+using the descriptor already read, explain the answer position at a tombstone,
+make the README sequence run against its shown schema and name both read switch
+cuts. The second round closed the review on
+`3a4f61392b8d2fb4da445aeecd83a174c56ce46b`. The tests-first assertions are
+unchanged. The hardest part to follow was the change from packed record offsets to
+the enclosing payload used for descriptors. `CollectionKeys` shares this
+addressing with the resident reader. The sparse editor retains its existing
+write-address path.
+
+The coordinator built and ran the full Windows x64 Debug and Release suites at
+that head. Each passed 3,719 tests with 129 skipped. Format and all 18 samples
+passed. The README blocks compiled and ran together with the shown schema. The
+breaker ran four independent cases on the first head in Debug and Release and
+again on the reviewed head in Release. They cover nested reference, Decimal and
+Enum collections across chunks, splits within both packed keys and values, and
+a borrowed span held through delete followed by reinsert. No failure was found.
+The three historical timeouts did not recur in these Windows runs.
+
+The ordinary `read-by-key` series used exact parent `d0851104`, an independent
+build of it for the gauge, and `3a4f6139`. Six rounds used all permutations of the
+three processes. Each row used the existing 100,000 warm-up and one million timed
+reads. We called a change only if the median paired ratio lay outside the
+symmetric gauge, with a 3 percent floor, and five pairs agreed on direction.
+All 16 timing measures fell inside their gauge. The paired total-time ratios for
+class alone, class beside a writer, name alone and name beside a writer were
+0.921, 0.971, 0.992 and 1.069. At this resolution the comparison did not detect
+a change in ordinary read-by-key cost.
+
+In separate diagnostic runs the seven fully optimized ordinary methods kept
+their code sizes and calls. Four field offsets and four cold immediates changed.
+The synthesized Tier 1 profiles differed and changed class method sizes by up
+to eight bytes. The record method sizes matched. The scalar view and its
+generated List-summing callback were both captured in the tiered listing. These
+listings describe emitted code without assigning the measured cost to one call.
+
+The following comparisons use six fresh processes with the order of the two
+forms alternated. Entry and exit returns the revision, and the ordinary read
+also builds its owned result. The held and unheld writer rows use the same
+fixture Replace and keep the thread handshake outside the timed interval.
+The List timer includes acquisition and traversal in both forms.
+
+| Windows x64 row | View or held | Owned or unheld | Paired median ratio |
+| --- | ---: | ---: | ---: |
+| Entry and exit, 1 thread | 4.418 M/s, 0.00 B | 2.560 M/s, 360 B | 1.781 by rate |
+| Entry and exit, 20 threads | 50.551 M/s, 0.00 B | 18.234 M/s, 360 B | 2.839 by rate |
+| Replace p50 | 4.50 µs, 160 B | 3.85 µs, 160 B | 0.991 by time |
+| Replace p99 | 11.3 µs | 15.0 µs | 1.021 by time |
+| List sum, 1,000 Int64 | 28.47 µs, 0.00 B | 17.23 µs, 8,152 B | 1.740 by time |
+| List sum, 100,000 Int64 | 2.833 ms, 0.00 B | 0.297 ms, about 800,210 B | 9.682 by time |
+
+The allocation columns report managed bytes per operation to the precision
+of the harness. The warmed scalar and collection tests assert zero exactly.
+Each held Replace completed before its viewer was released. The paired Replace
+ratios split three to three on direction. The view traversal took longer on
+both List sizes in all six pairs and avoided the owned collection allocation.
+This is the observed tradeoff for a full scalar sum through the by-name view.
+The independent measurement review verified the exact source archives,
+rotations, calculations and ordinary caller listings. The checked ARM64
+inputs and the raw Windows outputs are kept outside Git.
+
 #### S22 · Typed protected views
 
 **Track:** full · **Needs:** S21 · **Decisions:** O6 · **Owners:** E08, E05
