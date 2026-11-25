@@ -179,13 +179,12 @@ internal sealed class Forwarder
     private ChildSender Begin(LatticeSession? session, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _clock.ThrowIfClosed();
 
-        // The follower can still hold the connection while it unwinds a failed publication. A call that
-        // begins after the fault mark must leave before it can queue a request to the master.
-        if (_epochs.IsFaulted)
+        // Closing marks the read gate before publishing Closed. This also ends write admission
+        // while the follower still holds the connection, during close or after a failed publication.
+        if (_epochs.Refuses)
         {
-            throw ReadEpochs.FaultedRefusal();
+            _epochs.ThrowForState();
         }
 
         if (session is not null)

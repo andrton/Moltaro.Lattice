@@ -260,12 +260,21 @@ takes precedence over reach, loss of the master or expiry. The token can already
 cancelled while another callback delays notification. When the token callback resumes
 the wait, the clock checks the lifecycle before propagating cancellation.
 
-Close stops admitting reads, publishes `Closed`, then notifies the position waiters
-outside the state lock. A registered wait whose outcome is still undecided at
-`Closed` reports `Unavailable` even if cancellation, `Wake` or the timer resumes it
-before the close notification. A result decided before `Closed` remains available
-to the caller. A forwarded write with a confirmed master reply can return that
-result on a child that is `Closed`, because it has stopped admitting reads.
+Close stops admitting reads and writes before publishing `Closed`. The master
+closes its existing operations barrier, which tracks admitted writes until they
+reach their outcomes. On a child, the same lifecycle mark that stops new reads
+also stops new submissions to the forwarder. The child's operations barrier
+stays open until after `Closed`, allowing application of the master's transactions
+to continue up to the state change.
+
+After publishing `Closed`, close notifies the position waiters outside the state
+lock. A registered wait whose outcome is still undecided at `Closed` reports
+`Unavailable` even if cancellation, `Wake` or the timer resumes it before the
+close notification. A result decided before `Closed` remains available to the
+caller. A forwarded write with a confirmed master reply can return that result
+on a child that is `Closed`, because it has stopped admitting reads. Successful
+completion of `CloseAsync` follows the end of protected operations and the
+release of the instance's native memory.
 
 A wait can succeed on expiry when its target was reached in time, or time out when
 a late publication arrived before the timer ran.

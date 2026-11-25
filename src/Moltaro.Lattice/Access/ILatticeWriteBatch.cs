@@ -321,6 +321,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">
+    /// An uncancelled submission of a valid batch to a closed database. Reported through the
+    /// returned task.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
     /// <see cref="LatticeErrorEnum.DuplicateKey"/>, <see cref="LatticeErrorEnum.NotFound"/>,

@@ -169,10 +169,10 @@ internal sealed class ReadEpochs
     // finish, so the read gives up. The ordinary path of a read does not call this.
     public bool IsFaulted => (Volatile.Read(ref _state) & Faulted) != 0;
 
-    // Whether a read that entered now would be refused: the database is closed or faulted (ThrowForState).
+    // Whether a new read or a new write on a child would be refused (ThrowForState).
     public bool Refuses => Volatile.Read(ref _state) != 0;
 
-    // The refusal of a read that found the state set: ObjectDisposedException after the close, which
+    // The refusal of an operation that found the state set: ObjectDisposedException after the close, which
     // comes first, Unavailable after a fault.
     [DoesNotReturn]
     public void ThrowForState()

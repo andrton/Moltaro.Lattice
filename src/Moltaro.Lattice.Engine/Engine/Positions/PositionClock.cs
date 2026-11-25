@@ -83,9 +83,6 @@ internal sealed class PositionClock
     // return its result without this child having applied the write.
     public bool IsClosed => _isDatabaseClosed?.Invoke() ?? _closed;
 
-    // ObjectDisposedException once the database has been closed, as every operation after a close.
-    public void ThrowIfClosed() => ObjectDisposedException.ThrowIf(_closed, _owner);
-
     // HistoryMismatch for a position of another history than this database's, which no wait can reach.
     public void CheckHistory(LatticePosition position)
     {
