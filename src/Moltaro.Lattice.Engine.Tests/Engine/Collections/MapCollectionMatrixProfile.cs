@@ -77,6 +77,7 @@ internal sealed class MapCollectionMatrixProfile<TKey, TValue>(string profile, s
 
         Assert.Equal(items[Read<TKey>(held.Key)], Read<TValue>(held.Value));
         Assert.Equal(Read<TKey>(iterator.Current.Key), Read<TKey>(copy.Current.Key));
+        bool more;
         do
         {
             var entry = iterator.Current;
@@ -85,10 +86,27 @@ internal sealed class MapCollectionMatrixProfile<TKey, TValue>(string profile, s
             Assert.Equal(value, Read<TValue>(entry.Value));
             Assert.True(map.TryGetValue(member, out var found));
             Assert.Equal(value, Read<TValue>(found));
+            if (pause is not null)
+            {
+                var copyEntry = copy.Current;
+                Assert.Equal(member, Read<TKey>(copyEntry.Key));
+                Assert.Equal(value, Read<TValue>(copyEntry.Value));
+            }
+
+            more = iterator.MoveNext();
+            if (pause is not null)
+            {
+                Assert.Equal(more, copy.MoveNext());
+            }
         }
-        while (iterator.MoveNext());
+        while (more);
 
         Assert.Empty(remaining);
+        if (pause is not null)
+        {
+            return;
+        }
+
         Assert.Equal(items.Count > 1, copy.MoveNext());
         if (items.Count > 1)
         {

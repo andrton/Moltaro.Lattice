@@ -82,15 +82,31 @@ internal sealed class SetCollectionMatrixProfile<T>(string profile, string eleme
 
         Assert.Contains(Read<T>(held), items);
         Assert.Equal(Read<T>(iterator.Current), Read<T>(copy.Current));
+        bool more;
         do
         {
             var member = Read<T>(iterator.Current);
             Assert.True(remaining.Remove(member));
             Assert.True(set.Contains(member));
+            if (pause is not null)
+            {
+                Assert.Equal(member, Read<T>(copy.Current));
+            }
+
+            more = iterator.MoveNext();
+            if (pause is not null)
+            {
+                Assert.Equal(more, copy.MoveNext());
+            }
         }
-        while (iterator.MoveNext());
+        while (more);
 
         Assert.Empty(remaining);
+        if (pause is not null)
+        {
+            return;
+        }
+
         Assert.Equal(items.Count > 1, copy.MoveNext());
         if (items.Count > 1)
         {

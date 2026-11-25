@@ -61,9 +61,20 @@ internal sealed class ListCollectionMatrixProfile<T>(string profile, string elem
             Assert.True(iterator.MoveNext());
             Assert.Equal(items[index], Read<T>(iterator.Current));
             Assert.Equal(items[index], Read<T>(list[index]));
+            if (pause is not null)
+            {
+                Assert.True(copy.MoveNext());
+                Assert.Equal(items[index], Read<T>(copy.Current));
+            }
         }
 
         Assert.False(iterator.MoveNext());
+        if (pause is not null)
+        {
+            Assert.False(copy.MoveNext());
+            return;
+        }
+
         Assert.Equal(items.Count > 1, copy.MoveNext());
         if (items.Count > 1)
         {

@@ -26,7 +26,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         LatticeFieldTypeEnum.String, LatticeFieldTypeEnum.Guid,
     ];
 
-    private static readonly string[] Encodings = ["Utf8", "Utf16"];
+    internal static readonly string[] Encodings = ["Utf8", "Utf16"];
 
     public static TheoryData<LatticeFieldTypeEnum, string, string> Cases
     {
@@ -66,6 +66,8 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
             }
         }
 
+        reached.UnionWith(WideCompactMapTransferTests.Shapes());
+
         // Lists have no derived lookup. Records never straddle a chunk boundary.
         // A compact Map or Set may be in a root, a byte block or a record block.
         // A lookup always owns separate entry storage. With one slot directory
@@ -85,12 +87,26 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
             "SlotDirectory/MultipleChunks/ByteDirectory/OneChunk", "SlotDirectory/MultipleChunks/ByteDirectory/MultipleChunks",
             "SlotDirectory/MultipleChunks/RecordDirectory",
         ];
+        // A wide Map value can also need multiple chunks before the hash
+        // threshold. A Set uses only one equality-bearing scalar or reference,
+        // too narrow for a compact block of entries to have multiple parts.
+        string[] mapShapes =
+        [
+            .. memberShapes,
+            "ByteDirectory/OneChunk", "ByteDirectory/MultipleChunks", "RecordDirectory",
+        ];
+        var byCollection = new Dictionary<LatticeFieldTypeEnum, string[]>
+        {
+            [LatticeFieldTypeEnum.List] = listShapes,
+            [LatticeFieldTypeEnum.Map] = mapShapes,
+            [LatticeFieldTypeEnum.Set] = memberShapes,
+        };
         var expected =
             from key in supportedKeys
             from encoding in Encodings
-            from collection in new[] { LatticeFieldTypeEnum.List, LatticeFieldTypeEnum.Map, LatticeFieldTypeEnum.Set }
-            from shape in collection == LatticeFieldTypeEnum.List ? listShapes : memberShapes
-            select (key, encoding, collection, shape);
+            from collection in byCollection
+            from shape in collection.Value
+            select (key, encoding, collection.Key, shape);
         Assert.Equal(expected.Order(), reached.Order());
     }
 
@@ -332,7 +348,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         ["Stamp"] = stamp,
     };
 
-    private static object KeyOf(LatticeFieldTypeEnum type, int ordinal) => type switch
+    internal static object KeyOf(LatticeFieldTypeEnum type, int ordinal) => type switch
     {
         LatticeFieldTypeEnum.Int8 => (sbyte)(sbyte.MinValue + ordinal),
         LatticeFieldTypeEnum.UInt8 => (byte)(byte.MaxValue - ordinal),
@@ -349,8 +365,9 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
 
     private static string KeyText(int ordinal)
     {
-        var repetitions = ordinal % 3 switch
+        var repetitions = (ordinal % 3) switch
         {
+            0 when ordinal == 6 => 8_250,
             0 => 610,
             1 => 1,
             _ => 20,

@@ -31,12 +31,15 @@ internal abstract class CollectionMatrixProfile(string name, LatticeFieldTypeEnu
 
     public LatticeFieldTypeEnum Kind { get; } = kind;
 
-    public LatticeSchema Schema(LatticeFieldTypeEnum primaryKey, string encoding) => LatticeSchema.Compile($$"""
+    public LatticeSchema Schema(LatticeFieldTypeEnum primaryKey, string encoding, string? clrType = null)
+    {
+        var binding = clrType is null ? "" : $"\"ClrType\": \"{clrType}\",";
+        return LatticeSchema.Compile($$"""
         {
           "StringEncoding": "{{encoding}}",
           "EntityTypes": [
             {
-              "Id": 1, "Name": "Item",
+              "Id": 1, "Name": "Item", {{binding}}
               "Fields": [
                 { "Id": 1, "Name": "Id", "Type": "{{primaryKey}}" },
                 { "Id": 2, "Name": "Case", "Type": "Int32" },
@@ -48,6 +51,7 @@ internal abstract class CollectionMatrixProfile(string name, LatticeFieldTypeEnu
           ]
         }
         """);
+    }
 
     public int[] Counts(StructureLayout entries)
     {
