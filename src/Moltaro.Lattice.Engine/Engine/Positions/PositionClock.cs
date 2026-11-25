@@ -18,8 +18,9 @@ namespace Moltaro.Lattice.Engine.Positions;
 //
 // Close, fault and loss of the master also notify waiters. A wait reads loss before looking up
 // its position or reach time because the follower publishes what it applied before it marks the
-// loss. A timely publication wins over loss. A fault mark is read after the publication evidence so
-// that a mark already visible before the wait's success decision refuses the wait.
+// loss. A timely publication wins over loss. The close and fault marks are read after the publication
+// evidence. The database marks the clock before it publishes Closed, so a wait resumed by another
+// event after that state became visible refuses even when close has yet to notify waiters.
 internal sealed class PositionClock
 {
     // On lines of its own (SequenceLine).
@@ -72,7 +73,7 @@ internal sealed class PositionClock
     // The position of a sequence of this history.
     public LatticePosition At(ulong sequence) => new(History, sequence);
 
-    // Whether the database has been closed: every wait has ended.
+    // Whether the close has been marked, including while its notification is still pending.
     public bool IsClosed => _closed;
 
     // ObjectDisposedException once the database has been closed, as every operation after a close.
@@ -143,12 +144,19 @@ internal sealed class PositionClock
         Complete(reached);
     }
 
-    // Ends every wait: a wait in progress fails with Unavailable, a later one with
-    // ObjectDisposedException, as every operation after a close does.
+    // Before the database publishes Closed, mark the outcome of undecided waits without taking
+    // the position gate. A wait in progress fails with Unavailable and a later one with
+    // ObjectDisposedException.
+    public void MarkClosed() => _closed = true;
+
+    // After the mark, notify waiters outside the state and write locks.
+    public void NotifyClosed() => WakeAll();
+
+    // For a standalone clock, publish the mark and send the notification together.
     public void Close()
     {
-        _closed = true;
-        WakeAll();
+        MarkClosed();
+        NotifyClosed();
     }
 
     // Ends every wait of a child that lost its master: no later position will arrive, so a wait in
@@ -248,7 +256,7 @@ internal sealed class PositionClock
         }
     }
 
-    private void ThrowIfWaitEnded()
+    private void ThrowIfWaitUnavailable()
     {
         if (_closed)
         {
@@ -256,6 +264,21 @@ internal sealed class PositionClock
         }
 
         ThrowIfFaulted();
+    }
+
+    // A signal or timer can resume the wait before the token callback runs. Sample the token
+    // before checking the lifecycle so that cancellation requested after close cannot decide
+    // the outcome of a wait that was still pending at close.
+    private void ThrowIfWaitEnded(CancellationToken cancellationToken)
+    {
+        var cancelled = cancellationToken.IsCancellationRequested;
+
+        ThrowIfWaitUnavailable();
+
+        if (cancelled)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
     }
 
     // Completes the signals of the targets taken, outside the lock.
@@ -274,8 +297,7 @@ internal sealed class PositionClock
 
         if (target is null)
         {
-            ThrowIfWaitEnded();
-            cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfWaitEnded(cancellationToken);
 
             // No target was registered when the publication passed this waiter. Only the time it
             // observed the already published position can prove that its own budget was met.
@@ -302,10 +324,7 @@ internal sealed class PositionClock
                     remaining = reachedAt.HasValue ? TimeSpan.Zero : timeout - _time.GetElapsedTime(started);
                 }
 
-                ThrowIfWaitEnded();
-
-                // A signal or timer can resume this wait while another callback delays cancellation notification.
-                cancellationToken.ThrowIfCancellationRequested();
+                ThrowIfWaitEnded(cancellationToken);
 
                 if (reachedAt is { } stamp)
                 {
@@ -341,8 +360,8 @@ internal sealed class PositionClock
                 }
                 catch (OperationCanceledException)
                 {
-                    // A fault mark can already be visible while its notification is pending.
-                    ThrowIfWaitEnded();
+                    // A close or fault mark can already be visible while its notification is pending.
+                    ThrowIfWaitUnavailable();
                     throw;
                 }
             }

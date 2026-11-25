@@ -55,7 +55,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // a write completes starts the next write of its chain under the same lock (AdvanceChain). A write with
 // a session takes its place when the wait for its position ends. It enters the barrier of the close
 // before that wait, so that a close waits for it as for every write admitted; the close ends the wait
-// first (EngineDatabase.CloseAsync, PositionClock.Close).
+// first (EngineDatabase.CloseAsync).
 //
 // The lock of the writes, given by the database, which takes it as well for its counters and its drain,
 // and for the start, the end and the acknowledgments of the children of a master (Children.Capture). It

@@ -13,8 +13,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 // (docs/decisions/session-consistency.md, "Explicit local position wait").
 public sealed class ChildPositionDeadlineTests
 {
-    private const string PendingClose = "Pending waits do not yet observe public Closed before close notifies the clock.";
-
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(1);
 
     [Fact]
@@ -139,7 +137,7 @@ public sealed class ChildPositionDeadlineTests
         Assert.Equal(initial, child.Position);
     }
 
-    [Fact(Skip = PendingClose)]
+    [Fact]
     public async Task A_registered_wait_reports_Unavailable_when_cancelled_after_Closed_becomes_visible()
     {
         var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -181,11 +179,11 @@ public sealed class ChildPositionDeadlineTests
         }
     }
 
-    [Fact(Skip = PendingClose)]
+    [Fact]
     public Task A_registered_wait_reports_Unavailable_when_the_child_publishes_after_Closed_and_Wake_notifies_it() =>
         ExpectCloseBeforePublicationAsync(deliverTimer: false);
 
-    [Fact(Skip = PendingClose)]
+    [Fact]
     public Task A_registered_wait_reports_Unavailable_when_the_child_publishes_after_Closed_and_the_timer_notifies_it() =>
         ExpectCloseBeforePublicationAsync(deliverTimer: true);
 

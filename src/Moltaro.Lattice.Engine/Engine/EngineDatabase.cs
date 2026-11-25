@@ -389,9 +389,10 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // suspension of the application held at the close does not keep it from completing.
     //
     // The steps, in the order of the code, here and in FreeAfterOperationsAsync:
-    // 1. Under the lock of the state the state becomes Closed and the task of the close is made: from
-    //    then on every member refuses, and every later call waits for that task.
-    // 2. The waits for a position end (PositionClock.Close).
+    // 1. Under the lock of the state the task of the close is made. The position clock is marked
+    //    closed before the state becomes Closed, so an undecided wait refuses a later cancellation,
+    //    publication or deadline even before it receives the close notification.
+    // 2. Outside the lock of the state, notify all position waiters (PositionClock.NotifyClosed).
     // 3. The reads are marked closed (ReadEpochs.Close): a read that enters from then on leaves at once,
     //    and those that entered before announce an epoch below the mark, which step 8 waits for.
     // 4. The open of a child in progress is cancelled: it ends at its next wait, or at its next
@@ -413,6 +414,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
     {
         TaskCompletionSource closed;
+        PositionClock? clock = null;
         var begins = false;
 
         lock (_stateLock)
@@ -420,6 +422,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             if (_closed is null)
             {
                 _closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                clock = _parts?.Clock;
+                clock?.MarkClosed();
                 _state = LatticeDatabaseStateEnum.Closed;
                 begins = true;
             }
@@ -432,7 +436,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             _testInputs?.AfterCloseStatePublication?.Invoke();
 
             // Steps 2 to 5 (see above).
-            _parts?.Clock.Close();
+            clock?.NotifyClosed();
 
             var mark = _epochs.Close();
 
