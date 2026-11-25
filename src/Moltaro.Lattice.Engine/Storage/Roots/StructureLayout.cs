@@ -88,7 +88,7 @@ internal sealed class StructureLayout
         else
         {
             MostElements = ValueBlocks.MostValueBytes / size;
-            Packed = collection.Map is { } map ? new PackedMap(this, map) : PackedFor(collection.Element!);
+            Packed = collection.Map is not null ? PackedMap.For(this, collection) : PackedFor(collection.Element!);
         }
 
         if (collection.Type != LatticeFieldTypeEnum.List)

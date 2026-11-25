@@ -58,6 +58,15 @@ Claude Code rows at high began as a trial with S15, part 2 of Epic 1, and became
 standing rule after S15 to S17 (the owner, 23 November 2026). An agent that stops on a
 usage limit is not retried in a loop. The coordinator tells the owner.
 
+For OpenAI Codex, the planner may assign GPT-6.2 Astra Extra High
+(`gpt-6.2-astra`, `xhigh`) for work within planning. The coordinator may assign it for
+work it coordinates, including work at a sprint boundary. This is an exception for a
+specific question when the agents on the assigned models have reached an impasse and a
+deeper analysis may resolve it. It can apply to an architecture review, a study, a
+diagnosis or another role suited to that question. The planner or coordinator names the
+question and the obstacle when assigning it. The assignment covers that question alone.
+The table remains the default for all roles.
+
 ## New sessions at a sprint boundary
 
 The coordinator and the planner are sessions, and a session reads its whole history again

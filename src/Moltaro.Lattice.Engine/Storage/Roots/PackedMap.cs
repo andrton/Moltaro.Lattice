@@ -4,19 +4,32 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
-// The two members of a packed Map entry are written by the same layout as the fields of a root.
-// The record forms box fixed-width keys and values as they enter or leave the dictionary.
+// A packed Map with a fully fixed owned value uses the same field placement and copying as a root.
+// A pair of scalars uses the type-bound form instead. Both forms use the compiled entry layout.
 internal sealed class PackedMap : PackedCollection
 {
     private readonly StructureLayout _entry;
 
     private readonly MapForm _form;
 
-    public PackedMap(StructureLayout entry, MapForm form)
+    private PackedMap(StructureLayout entry, MapForm form)
         : base(entry.Size)
     {
         _entry = entry;
         _form = form;
+    }
+
+    public static PackedCollection For(StructureLayout entry, LatticeValueDeclaration declaration)
+    {
+        var form = declaration.Map!;
+        if (entry.Place(1).Type == StoredTypeEnum.Owned)
+        {
+            return new PackedMap(entry, form);
+        }
+
+        // Bind once from the declaration's record types, which already resolve enums and references.
+        var packed = typeof(PackedMap<,>).MakeGenericType(declaration.Key!.ValueType, declaration.Value!.ValueType);
+        return (PackedCollection)Activator.CreateInstance(packed, entry, form)!;
     }
 
     public override int Count(object map) => ((IDictionary)map).Count;
