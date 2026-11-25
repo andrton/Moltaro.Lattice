@@ -66,7 +66,7 @@ public sealed class PositionWaitOutcomeTests
         }
     }
 
-    [Fact(Skip = "The fix for delayed cancellation on expiry of an unpublished wait is pending.")]
+    [Fact]
     public async Task Cancellation_requested_before_the_deadline_ends_its_wait_when_the_timer_runs_before_publication()
     {
         var time = new PositionWaitTime();
