@@ -1308,8 +1308,8 @@ Why this order:
 | S18 | Owned values, Lists and references | Full, critical | Done on 24 November 2026, in three parts; its Measured line taken after the close |
 | S19 | Maps and Sets | Full, critical | Done on 24 November 2026, in three parts |
 | S20 | Partial updates | Full, critical | Done on 24 November 2026, Coordinator 11 |
-| S20I | Investigate the Debug timeouts | Investigation | Planned on 24 November 2026, before S21 |
-| S21 | Protected views by name | Full | Waiting for S20I |
+| S20I | Investigate the Debug timeouts | Investigation | Done on 25 November 2026. Historical causes remain open |
+| S21 | Protected views by name | Full | Not started. R2 comes first |
 | S22 | Typed protected views | Full | Not started |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
@@ -9991,13 +9991,133 @@ after S20 and before starting S21.
   `AcknowledgmentDuringARequestTests` each reached an outer test wait. Keep
   separate evidence and conclusions for each scenario. Preserve exact build
   identities, exceptions, stacks and load readings.
-- **Close.** Deliver a verified fix or establish a cause and the concrete
-  constraint that makes a fix impossible. A successful rerun is supporting
-  evidence. Closure requires the cause or correction above.
+- **Close.** On 25 November 2026 the owner approved merging the verified
+  position-clock correction and continuing in the planned order. The three
+  historical causes remain open and investigation resumes on recurrence. The
+  next work is the R2 checkpoint, followed by S21 implementation in the
+  [refactoring order](refactoring.md#order).
 
 [S20's tests-first and publication check](#tests-first-and-publication-check)
 records the historical failures and controls. S21 takes the resulting publication
 history when S20I closes.
+
+##### Position-clock correction
+
+The first tests-first review closed on `51624799376f977eb356efea161520087cc8004f`.
+On the original clock with the timing seam from `15b063e3`, four activated cases
+failed. A position first published after the deadline satisfied a pending wait
+when Wake won. A waiter whose deadline matched the first publication timed out
+after a second publication advanced the sequence. A wait on a child returned
+`SynchronizationTimeout` when publication reached the position before the
+deadline and Wake was held. A pending wait on a child already marked `Faulted`
+returned `SynchronizationTimeout` while fault notification was held. The controls
+cover an unpublished target at expiry, cancellation, close, and a fresh wait at
+the fault mark. Clock time, timer delivery and publication holds are controlled
+separately.
+
+Review and independent probes found two failures when the publication overtook a
+wait between its initial sequence check and registration. The follow-up tests-first
+review closed on `f1cdca5a04a5d6efb50df1cdbbbc05bcb3924cc2`. With just the skips
+removed, that source returned success both for a publication one clock tick after
+the original deadline and for cancellation before an otherwise timely publication.
+Publications before and at the deadline passed the controls.
+
+The focused position and forwarding checks passed at
+`3d7418956ad15fe8290be1c43306d859060d919a`, as did the unchanged PublisherScratch
+case. The clock now records first reach for registered targets. A wait overtaken
+before registration requires its own timely observation and checks cancellation
+before success. The implementation and the scheduling limit of its timestamp
+observation are described in the [write path](../design/write-path.md#waiting-for-a-published-position).
+
+The coordinator independently built that exact source in Windows x64 Release
+and Debug with zero warnings and errors in both configurations. Each full suite
+passed 3,661 tests with 129 skips. Release took 1:07.409 and Debug took 1:16.541.
+The solution format check and all 17 samples passed. The independent breaker
+passed eight behavioral probes, covering both outcomes before registration and
+64 rounds with Wake, timer delivery and cancellation. A ninth probe separately
+confirmed the conservative timeout when a scheduling pause delayed the clock
+sample after the sequence store. The implementation review took two rounds,
+on `6a5783f5` and `3d741895`. The first found the pre-registration outcomes
+above. The second closed all implementation findings. A separate documentation
+review closed the remaining wording finding.
+
+##### Clock waiter costs
+
+Nine serial `clock-waiters` runs used `development-5` on Windows x64 .NET 10.0.15
+with affinity to eight logical processors. The comparison used exact `3d741895`,
+its sprint base `2937689e` and an independent build of that same base as the
+gauge. The three rounds ran base, gauge, head, then gauge, head, base, then head,
+base, gauge. For each shape and repeat, the gauge band uses the largest paired
+base-to-gauge deviation in either direction and its reciprocal. A change counts
+when the ratio of medians and all three paired ratios cross the same bound.
+Both parts use targets that are deliberately unreachable throughout the timed
+windows. Reached-target delivery, expiry and await latency are outside the
+comparison.
+
+With the clock alone, the ratios of medians were 0.3131–0.4417. Seven of ten rows
+met the fall rule. In the second repeat without a waiter, the clock went from
+137.595 million to 58.931 million publications per second. The reciprocals give
+a mean of 7.27 ns per publication-loop iteration at the base and 16.97 ns at the
+head, including `Publish`, `Wake` and the rest of the loop. The rate ratio was
+0.4283 against a band of 0.8734–1.1450. The scenario reported zero whole bytes
+allocated per publication in every row.
+
+In the child scenario, the master write-rate ratios were 0.8361–1.0897 and the
+child application-rate ratios were 0.8353–1.1371. None of those 20 rates met the
+change rule. The wide gauge leaves end-to-end differences at this scale
+unresolved. Keep the clock gate that orders registration, publication and its
+timestamp. Retain the isolated clock cost in this record. A repeatable fall in
+master write or child application rate against the exact parent in a later
+comparable end-to-end control reopens that cost finding. Raw results stay outside
+Git.
+
+##### Historical Debug controls
+
+**PublisherScratch.** The application wait timed out in a full S19 Release run
+on `4e816daa` and again in a full S20 Debug run on `0fbfa6d`. A separate S20 full
+Debug failure reached the same test line. Its filtered output did not retain the
+exception. The confirmed S20 failure followed the master commit at sequence 11
+(`02583d08618f1805-b`) and the child's ten-second application wait. The failed
+run records the exception and stack through the two wait methods. Its publication
+stage timing and the child's position at expiry remain unknown.
+
+A Windows x64 Debug full-suite run of `0fbfa6d02fc305c921f93aac20dbb93d312f477e`
+with the publication trace passed 3,375 tests with 164 skips in 56.171 seconds.
+The sidecar records the wait starting at 4,158.644 ms, the child publishing at
+5,437.544 ms, Wake completing at 6,226.738 ms and the wait returning at
+6,226.950 ms. This is a successful sequence on the old clock. The serial isolated
+controls, later full runs and the unchanged test with the correction passed.
+There is no stable reproduction of the historical timeout. Its cause remains
+open. On recurrence, use the phase trace described above to capture publication
+timing and the observed position at expiry.
+
+**ReturnedKeysPages, Int64.** The outer test wait timed out once. A
+separate Windows x64 Debug replay of exact `0fbfa6d` with the secondary diagnostic
+overlay completed the worker at 7.238 s and observed its result at 7.239 s. Process
+GC pauses increased by 4.397 s over that trace. The replay establishes when the
+worker and observer finished in a successful run. Debug controls did not
+reproduce the timeout. Its cause remains open. On recurrence, capture the last
+worker phase and progress, per-thread CPU time, worker completion, observation,
+outer wait and process pause timings on the exact build.
+
+**AcknowledgmentDuringARequest.** The outer test wait timed out once, with
+system commit charge at 78,904 of 89,390 MiB. At timeout capture the
+child was still at sequence 1, the position of the meanwhile write. The record
+lacks the large request's master commit and gives no evidence of a delay after
+the child's coherent publication of that request. In the same secondary replay
+the relay release was requested at 0.303 s, the master committed at 1.642 s and
+the child published sequence 2 at 3.141 s. Process GC pauses increased by 2.388 s
+over that trace. The full replay sampled 37,751–42,040 MiB against 86,770 MiB.
+The load conditions differ. Debug controls did not reproduce the timeout and
+its cause remains open. On recurrence, capture the relay release, master commit,
+child publication, observed position and load on the exact build.
+
+The secondary replay ran for 1:27.289 with 3,374 successes and 164 skips. Its sole
+failure was the exact-allocation assertion of `WalkAllocationTests` on the
+instrumented tree. The range walk measured 1,256 bytes against 1,248 expected,
+an 8-byte increase with the ReturnedKeys observer present. Both historical outer
+wait cases passed in this run. Diagnostic overlays, raw timings and load samples
+stay outside Git.
 
 #### S21 · Protected views by name
 

@@ -20,9 +20,9 @@ internal sealed partial class EngineDatabase
     // makes an instance as LatticeDatabase.Create does, with the same refusals, that takes what the inputs
     // give instead of what an instance makes for itself: the options of its arena, the allocator of its
     // native memory, the seed of the hashes of its primary indexes, the persistence step of its commit
-    // stage and the source of the timestamps of its reads, each when it is set (EngineTestInputs). When the
-    // inputs give the options of the arena, MemoryLimit of the options of the database is not read. Nothing
-    // else differs, and an instance made by LatticeDatabase.Create pays nothing for it.
+    // stage, the source of the timestamps of its reads and the clock of its pending position waits, each
+    // when it is set (EngineTestInputs). When the inputs give the options of the arena, MemoryLimit of the
+    // options of the database is not read.
     public static EngineDatabase Create(LatticeDatabaseOptions options, EngineTestInputs inputs)
     {
         Check(options);

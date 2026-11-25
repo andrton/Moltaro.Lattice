@@ -237,6 +237,37 @@ position. Once step 1 has begun nothing can fail but a defect, or the fault poin
 the engine arms between steps 1 and 2; either faults the database, and a read that backs off
 then gives up with `Unavailable` instead of waiting for a position that will never come.
 
+### Waiting for a published position
+
+Under the lock of the writes, step 2 takes the position clock's gate. `PositionClock`
+publishes the coherent sequence with a volatile store. Immediately afterwards, if
+the sequence reaches any registered targets, the clock samples monotonic time and
+records it as their first reach. Later publications leave that sample intact. Each
+waiter of a target compares the shared sample with its own deadline. The budget
+starts before registration, and a sample at the deadline counts as timely.
+
+Registration and recording first reach use the same gate. If publication has already
+reached the position when a wait registers, the clock samples time after observing
+the sequence under the gate. The wait can succeed if that observation is within its
+original budget and its token has not been cancelled. An already satisfied first
+check uses the local sequence and lifecycle state without a gate or time sample.
+
+A publisher calls `Wake` after it releases the lock of the writes. Timer delivery is
+independent of `Wake`. A wait can succeed on expiry when its target was reached in
+time, or time out when a late publication arrived before the timer ran.
+The sequence store and timestamp sample are separate operations. A scheduling pause
+between them can move the sample past the deadline. The clock then reports timeout
+because it lacks timely evidence. A wait checks `ReadEpochs.Fault`'s authoritative
+mark before returning success. A mark already set causes `Unavailable`, including
+during the interval before the position clock has been notified of the fault.
+
+The clock gate protects in-memory waiter bookkeeping and its order is always the
+lock of the writes followed by the clock gate. A waiter takes only the clock gate
+and waits outside it. The notifying thread holds neither lock when it completes
+signals.
+The [session-consistency decision](../decisions/session-consistency.md) owns the
+guarantee exposed to the application.
+
 ## What an application can rely on
 
 - **Order for one entity.** Writes to one entity are executed in the order their calls
