@@ -451,6 +451,7 @@ documentation before this document is removed.
 | S21 | `protected-views` entry, writer during a held view, owned and protected List traversal | [Windows](#implementation-review-and-windows-measurements) and [ARM64](#arm64-results) | development, rented-arm64-1 | 25 November 2026 |
 | S21I | `protected-views` Int64 List traversal at 1,000 and 100,000 elements | [Windows](#windows-x64-results) and [ARM64](#arm64-results-1), against the exact parent | development, rented-arm64-1, six rotated orders | 25 November 2026 |
 | S22 | Typed and by-name protected scalar reads | [Windows x64 scalar comparison](#windows-x64-scalar-comparison) | One and four readers, paired windows and by-name controls | 25 November 2026 |
+| S23 E07 | 100-byte forwarded replaces at the write admission correction | [Latency and allocation](#write-admission-cost) | development-5, exact base and implementation head | 25 November 2026 |
 
 For S20 the Release test itself captured and counted the two complete wire
 effect bodies and asserted their size ordering. It supplied the reported byte
@@ -11383,6 +11384,49 @@ Temporarily removing only the skips on the original engine made each new
 case fail at the await assertion. The master insert, child insert and prepared
 master batch all returned without the expected `ObjectDisposedException`.
 The skips were restored before implementation started.
+
+###### Implementation and verification
+
+On `0a74caaa84459308c17db6055a28cd58f948ade0` the master closes its existing
+operations barrier before publishing `Closed`. The child reuses the lifecycle
+mark for reads to refuse new forwarding submissions. Its application barrier,
+clock notification and connection shutdown keep their earlier order. The
+independent review closed in two rounds. Its hardest part was tracing the
+master's drain and the child's confirmed reply through their distinct cutoff
+points. The wording-only follow-up `6198052cb18d450a883f917db1a8d4580c4de385`
+clarifies the pre-existing treatment of an already cancelled token. It built
+in Release and passed all 32 focused tests.
+
+The coordinator built the implementation head in Windows x64 Release and Debug
+without warnings or errors. Both full suites passed 3,779 tests with 129 planned
+skips. Release format verification and all 18 samples passed. The independent
+breaker passed 40 focused cases in each configuration on that head, including
+three probes of its own. The live child received the earlier admitted master
+write. The child batch refused at `Closed` sent zero bytes, leaving the live
+master and the caller's session at their earlier positions. The confirmed child
+reply reached its caller while native memory was still held by a protected read.
+Close completed after that read exited and the allocator returned the memory.
+On the exact base two breaker probes reproduced the write admission defect in
+Release. The retained-outcome probe passed there as well.
+
+###### Write admission cost
+
+In the ordinary master write path admission does the same work. A child now
+checks one lifecycle mark in place of separate close and fault checks. The
+independently reviewed `forwarding-costs` comparison ran the exact base and
+implementation head under `development-5`, in base, head, head, base order.
+Each process ran two rounds. In the second-round four-second windows, one caller
+forwarding 100-byte replaces on loopback measured p50 63.4–97.7 µs and p99
+137.5–289.8 µs on the base, and p50 62.2–65.1 µs and p99 119.4–235.3 µs on the head.
+Per-write allocation after 2,000 warm-up and 20,000 measured writes was
+3,906–3,987 B versus 3,957–3,997 B with both roles in one process. The child in a
+separate process measured 3,084–3,218 B versus 3,135–3,178 B. The ranges overlap,
+so these end-to-end runs establish no latency or allocation change. They do not
+resolve the cost of the check on its own. [S40](#s40--ordinary-load-gates) measures
+the forwarding path again under the ordinary Durable profile, with the existing
+G3 p99 target at 200 logical changes per second. Raw runs are kept outside Git.
+
+The E07 correction closed on 25 November 2026.
 
 ##### Storage work
 
