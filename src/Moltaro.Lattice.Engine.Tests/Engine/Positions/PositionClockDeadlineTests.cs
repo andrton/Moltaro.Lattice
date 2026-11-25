@@ -7,6 +7,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 // Publication, notification and deadline delivery are separate events on the pending path.
 public sealed class PositionClockDeadlineTests
 {
+    private const string RegistrationOutcome = "A wait which catches up at registration does not yet settle its original deadline and cancellation.";
+
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
 
     [Theory]
@@ -89,5 +91,71 @@ public sealed class PositionClockDeadlineTests
 
         var refused = await Assert.ThrowsAsync<LatticeException>(() => waiting.WaitAsync(Bound));
         Assert.Equal(LatticeErrorEnum.Unavailable, refused.Error);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1, Skip = RegistrationOutcome)]
+    public async Task A_wait_keeps_its_original_deadline_when_publication_wins_registration(int ticksFromDeadline)
+    {
+        var elapsed = Second + TimeSpan.FromTicks(ticksFromDeadline);
+
+        if (ticksFromDeadline <= 0)
+        {
+            await WaitWhilePublicationWinsRegistrationAsync(elapsed);
+            return;
+        }
+
+        var late = await Assert.ThrowsAsync<LatticeException>(() => WaitWhilePublicationWinsRegistrationAsync(elapsed));
+        Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, late.Error);
+    }
+
+    [Fact(Skip = RegistrationOutcome)]
+    public async Task Cancellation_before_registration_ends_the_wait_even_if_the_position_is_published_before_it_resumes()
+    {
+        using var cancellation = new CancellationTokenSource();
+
+        var cancelled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            WaitWhilePublicationWinsRegistrationAsync(Second / 2, cancellation));
+
+        Assert.Equal(cancellation.Token, cancelled.CancellationToken);
+    }
+
+    private async Task WaitWhilePublicationWinsRegistrationAsync(TimeSpan elapsed, CancellationTokenSource? cancellation = null)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(() =>
+        {
+            started.SetResult();
+            resume.Task.WaitAsync(Bound).GetAwaiter().GetResult();
+        });
+        var clock = new PositionClock(1, this, time);
+        var position = clock.At(1);
+        var token = cancellation?.Token ?? CancellationToken.None;
+        var waiting = OwnThread.Run<Task>(() => clock.WaitAsync(position, Second, token).AsTask()).Unwrap();
+
+        try
+        {
+            await started.Task.WaitAsync(Bound);
+            Assert.False(waiting.IsCompleted);
+
+            if (cancellation is not null)
+            {
+                await cancellation.CancelAsync();
+            }
+
+            time.Advance(elapsed);
+            clock.Publish(1);
+            clock.Wake();
+            Assert.True(clock.WaitAsync(position, Second, CancellationToken.None).IsCompletedSuccessfully);
+        }
+        finally
+        {
+            resume.TrySetResult();
+        }
+
+        await waiting.WaitAsync(Bound);
     }
 }
