@@ -389,16 +389,18 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // suspension of the application held at the close does not keep it from completing.
     //
     // The steps, in the order of the code, here and in FreeAfterOperationsAsync:
-    // 1. Under the lock of the state, make the close task and close read admission (ReadEpochs.Close).
-    //    A read that entered before the mark keeps its epoch, which step 8 waits for.
+    // 1. Under the lock of the state, make the close task and close admission. ReadEpochs.Close
+    //    refuses new reads and, on a child, new submissions to the forwarder. A read that entered
+    //    before the mark keeps its epoch, which step 8 waits for. On a master the close barrier
+    //    refuses new submissions and tracks those already admitted until they reach their outcome.
     // 2. Under the same lock, publish Closed. This state decides pending position waits. A confirmed
     //    write through a child can now return its result because new reads, including those through
     //    existing sets, are refused.
     // 3. Outside the lock of the state, notify all position waiters (PositionClock.Close).
     // 4. The open of a child in progress is cancelled: it ends at its next wait, or at its next
     //    placement, which the barrier refuses.
-    // 5. The barrier of the close admits no write, drain, count of the counters or placement any more,
-    //    and the rest waits until those in progress have ended, every admitted write with its outcome.
+    // 5. Close the child's barrier only now, so application of the master's changes can continue
+    //    until the child is Closed. For either role, wait for the operations inside the barrier to end.
     // 6. The listener of a master stops (ChildListener.StopAsync): after step 5, because an open of a
     //    master is an operation while it starts its listener, and because a connection sends its child
     //    the replies of the admitted writes before it ends.
@@ -415,6 +417,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     {
         TaskCompletionSource closed;
         long? readMark = null;
+        Task? masterOperationsEnded = null;
 
         lock (_stateLock)
         {
@@ -422,6 +425,12 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             {
                 _closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 readMark = _epochs.Close();
+
+                if (_options.Role == LatticeRoleEnum.Master)
+                {
+                    masterOperationsEnded = _barrier.Close();
+                }
+
                 _state = LatticeDatabaseStateEnum.Closed;
             }
 
@@ -437,7 +446,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
             _closing.Cancel();
 
-            _ = FreeAfterOperationsAsync(_barrier.Close(), mark, closed);
+            _ = FreeAfterOperationsAsync(masterOperationsEnded ?? _barrier.Close(), mark, closed);
         }
 
         var task = closed.Task;

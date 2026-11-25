@@ -40,6 +40,6 @@ internal sealed class EngineTestInputs
     public TimeProvider? PositionWaitTime { get; init; }
 
     // Invoked outside the state lock after Closed becomes visible and before close notifies the
-    // position waiters. Tests can hold the notification while other threads resume their waits.
+    // position waiters. Tests can hold the notification to observe operations at that boundary.
     public Action? AfterCloseStatePublication { get; init; }
 }

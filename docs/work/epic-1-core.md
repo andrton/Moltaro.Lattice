@@ -451,6 +451,7 @@ documentation before this document is removed.
 | S21 | `protected-views` entry, writer during a held view, owned and protected List traversal | [Windows](#implementation-review-and-windows-measurements) and [ARM64](#arm64-results) | development, rented-arm64-1 | 25 November 2026 |
 | S21I | `protected-views` Int64 List traversal at 1,000 and 100,000 elements | [Windows](#windows-x64-results) and [ARM64](#arm64-results-1), against the exact parent | development, rented-arm64-1, six rotated orders | 25 November 2026 |
 | S22 | Typed and by-name protected scalar reads | [Windows x64 scalar comparison](#windows-x64-scalar-comparison) | One and four readers, paired windows and by-name controls | 25 November 2026 |
+| S23 E07 | 100-byte forwarded replaces at the write admission correction | [Latency and allocation](#write-admission-cost) | development-5, exact base and implementation head | 25 November 2026 |
 
 For S20 the Release test itself captured and counted the two complete wire
 effect bodies and asserted their size ordering. It supplied the reported byte
@@ -11307,6 +11308,125 @@ The local merge check with the committed List append boundary `62735cd8` used
 tree `dceb7557d1efc22ce0e35fe30de31a3e2b4add00`. Its Release build passed,
 with 31 focused close and forwarding tests and all four List append tests.
 The append branch will take this correction from `main`.
+
+##### Close and new write admission
+
+**Track:** full · **Owner:** E07 · **Base:** `72899d5f2041e7b7e2cc086612b8ae2dc6919964`
+
+**Goal and contract.** By the time either role exposes `Closed`, it has stopped
+admitting new writes. A valid asynchronous write started through an existing set,
+or a commit of a prepared batch, then returns a task that fails with
+`ObjectDisposedException`. Obtaining a set or preparing the values or batch before
+close does not start a write. Writes already admitted retain their
+[`CloseAsync` outcomes](../../src/Moltaro.Lattice/ILatticeDatabase.cs). A successful
+close completes after native memory is released.
+
+**To read.** The earlier S23 close correction above, the XML for
+[`ILatticeSet<TEntity>`](../../src/Moltaro.Lattice/Access/ILatticeSet.Generic.cs),
+[`ILatticeSet`](../../src/Moltaro.Lattice/Access/ILatticeSet.cs) and
+[`ILatticeWriteBatch`](../../src/Moltaro.Lattice/Access/ILatticeWriteBatch.cs),
+the [write path](../design/write-path.md), [session consistency](../decisions/session-consistency.md)
+(14 November 2026) and [memory and access](../decisions/memory-and-access.md)
+(24 November 2026 amendment).
+
+**Acceptance.** Hold close just after publication of `Closed`, before the clock
+notification and teardown. Issue a valid asynchronous insert through a set obtained
+in `Ready`, once on a closing master and once on a closing child. In each case the
+call returns a task and awaiting it reports `ObjectDisposedException`. After the
+observing child consumes its master's orderly end, it still has the same position
+and no new row. For a closing child, observe its connection to the end, verify that
+it sent no write request, and check the live master's position and absence of the row.
+Exercise the distinct commit entry once with a nonempty batch prepared in `Ready`
+and submitted after `Closed`; require the same task refusal and absence of effects.
+Both batch roles converge on the same
+admission mechanisms as their respective single writes. Use the existing controls
+for a started master write (including its published result on a child), the three
+outcomes of a forwarded write during child close, registered position waits and
+cached reads, and an outstanding protected read whose native memory is released
+before successful close completion. Add a control only where the existing suite
+cannot distinguish a changed outcome. Check the exact tests-first commit on the
+base behavior and then the exact implementation head. Reconcile the public XML,
+README and engine design with the distinction between refusal of new operations
+at `Closed` and release of native memory at successful `CloseAsync` completion.
+
+**Measured.** If the ordinary write path changes, compare the affected role on the
+exact base and candidate with equivalent warmed Release workloads. Hold workload
+and setup fixed, alternate run order, and report latency or throughput, allocation
+where applicable, and spread. An effect that does not exceed run-to-run variation
+is inconclusive. Inspect the unaffected path when admission only moves work into
+close. Record the cause and disposition of any confirmed loss.
+
+**Breaker targets.** New local writes after public `Closed` on both roles and a
+prepared batch; an already admitted master write and the outcomes of child requests
+at different stages of delivery; preservation of cached reads, registered waits
+and native-memory teardown. Establish the order with gates.
+
+**Base observation.** A separate Release and Debug study held close just after
+`Closed` on the exact base. A valid insert issued through a previously obtained set
+returned `Changed` on each role and advanced the position from 0 to 1. A live peer
+read the inserted row. The already admitted master-write control reached its
+ordinary result. The study and its raw runs are kept outside Git.
+
+**Out of scope.** A new public state, load limits, a policy for simultaneous close and
+submission, Q66, compaction, and reconnect or reload in S34.
+
+###### Tests first
+
+The independent brief review closed in two rounds on
+`4d1d2559414077163f58211de5c583128620d8bf`. The tests-first review closed
+in one round on `5108a7962bc6154dfd199a185d3c88e4b43f7457`.
+The hardest part was establishing when the live observer had consumed the
+closing master's stream, so it could witness an absence of effects.
+
+The coordinator built that tests-first commit in Windows x64 Release and ran
+29 close, forwarding, position and memory controls, with three planned skips.
+Temporarily removing only the skips on the original engine made each new
+case fail at the await assertion. The master insert, child insert and prepared
+master batch all returned without the expected `ObjectDisposedException`.
+The skips were restored before implementation started.
+
+###### Implementation and verification
+
+On `0a74caaa84459308c17db6055a28cd58f948ade0` the master closes its existing
+operations barrier before publishing `Closed`. The child reuses the lifecycle
+mark for reads to refuse new forwarding submissions. Its application barrier,
+clock notification and connection shutdown keep their earlier order. The
+independent review closed in two rounds. Its hardest part was tracing the
+master's drain and the child's confirmed reply through their distinct cutoff
+points. The wording-only follow-up `6198052cb18d450a883f917db1a8d4580c4de385`
+clarifies the pre-existing treatment of an already cancelled token. It built
+in Release and passed all 32 focused tests.
+
+The coordinator built the implementation head in Windows x64 Release and Debug
+without warnings or errors. Both full suites passed 3,779 tests with 129 planned
+skips. Release format verification and all 18 samples passed. The independent
+breaker passed 40 focused cases in each configuration on that head, including
+three probes of its own. The live child received the earlier admitted master
+write. The child batch refused at `Closed` sent zero bytes, leaving the live
+master and the caller's session at their earlier positions. The confirmed child
+reply reached its caller while native memory was still held by a protected read.
+Close completed after that read exited and the allocator returned the memory.
+On the exact base two breaker probes reproduced the write admission defect in
+Release. The retained-outcome probe passed there as well.
+
+###### Write admission cost
+
+In the ordinary master write path admission does the same work. A child now
+checks one lifecycle mark in place of separate close and fault checks. The
+independently reviewed `forwarding-costs` comparison ran the exact base and
+implementation head under `development-5`, in base, head, head, base order.
+Each process ran two rounds. In the second-round four-second windows, one caller
+forwarding 100-byte replaces on loopback measured p50 63.4–97.7 µs and p99
+137.5–289.8 µs on the base, and p50 62.2–65.1 µs and p99 119.4–235.3 µs on the head.
+Per-write allocation after 2,000 warm-up and 20,000 measured writes was
+3,906–3,987 B versus 3,957–3,997 B with both roles in one process. The child in a
+separate process measured 3,084–3,218 B versus 3,135–3,178 B. The ranges overlap,
+so these end-to-end runs establish no latency or allocation change. They do not
+resolve the cost of the check on its own. [S40](#s40--ordinary-load-gates) measures
+the forwarding path again under the ordinary Durable profile, with the existing
+G3 p99 target at 200 logical changes per second. Raw runs are kept outside Git.
+
+The E07 correction closed on 25 November 2026.
 
 ##### Storage work
 
