@@ -191,12 +191,13 @@ place in the order when they are built. There are no root stripes, no catalog ga
 no claims. A deleted entry becomes reusable only after the reads that could see it have
 left, and a read never follows an old entry to a recreated key.
 
-Ordinary reads protect a root while the engine evaluates or copies it. The set by
-name also lends a read-only view of one stamped root to a synchronous callback.
-The callback takes a scoped ref struct and returns an ordinary result. The compiler
-keeps borrowed values and read-only spans inside the callback. A view holds the epoch
-until the callback returns or throws, including when another write publishes a new
-state. Generated views for .NET classes will use the same lifetime.
+Ordinary reads protect a root while the engine evaluates or copies it. Both the
+set by name and the class set lend a read-only view of one stamped root to a
+synchronous callback. The class set uses a generated projection whose field handles
+are bound to the actual schema. The callback takes a scoped ref struct and returns
+an ordinary result. The compiler keeps borrowed values and read-only spans inside
+the callback. A view holds the epoch until the callback returns or throws, including
+when another write publishes a new state.
 
 The caller keeps the callback short and avoids awaiting, yielding, I/O, external
 waits and nested database calls. Copy reference keys and leave the view before

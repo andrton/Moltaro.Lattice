@@ -100,11 +100,15 @@ directory.
 
 ### Map and Set lookups
 
-A Map or Set of up to eight entries stores those entries under the same descriptor
+A whole Map or Set written or received with up to eight entries stores them under the same descriptor
 as a List. Lookup scans the entries with the comparison of the key or member
 declaration. A larger collection has a Lookup descriptor with the entry count and
 the address of its lookup block. The block begins with the entries descriptor at
 offset 32. Packed entries of a hashed collection use their own block or chunks.
+
+Partial edits switch from compact to hashed when the ninth entry is added and
+back to compact when a removal takes the count from five to four. At counts
+from five through eight the resident form therefore depends on the preceding edits.
 
 The rest of a contiguous lookup block is a sequence of eight-byte slots. Each
 occupied slot holds a 32-bit hash and the entry ordinal plus one. The all-zero slot
@@ -287,9 +291,10 @@ retired memory until its next operation or its close.
 
 ### Protected views
 
-`TryView` and `ViewAsync` on the set by name use the same epoch table and take
-one stamped root. They run the synchronous viewer inside the epoch and read every
-field from that root. A hit samples the root, its member revision and the answer's
+`TryView` and `ViewAsync` on sets by name and class sets use the same epoch
+table and take one stamped root. A generated view binds its field paths once
+for the actual schema before entering the epoch. Both sets run the synchronous
+viewer inside the epoch and read every field from that root. A hit samples the root, its member revision and the answer's
 sequence together. A raced delete answers at its tombstone's stamp. A stable miss
 answers at the sequence that remained unchanged across the lookup. `ViewAsync`
 waits for its session before entering an epoch and advances it to the captured answer

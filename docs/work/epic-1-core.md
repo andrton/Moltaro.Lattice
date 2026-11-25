@@ -443,7 +443,18 @@ documentation before this document is removed.
 | S17 | The pool of a waiting batch against what its publication takes, batch-writes, the bound by levels, batches of 1, 32, 1,000 and 10,000; the check on the final state | random keys 4.67, 1.07, 1.28, 1.05; ascending keys 14.00, 3.06, 3.06, 1.38; the fixture's users 6.57, 3.69, 2.85, 1.85, 58.7 MiB at 10,000 where the linear bound of part 1 held 341.8 MiB; the check 1.75 to 1.80 µs a member for one unique index, 5.2 to 5.45 µs for three | rented-arm64-1 | 23 November 2026 |
 | S17 | Writes at the close, unique-writes, index-writes, write-callers and following-children, nine trees rotating, against b9a9074 (`main` before S17) and the gauge of f6d9cf3 | the sum of S17, the head (cb70b9f) against b9a9074, on index-writes 0.910 to 0.981 on 8 of 24 lines and on unique-writes 0.933 to 0.958 on 5 of 17 with one gain of 1.082 (K2); to the write path (f6d9cf3) 0.916 to 0.954 on 7 index-writes lines; the write path no fall and no gain on index-writes; following-children 0.953 to 1.014, none called; the users inserted and deleted by name, one caller, the head 0.990 of 57be01b, none called (K1 closed); at the head single writes 652 to 696 k a second and the upkeep of one index 1,396 ns, against 1,298 at b9a9074 | rented-arm64-1 | 23 November 2026 |
 | S18, part 3 | Historical comparison of `following-children` and `forwarding-costs` against part 2 | [Paired results, measured during S19](#s19-arm64-results) | rented-arm64-1 | 24 November 2026 |
+| S18 | `root-bytes` for full fixture users and groups | [208.01 and 112 retained bytes per entity, including size-class slack](#s18-measured-bytes) | Workstation, [confirmed on rented-arm64-1](#s19-arm64-results) | 24 November 2026 |
 | S19 | Full fixture retention, Map lookup and write-lock cost, and the scalar and nested index controls | [Bytes, timings and paired controls](#s19-arm64-results) | rented-arm64-1 | 24 November 2026 |
+| S20 | Change one field of the full fixture User | [43 bytes for the partial effect, 199 for Replace](#forwarding-and-sparse-replay) | [Deterministic wire test](../../src/Moltaro.Lattice.Engine.Tests/Replication/Transactions/SparseUpdateTests.cs) | 24 November 2026 |
+| S20I | Position-clock and child application rates | [Exact-parent clock-waiter comparison](#clock-waiter-costs) | development-5 | 25 November 2026 |
+| S20R | Fixed scalar Map pairs | [Owned read and whole Replace](refactoring.md#r2-fixed-scalar-pair-comparison) | Isolated paired driver in the S21 ARM64 queue | 25 November 2026 |
+| S21 | `protected-views` entry, writer during a held view, owned and protected List traversal | [Windows](#implementation-review-and-windows-measurements) and [ARM64](#arm64-results) | development, rented-arm64-1 | 25 November 2026 |
+| S21I | `protected-views` Int64 List traversal at 1,000 and 100,000 elements | [Windows](#windows-x64-results) and [ARM64](#arm64-results-1), against the exact parent | development, rented-arm64-1, six rotated orders | 25 November 2026 |
+| S22 | Typed and by-name protected scalar reads | [Windows x64 scalar comparison](#windows-x64-scalar-comparison) | One and four readers, paired windows and by-name controls | 25 November 2026 |
+
+For S20 the Release test itself captured and counted the two complete wire
+effect bodies and asserted their size ordering. It supplied the reported byte
+counts in place of a measurement-program scenario and manifest.
 
 The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
 and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
@@ -1098,7 +1109,7 @@ S01 ground
                          └─ S16 unique ── S17 write batch ── S18 owned values, lists
                              └─ S19 maps, sets ── S20 partial updates
                                  └─ S21 views by name ── S21I List traversal ── S22 typed views
-                                     └─ S23 compaction ── S24 memory budget
+                                     └─ S22C position-wait cancellation ── S23 compaction ── S24 memory budget
                                          └─ S25 memory gate ── S26 operation identity
                                              └─ S27 provider ── S28 durable commit
                                                  └─ S29 storage failures ── S30 saved base
@@ -1312,7 +1323,8 @@ Why this order:
 | S20R | Packed Map scalar pairs in owned reads and whole writes | Refactoring | Done on 25 November 2026. [ARM64 measured with S21](refactoring.md#r2-fixed-scalar-pair-comparison) |
 | S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
 | S21I | Protected List traversal | Full, critical | Done on 25 November 2026 |
-| S22 | Typed protected views | Full | Not started |
+| S22 | Typed protected views | Full | Done on 25 November 2026 |
+| S22C | Cancellation of a registered position wait | Full, critical | Approved after S22, before S23 |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
@@ -8886,6 +8898,8 @@ owner. With it S18 is closed whole.
   the machine (the plan in the notes of the coordinator), which the owner has been asked to
   start; Q63 for the owner.
 
+<a id="s18-measured-bytes"></a>
+
 **The measured bytes of S18** (24 November 2026). S18 was closed with its own "Measured"
 owed: no scenario stored the full form of the fixture, which nobody said at the close. The
 scenarios came after it (PR 62): `root-bytes` with the user and the group of the fixture in
@@ -10679,6 +10693,10 @@ times fell at both sizes, with zero managed bytes per traversal.
 | 1,000 | 32.927 µs | 13.860 µs | 17.508 µs | 0.4120 | 0.8442 |
 | 100,000 | 3.057 ms | 1.301 ms | 0.335 ms | 0.4107 | 4.0035 |
 
+For the paired final view time divided by the parent view time, the gauge
+intervals were 0.686086–1.457542 at 1,000 elements and 0.852528–1.172983
+at 100,000.
+
 The warmed repeat confirmed the improvement in all six pairs at each size,
 with paired final-to-parent ratios of 0.5614 and 0.4273. Each comparison uses
 the paired windows of its own repeat. The original short entry and held and
@@ -10737,6 +10755,9 @@ at each size, and every timed view row allocated zero managed bytes.
 | 1,000 | 60.233 µs | 27.401 µs | 12.864 µs | 0.452570 | 2.1813 |
 | 100,000 | 5.995 ms | 2.689 ms | 0.666 ms | 0.447442 | 4.0874 |
 
+For the same paired comparison, the gauge intervals were 0.950818–1.051726 at
+1,000 elements and 0.957119–1.044803 at 100,000.
+
 The owned sums allocated 8,152 B and about 800,278 B respectively. Short
 entry, held and unheld Replace, owned List sums and all 16 ordinary owned
 read-by-key timing metrics were inside their numeric gauges. The seven
@@ -10780,27 +10801,98 @@ No measurement finding remains open.
 - **Goal.** The same protected read is available through the application's entity class:
   a view with a property for each field, written for the class when the application is
   built.
-- **Contract.** Approved by the owner as part 2 of stage 5 (24 November 2026). New:
-  `LatticeViewAttribute(Type entityClass)` for a `readonly ref partial struct`;
-  `ILatticeEntityView<TSelf, TEntity>` with the static members a generated view implements
-  (`FieldNames`, `Create`), implemented by generated code only; on `ILatticeSet<TEntity>` the
-  four members of S21 with a view type, `TView : ILatticeEntityView<TView, TEntity>, allows
-  ref struct`; and a source generator in an assembly of its own,
-  `Moltaro.Lattice.Generators`, which alone references the compiler. An application writes
-  `[LatticeView(typeof(User))] public readonly ref partial struct UserView;` and
-  `users.TryView("ada", static (UserView user) => user.Age, out var age)`. A generated
-  property has the type of the property of the class for a fixed-width scalar, an Enum and
-  a Reference whose key is fixed-width; a String, a Binary and a Reference whose key is
-  text are a `LatticeValueView`; an owned value is the
-  generated view of its class; a List, a Map and a Set are the views of S21. The rules and
-  the errors of S21 hold, and `BindingFailed` is reported when a view does not agree with
-  the entity type of the database. When the schema is given to the build as a file, the
-  generator reports a class or a view that does not match it when the application is
-  built; when it is not, the mismatch is found at the first use.
-  The exact static members of the interface are settled by the first step of the sprint
-  with a generator that runs, since the compile check held them only by hand-written code;
-  a change of them there is the implementer's finding, read by the planner, and not a new
-  approval.
+- **Contract.** Approved by the owner as part 2 of stage 5 on 24 November
+  2026. The planner settled the generated members and representations from
+  the SDK proof on 25 November. In `Moltaro.Lattice.Access`,
+  `LatticeViewAttribute(Type entityClass)` marks a `readonly ref partial struct`.
+  `ILatticeEntityView<TSelf, TEntity>` has these two static members, implemented
+  by the generator.
+
+  ```csharp
+  static abstract ReadOnlySpan<LatticeViewField> Fields { get; }
+  static abstract TSelf Create(LatticeRecordView record, ReadOnlySpan<LatticeField> fields);
+  ```
+
+  `TSelf : ILatticeEntityView<TSelf, TEntity>, allows ref struct` and
+  `TEntity : class`. The entries of `Fields` are
+  `readonly record struct LatticeViewField(string Path, LatticeFieldTypeEnum? RequiredKind = null, bool? RequiredNullable = null)`.
+  Core resolves each ordinal field path against the actual schema. The path
+  can cross an owned field, such as `Home.Zip`. It never crosses a collection.
+  The handles in the same order are bound once for that schema and view
+  type. `Create` receives them for the borrowed read, including the handles
+  used by nested generated views.
+
+  `ILatticeSet<TEntity>` has the four protected operations below. Every
+  overload constrains `TKey : notnull` and
+  `TView : ILatticeEntityView<TView, TEntity>, allows ref struct`.
+
+  ```csharp
+  bool TryView<TKey, TView, TResult>(TKey key, LatticeViewFunc<TView, TResult> viewer,
+      [MaybeNullWhen(false)] out TResult result);
+  bool TryView<TKey, TView, TState, TResult>(TKey key, TState state,
+      LatticeViewFunc<TView, TState, TResult> viewer, [MaybeNullWhen(false)] out TResult result);
+
+  ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TResult>(TKey key, LatticeSession session,
+      LatticeViewFunc<TView, TResult> viewer, CancellationToken cancellationToken = default);
+  ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TView, TState, TResult>(TKey key, LatticeSession session,
+      TState state, LatticeViewFunc<TView, TState, TResult> viewer, CancellationToken cancellationToken = default);
+  ```
+
+  An application declares `[LatticeView(typeof(User))] public readonly ref partial struct UserView;`
+  and calls `users.TryView("ada", static (UserView user) => user.Age, out var age)`.
+  The rules and errors of S21 hold. Typed and by-name views share one protected
+  lookup. The session and hit or miss positions have the same meaning for
+  both. A class set retains its existing class binding. A generated view that
+  disagrees with the actual schema reports `BindingFailed` with the field
+  named at its first use, before the callback.
+
+  A fixed-width scalar, CLR Enum or fixed-width Reference key has the type
+  of the class property, using `T?` for nullable values. String, Binary and
+  text Reference keys have type `LatticeValueView`, whose `IsNull` reports
+  absence. Required Owned, List, Map and Set fields return the generated view
+  of the owned class or the respective view of S21. For those four nullable
+  forms, `readonly ref struct LatticeOptionalView<TView>` with
+  `TView : allows ref struct` has a constructor taking `TView value`,
+  `bool HasValue` and `TView Value`. A default wrapper is absent. A present
+  empty collection has a value. Accessing `Value` when absent throws
+  `InvalidOperationException`.
+
+  An application includes a `*.schema.json` file in `AdditionalFiles` to use
+  the schema's form and nullability at build time. With a schema built in
+  code, the generator uses the CLR property type and
+  any known C# nullable annotation for the borrowed shapes. For a choice
+  the class cannot express, the application annotates the partial view with
+  `LatticeViewFieldAttribute(string path, LatticeFieldTypeEnum kind)` or
+  `LatticeViewFieldAttribute(string path)`. It exposes `string Path`,
+  `LatticeFieldTypeEnum? Kind`, writable `bool IsNullable` and writable
+  `bool Ignore`. The generator only takes `IsNullable` as an override when
+  the argument is written.
+  Multiple attributes can name different paths. For example,
+  `[LatticeViewField(nameof(User.Data), LatticeFieldTypeEnum.List, IsNullable = false)]`
+  projects a `byte[]` property as a required `LatticeListView`. Without the
+  file a choice of Binary or List is required for `byte[]`, and an oblivious
+  nullable annotation needs an explicit nullability choice where the
+  generated return type depends on it. A view's chosen form is checked
+  against its actual schema on first use.
+
+  With no schema file, eligible CLR properties are projected unless a path
+  is marked `[LatticeViewField(nameof(User.DisplayOrder), Ignore = true)]`.
+  On first use the paths must cover the actual schema fields, including
+  fields inside owned values. An omitted schema field or a projected path
+  that has no schema field gives `BindingFailed` naming the missing field
+  before the callback. With a file, the schema supplies the fields and the
+  generator reports an `Ignore` hint on a declared field. See
+  [Q65](open-questions.md#q65-which-properties-does-a-view-project-without-a-schema-file).
+
+  The generator is in `Moltaro.Lattice.Generators`, the only shipped assembly
+  that references the compiler. When a schema file is supplied to the build,
+  the generator names the field in a mismatch, using shared Core schema
+  reading and class agreement rules. For external models it uses the build's
+  implementation metadata to supplement the reference assemblies, without
+  loading consumer assemblies. The analyzer ships with its own Core dependency
+  for the compiler host. Applications that do not use the generator can build
+  and run without it.
+
 - **To read.** [Q06.2, Q06.3](../decisions/memory-and-access.md);
   [reader protection, borrowed reads](../design/milestone-1-engine-contract.md#reader-protection-publication-and-compaction);
   [schema identity](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration).
@@ -10821,16 +10913,217 @@ No measurement finding remains open.
   generator out is a decision of the owner about the scope, not of this sprint.
 
 **Decided by the planner on 23 November 2026, with the contract.** Typed views cover
-scalars and owned values; an element of a List of owned values has no typed view in this
-sprint. How a generated view of a nested owned value gets the fields of its owned type, by
-paths in `FieldNames` or by another shape, is settled by the first step of the sprint. The
-generator must judge a class against a schema file by the rules the core judges it by,
-without a second implementation of them. Whether that is the core's reader of schema JSON
-and its binding rules compiled into the generator, or another form, is settled by the first
-step of the sprint, which shows it with a generator that runs; if it needs much of the core
-compiled for the compiler's host, the step reports that before more is built.
+scalars and owned fields. A List of owned values uses the view of S21 for its
+elements.
+
+##### Initial generator proof
+
+An isolated SDK consumer built with the generator as a Roslyn analyzer. Its
+generated view read an inherited property from a separate model assembly and
+matched the by-name result. A second instance of the same schema was bound
+independently. An incompatible `Age` field was named at build time and on the
+runtime binding path. The analyzer loaded the existing Core JSON reader when
+Core was supplied as an analyzer dependency. This proof used the existing
+protected read through a scratch adapter. The proof and its build logs are kept
+outside Git.
+
+##### SDK consumer study
+
+With SDK 10.0.404, the ordinary compiler reference hid an inherited private
+setter even under Roslyn's full metadata import. A separate Roslyn compilation
+used the implementation metadata supplied by MSBuild for the project reference.
+It distinguished the private setter from a getter-only property without loading
+either model assembly. The positive case matched the by-name read of that
+field. The runtime binder and analyzer used common Core checks for property
+selection, accessors, constructors, owned class identity and scalar agreement.
+The proof covers those checks. Collections and enums need the same treatment
+in production.
+
+An external SDK consumer restored the analyzer and models from local packages.
+The generator package registered Core alongside the analyzer and mapped the
+models' NuGet reference asset to the corresponding implementation. The inherited
+private setter was accepted, a getter-only property was refused by name, and
+the runtime agreed. A class library with copy-local disabled also built
+using the SDK's resolved runtime assets. A private-only change reran the generator when the SDK
+tracked the implementation as a compile input, although the reference assembly
+was byte-identical. Missing or incorrect model metadata gave a separate build
+diagnostic. Omitting or misplacing the analyzer's Core dependency caused
+`CS8785`. Only the generator assembly referenced Roslyn. A separate SDK
+consumer built and ran with no analyzer. The CLI and the installed Visual Studio
+MSBuild both hosted the analyzer on .NET 10. The explicit .NET Framework
+compiler could not load it. IDE analysis was outside the proof.
+
+The scratch projection passed prebound handles for `Home` and `Home.Zip`
+through one borrowed read, and a ref-struct optional value distinguished present
+and absent owned values. An Int32 projection over the same protected read took
+zero managed bytes over 100,000 warmed calls. The implementation must prove its
+own allocation result. With no schema file, separate generated projections of
+the same `byte[]` property returned the same byte as the by-name Binary and
+List of UInt8 reads. Each projection refused the opposite schema by field on
+first use, even on a miss. The SDK also refused an omitted kind hint or a Map
+hint for `byte[]`. An Int32 property needed no hint.
+
+For borrowed values the SDK probe distinguished a populated, empty and absent
+List and an absent or present owned value. `Value` on an absent wrapper threw.
+A nullable Int32 preserved a present zero. The compiler refused to store,
+capture or return a borrowed wrapper or to take it as an async method parameter.
+In the schema-less build an inferred nullable List refused a required field,
+and an inferred required List refused a nullable field. Both failed with the
+name before a callback. Explicit `IsNullable = false` and `IsNullable = true`
+on the partial view produced the matching views for a model compiled with
+nullable annotations disabled. Omitting this choice refused the build with
+the field named. Explicit nullability overrode conflicting C# annotations
+in both directions when the opened schema agreed with the view.
+
+##### By-name allocation baseline
+
+The planner's full Windows x64 Release run of `4ee9d4a2` on .NET 10.0.15
+observed 7,320 managed bytes over 1,000 calls in
+`ViewAllocationTests.Warm_scalar_views_do_not_allocate`, at its zero-byte
+assertion. The run reported 3,730 passed, 129 skipped, and that one failure.
+The coordinator's repeat passed both targeted cases and the full Release suite
+with 3,731 passed and 129 skipped. On xUnit 4.0.3 the string attribute did not
+resolve the existing collection definition and reported Interactive GC in an
+isolated probe. The typed attribute resolved the same collection and reported
+NoGCRegion. The probe did not attribute the 7,320 bytes to a specific source.
+Commit `73d60d81` changes only the collection binding and retains the exact zero
+assertions and warm-up. The targeted run passed both cases. A coordinator
+Release build and full run on that commit passed with 3,731 passed and
+129 skipped. Independent review found no issues. The non-obvious part was
+that the string named a separate collection, while the definition without an
+explicit name uses the type's identity. Measure both access forms under
+equivalent warmed conditions.
+
+##### Tests-first review
+
+The exact reviewed tests-first head is `e857a7a4329697d2af239e8a6f478fc2c6a6f540`.
+Release built without warnings. The full Release suite reported 3,734 passed
+and 151 skipped. Format and all 18 samples ran. The typed sample stopped at
+its explicit refusal and the sample program continued.
+
+The review matched the tests to each Acceptance sentence. It checked that
+the foreign-history callback succeeds first on the same local key with a
+local session and that the runner actually enters the allocation fixture.
+A follow-up closed the missing compile-time escape from a generated owned
+and optional field by exercising the real SDK-generated property chain in
+a positive caller and in four compiler refusals. No blocker remains in
+step 1. The hardest check was following the SDK fixture across the model's
+separate reference and implementation assets, the generated view library,
+and its executable caller. The production analyzer and protected read must
+now pass the planned tests without changing their assertions.
+
+##### Implementation review
+
+The coordinator authorized `5a2d293e` during implementation because the
+tests-first scalar parity case stopped in its fixture before either read.
+The shared fixture now supplies the two endpoints already declared by its
+UInt64 `Wide` enum. The reviewed cases and assertions are unchanged.
+
+The first product candidate, `ebbcc508`, built and packed in Release. The
+coordinator's full run reported 3,761 passed and 129 skipped, including
+the package SDK cases and the warmed exact-zero assertions. The formatter
+ran on the Release build and all 18 samples completed. The breaker's
+independent SDK probe passed on that head, including a private setter
+changed to getter-only with an unchanged reference assembly, independently
+bound nested schemas and a held typed view through a delete and reinsert.
+
+Review reproduced four blockers on that head. A cold invalid projection
+could mask the state of a closed instance. Reflection could follow a
+same-named property instead of an override's accessor slot. Metadata
+for a closed class such as `Bag<Uri>` could report the reference facade
+as the generic argument's runtime assembly. The emitter could use a
+global name for a type whose compiler reference was accessible only by
+an extern alias. Final measurements use the corrected head.
+
+The second round independently reproduced the corrections on `3648a765`.
+After close the cold typed view reports the same refusal as a by-name
+view. The existing epoch check still guards the stamped lookup. The
+runtime follows the overridden accessor's slot. The generator follows
+framework type forwarders in PE metadata and emits compiler-visible
+alias-qualified CLR names. A view declaration with a primary constructor
+gets the generator's diagnostic at the declaration. The tests-first
+assertions are intact. No review finding remains open. The hardest part
+was following a type's identity across the SDK references, metadata
+for class agreement, the runtime class name and the emitted C# name.
+
+##### Windows x64 scalar comparison
+
+The production packages from `3648a765455981733d3a43a9fe2a303004a6fd47`
+built a separate SDK consumer. A single MemoryOnly master held one resident
+entity. Both synchronous callbacks read its same required Int32 field through
+the full protected lookup with the same Int32 key and static delegates.
+The by-name path used a prebound `LatticeField`. Windows x64, Core i9-13900H,
+SDK 10.0.404 and runtime 10.0.15, Release.
+
+Each reader warmed both paths equally. There were three fresh processes per
+reader count, eight alternating typed/by-name pairs and four by-name control
+pairs per process, and 2,000,000 calls per reader per window. Checksums agreed.
+The largest managed allocation delta was 0 bytes on every reader and in every
+window. The exact-zero Release allocation tests also passed.
+
+| Readers | Typed ns/read, median and range | By-name ns/read, median and range | Typed median million reads/s | By-name median million reads/s | Paired typed/by-name wall-time ratio, median and range | Neutral drift band |
+| --- | --- | --- | ---: | ---: | --- | --- |
+| 1 | 160.42 (128.44–223.60) | 109.30 (79.74–172.01) | 6.23 | 9.15 | 1.501 (1.018–2.397) | 0.707–1.415 |
+| 4 | 59.03 (47.63–96.87) | 41.14 (27.33–61.83) | 16.95 | 24.31 | 1.510 (1.028–2.154) | 0.808–1.238 |
+
+The four-reader rates are aggregate throughput. Both paths served more reads
+per second with four readers. Typed wall time was higher in the measured
+pairs. The predetermined directional criterion required every pair to clear
+the neutral drift band. The differences are reported as descriptive at this
+resolution. The four-reader start skew was 22.65 µs median and 7,212 µs
+maximum. Results are from a resident hot key and a warmed fixed-width read.
+The independent reviewer recomputed the figures and verified the exact
+package identities, all 720 million calls and every allocation delta. The
+harness, package hashes and raw windows are kept outside Git.
+
+**S22 protected scalar retiming.** Repeat this named run when the protected
+scalar path changes or a directional timing decision needs a tighter control.
+Use paired neutral windows and a predeclared criterion, and report observed
+spread before drawing a directional conclusion.
+
+The coordinator's full Release run of `3648a765` reported 3,764 passed,
+129 skipped and no failures. Format and all 18 samples passed. The second
+independent code review and the breaker's repeated probe closed without
+remaining findings. The independent measurement review accepted the figures
+and their descriptive disposition. The documented follow-on work is S22C,
+S23 and S24 in that order.
+
+#### S22C · Cancellation of a registered position wait
+
+**Track:** full, critical · **Needs:** S22 · **Contract:** the existing
+[`WaitForPositionAsync` guarantee](../decisions/session-consistency.md#explicit-local-position-wait).
+
+- **Goal.** A registered wait returns cancellation if the token was cancelled
+  before the target was published, even when another callback delayed its
+  cancellation notification.
+- **Evidence.** On `4ee9d4a2`, a public wait remained pending with the token
+  cancelled and the master below the target. An independent two-insert batch
+  then published the target. The wait returned success while a second
+  cancellation callback was held. The same ordering occurred with `Cancel` and
+  `CancelAsync`. Completing cancellation before the write gave the expected
+  cancelled result. Both inserts were visible in every case.
+- **Acceptance.** Independently control registration, cancellation delivery and
+  publication. Assert cancellation with the supplied token in the failing order,
+  success for an uncancelled waiter on the same target, and publication of the
+  independent batch. Keep the existing deadline, fault, close and held-Wake
+  cases. A forwarded write with a confirmed master result keeps its existing
+  completion rules. On a missed deadline the child reports
+  `SynchronizationTimeout` and `CommittedPosition` and describes the missed
+  deadline. Its position can already have advanced when the error is observed.
+- **To read.** [S20I](#s20i--investigate-the-debug-timeouts) and
+  [the position clock](../design/write-path.md#waiting-for-a-published-position).
+  Compare the existing clock-waiter scenario with the exact parent if the
+  publication path changes.
+- **Out of scope.** The pending-target index redesign belongs to S34. The
+  historical timeout investigations keep the reopening conditions recorded in S20I.
 
 #### S23 · Compaction and shrink
+
+**Collection edit cost carried from S20.** In `EditedList.Apply`, each append
+to an initially empty List scans every run created by earlier appends in that
+update. For 8,000 appends the loop visits 31,996,000 runs before placement.
+The sprint removes this repeated scan. Compare two counts of append commands
+within one update on the parent and the fix, including the 8,000-append case.
 
 **Carried from S13, the first question of the study of this sprint:** a root names a
 shared text entry by its address, so the roots that name an entry cannot be found from
@@ -10847,7 +11140,7 @@ relays:** before its design, the references of a shared text for each entry are 
 with the figures of 20 November 2026 (F8 of the [refactoring backlog](refactoring.md)):
 compaction revisits the shared entries anyway.
 
-**Track:** full · **Needs:** S22 · **Owners:** E01, E03 · **Closes:** Q17
+**Track:** full · **Needs:** S22C · **Owners:** E01, E03 · **Closes:** Q17
 
 - **Goal.** A database that changes for a long time with a constant amount of live data
   keeps a bounded amount of memory.
@@ -10865,7 +11158,10 @@ compaction revisits the shared entries anyway.
   valid across a move. An entity reserved by a write is not moved. Compaction starts on
   a region below half occupancy and moves one bounded block per step. A collection whose
   capacity stays above four times its need for 5 seconds shrinks to at most twice. Empty
-  segments beyond the reserve of one are returned.
+  segments beyond the reserve of one are returned. Appending to a List in one
+  update does not walk earlier runs to locate its end. Element order and the
+  result of each command match an independent list, and a child applying the
+  update reaches the same contents.
 - **Measured.** Early figure for G5: peak against steady memory of one MemoryOnly node
   during the churn trace. Reported: compaction step time against its 1 ms budget; reader
   p99 with compaction on and off.
@@ -10890,6 +11186,14 @@ tell from its header whether a block holds children without climbing to its root
 their own are decided here, with the kinds of text entries already carried to this sprint.
 
 #### S24 · The memory budget
+
+**Rollback of a full root on a child.** In `ReceivedChanges.TryPrepareWrite`,
+the import can acquire an insert handle and place the root before the managed
+list recording the change grows. If that growth fails, `GiveBack` cannot see
+the new root. The sparse-update path reserves the list slot before placement.
+This finding on `4ee9d4a2` is from source inspection. Exercise the first
+growth that would lose a prepared change and the same preparation with room
+available. Correct the ordering if the refusal can strand a handle or root.
 
 **Carried from the outside review, 18 November 2026:** a child sizes its primary index
 from the count its master announces after checking only that this many entities, each at
@@ -10920,7 +11224,10 @@ announces, bounded only by its memory limit, and each accepted connection holds 
   accepted again. The budget counts the arena with its reserve, both tables of a growing
   primary index, secondary index nodes, the text table, the native scratch of reads if any exists, and the pages of root entries
   (prepared capacity is counted in the arena since S09, and a waiting write holds nothing in the engine); S26 adds the retained outcomes of a MemoryOnly master. A reservation that fails releases everything it took,
-  shown by the counters. A child over its budget pauses application, keeps its reads and
+  shown by the counters. On a child, a deterministic capacity failure while
+  preparing full roots leaves no newly retained handles or arena blocks after
+  rollback, verified by an independent tally for initial load and transaction
+  replay. A child over its budget pauses application, keeps its reads and
   resumes when memory is free again; reloading after a long pause is S34. Nothing queued
   runs after its cancellation.
 - **Measured.** Reported: peak against steady memory of one MemoryOnly node held at its
