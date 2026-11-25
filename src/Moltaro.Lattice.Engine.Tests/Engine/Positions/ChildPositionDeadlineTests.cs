@@ -108,6 +108,100 @@ public sealed class ChildPositionDeadlineTests
         Assert.Equal(LatticeErrorEnum.Unavailable, refused.Error);
     }
 
+    [Fact]
+    public Task A_registered_child_wait_reports_a_prior_fault_when_its_token_callback_runs_first() =>
+        ExpectPriorFaultAsync(deliverCancellationFirst: true);
+
+    [Fact]
+    public Task A_registered_child_wait_reports_a_prior_fault_when_its_clock_is_notified_first() =>
+        ExpectPriorFaultAsync(deliverCancellationFirst: false);
+
+    [Fact]
+    public async Task A_registered_wait_on_a_healthy_child_keeps_the_token_when_its_callback_ends_the_wait()
+    {
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { PositionWaitTime = time });
+        var initial = child.Position;
+        using var cancellation = new CancellationTokenSource();
+        var waiting = child.WaitForPositionAsync(NextPosition(initial), Deadline, cancellation.Token).AsTask();
+        await timerArmed.Task.WaitAsync(Bound);
+        Assert.False(waiting.IsCompleted);
+
+        await cancellation.CancelAsync().WaitAsync(Bound);
+
+        var cancelled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(Bound));
+        Assert.Equal(cancellation.Token, cancelled.CancellationToken);
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+        Assert.Equal(initial, child.Position);
+    }
+
+    private static async Task ExpectPriorFaultAsync(bool deliverCancellationFirst)
+    {
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { PositionWaitTime = time });
+        var initial = child.Position;
+        var position = NextPosition(initial);
+        using var cancellation = new CancellationTokenSource();
+        var waiting = child.WaitForPositionAsync(position, Deadline, cancellation.Token).AsTask();
+        await timerArmed.Task.WaitAsync(Bound);
+        Assert.False(waiting.IsCompleted);
+        using var notification = new HeldCancellation(cancellation.Token);
+
+        using var publication = HeldPublication.Arm(child, PublicationPointEnum.BeforePosition);
+        var committed = await master.Set<Item>().InsertAsync(Of(14, "publication to fail", group: 1)).AsTask().WaitAsync(Bound);
+        await publication.ReachedAsync();
+        Assert.Equal(position, committed.Position);
+        Assert.Equal(initial, child.Position);
+
+        using var fault = HeldPublication.Arm(child, PublicationPointEnum.AfterFault);
+        publication.Fail();
+        await fault.ReachedAsync();
+        Assert.Equal(LatticeDatabaseStateEnum.Faulted, child.State);
+        Assert.False(cancellation.IsCancellationRequested);
+        Assert.False(waiting.IsCompleted);
+
+        var cancelling = cancellation.CancelAsync();
+        try
+        {
+            await notification.ReachedAsync();
+            Assert.True(cancellation.IsCancellationRequested);
+            Assert.False(waiting.IsCompleted);
+            Assert.False(fault.HasContinued);
+
+            if (deliverCancellationFirst)
+            {
+                notification.Release();
+            }
+            else
+            {
+                fault.Release();
+            }
+
+            var failure = await Record.ExceptionAsync(() => waiting.WaitAsync(Bound));
+
+            if (deliverCancellationFirst)
+            {
+                Assert.False(fault.HasContinued);
+            }
+            else
+            {
+                Assert.False(cancelling.IsCompleted);
+            }
+
+            var refused = Assert.IsType<LatticeException>(failure);
+            Assert.Equal(LatticeErrorEnum.Unavailable, refused.Error);
+        }
+        finally
+        {
+            notification.Release();
+            await cancelling.WaitAsync(Bound);
+        }
+    }
+
     private static LatticePosition NextPosition(LatticePosition position) =>
         PositionOf(HistoryOf(position), PositionSequence.Of(position) + 1);
 }

@@ -32,15 +32,12 @@ public sealed class PositionWaitOutcomeTests
         Assert.False(cancelledWait.IsCompleted);
         Assert.False(otherWait.IsCompleted);
 
-        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        using var registration = HoldCancellationNotification(cancellation.Token, callbackStarted, releaseCallback.Task);
+        using var notification = new HeldCancellation(cancellation.Token);
         var cancelling = cancelAsynchronously ? cancellation.CancelAsync() : OwnThread.Run(cancellation.Cancel);
 
         try
         {
-            await callbackStarted.Task.WaitAsync(Bound);
+            await notification.ReachedAsync();
             Assert.True(cancellation.IsCancellationRequested);
             Assert.Equal(initial, master.Position);
 
@@ -61,7 +58,7 @@ public sealed class PositionWaitOutcomeTests
         }
         finally
         {
-            releaseCallback.TrySetResult();
+            notification.Release();
             await cancelling.WaitAsync(Bound);
         }
     }
@@ -81,14 +78,12 @@ public sealed class PositionWaitOutcomeTests
         Assert.False(cancelledWait.IsCompleted);
         Assert.False(otherWait.IsCompleted);
 
-        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var registration = HoldCancellationNotification(cancellation.Token, callbackStarted, releaseCallback.Task);
+        using var notification = new HeldCancellation(cancellation.Token);
         var cancelling = cancellation.CancelAsync();
 
         try
         {
-            await callbackStarted.Task.WaitAsync(Bound);
+            await notification.ReachedAsync();
             Assert.True(cancellation.IsCancellationRequested);
             Assert.Equal(initial, master.Position);
 
@@ -109,7 +104,7 @@ public sealed class PositionWaitOutcomeTests
         }
         finally
         {
-            releaseCallback.TrySetResult();
+            notification.Release();
             await cancelling.WaitAsync(Bound);
         }
     }
@@ -147,19 +142,5 @@ public sealed class PositionWaitOutcomeTests
         Assert.Equal(committed, session.MinPosition);
         Assert.Contains("deadline", failure.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("has not applied", failure.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static CancellationTokenRegistration HoldCancellationNotification(
-        CancellationToken token,
-        TaskCompletionSource callbackStarted,
-        Task releaseCallback)
-    {
-        // Cancellation delivers callbacks in reverse registration order. Hold the later registration
-        // so the request is visible through the token before the position wait receives notification.
-        return token.Register(() =>
-        {
-            callbackStarted.SetResult();
-            releaseCallback.WaitAsync(Bound).GetAwaiter().GetResult();
-        });
     }
 }

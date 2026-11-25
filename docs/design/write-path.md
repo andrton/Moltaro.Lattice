@@ -256,8 +256,10 @@ A publisher calls `Wake` after it releases the lock of the writes. Timer deliver
 independent of `Wake`. After checking the database state, a registered waiter checks
 its own token before deciding the outcome from the target's reach time, a lost master
 or an expired budget. The token can already carry a cancellation request while
-another callback delays notification. A wait can succeed on expiry when its target
-was reached in time, or time out when a late publication arrived before the timer ran.
+another callback delays notification. When the token's callback resumes the wait,
+the clock checks the same lifecycle state before propagating cancellation.
+A wait can succeed on expiry when its target was reached in time, or time out when
+a late publication arrived before the timer ran.
 The sequence store and timestamp sample are separate operations. A scheduling pause
 between them can move the sample past the deadline. The clock then reports timeout
 because it lacks timely evidence. A wait checks `ReadEpochs.Fault`'s authoritative

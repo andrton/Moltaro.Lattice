@@ -1324,7 +1324,7 @@ Why this order:
 | S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
 | S21I | Protected List traversal | Full, critical | Done on 25 November 2026 |
 | S22 | Typed protected views | Full | Done on 25 November 2026 |
-| S22C | Cancellation of a registered position wait | Full, critical | Done on 25 November 2026 |
+| S22C | Cancellation of a registered position wait | Full, critical | Both parts done on 25 November 2026 |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
@@ -11162,6 +11162,78 @@ or errors. Each full suite passed 3,768 tests with 129 skips. The Release format
 and all 18 samples passed. The sprint closed after two code review rounds and
 repeated breaker probes, with no open findings. The S22 architecture dispositions are in the
 [refactoring backlog](refactoring.md#architects-review-after-s22-25-november-2026).
+
+##### Part 2 · A fault marked before a cancellation request
+
+- **Goal.** Finish the existing lifecycle check for a registered position wait.
+  The architecture review after PR #77 reproduced a P2 on Release at
+  `5dfb7384ea3c3adc829ebc1f4b6deb23b7d863cd`. With the fault mark visible before
+  cancellation was requested and both notifications held, the clock returned
+  cancellation when the token callback ran first and `Unavailable` when the clock
+  was notified of the fault first.
+- **Contract and sources.** The existing public
+  [position wait](../decisions/session-consistency.md#explicit-local-position-wait)
+  and the [clock's lifecycle check](../design/write-path.md#waiting-for-a-published-position)
+  apply. This critical full-track correction precedes S23.
+- **Acceptance.** On the exact parent above, add tests first in
+  `ChildPositionDeadlineTests` through a child's public `WaitForPositionAsync`.
+  Establish registration before injecting the fault. Hold notification of the
+  fault and delivery of the wait's token callback independently. Observe the child
+  in `Faulted` before requesting cancellation and confirm the wait is still pending
+  with both notifications held. Run each delivery first in a separate case and
+  observe `Unavailable` before releasing the second notification. On a healthy child
+  a registered wait that ends through its token callback preserves the supplied token.
+  Keep the existing results for publication, timer delivery and the deadline.
+  If the publication path changes, compare `clock-waiters` on the exact parent
+  and head.
+- **Breaker targets, in order.** Probe the fault mark before cancellation under both
+  notification orders, cancellation with the original token on a healthy node, and
+  the existing publication, timer and deadline controls.
+- **Scope.** The two requests in the new fault cases have an established order.
+  The three historical timeouts retain the reopening conditions in
+  [S20I](#s20i--investigate-the-debug-timeouts).
+
+The independent plan review closed without findings. The hardest part was keeping
+the order of the fault mark and cancellation request distinct from the two possible
+orders of notification. The existing publication, timer and cancellation holds
+allow the tests to establish that distinction through the public wait.
+
+###### Tests first
+
+The independent tests-first review of `a1bf23cdfcca50ad8b351fbd3183f22042713db9`
+closed without findings. On Release with the engine from the exact parent, the
+activated cancellation-first case returned `TaskCanceledException` while the
+fault notification was still held. The clock-first case returned `Unavailable`,
+and the healthy child preserved its supplied token. The hardest part of review
+was verifying that the second notification stayed held until the result. A
+continuation flag shows when the clock's hold ends. The test awaits cancellation
+completion to detect expiry of the token callback's hold.
+
+The coordinator's Release build, format check and full suite passed at that
+tests-first commit with 3,770 tests passed and 130 skipped.
+
+###### Implementation and verification
+
+The independent code review closed in one round without findings on
+`af2790745a7cb58e299e130697233755f743524c`. The hardest part was following
+the two ways the wait resumes through the task and confirming that both now apply
+the same lifecycle check and clean up the registered target. When the token's
+callback resumes a registered wait, the clock checks lifecycle state before it
+propagates the original cancellation. All tests-first assertions were retained.
+Publication and Wake use the same code as the exact parent, so the
+`clock-waiters` comparison was outside this correction's acceptance condition.
+
+The independent breaker ran 13 probes and 35 existing position tests at that
+head in Windows x64 Release and Debug. All 48 passed in each configuration. A
+separate Release repeat passed all 13 probes. The probes covered both notification
+orders for pending and already-published targets, typed session reads, the
+healthy token and an unaffected waiter, and timer and Wake delivery with first
+publication before, at and after the deadline.
+
+The coordinator built the same head in Windows x64 Release and Debug with no
+warnings or errors. Each full suite passed 3,771 tests with 129 skips. The
+Release format check and all 18 samples passed. The second part closed without
+open findings. None of the three historical timeouts recurred in these runs.
 
 #### S23 · Compaction and shrink
 
