@@ -97,6 +97,18 @@ by a read.
         { "Id": 3, "Name": "Department", "Type": "String", "Nullable": true }
       ],
       "PrimaryKey": [1]
+    },
+    {
+      "Id": 2,
+      "Name": "Setting",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "String" },
+        { "Id": 2, "Name": "Section", "Type": "String" },
+        { "Id": 3, "Name": "Name", "Type": "String" },
+        { "Id": 4, "Name": "Value", "Type": "String" },
+        { "Id": 5, "Name": "Priority", "Type": "Int32" }
+      ],
+      "PrimaryKey": [1]
     }
   ]
 }
@@ -155,6 +167,7 @@ bool deleted = (await users.DeleteAsync(1)).Changed;              // delete
 
 ```csharp
 var settings = database.Set("Setting");
+var settingsSession = new LatticeSession();
 
 await settings.InsertAsync(new LatticeRecord(settings.EntityType)
 {
@@ -163,7 +176,7 @@ await settings.InsertAsync(new LatticeRecord(settings.EntityType)
     ["Name"] = "theme",
     ["Value"] = "dark",
     ["Priority"] = 10,
-});
+}, settingsSession);
 
 foreach (var record in settings.Enumerate())
 {
@@ -184,8 +197,12 @@ if (settings.TryView("ui.theme", static view => view["Priority"].Get<int>(), out
 
 var valueField = settings.EntityType.GetField("Value");
 var theme = await settings.ViewAsync(
-    "ui.theme", new LatticeSession(), valueField,
+    "ui.theme", settingsSession, valueField,
     static (view, field) => view[field].GetString());
+if (theme.Found)
+{
+    Console.WriteLine(theme.Result);
+}
 ```
 
 `ViewAsync` waits for the session before taking a view and advances it to the position

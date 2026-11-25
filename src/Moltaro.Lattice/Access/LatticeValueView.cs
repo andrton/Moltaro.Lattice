@@ -88,9 +88,7 @@ public readonly ref struct LatticeValueView
     /// <exception cref="InvalidOperationException">The value is null or does not hold text or bytes.</exception>
     public ReadOnlySpan<byte> GetPart(int part)
     {
-        var parts = ByteShape().Parts;
-        ArgumentOutOfRangeException.ThrowIfNegative(part);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(part, parts);
+        RequireBytes();
         return _storage.GetPart(_row, _position, part);
     }
 
@@ -140,13 +138,18 @@ public readonly ref struct LatticeValueView
 
     private (int Length, int Parts) ByteShape()
     {
+        RequireBytes();
+        return _storage.ByteShape(_row, _position);
+    }
+
+    private void RequireBytes()
+    {
         if (Declaration.ScalarType is not (LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary))
         {
             throw WrongKind("text or bytes");
         }
 
         RequireValue();
-        return _storage.ByteShape(_row, _position);
     }
 
     private void RequireKind(LatticeFieldTypeEnum expected)

@@ -62,13 +62,17 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
     {
         var descriptor = ValueBlocks.Read(row.Bytes[DescriptorOffset(row, position)..]);
         var length = (int)descriptor.Length;
-        return (length, ValueBlocks.LiesInChunks(descriptor) ? ValueBlocks.ChunkCount(length) : 1);
+        return (length, PartCount(length, ValueBlocks.LiesInChunks(descriptor)));
     }
 
     public ReadOnlySpan<byte> GetPart(ViewRecord row, int position, int part)
     {
         var descriptor = ValueBlocks.Read(row.Bytes[DescriptorOffset(row, position)..]);
-        return ValueBlocks.LiesInChunks(descriptor)
+        var chunked = ValueBlocks.LiesInChunks(descriptor);
+        ArgumentOutOfRangeException.ThrowIfNegative(part);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(part, PartCount((int)descriptor.Length, chunked));
+
+        return chunked
             ? ValueBlocks.Chunk(arena, ValueBlocks.Directory(arena, descriptor), part)
             : ValueBlocks.Contiguous(arena, descriptor, row.Bytes);
     }
@@ -96,6 +100,8 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
         var descriptor = ValueBlocks.Read(collection.Holder[collection.DescriptorOffset..]);
         return CollectionLookup.Find(arena, (StructureLayout)collection.EntryLayout, descriptor, collection.Holder, encoding, key);
     }
+
+    private static int PartCount(int length, bool chunked) => chunked ? ValueBlocks.ChunkCount(length) : 1;
 
     private static StructureLayout LayoutOf(scoped in ViewRecord row) => (StructureLayout)row.Layout;
 

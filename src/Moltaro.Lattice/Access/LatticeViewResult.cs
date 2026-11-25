@@ -18,8 +18,9 @@ public readonly struct LatticeViewResult<TResult>
     public TResult? Result { get; }
 
     /// <summary>
-    /// The position the node had applied when it took the state or confirmed the entity was absent.
-    /// This position is captured before any viewer runs.
+    /// On a hit, the applied position sampled with the entity's state before the viewer runs.
+    /// On a stable miss, the applied position that stayed unchanged through the confirming lookup.
+    /// If the read finds an entry and then encounters its tombstone, the position of that delete.
     /// </summary>
     public LatticePosition Position { get; }
 }

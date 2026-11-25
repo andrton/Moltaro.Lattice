@@ -249,12 +249,12 @@ internal sealed class ReadEpochs
         return Volatile.Read(ref epoch) == Free && Interlocked.CompareExchange(ref epoch, Volatile.Read(ref _current), Free) == Free;
     }
 
-    // Arms the read switch of the tests: the next read by key that finds its root, or the next root a
-    // step of a search takes, runs the action once.
+    // Arms a one-shot action at the next read cut under protection, including a
+    // protected view's candidate miss.
     public void ArmReadSwitch(Action<RootHandle> action) => Volatile.Write(ref _readSwitch, action);
 
-    // Runs the read switch of the tests when it is armed, inside the protection, with the handle of the
-    // root entry the read found; otherwise a read pays one load of a field nothing writes.
+    // Offers the read switch inside the epoch with the handle of a found root or a default
+    // handle before a protected view confirms a miss. An unarmed switch costs one field load.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void OfferReadSwitch(RootHandle handle)
     {
