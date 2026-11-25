@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -120,7 +121,7 @@ public sealed class ResumableTextReclamationTests
             IndexSeed = IndexSeed,
         });
         var items = database.Set("Item");
-        var text = new string('t', ValueBlocks.ChunkPayload * 2 + 17);
+        var text = new string('t', ValueBlocks.ChunkPayload * 2 + 137);
         await InsertAsync(items, 1, text);
         var oldRoot = RootOf(database, 1);
         var entry = EntryOf(database, 1);
@@ -166,6 +167,8 @@ public sealed class ResumableTextReclamationTests
         var turns = 0;
         var slotSizes = chunks.ToDictionary(address => address, address => SlotBytes(entry.Arena, address));
         var oldRootBytes = SlotBytes(entry.Arena, oldRoot);
+        TextEntry? whileHeld = null;
+        var whileHeldBytes = 0;
         while (remaining != 0)
         {
             Assert.True(turns++ < 128, "An unlinked text did not release its chunks.");
@@ -179,25 +182,102 @@ public sealed class ResumableTextReclamationTests
             }
 
             Assert.Equal(held.Sum(address => slotSizes[address]) +
-                (IsAllocated(entry.Arena, oldRoot) ? oldRootBytes : 0) + replacementBytes, CountedSlots(database));
+                (IsAllocated(entry.Arena, oldRoot) ? oldRootBytes : 0) + replacementBytes + whileHeldBytes,
+                CountedSlots(database));
             Assert.Equal(allocator.Outstanding, database.Counters.Arena.Segments);
-            if (finishWithOrdinaryDrain && remaining == chunks.Length - 1)
+            if (remaining == chunks.Length - 1 && whileHeld is null)
             {
-                database.DrainRetired();
-                break;
+                // Use room in the live directory's class, so the new write cannot
+                // reuse a just-freed old chunk's address.
+                const string WhileHeld = "a distinct text while old chunks remain";
+                Assert.Equal(SlotBytes(replacement.Arena, replacement.Address), Arena.BlockSizeFor(WhileHeld.Length));
+                var requests = allocator.Requests;
+                await InsertAsync(items, 3, WhileHeld);
+                Assert.Equal(requests, allocator.Requests);
+                whileHeld = EntryOf(database, 3);
+                Assert.NotEqual(entry.Id, whileHeld.Id);
+                Assert.NotEqual(replacement.Id, whileHeld.Id);
+                Assert.Equal(WhileHeld, items.Get(3L)!.Get<string>("Text"));
+                Assert.All(held, address => Assert.True(IsAllocated(entry.Arena, address)));
+                Assert.All(chunks.Except(held), address => Assert.False(IsAllocated(entry.Arena, address)));
+                whileHeldBytes = SlotBytes(whileHeld.Arena, whileHeld.Address) + SlotBytes(whileHeld.Arena, RootOf(database, 3));
+                if (finishWithOrdinaryDrain)
+                {
+                    database.DrainRetired();
+                    break;
+                }
             }
         }
 
         Finish(database);
         Assert.All(chunks, address => Assert.False(IsAllocated(entry.Arena, address)));
         Assert.False(IsAllocated(entry.Arena, oldRoot));
-        Assert.Equal(replacementBytes, CountedSlots(database));
+        Assert.NotNull(whileHeld);
+        Assert.Equal(replacementBytes + whileHeldBytes, CountedSlots(database));
         Assert.True(allocator.Returned >= returned + 2);
 
-        await InsertAsync(items, 3, "another dictionary text");
-        Assert.Equal(entry.Id, EntryOf(database, 3).Id);
+        await InsertAsync(items, 4, "another dictionary text");
+        Assert.Equal(entry.Id, EntryOf(database, 4).Id);
+        Assert.Equal(whileHeld, EntryOf(database, 3));
         Assert.Equal(replacement, EntryOf(database, 2));
         Assert.Equal(1L, References(database, text));
+    }
+
+    [Fact(Skip = ResumableDrainNotImplemented)]
+    public async Task A_retired_leaf_releases_each_shared_key_before_returning_its_own_slot()
+    {
+        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
+        var ranked = database.Set<IndexSchema.Ranked>();
+        var keys = Enumerable.Range(1, 6).Select(id => (Id: (long)id,
+            Text: new string('p', 80) + id.ToString("D6", CultureInfo.InvariantCulture))).ToArray();
+        foreach (var key in keys)
+        {
+            await ranked.InsertAsync(new IndexSchema.Ranked { Id = key.Id, Number = key.Id, Login = key.Text, Region = "" });
+        }
+
+        database.DrainRetired();
+        var old = LoginLeafOf(database);
+        Assert.Equal(keys.Select(key => key.Text),
+            IndexContents.Of(database, "Ranked", "ByLogin").Entries.Select(entry => (string)entry.Key[0]!));
+        Assert.All(keys, key => Assert.Equal(2L, References(database, key.Text)));
+
+        using var held = await HeldRead.StartAsync(database, () => ranked.Get(2L)?.Number);
+        await ranked.DeleteAsync(1L);
+        Assert.Equal(BlockKindEnum.IndexNode, old.Arena.Header(old.Address).Kind);
+        Assert.Equal(IndexSchema.NodeBytes, SlotBytes(old.Arena, old.Address));
+        Assert.NotEqual(old.Address, LoginLeafOf(database).Address);
+        Assert.True(database.Counters.Arena.RetiredBytes >= IndexSchema.NodeBytes);
+        var survivors = keys.Skip(1).ToArray();
+        var previous = keys.Select(key => key.Id == 1 ? 2L : 3L).ToArray();
+        Assert.Equal(previous, keys.Select(key => References(database, key.Text)));
+        Assert.Equal(0, Step(database, 1));
+        Assert.Equal(previous, keys.Select(key => References(database, key.Text)));
+        Assert.Equal<long?>(2, await held.ReleaseAsync());
+
+        var turns = 0;
+        while (IsAllocated(old.Arena, old.Address))
+        {
+            Assert.True(turns++ < 512, "The observed retired leaf was not returned.");
+            Assert.Equal(1, Step(database, 1));
+            var remaining = keys.Select(key => References(database, key.Text)).ToArray();
+
+            Assert.InRange(previous.Sum() - remaining.Sum(), 0, 1);
+            Assert.InRange(remaining[0], 0, 2);
+            Assert.All(remaining.Skip(1), count => Assert.InRange(count, 2, 3));
+            if (!IsAllocated(old.Arena, old.Address))
+            {
+                Assert.Equal(previous, remaining);
+                Assert.All(remaining.Skip(1), count => Assert.Equal(2L, count));
+            }
+
+            previous = remaining;
+        }
+
+        Finish(database);
+        Assert.Equal(0L, References(database, keys[0].Text));
+        var range = IndexKey.All.Range(IndexBound.Inclusive(survivors[0].Text), IndexBound.Inclusive(survivors[^1].Text));
+        Assert.Equal(survivors.Select(key => key.Id),
+            ranked.Index("ByLogin").Find(range).Select(item => item.Id));
     }
 
     [Fact(Skip = ResumableDrainNotImplemented)]
@@ -258,6 +338,29 @@ public sealed class ResumableTextReclamationTests
         Finish(database);
         Assert.Equal(0L, References(database, separator));
     }
+
+    private static (Arena Arena, ArenaAddress Address) LoginLeafOf(EngineDatabase database)
+    {
+        Arena? arena = null;
+        ArenaAddress address = default;
+        Assert.True(database.TryRunMaintenanceStep(parts =>
+        {
+            Assert.True(parts.Schema.TryGetEntityType("Ranked", out var entityType));
+            Assert.True(entityType.TryGetIndex("ByLogin", out var definition));
+            var index = parts.Tables.Stored((uint)entityType.Id).IndexOf(definition);
+            Assert.Equal(1, index.Tree.Height);
+            var packed = TreeRoot(index.Tree);
+            address = new ArenaAddress((uint)(packed >> 32), unchecked((uint)packed));
+            arena = parts.Arena;
+        }));
+
+        Assert.NotNull(arena);
+        Assert.False(address.IsNull);
+        return (arena, address);
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_root")]
+    private static extern ref ulong TreeRoot(OrderedTree tree);
 
     private static async Task<Target> StageCollisionChainAsync(EngineDatabase database, int targetNumber = Collisions)
     {

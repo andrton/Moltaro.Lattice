@@ -1,4 +1,6 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -95,9 +97,11 @@ public sealed class ResumableReclamationTests
         var freed = 0;
         for (var turn = 0; turn < 3; turn++)
         {
+            var beforeTurn = EpochsOf(database).Current;
             var work = Step(database, WorkLimit);
             var released = roots.Where(root => !IsAllocated(root.Arena, root.Address)).ToArray();
 
+            Assert.InRange(EpochsOf(database).Current - beforeTurn, turn == 0 ? 1 : 0, 1);
             Assert.InRange(work, 1, WorkLimit);
             Assert.InRange(released.Length - freed, turn == 0 ? 1 : 0, work);
             Assert.Equal(roots.Take(released.Length), released);
@@ -126,6 +130,7 @@ public sealed class ResumableReclamationTests
         var position = database.Position;
         var previous = root.Slots.Length;
         var totalWork = 0;
+        var firstEpoch = EpochsOf(database).Current;
 
         var turns = 0;
         while (database.Counters.RootEntries != 0)
@@ -134,6 +139,7 @@ public sealed class ResumableReclamationTests
             var work = Step(database, workLimit);
             var remaining = Remaining(root);
 
+            Assert.Equal(firstEpoch + 1, EpochsOf(database).Current);
             Assert.InRange(work, 1, workLimit);
             Assert.InRange(previous - remaining.Length, 0, work);
             ExpectPostOrder(root, remaining);
@@ -158,6 +164,106 @@ public sealed class ResumableReclamationTests
         Assert.Equal(position, database.Position);
     }
 
+    [Fact(Skip = ResumableDrainNotImplemented)]
+    public async Task Empty_descriptors_in_a_full_records_chunk_spend_work_before_a_later_value_can_be_returned()
+    {
+        await using var database = await EngineMaster.OpenAsync(LookupSchema);
+        var items = database.Set("Item");
+        var layout = RootLayout.Compile(items.EntityType, LookupSchema);
+        var field = items.EntityType.GetField("Entries");
+        var element = layout.Structure.ElementOf(field.Ordinal);
+        var perChunk = element.RecordsPerChunk;
+        Assert.True(perChunk > 100);
+        Assert.True(LookupSchema.TryGetOwnedType("Row", out var row));
+
+        var entries = new Dictionary<long, LatticeOwnedValue?>();
+        for (var index = 0; index < perChunk + 5; index++)
+        {
+            entries.Add(index, new LatticeOwnedValue(row)
+            {
+                ["Code"] = index,
+                ["Data"] = index == perChunk - 1 ? new byte[1_000] : null,
+            });
+        }
+
+        await items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = 1L, ["Entries"] = entries });
+        database.DrainRetired();
+        var root = Assert.Single(Capture(database));
+        var (firstChunk, sentinel, emptyRecords) = CheckFullPrefix(root, element);
+        Assert.Equal(perChunk - 1, emptyRecords);
+        await items.DeleteAsync(1L);
+
+        var heldBytes = database.Counters.Arena.RetiredBytes;
+        Assert.Equal(root.Slots.Sum(slot => slot.SlotBytes), heldBytes);
+        for (var record = 0; record < emptyRecords; record++)
+        {
+            Assert.Equal(1, Step(database, 1));
+            Assert.True(IsAllocated(root.Arena, firstChunk));
+            Assert.True(IsAllocated(root.Arena, sentinel));
+            Assert.Equal(heldBytes, database.Counters.Arena.RetiredBytes);
+        }
+
+        var turns = 0;
+        while (IsAllocated(root.Arena, sentinel))
+        {
+            Assert.True(turns++ < 12 * (perChunk + root.Slots.Length), "The tested descendant was never returned.");
+            Assert.Equal(1, Step(database, 1));
+            Assert.True(IsAllocated(root.Arena, firstChunk));
+        }
+
+        database.DrainRetired();
+        Assert.Empty(Remaining(root));
+        Assert.False(HandleIsCurrent(database, root.Handle));
+    }
+
+    [Fact(Skip = ResumableDrainNotImplemented)]
+    public async Task Non_retiring_publications_finish_an_older_partial_head_within_the_ordinary_look_window()
+    {
+        var arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 16L * Arena.MaxBlockSize };
+        await using var database = await EngineMaster.OpenAsync(AliasSchema, new EngineTestInputs { Arena = arena });
+        var items = database.Set("Item");
+        var oldBlob = new byte[70_000];
+        await items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = 1L, ["Stamp"] = 1L, ["Blob"] = oldBlob });
+        database.DrainRetired();
+
+        var root = Assert.Single(Capture(database));
+        using var pause = new ViewerPause();
+        var holding = HoldStamp(items, pause, oldBlob);
+        await pause.EnteredAsync(holding);
+        var beforePublication = EpochsOf(database).Current;
+        await items.DeleteAsync(1L);
+
+        // The real delete filled the byte window. Its normal look advanced the
+        // epoch and left the whole root behind because the view was still open.
+        Assert.Equal(beforePublication + 1, EpochsOf(database).Current);
+        Assert.Equal(root.Slots.Sum(slot => slot.SlotBytes), database.Counters.Arena.RetiredBytes);
+        pause.Release();
+        Assert.Equal(1, await holding.WaitAsync(Bound));
+
+        var turns = 0;
+        while (Remaining(root).Length == root.Slots.Length)
+        {
+            Assert.True(turns++ < 64, "The bounded turn did not reach a native release.");
+            Assert.Equal(1, Step(database, 1));
+        }
+
+        var partial = Remaining(root);
+        Assert.Equal(root.Slots.Length - 1, partial.Length);
+        Assert.Contains(partial, slot => slot.Address == root.Address);
+        Assert.False((await items.DeleteAsync(404L)).Changed);
+        Assert.Equal(partial, Remaining(root));
+
+        var window = EpochsOf(database).SlotCount;
+        for (var published = 1; published < window && database.Counters.Arena.RetiredBytes != 0; published++)
+        {
+            Assert.False((await items.DeleteAsync(404L)).Changed);
+        }
+
+        Assert.Empty(Remaining(root));
+        Assert.False(HandleIsCurrent(database, root.Handle));
+        Assert.Equal(0, database.Counters.Arena.RetiredBytes);
+    }
+
     [Theory(Skip = ResumableDrainNotImplemented)]
     [InlineData(false)]
     [InlineData(true)]
@@ -180,6 +286,19 @@ public sealed class ResumableReclamationTests
         Assert.True(HandleIsCurrent(database, root.Handle));
         ExpectPostOrder(root, partial);
 
+        var items = database.Set("Item");
+        await items.InsertAsync(new LatticeRecord(items.EntityType)
+        {
+            ["Id"] = 2L,
+            ["Entries"] = new Dictionary<long, LatticeOwnedValue?>(),
+        });
+        var later = Assert.Single(Capture(database));
+        await items.DeleteAsync(2L);
+        Assert.Equal(2, database.Counters.RootEntries);
+        Assert.True(HandleIsCurrent(database, later.Handle));
+        Assert.True(IsAllocated(later.Arena, later.Address));
+        Assert.Equal(partial, Remaining(root));
+
         if (close)
         {
             await database.CloseAsync().AsTask().WaitAsync(Bound);
@@ -189,7 +308,9 @@ public sealed class ResumableReclamationTests
         {
             database.DrainRetired();
             Assert.Empty(Remaining(root));
+            Assert.Empty(Remaining(later));
             Assert.False(HandleIsCurrent(database, root.Handle));
+            Assert.False(HandleIsCurrent(database, later.Handle));
             Assert.Equal(0, database.Counters.Arena.RetiredBytes);
             Assert.Equal(0, Step(database, 1));
         }
@@ -257,6 +378,30 @@ public sealed class ResumableReclamationTests
         Assert.Equal((recreated.Handle, recreated.Address), (unchanged.Handle, unchanged.Address));
         Assert.Equal(1, database.Counters.RootEntries);
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
+    }
+
+    [Fact(Skip = ResumableDrainNotImplemented)]
+    public async Task A_turn_with_multiple_eligible_items_advances_the_epoch_only_once()
+    {
+        await using var database = await EngineMaster.OpenAsync(FixedSchema);
+        const int Tables = 4;
+        Assert.True(database.TryRunMaintenanceStep(parts =>
+        {
+            parts.Retired.Reserve(Tables);
+            for (var table = 0; table < Tables; table++)
+            {
+                parts.Retired.RetireTable(new object(), 1);
+            }
+        }));
+
+        Assert.Equal(Tables, database.Counters.RetiredIndexBytes);
+        var initial = EpochsOf(database).Current;
+        Assert.InRange(Step(database, 64), 1, 64);
+        Assert.Equal(initial + 1, EpochsOf(database).Current);
+        Assert.InRange(database.Counters.RetiredIndexBytes, 0, Tables - 1);
+
+        database.DrainRetired();
+        Assert.Equal(0, database.Counters.RetiredIndexBytes);
     }
 
     [Fact(Skip = ResumableDrainNotImplemented)]
@@ -338,6 +483,44 @@ public sealed class ResumableReclamationTests
         var current = false;
         Assert.True(database.TryRunMaintenanceStep(parts => current = parts.Roots.IsCurrent(handle)));
         return current;
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_epochs")]
+    private static extern ref ReadEpochs EpochsOf(EngineDatabase database);
+
+    private static (ArenaAddress FirstChunk, ArenaAddress Sentinel, int EmptyRecords) CheckFullPrefix(RootImage root, StructureLayout element)
+    {
+        var reader = new RootReader(root.Arena, root.Layout, root.Address);
+        var map = reader.ReadDescriptor(root.Layout.StoredFieldOf(root.Layout.EntityType.GetField("Entries")));
+        Assert.Equal(DescriptorKindEnum.Lookup, map.Kind);
+        var records = CollectionLookup.Entries(root.Arena, map);
+        Assert.Equal(DescriptorKindEnum.Records, records.Kind);
+        Assert.Equal(element.RecordsPerChunk + 5, (int)records.Length);
+        Assert.Equal(BlockKindEnum.ChunkDirectory, root.Arena.Header(ValueBlocks.AddressOf(records)).Kind);
+
+        var blocks = new RecordBlocks(root.Arena, records, element);
+        Assert.True(blocks.MoveNext());
+        var first = blocks.Block;
+        var count = blocks.Count;
+        Assert.Equal(element.RecordsPerChunk, count);
+        Assert.True(blocks.MoveNext());
+        Assert.NotEqual(first, blocks.Block);
+        Assert.Equal(5, blocks.Count);
+        Assert.False(blocks.MoveNext());
+
+        Assert.Equal(1, element.DescriptorCount);
+        var payload = root.Arena.Payload(first);
+        for (var row = 0; row < count - 1; row++)
+        {
+            var empty = ResidentDescriptor.Read(payload[(row * element.Size + element.DescriptorOffset)..]);
+            Assert.Equal(DescriptorKindEnum.Null, empty.Kind);
+        }
+
+        var last = ResidentDescriptor.Read(payload[((count - 1) * element.Size + element.DescriptorOffset)..]);
+        Assert.Equal(DescriptorKindEnum.Block, last.Kind);
+        var sentinel = ValueBlocks.AddressOf(last);
+        Assert.Equal(first, root.Arena.Header(sentinel).Parent);
+        return (first, sentinel, count - 1);
     }
 
     private static async Task<RootImage> RetireLookupAsync(EngineDatabase database)
