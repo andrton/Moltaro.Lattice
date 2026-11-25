@@ -90,6 +90,8 @@ public readonly ref struct LatticeListView
                 _offset += stride;
                 if (_offset >= _block.Bytes.Length)
                 {
+                    // A packed record is no larger than a full chunk, so one step crosses
+                    // at most one block boundary.
                     _offset -= _block.Bytes.Length;
                     _blockOrdinal++;
                     _block = _view._storage.ReadPackedListBlock(_view._collection, _blockOrdinal);

@@ -98,7 +98,7 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
     public ViewPackedBlock ReadPackedListBlock(ViewCollection collection, int block)
     {
         var layout = (StructureLayout)collection.EntryLayout;
-        if (layout.HoldsDescriptors || layout.Size == 0)
+        if (layout.HoldsDescriptors)
         {
             return default;
         }
