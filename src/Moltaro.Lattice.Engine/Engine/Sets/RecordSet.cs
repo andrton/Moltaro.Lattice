@@ -4,10 +4,10 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Sets;
 
-// The entities of one entity type by name, as records, on the engine. It behaves as the contract of
-// ILatticeSet says, member for member as ClassSet does; a read allocates the returned record, with
-// what it holds, and nothing else. A key given to a read or a delete is converted as ClassSet
-// converts it, without a box (KeyArgument). A write takes the byte arrays of the fields of a record
+// The entities of one entity type by name. An ordinary read returns an owned record and allocates
+// only what it returns. A protected view runs the synchronous viewer inside the root's epoch
+// (docs/design/arena-protocol.md, "Protected views"). Keys use the same conversion as ClassSet
+// and accepted scalar keys need no box (KeyArgument). A write takes the byte arrays of the fields of a record
 // as the record holds them, and the engine copies each once, into its own memory, while the write runs
 // (LatticeRecord.ValuesForWrite), since the application keeps the input of a write unchanged until the write
 // completes (docs/decisions/mutation-commands.md, "Stable write inputs until completion").
@@ -54,6 +54,39 @@ internal sealed class RecordSet : ILatticeSet
 
         return _operations.ReadAsync<RecordCopy, LatticeRecord>(KeyArgument.Of(_operations.Table, key), new RecordCopy(EntityType), session, cancellationToken);
     }
+
+    public bool TryView<TKey, TResult>(TKey key, LatticeViewFunc<LatticeRecordView, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        return _operations.TryView(KeyArgument.Of(_operations.Table, key), viewer, CallViewer, out result, out _);
+    }
+
+    public bool TryView<TKey, TState, TResult>(TKey key, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        return _operations.TryView(KeyArgument.Of(_operations.Table, key), state, viewer, out result, out _);
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TResult>(TKey key, LatticeSession session, LatticeViewFunc<LatticeRecordView, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        return _operations.ViewAsync(KeyArgument.Of(_operations.Table, key), session, viewer, CallViewer<TResult>, cancellationToken);
+    }
+
+    public ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TState, TResult>(TKey key, LatticeSession session, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(viewer);
+        return _operations.ViewAsync(KeyArgument.Of(_operations.Table, key), session, state, viewer, cancellationToken);
+    }
+
+    private static TResult CallViewer<TResult>(scoped LatticeRecordView view, LatticeViewFunc<LatticeRecordView, TResult> viewer) =>
+        viewer(view);
 
     public IEnumerable<LatticeRecord> Enumerate() =>
         _operations.Enumerate<RecordCopy, LatticeRecord>(new RecordCopy(EntityType));

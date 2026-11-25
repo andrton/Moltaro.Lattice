@@ -107,8 +107,7 @@ internal readonly ref struct RootReader
 
         var arena = ArenaOfValues();
         var descriptor = ValueBlocks.Read(_payload[(stored.Offset - BlockHeader.Size)..]);
-        var keys = new CollectionKeys(arena, _layout.Structure.ElementOf(field.Ordinal), descriptor, _payload, _layout.StringEncoding);
-        return new CollectionLookup(arena, descriptor).Find(keys, key);
+        return CollectionLookup.Find(arena, _layout.Structure.ElementOf(field.Ordinal), descriptor, _payload, _layout.StringEncoding, key);
     }
 
     // A new copy of a nested field in the form a record holds, or null according to its bitmap.
@@ -265,15 +264,6 @@ internal readonly ref struct RootReader
     // The descriptor of a String or a Binary field.
     private ValueDescriptor Descriptor(LatticeField field, StoredTypeEnum type, string member) =>
         ValueBlocks.Read(Value(field, type, member));
-
-    // A field of the stored type, for a member that serves it.
-    private void CheckType(LatticeField field, in StoredField stored, StoredTypeEnum type, string member)
-    {
-        if (stored.Type != type)
-        {
-            throw new ArgumentException($"{member} does not serve the field {Name(field)}, which is {field.Declaration.Type}.", nameof(field));
-        }
-    }
 
     // The bytes of the field at its fixed place, after checking its null bit.
     private ReadOnlySpan<byte> NotNull(in StoredField stored)

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Updates;
@@ -7,12 +8,14 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Sets;
 
-// What the set of a class and the set by name of one entity type do alike, for either copy: read
-// with a session, enumerate with and without one, take the steps of a search through an index, and
-// submit a write: on a master to its write coordinator, on a child to its master
+// The set operations for one entity type. Owned reads, enumeration, searches and writes are shared
+// by the set of a class and the set by name. A protected read by name also uses the position clock
+// and table to run its callback over a resident root. A write goes to the write coordinator
+// on a master and to the master on a child
 // (Child.Forwarding.Forwarder). That submission is where a master and a child part: the one place a
 // set takes another way on each, while everything else here is the same for both. One of these for each
 // entity type of an open database, shared by its sets.
@@ -31,12 +34,13 @@ internal sealed class SetOperations : IUpdateExecutor
 
     // The read settings shared by the enumerations and searches of this entity type.
     private readonly ReadSettings _reads;
+    private readonly ResidentViews _views;
 
     // Whether the entity type is stored with a List at any depth, whose bound a write is checked against
     // before it is submitted (RootValues.CheckCollectionBounds).
     private readonly bool _checksCollections;
 
-    public SetOperations(EngineDatabase database, EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
+    public SetOperations(EngineDatabase database, EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads, ResidentViews views)
     {
         _database = database;
         Table = table;
@@ -45,6 +49,7 @@ internal sealed class SetOperations : IUpdateExecutor
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
         _reads = reads;
+        _views = views;
         _checksCollections = table.Layout.Structure.HoldsCollections;
     }
 
@@ -99,6 +104,23 @@ internal sealed class SetOperations : IUpdateExecutor
         session.Advance(position);
 
         return new LatticeReadResult<TResult>(result, revision, position);
+    }
+
+    public bool TryView<TState, TResult>(in EntityKey key, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer,
+        [MaybeNullWhen(false)] out TResult result, out ulong sequence, CancellationToken cancellationToken = default) =>
+        Table.TryView(key, _views, state, viewer, out result, out sequence, cancellationToken);
+
+    // The session wait takes no epoch. The position of the answer comes from the
+    // protected lookup, even if a publication advances the clock during the callback.
+    public async ValueTask<LatticeViewResult<TResult>> ViewAsync<TState, TResult>(EntityKey key, LatticeSession session,
+        TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, CancellationToken cancellationToken)
+    {
+        await WaitAsync(session, cancellationToken).ConfigureAwait(false);
+
+        var found = TryView(key, state, viewer, out var result, out var sequence, cancellationToken);
+        var position = _clock.At(sequence);
+        session.Advance(position);
+        return new LatticeViewResult<TResult>(found, result, position);
     }
 
     // The lazy enumeration of EntityTable.TryReadNext (Enumeration), a new copy for every item, each

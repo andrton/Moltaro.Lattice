@@ -7,11 +7,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the read protects access while it copies). A value type, so that the read protocol of EntityTable
 // is compiled for each copy and calls it without virtual dispatch.
 //
-// The engine runs no code of the application inside the protection of reads (the planner's word on
-// the first review of S06; arena protocol, "Deferred reclamation, 16 November 2026"). So a read has
-// two steps. Copy runs inside the protection: it copies the values of the root, from the reader,
-// which is valid only then, into memory of the engine, waits for nothing and runs no code of the
-// application, so that the read leaves the protection within one step (Protection.ReadEpochs).
+// An owned read has two steps (docs/design/arena-protocol.md, "Deferred reclamation").
+// Copy runs inside the epoch. It copies the root into engine memory without waiting or running
+// application code. The reader is valid only during that step.
 // Build runs after the read has left the protection, and only when there is something to return:
 // it makes the result from the copy, and the constructor and the set accessors of a class run there.
 // Return gives back whatever Copy rented, and the read calls it in a finally, so that a constructor

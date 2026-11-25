@@ -4,14 +4,14 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Access;
 
 /// <summary>
-/// The entities of one entity type as records, without a .NET class: read, enumerate,
-/// insert, replace, upsert and delete. Obtained from <see cref="ILatticeDatabase.Set(string)"/>.
+/// The entities of one entity type by name. Supports owned reads, protected views, enumeration
+/// and writes. Obtained from <see cref="ILatticeDatabase.Set(string)"/>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Every entity type of the schema is available this way, whether or not a .NET class is
-/// declared for it. The data and the rules are the same as for
-/// <see cref="ILatticeSet{TEntity}"/>, member for member: records are owned copies; the
+/// declared for it. Owned records and writes follow the same rules as
+/// <see cref="ILatticeSet{TEntity}"/>. Records are owned copies. The
 /// synchronous reads return what this node has now, the asynchronous ones first wait for
 /// the position of a <see cref="LatticeSession"/>; writes are executed by the master and,
 /// through a child, complete when that child has applied them or has been closed; do not
@@ -111,6 +111,103 @@ public interface ILatticeSet
     /// required position in time; nothing was read.
     /// </exception>
     ValueTask<LatticeReadResult<LatticeRecord>> GetAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull;
+
+    /// <summary>
+    /// Runs a short synchronous viewer over one state of the entity in place, when the entity exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The viewer and everything it borrows are valid only during the call. The viewer must
+    /// return promptly, without performing I/O, waiting or calling the database. The entity
+    /// can be replaced during the call, while the viewer keeps reading the state it started with.
+    /// </para>
+    /// <para>
+    /// An open viewer holds back reclamation of all memory replaced since it began. Exhausting
+    /// the memory budget can make writes and a child's application of them wait. Closing also
+    /// waits for active viewers, and new reads wait if all protection slots are occupied.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <param name="key">The primary key, bound by the same rules as an owned read.</param>
+    /// <param name="viewer">Called once with the protected view when the entity exists.</param>
+    /// <param name="result">The viewer's result on a hit, or its type's default on a miss.</param>
+    /// <returns>Whether the entity exists. The viewer is skipped when the key is absent.</returns>
+    /// <exception cref="ArgumentException">The key has an incompatible type or value.</exception>
+    /// <exception cref="ArgumentNullException">The key or viewer is null.</exception>
+    /// <exception cref="ObjectDisposedException">The database is closed.</exception>
+    /// <exception cref="LatticeException"><see cref="LatticeErrorEnum.Unavailable"/> when the database is unavailable.</exception>
+    bool TryView<TKey, TResult>(TKey key, LatticeViewFunc<LatticeRecordView, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull;
+
+    /// <summary>
+    /// Runs a short synchronous viewer with caller-supplied state over the entity in place.
+    /// The lifetime and failure rules of <see cref="TryView{TKey, TResult}"/> apply.
+    /// </summary>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TState">The type of state supplied to the viewer.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <param name="key">The primary key, bound by the same rules as an owned read.</param>
+    /// <param name="state">State supplied unchanged to the viewer.</param>
+    /// <param name="viewer">Called once with the protected view and state when the entity exists.</param>
+    /// <param name="result">The viewer's result on a hit, or its type's default on a miss.</param>
+    /// <returns>Whether the entity exists. The viewer is skipped when the key is absent.</returns>
+    /// <exception cref="ArgumentException">The key has an incompatible type or value.</exception>
+    /// <exception cref="ArgumentNullException">The key or viewer is null.</exception>
+    /// <exception cref="ObjectDisposedException">The database is closed.</exception>
+    /// <exception cref="LatticeException"><see cref="LatticeErrorEnum.Unavailable"/> when the database is unavailable.</exception>
+    bool TryView<TKey, TState, TResult>(TKey key, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, [MaybeNullWhen(false)] out TResult result)
+        where TKey : notnull;
+
+    /// <summary>
+    /// Waits for the session's position before taking a view and running the synchronous viewer.
+    /// Advances the session to the position of the answer on a hit or a miss.
+    /// The view has the lifetime defined by <see cref="TryView{TKey, TResult}"/>.
+    /// </summary>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <param name="key">The primary key, bound by the same rules as an owned read.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="viewer">Called once with the protected view when the entity exists.</param>
+    /// <param name="cancellationToken">Cancels waiting for the position or entry into the read.</param>
+    /// <returns>Whether the entity exists, the viewer's result on a hit, and the position of the answer.</returns>
+    /// <exception cref="ArgumentException">The key has an incompatible type or value.</exception>
+    /// <exception cref="ArgumentNullException">The key, session or viewer is null.</exception>
+    /// <exception cref="ObjectDisposedException">The database is closed.</exception>
+    /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.HistoryMismatch"/> when the session belongs to another history;
+    /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/> when the session wait times out;
+    /// <see cref="LatticeErrorEnum.Unavailable"/> when the database is unavailable.
+    /// </exception>
+    ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TResult>(TKey key, LatticeSession session, LatticeViewFunc<LatticeRecordView, TResult> viewer, CancellationToken cancellationToken = default)
+        where TKey : notnull;
+
+    /// <summary>
+    /// Waits for the session's position before taking a view and running the synchronous viewer
+    /// with caller-supplied state. Advances the session to the position of the answer on a hit
+    /// or a miss. The view has the lifetime defined by <see cref="TryView{TKey, TResult}"/>.
+    /// </summary>
+    /// <typeparam name="TKey">The type of primary key supplied.</typeparam>
+    /// <typeparam name="TState">The type of state supplied to the viewer.</typeparam>
+    /// <typeparam name="TResult">The type of result, independent of the view's lifetime.</typeparam>
+    /// <param name="key">The primary key, bound by the same rules as an owned read.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="state">State supplied unchanged to the viewer.</param>
+    /// <param name="viewer">Called once with the protected view and state when the entity exists.</param>
+    /// <param name="cancellationToken">Cancels waiting for the position or entry into the read.</param>
+    /// <returns>Whether the entity exists, the viewer's result on a hit, and the position of the answer.</returns>
+    /// <exception cref="ArgumentException">The key has an incompatible type or value.</exception>
+    /// <exception cref="ArgumentNullException">The key, session or viewer is null.</exception>
+    /// <exception cref="ObjectDisposedException">The database is closed.</exception>
+    /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.HistoryMismatch"/> when the session belongs to another history;
+    /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/> when the session wait times out;
+    /// <see cref="LatticeErrorEnum.Unavailable"/> when the database is unavailable.
+    /// </exception>
+    ValueTask<LatticeViewResult<TResult>> ViewAsync<TKey, TState, TResult>(TKey key, LatticeSession session, TState state, LatticeViewFunc<LatticeRecordView, TState, TResult> viewer, CancellationToken cancellationToken = default)
         where TKey : notnull;
 
     /// <summary>

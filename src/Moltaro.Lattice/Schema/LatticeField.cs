@@ -34,6 +34,17 @@ public sealed class LatticeField
     // Position of the field's value inside a stored record.
     internal int Ordinal { get; }
 
+    // A stable field id or ordinal is not a handle to another declaration.
+    internal int OrdinalIn(ReadOnlySpan<LatticeField> fields)
+    {
+        if ((uint)Ordinal >= (uint)fields.Length || !ReferenceEquals(fields[Ordinal], this))
+        {
+            throw new ArgumentException($"Field '{Name}' is not declared by this type in this schema.", "field");
+        }
+
+        return Ordinal;
+    }
+
     /// <summary>Returns the field name.</summary>
     public override string ToString() => Name;
 }

@@ -15,8 +15,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 // enters by writing the current epoch into a free slot and leaves by clearing it; that slot is the only
 // memory it writes, and no other read writes it while it is held. The publishing thread retires what a read
 // could still reach, tagged with the current epoch (RetiredMemory), and frees it once every slot is free
-// or holds a later epoch: then every read that entered before it was retired has left. The writer never
-// waits for a read; a read never waits for the writer.
+// or holds a later epoch. A publication does not wait for a read. Reclamation can wait for
+// every older slot to be cleared, including slots held by a protected viewer.
 //
 // What is taken from LightEpoch: the table of padded slots of one instance, sized as LightEpoch sizes
 // it and rounded up to a power of two (below); entering by a compare-and-swap of the current epoch
@@ -84,9 +84,9 @@ internal sealed class ReadEpochs
     // of it on its ordinary path. A bit, once set, stays set.
     private int _state;
 
-    // What the next read by key that finds its root, or the next root a step of a search takes, runs
-    // inside the protection, for the tests of the engine (EngineDatabase.ArmReadSwitch); null when no
-    // test armed it, which is all a read pays.
+    // An action at the next read cut under protection (EngineDatabase.ArmReadSwitch).
+    // The cuts are before reading a root found by key or search, and before confirming a
+    // protected view's candidate miss. A read only loads a null field when the switch is unarmed.
     private Action<RootHandle>? _readSwitch;
 
     public ReadEpochs(object owner)
@@ -108,13 +108,11 @@ internal sealed class ReadEpochs
     // LatticeException with Unavailable once the database is faulted.
     //
     // When every slot is held it waits for one to be left, spinning and then yielding its processor.
-    // The wait ends: a read holds its slot only while it looks up and copies, which waits for nothing
-    // and runs no code of the application (Entities.IRootCopy), so every held slot is left within one
-    // step of a read; a test that holds reads through ArmReadSwitch holds each for a bounded time. A
-    // waiting read takes part in no refusal and never fails for the wait. The token of an asynchronous
-    // read ends the wait, with OperationCanceledException; it is looked at only after every slot was
-    // found held, so a read that finds a slot, and a synchronous read, which has no token, pay nothing
-    // for it.
+    // An owned read holds its slot for one engine step. A protected view holds its slot while the
+    // application callback runs. The caller keeps that callback short because all slots can be held
+    // by viewers (exception X6 and docs/design/arena-protocol.md, "Protected views").
+    // The token of an asynchronous read ends the wait with OperationCanceledException. Enter
+    // checks it only after finding every slot held.
     public int Enter(CancellationToken cancellationToken = default)
     {
         if (!TryEnter(cancellationToken, out var slot))
@@ -251,12 +249,12 @@ internal sealed class ReadEpochs
         return Volatile.Read(ref epoch) == Free && Interlocked.CompareExchange(ref epoch, Volatile.Read(ref _current), Free) == Free;
     }
 
-    // Arms the read switch of the tests: the next read by key that finds its root, or the next root a
-    // step of a search takes, runs the action once.
+    // Arms a one-shot action at the next read cut under protection, including a
+    // protected view's candidate miss.
     public void ArmReadSwitch(Action<RootHandle> action) => Volatile.Write(ref _readSwitch, action);
 
-    // Runs the read switch of the tests when it is armed, inside the protection, with the handle of the
-    // root entry the read found; otherwise a read pays one load of a field nothing writes.
+    // Offers the read switch inside the epoch with the handle of a found root or a default
+    // handle before a protected view confirms a miss. An unarmed switch costs one field load.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void OfferReadSwitch(RootHandle handle)
     {
