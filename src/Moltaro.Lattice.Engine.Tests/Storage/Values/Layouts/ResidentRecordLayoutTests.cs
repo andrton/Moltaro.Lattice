@@ -1,6 +1,6 @@
 using System.Buffers;
-using System.Buffers.Binary;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
@@ -53,9 +53,9 @@ public sealed class ResidentRecordLayoutTests
             // and keeps its original byte layout. Test the record slots independently.
             var descriptor = new ValueDescriptor
             {
-                Kind = (DescriptorKindEnum)BinaryPrimitives.ReadUInt32LittleEndian(place),
-                Length = BinaryPrimitives.ReadUInt32LittleEndian(place[4..]),
-                Location = BinaryPrimitives.ReadUInt64LittleEndian(place[8..]),
+                Kind = (DescriptorKindEnum)MemoryMarshal.Read<uint>(place),
+                Length = MemoryMarshal.Read<uint>(place[4..]),
+                Location = MemoryMarshal.Read<ulong>(place[8..]),
             };
             Assert.Equal(DescriptorKindEnum.Records, descriptor.Kind);
             Assert.Equal((uint)count, descriptor.Length);
@@ -156,7 +156,7 @@ public sealed class ResidentRecordLayoutTests
     private static void AssertInlineLocation(ReadOnlySpan<byte> payload, int locationAt, int expectedInlineOffset)
     {
         Assert.Equal(0, locationAt % sizeof(ulong));
-        Assert.Equal((ulong)expectedInlineOffset, BinaryPrimitives.ReadUInt64LittleEndian(payload[(locationAt - BlockHeader.Size)..]));
+        Assert.Equal((ulong)expectedInlineOffset, MemoryMarshal.Read<ulong>(payload[(locationAt - BlockHeader.Size)..]));
     }
 
     private static void AssertView(ILatticeSet items, int count, bool wide)

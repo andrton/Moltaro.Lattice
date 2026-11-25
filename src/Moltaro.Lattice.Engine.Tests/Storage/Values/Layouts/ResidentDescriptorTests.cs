@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Entities;
@@ -52,12 +51,12 @@ public sealed class ResidentDescriptorTests
             var neighborRead = ResidentDescriptor.Read(neighbor);
             Assert.Equal((DescriptorKindEnum.Inline, 4U, 77UL), (neighborRead.Kind, neighborRead.Length, neighborRead.Location));
             Assert.Equal(0, (BlockHeader.Size + first + locationAt) % sizeof(ulong));
-            Assert.Equal(descriptor.Location, BinaryPrimitives.ReadUInt64LittleEndian(place[locationAt..]));
+            Assert.Equal(descriptor.Location, MemoryMarshal.Read<ulong>(place[locationAt..]));
 
-            var rawLength = BinaryPrimitives.ReadUInt32LittleEndian(place[lengthAt..]);
+            var rawLength = MemoryMarshal.Read<uint>(place[lengthAt..]);
             if (skew == 0)
             {
-                Assert.Equal((uint)descriptor.Kind, BinaryPrimitives.ReadUInt32LittleEndian(place));
+                Assert.Equal((uint)descriptor.Kind, MemoryMarshal.Read<uint>(place));
                 Assert.Equal(descriptor.Length, rawLength);
             }
             else
@@ -75,7 +74,7 @@ public sealed class ResidentDescriptorTests
             }
 
             var expected = payload.ToArray();
-            BinaryPrimitives.WriteUInt64LittleEndian(expected.AsSpan(first + locationAt), replacement.Value);
+            MemoryMarshal.Write(expected.AsSpan(first + locationAt), replacement.Value);
             ResidentDescriptor.PublishLocation(place, replacement);
 
             Assert.True(payload.SequenceEqual(expected));
@@ -112,7 +111,7 @@ public sealed class ResidentDescriptorTests
         original.CopyFixedPart(copy);
         Assert.True(copy.SequenceEqual(native[..fixedLength]));
         var dataPlace = copy[(dataAt - BlockHeader.Size)..];
-        Assert.Equal((313U << 4) | 2U, BinaryPrimitives.ReadUInt32LittleEndian(dataPlace[3..]));
+        Assert.Equal((313U << 4) | 2U, MemoryMarshal.Read<uint>(dataPlace[3..]));
         Assert.Equal(313U, ResidentDescriptor.ReadLength(dataPlace, dataAt));
 
         var copied = new RootReader(item.Layout, copy);

@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
@@ -85,8 +86,8 @@ public sealed class CollectionCountBoundTests
         using var item = new RootArena(ResidentRecordLayoutTests.NarrowSchema);
         var inputHeader = new byte[sizeof(uint) + sizeof(long) + DescriptorSize];
         BinaryPrimitives.WriteUInt32LittleEndian(inputHeader, item.Layout.LayoutVersion);
-        BinaryPrimitives.WriteUInt32LittleEndian(inputHeader.AsSpan(sizeof(uint) + sizeof(long)), 5);
-        BinaryPrimitives.WriteUInt32LittleEndian(inputHeader.AsSpan(2 * sizeof(uint) + sizeof(long)), (uint)count);
+        MemoryMarshal.Write(inputHeader.AsSpan(sizeof(uint) + sizeof(long)), 5U);
+        MemoryMarshal.Write(inputHeader.AsSpan(2 * sizeof(uint) + sizeof(long)), (uint)count);
         var first = new RepeatedPiece(inputHeader, 0);
         var end = first;
         var fullChunk = EmptyTextRecords(RecordsPerChunk);
@@ -125,8 +126,8 @@ public sealed class CollectionCountBoundTests
             for (var record = 0; record < records; record++)
             {
                 var canonical = chunk.AsSpan(record * RecordStride + 3, DescriptorSize);
-                BinaryPrimitives.WriteUInt32LittleEndian(canonical, 1);
-                BinaryPrimitives.WriteUInt64LittleEndian(canonical[8..], (ulong)(32 + chunk.Length));
+                MemoryMarshal.Write(canonical, 1U);
+                MemoryMarshal.Write(canonical[8..], (ulong)(32 + chunk.Length));
             }
 
             return chunk;

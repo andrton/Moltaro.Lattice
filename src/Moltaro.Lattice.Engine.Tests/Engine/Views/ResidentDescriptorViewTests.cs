@@ -194,6 +194,8 @@ public sealed class ResidentDescriptorViewTests
         // wire slots end at block offset 106, from which the inline area starts.
         Assert.Equal(4 + 74 + 3 + data.Length, body.Length);
         Assert.Equal(1, body[4]);
+        Assert.Equal(1L, MemoryMarshal.Read<long>(body[5..]));
+        Assert.Equal(27, body[13]);
         AssertCanonicalSlot(body[14..], 2, (uint)data.Length, 0);
         AssertCanonicalSlot(body[30..], 1, 3, 106);
         AssertCanonicalSlot(body[46..], 1, 0, 109);
@@ -204,9 +206,9 @@ public sealed class ResidentDescriptorViewTests
 
     private static void AssertCanonicalSlot(ReadOnlySpan<byte> slot, uint kind, uint length, ulong location)
     {
-        Assert.Equal(kind, BinaryPrimitives.ReadUInt32LittleEndian(slot));
-        Assert.Equal(length, BinaryPrimitives.ReadUInt32LittleEndian(slot[4..]));
-        Assert.Equal(location, BinaryPrimitives.ReadUInt64LittleEndian(slot[8..]));
+        Assert.Equal(kind, MemoryMarshal.Read<uint>(slot));
+        Assert.Equal(length, MemoryMarshal.Read<uint>(slot[4..]));
+        Assert.Equal(location, MemoryMarshal.Read<ulong>(slot[8..]));
     }
 
     private static WireFrame[] WithResumedExport(WireFrame frame, ReadOnlyMemory<byte> body)
