@@ -96,13 +96,14 @@ internal sealed class TextTable
     // The managed bytes of the table: the array of its slots and the bucket table.
     public long Bytes => ((long)_slots.Length * Unsafe.SizeOf<TextSlot>()) + _buckets.Bytes;
 
-    // Finds the entry of the text of a write, or adds one, takes one reference to it and writes the Text
-    // descriptor that names it; for RootWriter, under the lock of the writes. The text is
-    // well-formed and takes length stored bytes, at least one, in the encoding of the database. True with
-    // the bytes of the slots of a new entry in newBytes, 0 when the entry was there; false when the arena
-    // cannot hold a new entry, with nothing taken. A new entry is prepared, and
-    // published with the first published block that refers to it (Publish). An OutOfMemoryException of
-    // the native allocator or of the managed heap passes with nothing taken.
+    // Finds or adds the entry for the text of a write and takes one reference to it under
+    // the lock of the writes. On success it returns a Text descriptor that ValueHolder installs
+    // to record the reference. The text is well-formed and takes length stored bytes, at least
+    // one, in the encoding of the database. newBytes gives the bytes of the slots of a new entry
+    // and is zero for an existing entry. When the arena cannot hold a new entry, the method
+    // returns false without taking a reference. A new entry remains prepared until the first
+    // block that refers to it is published (Publish). An OutOfMemoryException of the native
+    // allocator or the managed heap passes with nothing taken.
     public bool TryAcquire(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding, int length, out ValueDescriptor descriptor, out long newBytes)
     {
         Span<byte> scratch = stackalloc byte[ScratchBytes];

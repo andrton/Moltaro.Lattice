@@ -96,12 +96,11 @@ internal static class ValueBlocks
     // which does not exist yet: RootWriter.Complete names it with Adopt. The caller has checked that
     // the value is within MostValueBytes, so that it needs no more chunks than MostChunks.
     //
-    // A value is stored whole or not at all. When it is stored, the descriptor in place names it and
-    // the method returns true. When the arena refuses a block for its budget, the method returns
-    // false, and when the native allocator fails, its OutOfMemoryException passes through; either way
-    // the blocks already allocated for the value are freed first and no descriptor is returned. The
-    // writer therefore never holds a half-stored value: a descriptor in its image names a whole value
-    // or nothing.
+    // A value is stored whole or not at all. On success the method returns the descriptor
+    // for the prepared blocks. ValueHolder installs it to record their ownership. When the
+    // arena refuses a block for its budget, the method returns false. An OutOfMemoryException
+    // from the native allocator passes through. Both failures first free the blocks already
+    // allocated for the value.
     //
     // The blocks are prepared (Arena.TryAllocatePrepared).
     public static bool TryStore<TSource>(Arena arena, RootHandle root, uint layoutVersion, ArenaAddress parent, uint offset, int length, ref TSource source, out ValueDescriptor descriptor)
