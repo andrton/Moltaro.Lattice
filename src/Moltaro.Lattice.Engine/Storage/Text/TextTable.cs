@@ -93,9 +93,6 @@ internal sealed class TextTable
     // The entries the table holds: the texts some block that is not freed refers to.
     public int Count { get; private set; }
 
-    // Detached text slots still count in the arena until their individual frees.
-    public long DetachedBytes { get; private set; }
-
     // The managed bytes of the table: the array of its slots and the bucket table.
     public long Bytes => ((long)_slots.Length * Unsafe.SizeOf<TextSlot>()) + _buckets.Bytes;
 
@@ -167,6 +164,7 @@ internal sealed class TextTable
     // One unit under the writes lock. A later writer may have added a reference
     // or grown the bucket table since the last probe. After unlink the cursor
     // owns only the native slots and the ID stays outside the free list.
+    // The arena still counts each detached slot until its physical release.
     public bool ReleaseStep(ref TextReclamation work)
     {
         AssertTheLockIsHeld();
@@ -177,7 +175,7 @@ internal sealed class TextTable
 
         if (!work.PendingChunk.IsNull)
         {
-            FreeDetached(work.PendingChunk);
+            _arena.Free(work.PendingChunk);
             work.PendingChunk = default;
             return false;
         }
@@ -190,7 +188,7 @@ internal sealed class TextTable
 
         if (!work.Address.IsNull)
         {
-            FreeDetached(work.Address);
+            _arena.Free(work.Address);
             work.Address = default;
             return false;
         }
@@ -228,17 +226,9 @@ internal sealed class TextTable
         work.Id = number;
         work.ChunkCount = slot.Length > ValueBlocks.SingleBlockLimit ? ValueBlocks.ChunkCount((int)slot.Length) : 0;
         work.Detached = true;
-        DetachedBytes += ValueBlocks.SlotBytesOf((int)slot.Length);
         slot = default;
         Count--;
         return false;
-    }
-
-    private void FreeDetached(ArenaAddress address)
-    {
-        var bytes = Arena.BlockSizeFor((int)_arena.Header(address).PayloadLength);
-        _arena.Free(address);
-        DetachedBytes -= bytes;
     }
 
     // Publishes the entry at the address when it is still prepared, which the arena knows of its first
