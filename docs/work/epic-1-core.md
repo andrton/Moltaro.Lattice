@@ -10304,6 +10304,149 @@ read": four waits become as long as a viewer runs (a free protection slot, a wri
 for memory, the applier of a child, the close). The amendment is approved by the planner,
 with that decision of the owner as its reason, and is entered with the code of the sprint.
 
+##### Study at `d0851104`
+
+The architecture review after S20R confirmed that the epoch and stamped-root protocol
+can serve a protected callback. The existing ownership tests hold old roots across
+partial updates, changes of branch ownership and delete followed by reinsert. S21
+exercises the same lifetime through the public callback. No refactoring sprint was
+taken. The study considered three existing implementations.
+
+- Pebble at `c8e13d9bd4cc15d8914f7dbce13a43a5fb66348e` (BSD-3-Clause)
+  takes a reference to its read state before sampling the visible sequence. Closing the
+  iterator drops the reference, so publication can advance while the reader holds its
+  version. The caller must close the result and the engine pays for locking and
+  reference counts. Lattice already has a read epoch and a stamped root. The engine
+  leaves that epoch when the scoped callback exits.
+  [Licence](https://github.com/cockroachdb/pebble/blob/c8e13d9bd4cc15d8914f7dbce13a43a5fb66348e/LICENSE) ·
+  [Read path](https://github.com/cockroachdb/pebble/blob/c8e13d9bd4cc15d8914f7dbce13a43a5fb66348e/db.go#L514-L600) ·
+  [Read state](https://github.com/cockroachdb/pebble/blob/c8e13d9bd4cc15d8914f7dbce13a43a5fb66348e/read_state.go#L31-L105)
+- RocksDB at `461d7f446426dfe600e194b59b3c46f1f907935a` (Apache-2.0 option)
+  uses `PinnableSlice` to borrow bytes and owns cleanup of the retained resource. The
+  read copies when the resource cannot be pinned. Lattice uses the distinction between
+  borrowed bytes and explicit materialization in `GetString`. Its existing epoch covers
+  every resident representation.
+  [Licence](https://github.com/facebook/rocksdb/blob/461d7f446426dfe600e194b59b3c46f1f907935a/LICENSE.Apache) ·
+  [PinnableSlice](https://github.com/facebook/rocksdb/blob/461d7f446426dfe600e194b59b3c46f1f907935a/include/rocksdb/slice.h#L138-L215) ·
+  [SaveValue](https://github.com/facebook/rocksdb/blob/461d7f446426dfe600e194b59b3c46f1f907935a/table/get_context.cc#L318-L341)
+- .NET at `60629d14374c56f1cb51819049ad1fa529307f8d` (MIT) reads a scalar from the
+  current segment in `SequenceReader.TryRead<T>` when it fits. At a boundary it gathers
+  the width of that scalar into local storage. Lattice can use the same rule with
+  `StoredScalars`. A packed Map with Int32 keys and nullable Int64 values has stride
+  13. At ordinal 5038, the Int64 occupies bytes 65499 through 65506 across the
+  65,504-byte chunk boundary. Only that scalar is gathered on the stack. Encoded byte
+  parts are borrowed directly.
+  [Licence](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/LICENSE.TXT) ·
+  [Sequence reader](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Memory/src/System/Buffers/SequenceReaderExtensions.Binary.cs#L26-L54)
+
+The design takes these ideas and uses the existing Lattice implementation. A temporary
+C# 14 probe on SDK 10.0.404 accepted scoped callbacks, local `out` values and
+deconstruction. It rejected escape through a result or a `ref` or `out` alias, storing
+a view in a field, capture and an asynchronous callback. The contract tests repeat
+these checks against the public API in a separate consumer assembly.
+
+##### Internal contract after the study
+
+Both public delegates take `scoped TView` and give only `TView` the
+`allows ref struct` constraint. The contract assembly holds two internal
+`readonly ref struct` cursors. `ViewRecord(object layout, ReadOnlySpan<byte> bytes,
+ReadOnlySpan<byte> tail, int recordStart)` carries the compiled structure layout.
+For a root or a record with descriptors, `bytes` is the complete payload of the
+actual block, and `recordStart` is relative to its payload. For a packed record,
+the spans are its original parts and its start is zero. A field's offset within
+a record is its place offset minus the start of the layout.
+`ViewCollection(object entryLayout, ReadOnlySpan<byte> holder, int descriptorOffset,
+int count)` carries the complete payload of the actual holder and the offset of the
+collection descriptor within that payload. The count comes from its entries.
+
+The internal boundary in the contract assembly is `IViewStorage`.
+
+```csharp
+int ChildPosition(scoped in ViewRecord row, int owned, LatticeField field);
+bool IsNull(scoped in ViewRecord row, int position);
+TValue ReadScalar<TValue>(scoped in ViewRecord row, int position);
+string ReadString(scoped in ViewRecord row, int position);
+(int Length, int Parts) ByteShape(scoped in ViewRecord row, int position);
+ReadOnlySpan<byte> GetPart(ViewRecord row, int position, int part);
+ViewCollection Collection(ViewRecord row, int position);
+ViewRecord Entry(ViewCollection collection, int ordinal);
+int FindEntry(scoped in ViewCollection collection, in IndexValue key);
+```
+
+Borrowed outputs take the cursor by value so its scope applies to the result.
+`ResidentViews(Arena, encoding)` is the one immutable engine implementation, shared
+by the sets of the instance. The cursor and scalar stay unboxed. Ordinary owned
+reads carry no view cursor and make no call through this boundary. Record and Owned
+views check the exact field object at its ordinal against the declaring type before
+addressing its place. This includes the schema and a sibling Owned with the same
+field id or ordinal. The Owned view uses `ChildPosition`. The collection
+enumerators hold the corresponding view and the ordinal. A Map entry resolves its
+record once and reads its two positions from that record.
+
+The engine reads normalized scalars with `StoredScalars.ReadValue<TValue>` after
+checking the declared type and null bit. A wrong type for `Get<TValue>` gives
+`InvalidCastException`. A nullable slot uses the declaration's non-null CLR type
+and a value accessor on null gives `InvalidOperationException`. A non-null empty
+String or Binary has one empty part. Bad part or List ordinals give
+`ArgumentOutOfRangeException`. A value accessed as the wrong kind gives
+`InvalidOperationException`. `GetString` uses `StoredText.Read` with the compiled
+layout's encoding and carries the decoder across chunk boundaries, including a
+split UTF-8 character. `GetPart` exposes the original read-only arena spans.
+Scratch storage is limited to the width of one split scalar returned by value.
+
+A root or nested Map or Set uses the same resident lookup. Resolve the original
+descriptor from its actual holder payload and use the existing comparison,
+encoding and arena seed. An ordinal belongs to the collection searched. Bind a
+probe through the search allowlist. A compatible null probe is accepted for a
+nullable Set member. Null is refused with `ArgumentException` for a Map key or
+non-nullable Set member.
+
+`RecordSet` validates the arguments and binds the key. Its stateless form uses a
+static adapter with the delegate as state. `SetOperations` passes the prebound
+storage to `EntityTable.TryView<TState, TResult>`, which takes the key, storage,
+state, viewer, `out TResult result`, `out ulong sequence` and cancellation token.
+It enters its own read epoch. A stable index miss takes the sequence before the
+lookup that confirmed the same sequence after it. A tombstone uses its delete stamp.
+A hit takes the root, member revision and sampled answer sequence together under the
+existing `TakeEntry` protocol, even across batches. A read that meets an unpublished
+stamp waits for its position or observes the fault before entering the viewer.
+The viewer is called once and the epoch is released when it leaves. The session
+form waits before entry and advances to the answer on a successful hit or miss.
+It uses the captured sequence even if publication continued during the callback.
+
+Catch callback exceptions inside the protected operation. Release the epoch before
+propagating the same exception with its original stack, so a caller's exception
+filter runs after release. The exceptional path may capture the exception dispatch
+information. A separate reentrant read enters its own epoch slot. The view adds
+no reentrancy guard. [C# exception filters](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/statements/exception-handling-statements#the-when-exception-filter)
+
+##### Tests from the study
+
+- Compile against the actual public assembly as an external consumer, with C# 14
+  and test-only Roslyn 5.0.0. Exercise storage, return, capture, async and iterator
+  restrictions. Check nested indexers, enumerator Current, Map lookup out,
+  deconstruction out, GetPart and helper ref or out for transitive escapes. Local
+  out, deconstruction, foreach and an owned result compile.
+- Compare native addresses for borrowed inline, separate, shared and chunked parts.
+  Include the split UTF-8 character, the split scalar in the study, adjacent
+  records, nullable and empty cases, exact field identity, bad types and bounds.
+  Exercise compact and hashed lookups of nested collections with inline values,
+  allowed and refused probes, text comparison, spelling and null. Check allocations
+  on warm scalar and collection paths, outside validation and assertions.
+- Hold a real viewer across publication of the same entity and other entities. Read
+  the new state separately and the same old state again in the viewer. Verify that
+  the answer retains the initial sequence and member revision. Exercise the stable
+  miss, a raced tombstone and the unpublished and faulted batch cuts. Check that
+  exception propagation frees the slot, including a bounded probe in a caller-side
+  filter that does not wait for its own slot. Exercise reentrant read protection,
+  close and fault, retention and release for memory pressure in master and child,
+  and the session wait before the callback. Use the existing switches and counters.
+
+Compare exact parent, independent parent build and head for ordinary read-by-key.
+Keep the warm-up, fixture and runtime the same and rotate the order. Compare hot
+caller listings and run the measured scenarios in the acceptance brief. Update
+X6 and the arena protocol when the protected callback is delivered.
+
 #### S22 · Typed protected views
 
 **Track:** full · **Needs:** S21 · **Decisions:** O6 · **Owners:** E08, E05
