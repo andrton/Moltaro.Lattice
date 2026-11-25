@@ -9,6 +9,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -37,7 +38,12 @@ public sealed class OwnedValueRelocationTests
           {"Id":3,"Name":"Data","Type":"Binary"},
           {"Id":4,"Name":"Label","Type":"String"},
           {"Id":5,"Name":"Absent","Type":"String","Nullable":true}],
-          "PrimaryKey":[1],"Indexes":[{"Id":1,"Name":"ByCode","Fields":[2]}]}]}
+          "PrimaryKey":[1],"Indexes":[{"Id":1,"Name":"ByCode","Fields":[2]}]},
+          {"Id":2,"Name":"Filler","Fields":[{"Id":1,"Name":"Id","Type":"Int64"}],"PrimaryKey":[1]}]}
+        """);
+
+    private static readonly LatticeSchema RecordsSchema = ItemSchema.Compile("""
+        { 'Id': 2, 'Name': 'Rows', 'Type': 'List', 'Element': { 'Type': 'String' } }
         """);
 
     [Theory(Skip = NotImplemented)]
@@ -140,9 +146,7 @@ public sealed class OwnedValueRelocationTests
         MemoryMarshal.Write(currentBytes.AsSpan(LocationOffset), in movedAddress);
         Assert.Equal(currentBytes, moved.Arena.Payload(moved.Root).ToArray());
         Assert.Equal(requests, allocator.Requests);
-        Assert.Equal(counters.PreparedBytes, node.Counters.Arena.PreparedBytes);
-        Assert.Equal(counters.LiveBytes, node.Counters.Arena.LiveBytes);
-        Assert.Equal(counters.RetiredBytes + SlotBytes, node.Counters.Arena.RetiredBytes);
+        Assert.Equal(counters with { RetiredBytes = counters.RetiredBytes + SlotBytes }, node.Counters.Arena);
         Assert.Equal(position, node.Position);
         Assert.Equal(revision, ExpectRecord(items, moved.Key, ChangedCode, data));
         ExpectIndex(items, moved.Key, ChangedCode, expected: true);
@@ -309,7 +313,93 @@ public sealed class OwnedValueRelocationTests
     }
 
     [Fact(Skip = NotImplemented)]
-    public async Task A_master_with_a_prepared_alias_transfer_cannot_redirect_the_source()
+    public async Task A_live_records_holder_is_not_a_leaf_even_when_its_region_and_parent_are_eligible()
+    {
+        const int RecordsPerRoot = 128;
+        const int RecordSlotBytes = 16_384;
+        const int SlotsPerRegion = Arena.MaxBlockSize / RecordSlotBytes;
+        var allocator = new CountingNativeAllocator();
+        await using var master = await ReplicationNodes.OpenMasterAsync(RecordsSchema, Inputs(allocator));
+        var items = master.Set("Item");
+        var rows = Enumerable.Repeat(new string('r', 64), RecordsPerRoot).ToList();
+        rows[^1] = new string('z', 97);
+        for (var key = 1L; key <= 2 * SlotsPerRegion; key++)
+        {
+            var row = new LatticeRecord(items.EntityType) { ["Id"] = key, ["Rows"] = rows };
+            Assert.True((await items.InsertAsync(row).AsTask().WaitAsync(Bound)).Changed);
+        }
+
+        var physical = new List<Location>();
+        master.ForEachLiveRoot((arena, layout, handle, root) =>
+        {
+            var payload = arena.Payload(root);
+            var id = layout.StoredFieldOf(layout.EntityType.Key).Offset;
+            var key = MemoryMarshal.Read<long>(payload[(id - BlockHeader.Size)..]);
+            var offset = layout.StoredFieldOf(layout.EntityType.GetField("Rows")).Offset;
+            var descriptor = ResidentDescriptor.Read(payload[(offset - BlockHeader.Size)..]);
+            Assert.Equal(DescriptorKindEnum.Records, descriptor.Kind);
+            Assert.Equal((uint)RecordsPerRoot, descriptor.Length);
+            var address = ValueBlocks.AddressOf(descriptor);
+            Assert.False(address.IsNull);
+            var header = arena.Header(address);
+            Assert.Equal(BlockKindEnum.Value, header.Kind);
+            Assert.Equal(handle, header.Root);
+            Assert.Equal(root, header.Parent);
+            Assert.Equal((uint)offset, header.DescriptorOffset);
+            Assert.Equal(RecordSlotBytes, Arena.BlockSizeFor((int)header.PayloadLength));
+
+            var element = layout.Structure.DescriptorElement(0)!;
+            var last = (RecordsPerRoot - 1) * element.Size + element.DescriptorOffset;
+            var nested = ResidentDescriptor.Read(arena.Payload(address)[last..]);
+            Assert.Equal(DescriptorKindEnum.Block, nested.Kind);
+            Assert.Equal(address, arena.Header(ValueBlocks.AddressOf(nested)).Parent);
+            physical.Add(new Location(key, arena, layout, handle, root, address));
+        });
+        var groups = physical.GroupBy(location => location.Value.Segment).OrderBy(group => group.Key)
+            .Select(group => group.OrderBy(location => location.Value.Offset).ToArray()).ToArray();
+        Assert.Equal(2, groups.Length);
+        Assert.All(groups, group =>
+        {
+            Assert.Equal(SlotsPerRegion, group.Length);
+            Assert.Equal((uint)RecordSlotBytes, group[1].Value.Offset - group[0].Value.Offset);
+        });
+        var source = groups[1][0];
+        await RemoveAsync(items, groups[1].Skip(1).Append(groups[0][^1]));
+        master.DrainRetired();
+
+        Assert.True(items.TryGet(source.Key, out var before, out var revision));
+        Assert.Equal(rows, before.Get<List<string>>("Rows"));
+        var body = Export(items, source);
+        var initial = master.Counters;
+        var position = master.Position;
+        var requests = allocator.Requests;
+        var headerBefore = source.Arena.Header(source.Value);
+        await ExpectEligibilityAsync(master, source.Value, true);
+        Assert.True(await RunAfterAdmissionAsync(master, parts =>
+        {
+            ref var entry = ref parts.Roots.Entry(source.Handle);
+            return entry.State == RootStateEnum.Live && entry.Root == source.Root;
+        }));
+
+        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+        Assert.Equal(initial, master.Counters);
+        Assert.Equal(position, master.Position);
+        Assert.Equal(requests, allocator.Requests);
+        Assert.Equal(headerBefore, source.Arena.Header(source.Value));
+        Assert.Equal(body, Export(items, source));
+        var offsetAfter = source.Layout.StoredFieldOf(items.EntityType.GetField("Rows")).Offset - BlockHeader.Size;
+        var active = ResidentDescriptor.Read(source.Arena.Payload(source.Root)[offsetAfter..]);
+        Assert.Equal(DescriptorKindEnum.Records, active.Kind);
+        Assert.Equal(source.Value.Value, active.Location);
+        Assert.True(items.TryGet(source.Key, out var after, out var revisionAfter));
+        Assert.Equal(revision, revisionAfter);
+        Assert.Equal(rows, after.Get<List<string>>("Rows"));
+    }
+
+    [Theory(Skip = NotImplemented)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_master_with_a_prepared_alias_transfer_cannot_redirect_an_eligible_source(bool targetsSource)
     {
         var persistence = new HeldPersistence(holding: false);
         await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(persistence: persistence));
@@ -319,13 +409,14 @@ public sealed class OwnedValueRelocationTests
         await RemoveAsync(items, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
         master.DrainRetired();
 
-        var before = stage.Source[0];
-        var data = DataOf(before.Key);
-        var revision = ExpectRecord(items, before.Key, OriginalCode, data);
+        var source = stage.Source[0];
+        var target = targetsSource ? source : stage.Destination[0];
+        var data = DataOf(target.Key);
+        var revision = ExpectRecord(items, target.Key, OriginalCode, data);
         persistence.Hold();
         try
         {
-            var update = items.CreateUpdate(before.Key);
+            var update = items.CreateUpdate(target.Key);
             update.Assign("Code", ChangedCode);
             var writing = update.CommitAsync(revision).AsTask();
             await persistence.NextAsync();
@@ -335,9 +426,10 @@ public sealed class OwnedValueRelocationTests
             var position = master.Position;
             Assert.True(initial.Arena.PreparedBytes > 0);
             Assert.True(await RunAfterAdmissionAsync(master, parts => parts.Coordinator.HoldsPreparedMemory()));
-            await ExpectEligibilityAsync(master, before.Value, true);
-            Assert.False(await MoveAfterAdmissionAsync(master, before.Handle, before.Value));
-            Assert.Equal(before, Find(master, before.Key));
+            await ExpectEligibilityAsync(master, source.Value, true);
+            Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+            Assert.Equal(source, Find(master, source.Key));
+            Assert.Equal(target, Find(master, target.Key));
             Assert.Equal(initial, master.Counters);
             Assert.Equal(position, master.Position);
 
@@ -349,16 +441,104 @@ public sealed class OwnedValueRelocationTests
             persistence.ReleaseAll();
         }
 
-        var current = Find(master, before.Key);
-        Assert.NotEqual(before.Root, current.Root);
-        Assert.Equal(before.Value, current.Value);
-        Assert.Equal(current.Root, current.Arena.Header(current.Value).Parent);
-        Assert.NotEqual(revision, ExpectRecord(items, current.Key, ChangedCode, data));
+        var changed = Find(master, target.Key);
+        Assert.NotEqual(target.Root, changed.Root);
+        Assert.Equal(target.Value, changed.Value);
+        Assert.Equal(changed.Root, changed.Arena.Header(changed.Value).Parent);
+        Assert.NotEqual(revision, ExpectRecord(items, changed.Key, ChangedCode, data));
+        var current = Find(master, source.Key);
+        Assert.Equal(source.Value, current.Value);
+        await ExpectEligibilityAsync(master, current.Value, true);
         Assert.True(await MoveAfterAdmissionAsync(master, current.Handle, current.Value));
+        Assert.Equal(stage.Destination[^1].Value, Find(master, source.Key).Value);
     }
 
     [Fact(Skip = NotImplemented)]
     public async Task A_full_retirement_queue_prevents_moving_an_eligible_owned_leaf()
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(allocator));
+        var items = master.Set("Item");
+        await InsertAsync(items);
+        var stage = StageOf(master);
+        await RemoveAsync(items, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
+        var source = stage.Source[0];
+
+        master.DrainRetired();
+        var beforeFill = await QueueStateAsync(master);
+        Assert.Empty(beforeFill.Items);
+        Assert.True(beforeFill.Capacity > 0);
+
+        var filler = master.Set("Filler");
+        for (var key = 1L; key <= beforeFill.Capacity; key++)
+        {
+            var record = new LatticeRecord(filler.EntityType) { ["Id"] = key };
+            Assert.True((await filler.InsertAsync(record).AsTask().WaitAsync(Bound)).Changed);
+        }
+
+        master.DrainRetired();
+        var empty = await QueueStateAsync(master);
+        Assert.Empty(empty.Items);
+        Assert.Equal(beforeFill.Capacity, empty.Capacity);
+        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, default));
+
+        var data = DataOf(source.Key);
+        var revision = ExpectRecord(items, source.Key, OriginalCode, data);
+        using var pause = new ViewerPause();
+        var reading = HoldView(items, source, revision, OriginalCode, data, pause);
+        await pause.EnteredAsync(reading);
+
+        // Each published deletion contributes one smaller root, in order.
+        // Its retirement cannot use a compatible source or destination slot.
+        for (var key = 1L; key <= empty.Capacity; key++)
+        {
+            Assert.True((await filler.DeleteAsync(key).AsTask().WaitAsync(Bound)).Changed);
+        }
+
+        var full = await QueueStateAsync(master);
+        Assert.Equal(empty.Capacity, full.Capacity);
+        Assert.Equal(full.Capacity, full.Items.Length);
+        Assert.All(full.Items, item => Assert.Equal(RetiredKindEnum.DeletedRoot, item.Kind));
+        Assert.Equal(full.Capacity, full.Items.Select(item => item.Address).Distinct().Count());
+        var initial = master.Counters;
+        Assert.Equal(full.Items.Sum(item => item.Bytes), initial.Arena.RetiredBytes);
+        var requests = allocator.Requests;
+        var returned = allocator.Returned;
+        var position = master.Position;
+        await ExpectEligibilityAsync(master, source.Value, true);
+
+        var attempt = await RunAfterAdmissionAsync(master, parts =>
+        {
+            var started = GC.GetAllocatedBytesForCurrentThread();
+            var moved = OwnedValueRelocation.TryMove(parts, source.Handle, source.Value);
+            return (Moved: moved, Allocated: GC.GetAllocatedBytesForCurrentThread() - started);
+        });
+        Assert.False(attempt.Moved);
+        Assert.Equal(0, attempt.Allocated);
+        var afterRefusal = await QueueStateAsync(master);
+        Assert.Equal(full.Capacity, afterRefusal.Capacity);
+        Assert.Equal(full.Items, afterRefusal.Items);
+        Assert.Equal(initial, master.Counters);
+        Assert.Equal(requests, allocator.Requests);
+        Assert.Equal(returned, allocator.Returned);
+        Assert.Equal(position, master.Position);
+        Assert.Equal(source, Find(master, source.Key));
+
+        pause.Release();
+        await reading.WaitAsync(Bound);
+        master.DrainRetired();
+        var drained = await QueueStateAsync(master);
+        Assert.Equal(full.Capacity, drained.Capacity);
+        Assert.Empty(drained.Items);
+        Assert.Equal(0, master.Counters.Arena.RetiredBytes);
+        await ExpectEligibilityAsync(master, source.Value, true);
+        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+        Assert.Equal(stage.Destination[^1].Value, Find(master, source.Key).Value);
+        Assert.Equal(revision, ExpectRecord(items, source.Key, OriginalCode, data));
+    }
+
+    [Fact(Skip = NotImplemented)]
+    public async Task An_entirely_reserved_retirement_queue_prevents_moving_an_eligible_owned_leaf()
     {
         var allocator = new CountingNativeAllocator();
         await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(allocator));
@@ -463,6 +643,11 @@ public sealed class OwnedValueRelocationTests
         var locations = new List<Location>();
         node.ForEachLiveRoot((arena, layout, handle, root) =>
         {
+            if (layout.EntityType.Name != ItemSchema.EntityTypeName)
+            {
+                return;
+            }
+
             var keyOffset = layout.StoredFieldOf(layout.EntityType.Key).Offset - BlockHeader.Size;
             var key = MemoryMarshal.Read<long>(arena.Payload(root)[keyOffset..]);
             var dataOffset = layout.StoredFieldOf(layout.EntityType.GetField("Data")).Offset;
@@ -494,6 +679,13 @@ public sealed class OwnedValueRelocationTests
 
     private static Task<RetiredItem[]> RetirementOfAsync(EngineDatabase node) =>
         RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired).ToArray());
+
+    private static Task<(RetiredItem[] Items, int Capacity)> QueueStateAsync(EngineDatabase node) =>
+        RunAfterAdmissionAsync(node, parts =>
+        {
+            var queue = RetiredItems(parts.Retired);
+            return (queue.ToArray(), queue.EnsureCapacity(0));
+        });
 
     private static async Task<T> RunAfterAdmissionAsync<T>(EngineDatabase node, Func<DatabaseParts, T> observe)
     {
