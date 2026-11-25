@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
@@ -38,14 +39,13 @@ public sealed class TextMetadataCapacityTests
         var staged = Places(encoding);
 
         // A successful prefix independently checks that this same working set grows the table.
-        long prefixFootprint;
+        long fresh;
         await using (var control = await EngineMaster.OpenAsync(TextSchema.Of(encoding), Inputs(new CountingNativeAllocator(), 17)))
         {
             await control.Set<TextSchema.Place>().InsertAsync(anchor);
-            var controlOriginal = control.Counters.TextTableBytes;
+            fresh = SettledMetadata(control);
             Assert.True((await Inserting(control, staged).CommitAsync().AsTask().WaitAsync(Bound)).Changed);
-            prefixFootprint = control.Counters.TextTableBytes;
-            Assert.True(prefixFootprint > controlOriginal);
+            Assert.True(control.Counters.TextTableBytes > fresh);
             Assert.Equal(Count + 1, control.Counters.TextEntries);
         }
 
@@ -71,8 +71,9 @@ public sealed class TextMetadataCapacityTests
         }
 
         Assert.Equal(childBefore, child.Counters.TextTableBytes);
-        var retained = MetadataAfterTurns(master, prefixFootprint);
-        Assert.True(retained < prefixFootprint, $"The text table still holds {retained} managed bytes after its owners were released.");
+        var retained = SettledMetadata(master);
+        Assert.True(retained == fresh,
+            $"After rollback the master retained {retained} managed bytes; the same anchor on a fresh master retained {fresh}.");
 
         var next = await Inserting(through, [staged[0]]).CommitAsync().AsTask().WaitAsync(Bound);
         Assert.Equal(initial.Position.Sequence + 1, next.Position.Sequence);
@@ -95,8 +96,9 @@ public sealed class TextMetadataCapacityTests
         var anchor = new TextSchema.Place { Id = AnchorId, Region = AnchorText, Label = "anchor" };
         await master.Set<TextSchema.Place>().InsertAsync(anchor);
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, Inputs(childAllocator, 23));
-        var originalMaster = master.Counters.TextTableBytes;
-        var originalChild = child.Counters.TextTableBytes;
+        // Each node still has its fresh table containing only the anchor.
+        var originalMaster = SettledMetadata(master);
+        var originalChild = SettledMetadata(child);
         var staged = Places(encoding);
         var written = await Inserting(master, staged).CommitAsync().AsTask().WaitAsync(Bound);
         await child.WaitForPositionAsync(written.Position);
@@ -141,6 +143,8 @@ public sealed class TextMetadataCapacityTests
                 tally.Deleted("Place", place.Id);
             }
 
+            DriveTurns(master, Count);
+            DriveTurns(child, Count);
             foreach (var node in new[] { master, child })
             {
                 Assert.All(staged, place => Assert.Null(node.Set<TextSchema.Place>().Get(place.Id)));
@@ -158,6 +162,8 @@ public sealed class TextMetadataCapacityTests
         }
 
         tally.ReadLeft();
+        var retainedMaster = SettledMetadata(master);
+        var retainedChild = SettledMetadata(child);
         ExpectTally(tally, master);
         ExpectTally(tally, child);
         Assert.True(masterAllocator.Returned > returnedMaster);
@@ -167,10 +173,8 @@ public sealed class TextMetadataCapacityTests
         Assert.Equal(target.Region, masterCopy.Get<string>("Region"));
         Assert.Equal(target.Region, childCopy.Get<string>("Region"));
 
-        var retainedMaster = MetadataAfterTurns(master, peakMaster);
-        var retainedChild = MetadataAfterTurns(child, peakChild);
-        Assert.True(retainedMaster < peakMaster && retainedChild < peakChild,
-            $"The text tables still hold {retainedMaster} and {retainedChild} managed bytes after the master and child owners were released.");
+        Assert.True(retainedMaster == originalMaster && retainedChild == originalChild,
+            $"After reclamation the master and child retained {retainedMaster} and {retainedChild} managed bytes; with only the fresh anchor they retained {originalMaster} and {originalChild}.");
     }
 
     private static void ExpectTally(TextTally tally, EngineDatabase node)
@@ -179,15 +183,35 @@ public sealed class TextMetadataCapacityTests
         tally.ExpectHeldBy(node);
     }
 
-    private static long MetadataAfterTurns(EngineDatabase node, long peak)
+    private static long SettledMetadata(EngineDatabase node)
     {
-        // The outer bound protects the test from a worker with no progress on this finite fixture.
-        for (var turn = 0; turn < Count * Count && node.Counters.TextTableBytes >= peak; turn++)
-        {
-            Assert.True(node.TryRunMaintenanceTurn());
-        }
+        // Observe two cuts after complete work allowances for this finite fixture.
+        // An unchanged but inflated table still fails against the fresh control.
+        DriveTurns(node, Count * Count);
+        var retained = node.Counters.TextTableBytes;
+        DriveTurns(node, Count * Count);
+        Assert.Equal(retained, node.Counters.TextTableBytes);
+        return retained;
+    }
 
-        return node.Counters.TextTableBytes;
+    private static void DriveTurns(EngineDatabase node, int turns)
+    {
+        var deadline = Stopwatch.StartNew();
+        var wait = new SpinWait();
+        var admitted = 0;
+        while (admitted < turns)
+        {
+            Assert.True(deadline.Elapsed < Bound, "The engine did not admit the required maintenance turns.");
+            if (node.TryRunMaintenanceTurn())
+            {
+                admitted++;
+                wait.Reset();
+            }
+            else
+            {
+                wait.SpinOnce();
+            }
+        }
     }
 
     private static ILatticeWriteBatch Inserting(EngineDatabase node, IEnumerable<TextSchema.Place> places)
