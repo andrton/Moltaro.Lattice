@@ -452,7 +452,7 @@ a child that would refuse a valid swap.
 | --- | --- | --- | --- | --- | --- |
 | K2 | The write path of a type with several indexes after S17: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`, `TopUpIndexes`), `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `LeftAfterMove`, `Trim`), `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `AfterPublication`) | S17 costs a write that reserves in a secondary index. By listing, an insert into one Int64 index makes 25 + 2n calls at the head where it made 21 + n at b9a9074, n being the nodes refilled, the same on x64 and on ARM64 call for call. By ratio, the head against b9a9074 on `index-writes` down to 0.910; the ratios of part 1, of the bound by levels with what it bought, and of the write path, which bought nothing this method can see, are in the table of falls of the record of the start of the machine before the close of S17 in `epic-1-core.md`. The second line: part 2's insert that grows the primary index, 2 to 4 % by the start of part 2, owed, since no series of the last start grew the primary index; the next start carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated. The third line: part 3's `unique-writes` line, 0.953 against f6d9cf3, not explained by its listing, run again in the next start with the machine's listings (the same record) | Not known. The question to the architect's review after S17: what of the cost per index and per reservation can go without giving up the bound by levels or the check on the final state | The bound by levels: a batch whose take fits is not refused for its bound, and a refused or withdrawn reservation gives back exactly what it took; the check of unique values on the state a publication leaves; every guarantee of S17; no added load on a read | closed on 24 November 2026, after the start of the machine for S18 (its record in the [epic](epic-1-core.md)): the first line by `kd`, taken as a change of the light track of its own (four lines of `index-writes` 1.017 to 1.060, none falling), and applied as recorded below; `kbc` refused (3.1 to 5.4 % on six lines); the re-inlining of `NodePool.AfterPublication` not needed; the second line closed, part 2's growing insert not standing with the trees rotated; the third line closed, part 3's line not reproducing rotated. The reported fall while the primary index grows was carried as K3 |
 | K3 | The writer that inserts while the primary index grows, `read-by-key-threads` | 1.3 to 2.9 % slower at 6102bbe than at ed81c76 on four lines, called at three or four of five rounds, never at five; the same against 3e24ce4, so it arrives after part 2 of S17: in part 3 of S17, S17R or S18. No target is missed (the targets of writes G3 and G6) | The workstation listings at ed81c76 and 6102bbe and the rotated ARM64 run across 3e24ce4, 6b968b3, 8dc0e16, 6a4fb98, 6f50194 and 6102bbe | Every guarantee of S17 and S18 | closed in the ARM64 follow-up; the earlier fall did not repeat in five rounds across six trees |
-| K4 | A replace that keeps all values, `full-form-users` | The ordinary and middle forms change ByLogin uniqueness and Dictionary storage of Region together. The combined cost repeated on ARM64. | Compare the four combinations on one release tree using the existing unchanged-replace series. | The check of unique values, Dictionary sharing and identical users and index shapes. | open; [measurement and accepting queue](#k4-unchanged-replace) |
+| K4 | A replace that keeps all values, `full-form-users` | The ordinary and middle forms change ByLogin uniqueness and Dictionary storage of Region together. The combined cost repeated on ARM64. | Compare the four combinations on one release tree using the existing unchanged-replace series. | The check of unique values, Dictionary sharing and identical users and index shapes. | closed; [ARM64 factorial](#k4-unchanged-replace-factorial) |
 
 **K2, `kd`** (24 November 2026, light track, coordinator 9). The measured patch was
 carried unchanged to the current engine as `82b7e48`. It skips divisions in `Need`,
@@ -684,9 +684,9 @@ thresholds in the S20 Acceptance stay in force.
 
 | # | Place | What is wrong | The simpler form | What it must keep | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 | `src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs` (`MostCompactEntries`) | The [S19 lookup results](epic-1-core.md#s19-arm64-results) compare compact at 8 entries and hashed at 9. Shape and count change together. The reported clock frequency gives a nominal 1 ns tick, and many percentiles have a visible 40 ns step. The first small hit rows have long tails of unknown cause. | Compare both forms at the same count, key type and hit or miss pattern for 4, 8, 9 and 16 entries. Warm each form, time a batch of probes together, and record native bytes and creation cost with the read results. Put the figure beside the constant when it supports a decision. | The S20 transitions remain compact to hashed from 8 to 9 and hashed to compact from 5 to 4. A new threshold needs a separate decision. | x64 preflight in S20, measure in the common S21 ARM64 queue on the same platform |
-| R1, write-lock series | S19 `map-write-lock` | At 100,000 entries the admission interval starts at about 41 ms and ends at 17 to 19 ms in each run, with lookup around 11 ms. All three runs use the same size order. The run does not establish steady performance by size or identify which work caused the change. | Use a separate series with each size warmed and size order rotated. Keep lookup time beside admission and whole-write time, and keep raw rounds in order. | Equivalent inputs, placement and instrumentation across sizes. Establish a cause before attributing the change. | x64 preflight in S20, measure as its own series in the common S21 ARM64 queue |
-| R2 | `src/Moltaro.Lattice.Engine/Storage/Roots/PackedMap.cs` | A packed Map boxes its key and value in the owned copy and whole write paths. The S19 `79,112 B` figure is the entire Int64 Map owned read plus lookup at 1,000 entries. The protected lookup allocates zero. The whole replacement figure includes validation and placement as well as boxing. | Use the existing type-bound approach of `PackedSet` for the fixed pair where it fits. Measure the same owned read plus lookup and whole write before and after. | Independent owned copies with declared types, key spelling and comparison, the existing checks of null, duplicate and bound, and no reflection on the call path. Map enumeration order is unspecified. | done in [S20R](epic-1-core.md#s20r--refactor-packed-map-scalar-pairs). Measure on ARM64 in the common S21 queue |
+| R1 | `src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs` (`MostCompactEntries`) | The [S19 lookup results](epic-1-core.md#s19-arm64-results) compare compact at 8 entries and hashed at 9. Shape and count change together. The reported clock frequency gives a nominal 1 ns tick, and many percentiles have a visible 40 ns step. The first small hit rows have long tails of unknown cause. | Compare both forms at the same count, key type and hit or miss pattern for 4, 8, 9 and 16 entries. Warm each form, time a batch of probes together, and record native bytes and creation cost with the read results. Put the figure beside the constant when it supports a decision. | The S20 transitions remain compact to hashed from 8 to 9 and hashed to compact from 5 to 4. A new threshold needs a separate decision. | [measured with S21](#r1-matched-lookup-and-rotated-write-intervals), thresholds kept |
+| R1, write-lock series | S19 `map-write-lock` | At 100,000 entries the admission interval starts at about 41 ms and ends at 17 to 19 ms in each run, with lookup around 11 ms. All three runs use the same size order. The run does not establish steady performance by size or identify which work caused the change. | Use a separate series with each size warmed and size order rotated. Keep lookup time beside admission and whole-write time, and keep raw rounds in order. | Equivalent inputs, placement and instrumentation across sizes. Establish a cause before attributing the change. | [measured with S21](#r1-matched-lookup-and-rotated-write-intervals), order effects remain |
+| R2 | `src/Moltaro.Lattice.Engine/Storage/Roots/PackedMap.cs` | A packed Map boxes its key and value in the owned copy and whole write paths. The S19 `79,112 B` figure is the entire Int64 Map owned read plus lookup at 1,000 entries. The protected lookup allocates zero. The whole replacement figure includes validation and placement as well as boxing. | Use the existing type-bound approach of `PackedSet` for the fixed pair where it fits. Measure the same owned read plus lookup and whole write before and after. | Independent owned copies with declared types, key spelling and comparison, the existing checks of null, duplicate and bound, and no reflection on the call path. Map enumeration order is unspecified. | done in [S20R](epic-1-core.md#s20r--refactor-packed-map-scalar-pairs). [ARM64 measured with S21](#r2-fixed-scalar-pair-comparison) |
 | R3 | `src/Moltaro.Lattice.Engine/Storage/CollectionWriteTimings.cs` and the `LATTICE_COLLECTION_TIMINGS` sections in `WriteCoordinator.cs`, `NestedValues.cs` and `CollectionLookup.cs` | The default build excludes the cells. The source still places measurement code in the write path. The comment describes the special synchronous build that reads the cells on its calling thread. | After the affected-head control, remove the conditional product insertions and the obsolete scenario wiring from the current build in one commit. Exact lock timing needed by a later study belongs in its isolated measurement build. | The historical `3066ea63` build and archive remain reproducible. The default build has no timing cells or calls. | done in S20: affected-head control at `0f988e6`, removed in `c2aa7c5` |
 
 Both R1 preflights passed in Windows Git Bash in S20, on `3066ea63` with the isolated
@@ -698,6 +698,99 @@ outside Git. The ARM64 estimates are 30 to 65 seconds for lookup and 50 to 80 se
 for write lock, plus builds. The S21 queue reserves two minutes for each. It uses the
 predeclared paired and stationarity checks. The x64 results verify the recipe. Access
 to the rental follows the existing checked-queue and owner activation procedure.
+
+## S21 ARM64 follow-up
+
+The five queue rows ran on the same ARM64 platform. The repaired R1 and K4
+kits kept the original sources by Git identity after line-ending normalization
+and used the same patches and rotation plans as the x64 preflight. See the
+[run record](epic-1-core.md#arm64-results). The independent measurement review
+checked the raw and paired results.
+
+### R1 matched lookup and rotated write intervals
+
+The lookup compared the two shapes at equal counts in eight balanced rounds.
+The table reports median ratios of hashed to compact time, and the native
+retention of each shape above the same empty Map. Creation times include the
+whole replacement of a prebuilt input.
+
+| Entries | Key | Hit time | Miss time | Creation time | Compact / hashed bytes |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 4 | Int64 | 2.425 | 1.357 | 2.564 | 64 / 192 |
+| 4 | Text | 0.847 | 0.322 | 1.269 | 176 / 272 |
+| 8 | Int64 | 0.755 | 0.228 | 1.752 | 160 / 304 |
+| 8 | Text | 0.483 | 0.145 | 0.742 | 320 / 464 |
+| 9 | Int64 | 1.491 | 0.482 | 0.991 | 176 / 336 |
+| 9 | Text | 0.462 | 0.159 | 1.143 | 368 / 528 |
+| 16 | Int64 | 0.574 | 0.132 | 0.759 | 288 / 528 |
+| 16 | Text | 0.579 | 0.087 | 0.676 | 608 / 848 |
+
+All probes had zero managed allocation. At eight entries the Int64 hit pairs
+spanned 0.473 to 1.654 and Text hit pairs 0.451 to 2.123. Both favored the hashed
+shape in six of eight pairs, with the direction changing by count position.
+Several miss rows favored the hashed shape in every pair. Every matched hashed
+shape retained more bytes. The order sensitivity and the different hit, miss
+and creation costs give no single threshold change. The S20 transitions stay
+8 to 9 and 5 to 4.
+
+The write interval series warmed each size for 12 replacements before its
+seven samples and rotated every size into each order position twice. The
+median of the six round medians at 100,000 entries was 26.068 ms for the whole
+call, 17.586 ms for admission and 10.962 ms for lookup. Late versus early
+admission ratios inside the measured windows ranged from 0.933 to 1.028.
+The historical large drop did not recur within those warmed windows. The
+first warm replacement still took 84.555 to 89.389 ms of admission in three
+orders. At 1,000 entries the two first-position whole-call medians were
+1.497 and 1.481 ms, and the other four were 0.266 to 0.294 ms. Those order
+effects prevent a steady comparison across sizes. The series establishes
+where the time changed and leaves the cause open.
+
+### R2 fixed scalar pair comparison
+
+The six rotated rounds compare `6f10cbd8`, its independent gauge and
+`61e7c438`. All ten Int64 owned lookup and whole replacement rows improved
+under the predeclared paired rule. The other 21 rows stayed inside their gauge,
+including all Text and protected lookup controls. Digests and the native live
+and slack bytes matched. Protected lookup allocated zero. The diagnostic
+listings show the typed `PackedMap<long, long>` reads and writes at the head.
+
+| Int64 row | Base median | Head median | Paired time ratio | Base / head managed bytes |
+| --- | ---: | ---: | ---: | ---: |
+| Owned Get plus hit, 1,000 entries | 47.658 µs | 11.331 µs | 0.243 | 79,112 / 31,112 |
+| Owned Get plus miss, 1,000 entries | 48.683 µs | 11.269 µs | 0.233 | 79,112 / 31,112 |
+| Whole Replace, 1,000 entries | 217.030 µs | 148.863 µs | 0.702 | 198,584 / 150,520 |
+| Whole Replace, 100,000 entries | 28.383 ms | 21.293 ms | 0.753 | about 18,065,435 / 13,265,371 |
+
+These are figures for the complete operations. Whole Replace includes validation
+and placement, and the owned read includes the dictionary and lookup. The
+ARM64 comparison confirms the allocation reduction and closes the measurement
+owed by S20R.
+
+### K4 unchanged Replace factorial
+
+The four schema variants ran from `7c6e09af` with the same fixture and balanced
+orders. The table gives the paired median ratios for enabling unique ByLogin
+(U) and Dictionary Region (D) while the other switch is off (0) or on (1).
+
+| API | Percentile | U with D0 | U with D1 | D with U0 | D with U1 | Interaction |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Class | p50 | 1.059 | 1.039 | 1.118 | 1.081 | 0.995 |
+| By name | p50 | 1.029 | 1.054 | 1.088 | 1.114 | 1.024 |
+| Class | p95 | 1.044 | 1.041 | 1.065 | 1.051 | 0.988 |
+| By name | p95 | 1.011 | 1.053 | 1.069 | 1.114 | 1.041 |
+| Class | p99 | 1.203 | 1.975 | 1.478 | 2.323 | 1.464 |
+| By name | p99 | 1.034 | 2.349 | 1.324 | 2.988 | 2.183 |
+
+The Dictionary p50 ratios exceeded one in all eight pairs for each condition.
+The p99 interaction ranged from 0.536 to 2.113 through the class and 0.813
+to 2.705 by name. That spread leaves the magnitude of a tail interaction
+uncertain. The unchanged-key path skips the unique owner lookup, so the
+ratios apply to the enabled schema forms. The K4 measurement is closed.
+
+The original concurrent scalar writer and reader line remains open. The S21
+listings cover the S21 comparison. The historical scalar line still needs its
+hot ownership call identified under its own workload in the next suitable
+queue.
 
 ## Architect's review after S20 and S20I, 25 November 2026
 

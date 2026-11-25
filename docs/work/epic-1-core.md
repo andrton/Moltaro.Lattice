@@ -1309,8 +1309,8 @@ Why this order:
 | S19 | Maps and Sets | Full, critical | Done on 24 November 2026, in three parts |
 | S20 | Partial updates | Full, critical | Done on 24 November 2026, Coordinator 11 |
 | S20I | Investigate the Debug timeouts | Investigation | Done on 25 November 2026. Historical causes remain open |
-| S20R | Packed Map scalar pairs in owned reads and whole writes | Refactoring | Done on 25 November 2026. ARM64 measurement queued with S21 |
-| S21 | Protected views by name | Full | Not started |
+| S20R | Packed Map scalar pairs in owned reads and whole writes | Refactoring | Done on 25 November 2026. [ARM64 measured with S21](refactoring.md#r2-fixed-scalar-pair-comparison) |
+| S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
 | S22 | Typed protected views | Full | Not started |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
@@ -10529,6 +10529,59 @@ This is the observed tradeoff for a full scalar sum through the by-name view.
 The independent measurement review verified the exact source archives,
 rotations, calculations and ordinary caller listings. The checked ARM64
 inputs and the raw Windows outputs are kept outside Git.
+
+The 100,000-element view took 7.33 to 11.96 times the owned time across the
+six pairs. The ordinary x64 Tier 1 callback lists two arena payload accesses
+for a directory and its chunk, then an indirect scalar read on the per-element
+path. The on-stack replacement listing inlines part of the entry and null
+checks behind type guards. Int64 decoding itself is one eight-byte load.
+The packed owned copy opens the directory before its chunk loop. Its
+65,504-byte chunks are a multiple of the Int64 width, so this List has no
+split scalar. The listings suggest a cost for resolving and reading each
+entry individually. They do not isolate the contribution of that cost.
+
+##### ARM64 results
+
+The queue ran on Ubuntu 24.04.5 ARM64 with 16 logical processors, SDK 10.0.404,
+runtime 10.0.15 and Python 3.12.3. The initial CPU load check showed all processors
+idle. The owner was also using the machine for remote-access work. Two checks
+before the later series showed 99 and 100 percent idle. The measured S21 parent
+and head were the same revisions as on Windows. The 20-worker rows oversubscribe
+this machine and are reported as such.
+
+All 16 ordinary read-by-key timing measures fell inside the predeclared gauge.
+The total-time ratios for class alone, class beside a writer, name alone and
+name beside a writer were 0.964, 0.977, 0.940 and 0.963. The fully optimized
+ordinary callers kept their sizes, instruction shape and calls. The four
+changed instructions load a field from a different offset. The generated
+List-summing callback was captured in the Tier 1 and on-stack replacement
+listings.
+
+| ARM64 row | View or held | Owned or unheld | Paired median ratio |
+| --- | ---: | ---: | ---: |
+| Entry and exit, 1 thread | 2.471 M/s, 0.00 B | 1.220 M/s, 360 B | 2.013 by rate |
+| Entry and exit, 20 threads | 32.563 M/s, 0.00 B | 10.584 M/s, 360 B | 3.055 by rate |
+| Replace p50 | 5.12 µs, 160 B | 5.10 µs, 160 B | 1.008 by time |
+| Replace p99 | 8.60 µs | 8.90 µs | 1.008 by time |
+| List sum, 1,000 Int64 | 60.15 µs, 0.00 B | 12.56 µs, 8,152 B | 4.854 by time |
+| List sum, 100,000 Int64 | 6.010 ms, 0.00 B | 0.679 ms, about 800,286 B | 8.887 by time |
+
+Both entry comparisons favored views in all six pairs. A held viewer allowed
+every measured Replace to complete. The paired results did not establish a
+Replace cost difference. The List sums were correct and the allocation and
+traversal tradeoff repeated in all six pairs on each size. A view avoids materializing the owned collection when the caller needs only
+the sum.
+
+The S21 timed owned and view processes took 216.53 seconds. The first launch
+then stopped when the LF measurement patches met CRLF source files from the
+Windows R1 archive. The original outputs were retained. The repaired R1 and
+K4 kits changed only line endings of the existing files those patches touch.
+The preimage and postimage Git blob IDs matched, and the unchanged patches
+passed a strict application check. The S21 results were kept. The R2
+continuation and the repaired R1 and K4 runs all completed successfully.
+The full window was 17 minutes and 1 second from launch to the last result.
+The raw evidence, separate original and continuation archives, and repair
+provenance are kept outside Git. [R1, R2 and K4 results](refactoring.md#s21-arm64-follow-up)
 
 #### S22 · Typed protected views
 
