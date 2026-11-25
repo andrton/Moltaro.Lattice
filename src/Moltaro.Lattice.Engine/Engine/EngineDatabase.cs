@@ -785,7 +785,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         {
             var roots = new RootTable();
             var retired = new RetiredMemory(_epochs, arena, roots);
-            var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime);
+            var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime, _epochs);
             var delivery = new DeliveryTail();
             var tables = new EntityTables([.. schema.EntityTypes.Select(entityType => EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed))]);
             var changes = new ChangePublisher(arena, roots, retired, clock, tables);

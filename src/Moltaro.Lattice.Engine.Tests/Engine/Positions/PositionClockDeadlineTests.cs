@@ -7,13 +7,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 // Publication, notification and deadline delivery are separate events on the pending path.
 public sealed class PositionClockDeadlineTests
 {
-    internal const string DeadlineAccounting = "Pending position waits do not yet settle against their publication deadline and readiness.";
-
     private static readonly TimeSpan Second = TimeSpan.FromSeconds(1);
 
     [Theory]
     [InlineData(false)]
-    [InlineData(true, Skip = DeadlineAccounting)]
+    [InlineData(true)]
     public async Task A_position_first_published_after_the_deadline_does_not_satisfy_a_pending_wait(bool wakeFirst)
     {
         var time = new PositionWaitTime();
@@ -41,7 +39,7 @@ public sealed class PositionClockDeadlineTests
         clock.Wake();
     }
 
-    [Fact(Skip = DeadlineAccounting)]
+    [Fact]
     public async Task Waiters_of_one_target_use_the_first_publication_and_each_own_deadline_even_after_a_later_publication()
     {
         var time = new PositionWaitTime();

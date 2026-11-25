@@ -64,12 +64,13 @@ namespace Moltaro.Lattice.Engine.Writes;
 // class: the queue of the prepared writes, the group in the persistence step, the chains, the list of
 // the writes admitted that waited, the deferred list, the write being resolved, the admission number,
 // whether the database faulted, and the counters. It is held for work in memory only: no I/O, no await,
-// no code of the application, no wait for anything but the lock itself. The persistence step is called
-// under it and only takes the group (IPersistence). It is the only lock of the writes, and a thread that
-// holds it takes no other lock of the database: what a hold decided for other threads — the fault of the
-// database, the outcomes of their writes, the end of a resolution — is carried out after the lock is
-// released (CarryOutDecisions). A read takes none. A write holds the lock while its values are copied
-// into the arena, so one write of a large entity holds every other write back for as long as its copy
+// no code of the application. The persistence step is called under it and only takes the group
+// (IPersistence). Publication takes the position clock's gate inside the lock of the writes.
+// The clock never takes the lock of the writes. What a hold decided for other threads — the fault
+// of the database, the outcomes of their writes, the end of a resolution, the position notification —
+// is carried out after the lock is released (CarryOutDecisions). A read takes no write lock. A write
+// holds the lock while its values are copied into the arena, so one write of a large entity holds
+// every other write back for as long as its copy
 // takes; reads are not held back. The lock is not fair: a caller that releases it and takes it again at
 // once may pass a caller that waited. What is kept against the unfair hand-over is narrow: a write
 // larger than CommitGroup.MaxEncodedSize, the bound above which a write forms a group alone, gives its

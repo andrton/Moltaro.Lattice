@@ -1,54 +1,31 @@
+using Moltaro.Lattice.Engine.Protection;
+
 namespace Moltaro.Lattice.Engine.Positions;
 
-// The positions of one open database: its history and the sequence of the last published position
-// (brief of S06, "Position and revision"). A MemoryOnly database has a new random non-zero history
-// at each open, so that no position of an earlier run is ever taken for one of this run. The
-// sequence is 0 before the first write and grows by 1 with each published write, also with one that
-// changed nothing (the owner's answer to Q39).
+// Tracks the history and coherently published position of one open database. The sequence is on
+// its own cache lines and anyone can read it. A wait that finds its position already published
+// checks its history and lifecycle without registering, taking a lock or sampling the time.
 //
-// A master has applied every position it gave out, so a wait for one completes at once. A position
-// of its history with a later sequence, which only a caller can make up, is waited for until writes
-// reach it, within the timeout of the wait; a close ends every wait. A child waits until it has applied
-// the position; once it has lost its master (Lose), no later position can arrive, and a wait for one ends
-// at once (brief of Epic 1, sprint S12, settled by the planner with the tests). A position reached is
-// reached also after the loss (decided at the review of S12, point 4): a wait reads whether the master is
-// lost before it reads the sequence, and the follower publishes what it applied before it loses its
-// master, so a wait that reads the loss reads every sequence published before it.
+// Pending waiters of one sequence share a target and its signal. Publish and registration take the
+// same gate. A registration either finds the sequence already published or is visible to the
+// publication that first reaches it. Publish moves reached targets out of the ordered pending set
+// and records when it reached them. A lagging notification does not change that time, and each
+// waiter compares it against its own budget (docs/decisions/session-consistency.md).
 //
-// One thread at a time publishes, the one that holds the lock of the writes and publishes a group of
-// writes (Writes.WriteExecutor); any thread reads the sequence. A wait for a position already published
-// reads the sequence and nothing else.
+// The gate protects the targets, waiter counts and the list still waiting for notification. The
+// publishing thread takes it inside the lock of the writes. Nothing inside the gate takes the lock
+// of the writes. Wake detaches the list; no signal is completed by a thread holding either lock.
 //
-// The waiters (brief of S12, the planner's decision after the study, point 14, in the form of the waiters
-// of PostgreSQL's src/backend/access/transam/xlogwait.c, commit 11591f2, taken as the idea, no code). A
-// wait for a later position registers its target, the sequence it waits for, and waits on the signal of
-// that target, which every waiter of the target shares; the targets are kept in their order, and the
-// lowest of them is published (_lowest). After a publication Wake reads the lowest target, and when the
-// sequence published has not reached it, which is the case whenever no waiter is reached, that read is all
-// it does; otherwise it takes every target reached out of the order under the lock and completes their
-// signals after it. So a publication wakes only the waiters it reached, each once, and a waiter that is not
-// reached costs it nothing. The publication that measured the broadcast this replaces: with 10,000 waiters
-// on a child its master wrote 25 to 40% less and the process allocated about a KiB per publication
-// (ClockWaitersScenario, 18 November 2026). A waiter that ends without being reached, by its timeout or
-// its token, leaves its target, and the last waiter of a target takes the target out of the order.
-//
-// Why no wake-up is lost (the pairing of xlogwait.c). A waiter registers its target and publishes the
-// lowest target with a full fence (Interlocked.Exchange) before it reads the sequence; a publication
-// stores the sequence, and Wake issues a full fence before it reads the lowest target. Of the two reads,
-// at least one sees the other side's store: either the waiter sees the sequence and does not wait, or
-// Wake sees its target and completes it. Volatile stores and loads alone would let a store pass a later
-// load and lose the wake-up.
-//
-// A close, a fault and the loss of the master complete every target, and each waiter then reads why it
-// was woken. The lock guards the order of the targets and their waiters; it is taken alone, by a waiter as
-// it comes and leaves and by Wake when a waiter is reached, for work in memory, and no signal is completed
-// under it.
+// Close, fault and loss of the master also notify waiters. A wait reads loss before looking up
+// its position or reach time because the follower publishes what it applied before it marks the
+// loss. A timely publication wins over loss. A fault mark is read after the publication evidence so
+// that a mark already visible before the wait's success decision refuses the wait.
 internal sealed class PositionClock
 {
     // On lines of its own (SequenceLine).
     private SequenceLine _sequence;
 
-    // The lowest target a waiter waits for; ulong.MaxValue while no one waits.
+    // The lowest pending target; ulong.MaxValue when none is pending.
     private ulong _lowest = ulong.MaxValue;
 
     private readonly Lock _lock = new();
@@ -58,14 +35,17 @@ internal sealed class PositionClock
 
     private readonly Dictionary<ulong, Target> _byTarget = [];
 
+    private Target? _ready;
+
     private volatile bool _closed;
 
     // Set when a child lost its master: a wait in progress, and every later one that is not complete at
     // once, ends in SynchronizationTimeout.
     private volatile bool _lost;
 
-    // Set when a publication failed and the database faulted: a wait in progress, and every later one
-    // that is not complete at once, fails with Unavailable.
+    // The published fault mark of an instance; a standalone clock owns its own mark.
+    private readonly ReadEpochs? _epochs;
+
     private volatile bool _faulted;
 
     // The database, which a wait after the close names as disposed.
@@ -73,11 +53,12 @@ internal sealed class PositionClock
 
     private readonly TimeProvider _time;
 
-    public PositionClock(ulong history, object owner, TimeProvider? time = null)
+    public PositionClock(ulong history, object owner, TimeProvider? time = null, ReadEpochs? epochs = null)
     {
         History = history;
         _owner = owner;
         _time = time ?? TimeProvider.System;
+        _epochs = epochs;
     }
 
     public ulong History { get; }
@@ -108,34 +89,55 @@ internal sealed class PositionClock
         }
     }
 
-    // Publishes a sequence. The write calls it while it holds the gates under which its change is
-    // seen, so that a read that sees the change reads this sequence or a later one; it wakes the
-    // waiters with Wake after it has released them.
-    public void Publish(ulong sequence) => Volatile.Write(ref _sequence.Value, sequence);
+    // Under the lock of the writes: publishes the coherent sequence and records first reach for the
+    // targets it covers. Wake notifies their waiters after the publishing thread leaves the lock.
+    public void Publish(ulong sequence)
+    {
+        lock (_lock)
+        {
+            var reachesTarget = _targets.Count > 0 && _lowest <= sequence;
+            Volatile.Write(ref _sequence.Value, sequence);
 
-    // After a publication: completes the waits the published sequence reached (see the class). When none
-    // is reached it reads the lowest target, after a full fence, and returns.
+            if (!reachesTarget)
+            {
+                return;
+            }
+
+            var reachedAt = _time.GetTimestamp();
+            var ready = _ready;
+
+            while (_targets.Count > 0 && _targets.Min <= sequence)
+            {
+                var target = Take(_targets.Min);
+                target.ReachedAt = reachedAt;
+                target.Next = ready;
+
+                if (ready is not null)
+                {
+                    ready.Previous = target;
+                }
+
+                ready = target;
+            }
+
+            Volatile.Write(ref _ready, ready);
+            UpdateLowest();
+        }
+    }
+
+    // After the publication: notifies the reached targets, outside the lock of the writes and the gate.
     public void Wake()
     {
-        Interlocked.MemoryBarrier();
-
-        var sequence = Sequence;
-
-        if (Volatile.Read(ref _lowest) > sequence)
+        if (Volatile.Read(ref _ready) is null)
         {
             return;
         }
 
-        Target? reached = null;
+        Target? reached;
 
         lock (_lock)
         {
-            while (_targets.Count > 0 && _targets.Min <= sequence)
-            {
-                reached = Take(_targets.Min, reached);
-            }
-
-            PublishLowest();
+            reached = DetachReady();
         }
 
         Complete(reached);
@@ -157,12 +159,15 @@ internal sealed class PositionClock
         WakeAll();
     }
 
-    // Ends every wait after a failed publication, which faulted the database: no later position will
-    // be published, so a wait in progress fails with Unavailable, as does a later one that is not
-    // complete at once.
+    // After the fault mark: notifies the waiters after a failed publication. They refuse the wait
+    // with Unavailable even if their target was reached before the fault.
     public void Fault()
     {
-        _faulted = true;
+        if (_epochs is null)
+        {
+            _faulted = true;
+        }
+
         WakeAll();
     }
 
@@ -182,8 +187,10 @@ internal sealed class PositionClock
 
         // Before the sequence: a reached position wins over the loss (see the class).
         var lost = _lost;
+        var sequence = Sequence;
+        ThrowIfFaulted();
 
-        if (position.Sequence <= Sequence)
+        if (position.Sequence <= sequence)
         {
             return ValueTask.CompletedTask;
         }
@@ -230,6 +237,27 @@ internal sealed class PositionClock
     private static LatticeException Lost(LatticePosition position) =>
         new(LatticeErrorEnum.SynchronizationTimeout, $"This child has lost its master and cannot reach position {position}.");
 
+    private static LatticeException TimedOut(LatticePosition position, TimeSpan timeout) =>
+        new(LatticeErrorEnum.SynchronizationTimeout, $"This node did not reach position {position} within {timeout}.");
+
+    private void ThrowIfFaulted()
+    {
+        if (_epochs?.IsFaulted ?? _faulted)
+        {
+            throw ReadEpochs.FaultedRefusal();
+        }
+    }
+
+    private void ThrowIfWaitEnded()
+    {
+        if (_closed)
+        {
+            throw new LatticeException(LatticeErrorEnum.Unavailable, "The database was closed while the operation was waiting for a position.");
+        }
+
+        ThrowIfFaulted();
+    }
+
     // Completes the signals of the targets taken, outside the lock.
     private static void Complete(Target? reached)
     {
@@ -244,29 +272,39 @@ internal sealed class PositionClock
         var started = _time.GetTimestamp();
         var target = Enter(position.Sequence);
 
+        if (target is null)
+        {
+            ThrowIfWaitEnded();
+            return;
+        }
+
         try
         {
-            // Registered before the sequence is read (see the class). The signal completes when a
-            // publication reaches the target, or when a close, a fault or the loss of the master ends
-            // every wait; each of these the next pass reads.
             while (true)
             {
-                if (_closed)
-                {
-                    throw new LatticeException(LatticeErrorEnum.Unavailable, "The database was closed while the operation was waiting for a position.");
-                }
-
-                if (_faulted)
-                {
-                    throw new LatticeException(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and no later position will be published.");
-                }
-
-                // Before the sequence: a reached position wins over the loss (see the class).
                 var lost = _lost;
+                long? reachedAt;
+                TimeSpan remaining;
 
-                if (position.Sequence <= Sequence)
+                // Reaching the target and observing an expired budget are ordered by the same gate.
+                lock (_lock)
                 {
-                    return;
+                    reachedAt = target.ReachedAt;
+                    remaining = reachedAt.HasValue ? TimeSpan.Zero : timeout - _time.GetElapsedTime(started);
+                }
+
+                ThrowIfWaitEnded();
+
+                if (reachedAt is { } stamp)
+                {
+                    // GetElapsedTime rounds to TimeSpan ticks. Compare in timestamp units so the
+                    // last timestamp at or before the deadline and the first after it stay distinct.
+                    if ((Int128)(stamp - started) * TimeSpan.TicksPerSecond <= (Int128)timeout.Ticks * _time.TimestampFrequency)
+                    {
+                        return;
+                    }
+
+                    throw TimedOut(position, timeout);
                 }
 
                 if (lost)
@@ -274,20 +312,22 @@ internal sealed class PositionClock
                     throw Lost(position);
                 }
 
-                var remaining = timeout - _time.GetElapsedTime(started);
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw TimedOut(position, timeout);
+                }
 
+                // Task.WaitAsync truncates the delay to milliseconds. Round up for delivery only;
+                // the monotonic budget still decides which publications satisfy the wait.
+                var timerDelay = TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds));
                 try
                 {
-                    if (remaining <= TimeSpan.Zero)
-                    {
-                        throw new TimeoutException();
-                    }
-
-                    await target.Signal.Task.WaitAsync(remaining, _time, cancellationToken).ConfigureAwait(false);
+                    await target.Signal.Task.WaitAsync(timerDelay, _time, cancellationToken).ConfigureAwait(false);
                 }
                 catch (TimeoutException)
                 {
-                    throw new LatticeException(LatticeErrorEnum.SynchronizationTimeout, $"This node did not reach position {position} within {timeout}.");
+                    // The signal can still be pending after a coherent publication. Recheck its
+                    // reach time and the lifecycle even when timer delivery won.
                 }
             }
         }
@@ -297,18 +337,22 @@ internal sealed class PositionClock
         }
     }
 
-    // The target of the sequence, with this waiter counted; registered and published as the lowest when
-    // it is, with a full fence, before the caller reads the sequence (see the class).
-    private Target Enter(ulong sequence)
+    // A shared target with this waiter counted, or null if a publication reached it before registration.
+    private Target? Enter(ulong sequence)
     {
         lock (_lock)
         {
+            if (sequence <= Sequence)
+            {
+                return null;
+            }
+
             if (!_byTarget.TryGetValue(sequence, out var target))
             {
                 target = new Target(sequence);
                 _byTarget.Add(sequence, target);
                 _targets.Add(sequence);
-                PublishLowest();
+                _lowest = Math.Min(_lowest, sequence);
             }
 
             target.Waiters++;
@@ -317,61 +361,109 @@ internal sealed class PositionClock
         }
     }
 
-    // A waiter leaves its target, reached or not; the last waiter of a target that was not reached takes
-    // it out of the order.
+    // The last waiter removes its target from the pending set or from the ready list. A detached
+    // target belongs to the thread that will notify it and is no longer linked to the clock.
     private void Leave(Target target)
     {
         lock (_lock)
         {
-            if (--target.Waiters > 0 || target.Taken)
+            if (--target.Waiters > 0)
             {
                 return;
             }
 
-            _byTarget.Remove(target.Sequence);
-            _targets.Remove(target.Sequence);
-            PublishLowest();
+            if (target.Taken)
+            {
+                RemoveReady(target);
+            }
+            else
+            {
+                _byTarget.Remove(target.Sequence);
+                _targets.Remove(target.Sequence);
+                UpdateLowest();
+            }
         }
     }
 
-    // Under the lock: the target of the sequence leaves the order, onto the list of those to complete.
-    private Target Take(ulong sequence, Target? reached)
+    // Under the gate: takes a target out of the pending set.
+    private Target Take(ulong sequence)
     {
         var target = _byTarget[sequence];
 
         _byTarget.Remove(sequence);
         _targets.Remove(sequence);
         target.Taken = true;
-        target.Next = reached;
 
         return target;
     }
 
-    // Under the lock: the lowest target, with a full fence, so that a waiter that registers reads the
-    // sequence only after Wake can see its target.
-    private void PublishLowest() => Interlocked.Exchange(ref _lowest, _targets.Count > 0 ? _targets.Min : ulong.MaxValue);
+    // Under the gate: a detached chain retains Next for notification. Clearing Previous separates it
+    // from the live list so a waiter leaving cannot modify the detached chain.
+    private Target? DetachReady()
+    {
+        var ready = _ready;
+        Volatile.Write(ref _ready, null);
+
+        for (var target = ready; target is not null; target = target.Next)
+        {
+            target.Previous = null;
+        }
+
+        return ready;
+    }
+
+    // Under the gate: unlinks the target if it still belongs to the ready list.
+    private void RemoveReady(Target target)
+    {
+        if (target.Previous is { } previous)
+        {
+            previous.Next = target.Next;
+        }
+        else if (ReferenceEquals(_ready, target))
+        {
+            Volatile.Write(ref _ready, target.Next);
+        }
+        else
+        {
+            return;
+        }
+
+        if (target.Next is { } next)
+        {
+            next.Previous = target.Previous;
+        }
+
+        target.Next = null;
+        target.Previous = null;
+    }
+
+    // Under the gate: a publication can test for reached targets without traversing the set.
+    private void UpdateLowest() => _lowest = _targets.Count > 0 ? _targets.Min : ulong.MaxValue;
 
     // Completes every target, for a close, a fault and the loss of the master.
     private void WakeAll()
     {
-        Target? taken = null;
+        Target? taken;
 
         lock (_lock)
         {
+            taken = DetachReady();
+
             while (_targets.Count > 0)
             {
-                taken = Take(_targets.Min, taken);
+                var target = Take(_targets.Min);
+                target.Next = taken;
+                taken = target;
             }
 
-            PublishLowest();
+            UpdateLowest();
         }
 
         Complete(taken);
     }
 
-    // One target: the sequence waited for, the signal its waiters share, how many wait, whether it was
-    // taken out of the order to be completed, and the next one on the list of those to complete. Every
-    // field but the signal is guarded by the lock of the clock.
+    // One target and the signal its waiters share. The gate protects its mutable fields while linked
+    // to the clock. After detach, the thread notifying the chain owns Next.
     private sealed class Target(ulong sequence)
     {
         public ulong Sequence { get; } = sequence;
@@ -382,6 +474,10 @@ internal sealed class PositionClock
 
         public bool Taken { get; set; }
 
+        public long? ReachedAt { get; set; }
+
         public Target? Next { get; set; }
+
+        public Target? Previous { get; set; }
     }
 }

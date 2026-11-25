@@ -15,7 +15,7 @@ public sealed class ChildPositionDeadlineTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(1);
 
-    [Fact(Skip = PositionClockDeadlineTests.DeadlineAccounting)]
+    [Fact]
     public async Task A_child_wait_succeeds_at_its_deadline_when_it_published_the_position_before_the_deadline_and_has_yet_to_wake_waiters()
     {
         var time = new PositionWaitTime();
@@ -68,7 +68,7 @@ public sealed class ChildPositionDeadlineTests
 
     [Theory]
     [InlineData(false)]
-    [InlineData(true, Skip = PositionClockDeadlineTests.DeadlineAccounting)]
+    [InlineData(true)]
     public async Task A_wait_for_a_published_position_refuses_a_child_already_marked_Faulted_before_the_clock_is_notified(bool alreadyWaiting)
     {
         var time = new PositionWaitTime();
