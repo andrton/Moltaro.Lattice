@@ -1324,7 +1324,7 @@ Why this order:
 | S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
 | S21I | Protected List traversal | Full, critical | Done on 25 November 2026 |
 | S22 | Typed protected views | Full | Done on 25 November 2026 |
-| S22C | Cancellation of a registered position wait | Full, critical | Done on 25 November 2026 |
+| S22C | Cancellation of a registered position wait | Full, critical | Part 1 done on 25 November 2026. Part 2 in progress |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
@@ -11162,6 +11162,41 @@ or errors. Each full suite passed 3,768 tests with 129 skips. The Release format
 and all 18 samples passed. The sprint closed after two code review rounds and
 repeated breaker probes, with no open findings. The S22 architecture dispositions are in the
 [refactoring backlog](refactoring.md#architects-review-after-s22-25-november-2026).
+
+##### Part 2 · A fault marked before a cancellation request
+
+- **Goal.** Finish the existing lifecycle check for a registered position wait.
+  The architecture review after PR #77 reproduced a P2 on Release at
+  `5dfb7384ea3c3adc829ebc1f4b6deb23b7d863cd`. With the fault mark visible before
+  cancellation was requested and both notifications held, the clock returned
+  cancellation when the token callback ran first and `Unavailable` when the clock
+  was notified of the fault first.
+- **Contract and sources.** The existing public
+  [position wait](../decisions/session-consistency.md#explicit-local-position-wait)
+  and the [clock's lifecycle check](../design/write-path.md#waiting-for-a-published-position)
+  apply. This critical full-track correction precedes S23.
+- **Acceptance.** On the exact parent above, add tests first in
+  `ChildPositionDeadlineTests` through a child's public `WaitForPositionAsync`.
+  Establish registration before injecting the fault. Hold notification of the
+  fault and delivery of the wait's token callback independently. Observe the child
+  in `Faulted` before requesting cancellation and confirm the wait is still pending
+  with both notifications held. Run each delivery first in a separate case and
+  observe `Unavailable` before releasing the second notification. On a healthy child
+  a registered wait that ends through its token callback preserves the supplied token.
+  Keep the existing results for publication, timer delivery and the deadline.
+  If the publication path changes, compare `clock-waiters` on the exact parent
+  and head.
+- **Breaker targets, in order.** Probe the fault mark before cancellation under both
+  notification orders, cancellation with the original token on a healthy node, and
+  the existing publication, timer and deadline controls.
+- **Scope.** The two requests in the new fault cases have an established order.
+  The three historical timeouts retain the reopening conditions in
+  [S20I](#s20i--investigate-the-debug-timeouts).
+
+The independent plan review closed without findings. The hardest part was keeping
+the order of the fault mark and cancellation request distinct from the two possible
+orders of notification. The existing publication, timer and cancellation holds
+allow the tests to establish that distinction through the public wait.
 
 #### S23 · Compaction and shrink
 
