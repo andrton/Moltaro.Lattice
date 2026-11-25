@@ -347,18 +347,16 @@ public sealed class CollectionShrinkTests
         {
             ended = await pair.ChildItems.DeleteAsync(Key).AsTask().WaitAsync(Bound);
         }
+        else if (ending == "null")
+        {
+            var items = pair.ChildItems;
+            var replacement = new LatticeRecord(items.EntityType) { ["Id"] = Key, ["Holder"] = null };
+            ended = await items.ReplaceAsync(replacement).AsTask().WaitAsync(Bound);
+        }
         else
         {
             var edit = pair.ChildItems.CreateUpdate(Key);
-            if (ending == "null")
-            {
-                edit.Assign<LatticeOwnedValue?>("Holder", null);
-            }
-            else
-            {
-                edit.Assign(pair.FieldPath, Enumerable.Range(0, Small).ToDictionary(index => index, index => 3 * index + 1));
-            }
-
+            edit.Assign(pair.FieldPath, Enumerable.Range(0, Small).ToDictionary(index => index, index => 3 * index + 1));
             ended = await edit.CommitAsync().AsTask().WaitAsync(Bound);
         }
 
