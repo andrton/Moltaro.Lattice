@@ -117,12 +117,18 @@ public sealed class AutomaticRelocationTests
 
             await EnableSourceAsync(master, node, mediumWaits);
             CheckVacancies(node, mediumWaits[0], targets);
+            var beforeRefusal = SnapshotEarlierVacancies(node, allocator, mediumWaits[0], targets);
+            Assert.NotEmpty(beforeRefusal);
             RunQuietTurns(node, () =>
             {
                 Assert.Equal(mediumWaits[0].Address, Find(node, mediumWaits[0]).Address);
                 Assert.Equal(WorkspaceLimit - Small, Charge(node));
                 CheckPinnedTurn(node, targets, (mediumWaits.Length - 1) * Medium, allocator, requests, returns);
             });
+
+            var afterRefusal = SnapshotEarlierVacancies(node, allocator, mediumWaits[0], targets);
+            Assert.Equal(beforeRefusal.Keys, afterRefusal.Keys);
+            Assert.All(beforeRefusal, slot => Assert.Equal(slot.Value, afterRefusal[slot.Key]));
 
             await EnableSourceAsync(master, node, smallWaits);
             CheckVacancies(node, smallWaits[0], targets);
@@ -301,6 +307,16 @@ public sealed class AutomaticRelocationTests
     [InlineData(LatticeRoleEnum.Child)]
     public async Task One_admitted_turn_reclaims_a_native_segment_and_moves_one_root_while_leaving_the_FIFO_bounded(LatticeRoleEnum role)
     {
+        var expected = await PendingFillersAfterTurnAsync(role, direct: true);
+        var observed = await PendingFillersAfterTurnAsync(role, direct: false);
+        Assert.NotEmpty(expected.AtLimit);
+        Assert.Single(expected.AtLimit.Except(expected.NextUnit));
+        Assert.Equal(expected.AtLimit, observed.AtLimit);
+        Assert.Equal(expected.NextUnit, observed.NextUnit);
+    }
+
+    private static async Task<(long[] AtLimit, long[] NextUnit)> PendingFillersAfterTurnAsync(LatticeRoleEnum role, bool direct)
+    {
         var allocator = new CountingNativeAllocator();
         MaintenanceTurnSample? lastTurn = null;
         void Observe(MaintenanceTurnSample sample) => lastTurn = sample;
@@ -363,6 +379,18 @@ public sealed class AutomaticRelocationTests
             await reading.WaitAsync(Bound);
         }
 
+        if (direct)
+        {
+            var work = 0;
+            Inspect(node, parts => work = parts.Retired.DrainStep(AutomaticMaintenance.ReclamationWorkLimit));
+            Assert.Equal(AutomaticMaintenance.ReclamationWorkLimit, work);
+            Assert.Equal(returns + 1, allocator.Returned);
+            DemandFreed(first);
+            Assert.Equal(0, Charge(node));
+            Assert.Equal(next.Address, Find(node, next).Address);
+            return ObserveFillerBoundary(node, filler);
+        }
+
         // The old relocation is the FIFO head. The following ordinary roots cannot
         // all be reclaimed in one turn, but the next relocation must still run.
         var position = node.Position;
@@ -385,14 +413,28 @@ public sealed class AutomaticRelocationTests
         Assert.Equal(Medium, Charge(node));
         Assert.True(node.Counters.Arena.RetiredBytes > Medium);
         Assert.True(QueueOf(node).Count > 1);
-        Assert.Contains(filler, IsAllocated);
+        var pending = ObserveFillerBoundary(node, filler);
+        Assert.NotEmpty(pending.AtLimit);
         Assert.Equal(position, node.Position);
         DemandMoved(node, first, firstRevision);
         DemandMoved(node, next, nextRevision);
         RunUntil(node, () => node.Counters.Arena.RetiredBytes == 0);
         DemandFreed(next);
         Assert.Equal(0, Charge(node));
+        return pending;
     }
+
+    private static (long[] AtLimit, long[] NextUnit) ObserveFillerBoundary(EngineDatabase node, Location[] filler)
+    {
+        var atLimit = PendingFillerKeys(filler);
+        var work = 0;
+        Inspect(node, parts => work = parts.Retired.DrainStep(1));
+        Assert.Equal(1, work);
+        return (atLimit, PendingFillerKeys(filler));
+    }
+
+    private static long[] PendingFillerKeys(Location[] filler) =>
+        filler.Where(IsAllocated).Select(location => location.Key).Order().ToArray();
 
     [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
     [InlineData(LatticeRoleEnum.Master)]
@@ -420,22 +462,6 @@ public sealed class AutomaticRelocationTests
         Assert.All(regions, region => Assert.Equal(slots, region.Length));
         Assert.All(regions.SelectMany(region => region), location => Assert.Equal(Big, location.SlotBytes));
         Assert.Equal(RegionCount, allocator.Outstanding);
-        var arena = node.Counters.Arena;
-        var position = node.Position;
-        for (var turn = 0; turn < 4; turn++)
-        {
-            RunTurn(node);
-            var sample = observed[^1];
-            Assert.True(sample.Admitted);
-            Assert.InRange(sample.SelectionWork, 0, AutomaticMaintenance.SelectionWorkLimit);
-            Assert.Equal(0, sample.SlotBytes);
-            Assert.Equal(0, sample.ReclamationWork);
-            Assert.Equal(0L, sample.ReturnedNativeBytes);
-            Assert.Equal(arena, node.Counters.Arena);
-            Assert.Equal(position, node.Position);
-        }
-
-        Assert.Contains(observed, sample => sample.Admitted && sample.SelectionWork == AutomaticMaintenance.SelectionWorkLimit);
         var vacancies = regions[^2].Skip(slots / 2).ToArray();
         var source = regions[^1][0];
         await DeleteAsync(master, vacancies);
@@ -444,13 +470,30 @@ public sealed class AutomaticRelocationTests
         await DeleteAsync(master, regions[^1].Skip(1));
         await FollowAsync(master, node);
         node.DrainRetired();
+        Assert.True(RegionOf(source).Segment > AutomaticMaintenance.SelectionWorkLimit);
+        Assert.True(RegionOf(vacancies[0]).Segment > AutomaticMaintenance.SelectionWorkLimit);
         Assert.Equal(RegionOf(source), HeadOfClass(source));
         Assert.All(vacancies, DemandFreed);
         var revision = DemandRecord(node, source);
         var before = Locations(node);
-        position = node.Position;
-        observed.Clear();
+        var position = node.Position;
+        var arena = node.Counters.Arena;
+        RunTurn(node);
+        var firstTurn = observed[^1];
+        Assert.True(firstTurn.Admitted);
+        Assert.Equal(AutomaticMaintenance.SelectionWorkLimit, firstTurn.SelectionWork);
+        Assert.Equal(0, firstTurn.SlotBytes);
+        Assert.Equal(source.Address, Find(node, source).Address);
+        Assert.Equal(arena, node.Counters.Arena);
+        Assert.Equal(position, node.Position);
+        Assert.All(vacancies, DemandFreed);
+
+        // The source lies beyond the first ascending scan prefix. Once the
+        // worker reaches it, the unsuitable class head also forces an earlier
+        // vacancy search whose target is beyond one whole selection budget.
         RunUntil(node, () => Find(node, source).Address != source.Address);
+        Assert.Contains(observed.Skip(1), sample => sample.Admitted && sample.CandidatesExamined > 0 &&
+            sample.SelectionWork == AutomaticMaintenance.SelectionWorkLimit && sample.SlotBytes == 0);
         var current = Find(node, source);
         var moved = Assert.Single(observed, sample => sample.SlotBytes != 0);
         ExpectMove(moved, source, current);
@@ -461,6 +504,72 @@ public sealed class AutomaticRelocationTests
         Assert.All(after, record => DemandRecord(node, record));
         Assert.Equal(revision, DemandRecord(node, source));
         Assert.Equal(position, node.Position);
+    }
+
+    [Theory(Skip = MaintenanceLifetimeTests.AutomaticMaintenancePending)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
+    public async Task The_Ready_worker_selects_and_moves_a_root_after_leaving_its_wait_boundary(LatticeRoleEnum role)
+    {
+        var allocator = new CountingNativeAllocator();
+        using var waiting = new HeldEngineCallback();
+        var holdOnce = 1;
+        var moved = new TaskCompletionSource<MaintenanceTurnSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void HoldFirstWait(CancellationToken _)
+        {
+            if (Interlocked.Exchange(ref holdOnce, 0) != 0)
+            {
+                waiting.Hold();
+            }
+        }
+
+        void Observe(MaintenanceTurnSample sample)
+        {
+            if (sample.SlotBytes != 0)
+            {
+                moved.TrySetResult(sample);
+            }
+        }
+
+        var inputs = Inputs(allocator, reserve: 0, observe: Observe, beforeWait: HoldFirstWait);
+        await using var master = await ReplicationNodes.OpenMasterAsync(Schema,
+            role == LatticeRoleEnum.Master ? inputs : Inputs(null, reserve: 0));
+        await using var child = role == LatticeRoleEnum.Child
+            ? await ReplicationNodes.OpenChildAsync(master.ListenUri!, inputs)
+            : null;
+        var node = child ?? master;
+        try
+        {
+            await waiting.ReachedAsync();
+            Assert.Equal(LatticeDatabaseStateEnum.Ready, node.State);
+            var slots = Arena.MaxBlockSize / Medium;
+            await InsertAsync(master, "Medium", 1, 2 * slots);
+            await FollowAsync(master, node);
+            var regions = Locations(node).GroupBy(RegionOf).OrderBy(group => group.Key).Select(group => group.ToArray()).ToArray();
+            Assert.Equal(2, regions.Length);
+            var destination = regions[0][0];
+            var source = regions[1][0];
+            await DeleteAsync(master, [destination, .. regions[1].Skip(1)]);
+            await FollowAsync(master, node);
+            node.DrainRetired();
+            DemandFreed(destination);
+            var revision = DemandRecord(node, source);
+            var position = node.Position;
+            Assert.False(moved.Task.IsCompleted);
+            Assert.Equal(source.Address, Find(node, source).Address);
+
+            waiting.Release();
+            var sample = await moved.Task.WaitAsync(Bound);
+            var current = Find(node, source);
+            ExpectMove(sample, source, current);
+            Assert.Equal(destination.Address, current.Address);
+            Assert.Equal(position, node.Position);
+            DemandMoved(node, source, revision);
+        }
+        finally
+        {
+            waiting.Release();
+        }
     }
 
     private static void ExpectMove(MaintenanceTurnSample sample, Location source, Location destination)
@@ -587,6 +696,68 @@ public sealed class AutomaticRelocationTests
         }
     }
 
+    private static Dictionary<ArenaAddress, byte[]> SnapshotEarlierVacancies(EngineDatabase node,
+        CountingNativeAllocator allocator, Location candidate, Location[] retained)
+    {
+        var witnesses = Locations(node).Concat(retained).ToLookup(location => location.Address.Segment);
+        var vacancies = new Dictionary<ArenaAddress, byte[]>();
+        Inspect(node, parts =>
+        {
+            var arena = parts.Arena;
+            var sizeClass = SizeClasses.IndexFor(candidate.SlotBytes - BlockHeader.Size);
+            var candidateHeader = HeaderBytes(arena, candidate.Address);
+            for (var segmentIndex = 1u; segmentIndex < candidate.Address.Segment; segmentIndex++)
+            {
+                if (ArenaSegments(arena)[segmentIndex] is not { } segment)
+                {
+                    continue;
+                }
+
+                nint native = 0;
+                for (var region = 0; region < segment.Regions.Length; region++)
+                {
+                    ref var info = ref segment.Regions[region];
+                    if (info.Allocated == 0 || info.SizeClass != sizeClass)
+                    {
+                        continue;
+                    }
+
+                    if (native == 0)
+                    {
+                        var witness = witnesses[segmentIndex].First();
+                        var header = HeaderBytes(arena, witness.Address);
+                        var probe = new byte[BlockHeader.Size];
+                        native = Assert.Single(NativeSegments(allocator), address =>
+                        {
+                            Marshal.Copy(address + (int)witness.Address.Offset, probe, 0, probe.Length);
+                            return probe.AsSpan().SequenceEqual(header);
+                        });
+                    }
+
+                    for (var slot = 0; slot < Arena.MaxBlockSize / candidate.SlotBytes; slot++)
+                    {
+                        if (segment.IsAllocated(region, slot))
+                        {
+                            continue;
+                        }
+
+                        // Each vacancy once held a different real root. The actual native
+                        // arena keeps its bytes until a write takes the slot again.
+                        var offset = region * Arena.MaxBlockSize + slot * candidate.SlotBytes;
+                        var bytes = new byte[candidate.SlotBytes];
+                        Marshal.Copy(native + offset, bytes, 0, bytes.Length);
+                        Assert.False(bytes.AsSpan(0, BlockHeader.Size).SequenceEqual(candidateHeader));
+                        vacancies.Add(new ArenaAddress(segmentIndex, (uint)offset), bytes);
+                    }
+                }
+            }
+        });
+        return vacancies;
+    }
+
+    private static byte[] HeaderBytes(Arena arena, ArenaAddress address) =>
+        MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref arena.Header(address), 1)).ToArray();
+
     private static void CheckVacancies(EngineDatabase node, Location target, Location[] candidates)
     {
         var slots = Arena.MaxBlockSize / target.SlotBytes;
@@ -676,7 +847,7 @@ public sealed class AutomaticRelocationTests
     private static int Charge(EngineDatabase node)
     {
         var result = -1;
-        Assert.True(node.TryRunMaintenanceStep(parts => result = parts.Retired.RelocationBytes));
+        Inspect(node, parts => result = parts.Retired.RelocationBytes);
         return result;
     }
 
@@ -690,6 +861,9 @@ public sealed class AutomaticRelocationTests
         }));
         return result;
     }
+
+    private static void Inspect(EngineDatabase node, Action<DatabaseParts> inspect) =>
+        Assert.True(SpinWait.SpinUntil(() => node.TryRunMaintenanceStep(inspect), Bound), "The writes lock did not become available.");
 
     private static void RunTurn(EngineDatabase node) =>
         Assert.True(SpinWait.SpinUntil(node.TryRunMaintenanceTurn, Bound), "No automatic turn was admitted.");
@@ -802,12 +976,13 @@ public sealed class AutomaticRelocationTests
     }
 
     private static EngineTestInputs Inputs(CountingNativeAllocator? allocator, int regions = 1, int reserve = 1,
-        Action<MaintenanceTurnSample>? observe = null, int maxSegments = 32) =>
+        Action<MaintenanceTurnSample>? observe = null, int maxSegments = 32, Action<CancellationToken>? beforeWait = null) =>
         new()
         {
             Arena = new ArenaOptions { SegmentSize = regions * Arena.MaxBlockSize, MemoryLimit = (long)maxSegments * Arena.MaxBlockSize, ReservedSegments = reserve },
             Allocator = allocator,
-            DisableBackgroundMaintenance = true,
+            DisableBackgroundMaintenance = beforeWait is null,
+            BeforeMaintenanceWait = beforeWait,
             ObserveMaintenanceTurn = observe,
         };
 
@@ -843,6 +1018,12 @@ public sealed class AutomaticRelocationTests
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
     private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_outstanding")]
+    private static extern ref HashSet<nint> NativeSegments(CountingNativeAllocator allocator);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_segments")]
+    private static extern ref ArenaSegment?[] ArenaSegments(Arena arena);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_regionsWithFreeSlot")]
     private static extern ref long[] ClassHeads(Arena arena);

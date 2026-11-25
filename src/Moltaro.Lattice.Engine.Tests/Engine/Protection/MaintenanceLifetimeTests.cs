@@ -1,9 +1,14 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Maintenance;
+using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Engine.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -72,6 +77,7 @@ public sealed class MaintenanceLifetimeTests
 
             closing = node.CloseAsync().AsTask();
             await canceled.Task.WaitAsync(Bound);
+            await BarrierDrained(BarrierOf(node)).Task.WaitAsync(Bound);
             Assert.Equal(LatticeDatabaseStateEnum.Closed, node.State);
             Assert.False(closing.IsCompleted);
             Assert.Equal(1, allocator.Outstanding);
@@ -102,6 +108,8 @@ public sealed class MaintenanceLifetimeTests
             : ReplicationNodes.ChildOptions(upstream.ListenUri!);
         var allocator = new CountingNativeAllocator();
         using var pause = new ViewerPause();
+        using var admissionPause = new ViewerPause();
+        var admission = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observed = new TaskCompletionSource<MaintenanceTurnSample>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observations = 0;
         var inputs = new EngineTestInputs
@@ -109,6 +117,13 @@ public sealed class MaintenanceLifetimeTests
             Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = Arena.MaxBlockSize },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
+            BeforeMaintenanceWrites = () =>
+            {
+                if (admission.TrySetResult(Stopwatch.GetTimestamp()))
+                {
+                    admissionPause.Hold();
+                }
+            },
             ObserveMaintenanceTurn = sample =>
             {
                 Interlocked.Increment(ref observations);
@@ -126,10 +141,14 @@ public sealed class MaintenanceLifetimeTests
         int attemptsThroughObservation;
         try
         {
+            var enteredAdmission = await admission.Task.WaitAsync(Bound);
+            Assert.False(observed.Task.IsCompleted);
+            var releasingAdmission = Stopwatch.GetTimestamp();
+            admissionPause.Release();
             var sample = await observed.Task.WaitAsync(Bound);
             attemptsThroughObservation = Volatile.Read(ref observations);
             Assert.True(sample.Admitted);
-            Assert.InRange(sample.ElapsedTicks, 0L, Stopwatch.GetTimestamp() - started);
+            Assert.InRange(sample.ElapsedTicks, releasingAdmission - enteredAdmission, Stopwatch.GetTimestamp() - started);
             Assert.Equal(0, sample.SlotBytes);
             Assert.Equal(0, sample.ReclamationWork);
             Assert.Equal(0L, sample.ReturnedNativeBytes);
@@ -149,10 +168,85 @@ public sealed class MaintenanceLifetimeTests
         }
         finally
         {
+            admissionPause.Release();
             pause.Release();
         }
 
         Assert.True(await attempt.WaitAsync(Bound));
         Assert.Equal(attemptsThroughObservation, Volatile.Read(ref observations));
     }
+
+    [Theory(Skip = AutomaticMaintenancePending)]
+    [InlineData(LatticeRoleEnum.Master, LatticeDatabaseStateEnum.Ready)]
+    [InlineData(LatticeRoleEnum.Child, LatticeDatabaseStateEnum.Faulted)]
+    public async Task The_automatic_turn_refuses_the_role_local_fault_before_notification(
+        LatticeRoleEnum role, LatticeDatabaseStateEnum stateBeforeNotification)
+    {
+        using var beforeWrites = new HeldEngineCallback();
+        using var notification = new HeldEngineCallback();
+        var observed = new TaskCompletionSource<MaintenanceTurnSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inputs = new EngineTestInputs
+        {
+            DisableBackgroundMaintenance = true,
+            BeforeMaintenanceWrites = beforeWrites.Hold,
+            BeforeFaultNotification = notification.Hold,
+            ObserveMaintenanceTurn = sample => observed.TrySetResult(sample),
+        };
+        await using var master = await ReplicationNodes.OpenMasterAsync(Schema,
+            role == LatticeRoleEnum.Master ? inputs : new EngineTestInputs { DisableBackgroundMaintenance = true });
+        await using var child = role == LatticeRoleEnum.Child
+            ? await ReplicationNodes.OpenChildAsync(master.ListenUri!, inputs)
+            : null;
+        var node = child ?? master;
+        using var applying = child is null ? null : HeldPublication.Arm(child, PublicationPointEnum.BeforePosition);
+        if (applying is null)
+        {
+            master.ArmFault(EngineFaultPointEnum.BeforePublication);
+        }
+
+        var attempt = OwnThread.Run(node.TryRunMaintenanceTurn);
+        var items = master.Set("Item");
+        Task<LatticeWriteResult>? writing = null;
+        try
+        {
+            await beforeWrites.ReachedAsync(attempt);
+            Assert.Equal(LatticeDatabaseStateEnum.Ready, node.State);
+            writing = OwnThread.Run(() => items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = 1L }).AsTask()).Unwrap();
+            if (applying is not null)
+            {
+                await writing.WaitAsync(Bound);
+                await applying.ReachedAsync();
+                applying.Fail();
+            }
+
+            await notification.ReachedAsync();
+            Assert.Equal(stateBeforeNotification, node.State);
+            beforeWrites.Release();
+            Assert.False(await attempt.WaitAsync(Bound));
+            var sample = await observed.Task.WaitAsync(Bound);
+            Assert.False(sample.Admitted);
+            Assert.Equal(0, sample.SelectionWork);
+            Assert.Equal(0, sample.ReclamationWork);
+            Assert.Equal(0, sample.SlotBytes);
+            Assert.False(notification.HasContinued);
+        }
+        finally
+        {
+            beforeWrites.Release();
+            applying?.Release();
+            notification.Release();
+        }
+
+        if (applying is null)
+        {
+            var failure = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
+            Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, failure.Error);
+        }
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_barrier")]
+    private static extern ref CloseBarrier BarrierOf(EngineDatabase node);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_drained")]
+    private static extern ref TaskCompletionSource BarrierDrained(CloseBarrier barrier);
 }
