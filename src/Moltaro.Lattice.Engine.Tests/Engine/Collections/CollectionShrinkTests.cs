@@ -233,6 +233,86 @@ public sealed class CollectionShrinkTests
         }
     }
 
+    [Fact(Skip = ShrinkPending)]
+    public async Task An_eligible_shrink_finishes_after_an_ordinary_map_value_edit_below_four_times_need()
+    {
+        const int count = 4_200;
+        const int changedValue = 0x723;
+        await using var pair = await OpenAsync(set: false, flattened: false, Full);
+        var original = pair.Nodes.Select(node => ExpectFull(pair, node, Full, 2)).ToArray();
+        var reduced = await pair.ResizeAsync(Full, count);
+        pair.TurnAll();
+        for (var role = 0; role < pair.Nodes.Length; role++)
+        {
+            var node = pair.Nodes[role];
+            var cold = ExpectCold(pair, node, original[role].Chunks);
+            Assert.True(pair.Shape(node).Active + cold * WholeChunkSlots > 4 * Need(count));
+            pair.ExpectCurrent(node, count, reduced);
+        }
+
+        pair.Advance(5_000);
+        var remaining = new CollectionNativeSlot[pair.Nodes.Length];
+        for (var role = 0; role < pair.Nodes.Length; role++)
+        {
+            var node = pair.Nodes[role];
+            var returns = node.Allocator.Returned;
+            node.Turn();
+            var (lease, slot) = Assert.Single(node.LeaseSnapshot());
+            Assert.False(lease.Borrowed);
+            Assert.Contains(original[role].Chunks, slot.SameGrantAs);
+            Assert.Equal(1, node.Allocator.Returned - returns);
+            var retained = pair.Shape(node).Active + WholeChunkSlots;
+            Assert.InRange(retained, 2 * Need(count) + 1, 4 * Need(count));
+            node.ExpectNativeLedger();
+            remaining[role] = slot;
+        }
+
+        var previousOwner = pair.Nodes.Select(node => pair.Shape(node).Owner).ToArray();
+        var update = pair.ChildItems.CreateUpdate(Key);
+        var command = update.MapSet(pair.FieldPath, 0, changedValue);
+        var changed = await update.CommitAsync().AsTask().WaitAsync(Bound);
+        Assert.True(command.Changed);
+        Assert.Equal(reduced.Sequence + 1, changed.Position.Sequence);
+        await pair.FollowAsync(changed.Position);
+        for (var role = 0; role < pair.Nodes.Length; role++)
+        {
+            var node = pair.Nodes[role];
+            node.Database.DrainRetired();
+            var before = pair.Shape(node);
+            Assert.NotEqual(previousOwner[role], before.Owner);
+            var expected = ExpectEdited(node);
+            ExpectBoundedReturn(node, [remaining[role]]);
+            Assert.Equal(before.Owner, pair.Shape(node).Owner);
+            Assert.Equal(expected, ExpectEdited(node));
+        }
+
+        LatticeRevision ExpectEdited(CollectionShrinkNode node)
+        {
+            Assert.Equal(changed.Position, node.Database.Position);
+            var items = node.Database.Set("Item");
+            Assert.True(items.TryGet(Key, out var record, out var revision));
+            var copy = record.Get<Dictionary<int, int>>("Values")!;
+            Assert.Equal(count, copy.Count);
+            Assert.True(items.TryView(Key, view =>
+            {
+                var map = view["Values"].Map;
+                Assert.Equal(count, map.Count);
+                for (var index = 0; index < count; index++)
+                {
+                    var expected = index == 0 ? changedValue : 3 * index + 1;
+                    Assert.Equal(expected, copy[index]);
+                    Assert.True(map.TryGetValue(index, out var value));
+                    Assert.Equal(expected, value.Get<int>());
+                }
+
+                Assert.False(map.TryGetValue(count, out _));
+                return view.Revision;
+            }, out var viewed));
+            Assert.Equal(revision, viewed);
+            return revision;
+        }
+    }
+
     [Theory(Skip = ShrinkPending)]
     [InlineData(355, 8_192, 1_016)]
     [InlineData(713, 16_384, 2_038)]
