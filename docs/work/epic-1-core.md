@@ -1324,7 +1324,7 @@ Why this order:
 | S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
 | S21I | Protected List traversal | Full, critical | Done on 25 November 2026 |
 | S22 | Typed protected views | Full | Done on 25 November 2026 |
-| S22C | Cancellation of a registered position wait | Full, critical | Approved after S22, before S23 |
+| S22C | Cancellation of a registered position wait | Full, critical | Done on 25 November 2026 |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
@@ -11117,6 +11117,52 @@ S23 and S24 in that order.
 - **Out of scope.** The pending-target index redesign belongs to S34. The
   historical timeout investigations keep the reopening conditions recorded in S20I.
 
+##### Tests first
+
+The exact tests-first commit, `d494d860c850afce0eca4eee1b0c7e16bab7dc71`, passed
+independent review with no findings. The reviewer traced registration, cancellation
+request, delayed callback and batch publication separately for `Cancel` and
+`CancelAsync`, and confirmed that the forwarded-write timer is armed after the master
+reply. The hardest part was distinguishing coherent publication from notification
+on both paths. The new tests control each event without adding an engine hook.
+All three cases failed for the expected reasons when activated against `159d3fee6`.
+The committed tests-first tree passed the Release build, format check and full suite
+with 3,764 passed and 131 skipped.
+
+##### Implementation and independent probes
+
+The first code review approved `e79bfe7e`. The hardest point was ordering the
+authoritative close or fault mark, first reach and the token request across separately
+delivered signals. An independent breaker then found a failure on the same head.
+When the token request preceded both expiry and publication and the cancellation
+callback was held, delivering the timer before publishing the target still returned
+`SynchronizationTimeout` to the cancelled waiter. The uncancelled waiter on the
+same target timed out correctly, and the independent write then published it.
+The test-only follow-up `4f5b5382a58817b5286619211b79f98ff75202d5` passed independent
+review. It holds publication until after both waits settle and uses the session
+overload for the cancelled waiter. With its skip temporarily removed, it reproduced
+the incorrect timeout twice on `e79bfe7e`. The tests-first assertions were retained.
+
+The second independent code review closed on `6049c2fe165616fe56859686f46ba500a5c49e24`.
+A registered waiter checks lifecycle state, then checks the supplied token before
+using reach time, master loss or expiry. A forwarded write still reports its committed
+position when application misses the deadline. The message describes the deadline even
+if the position is already visible. Publication, `Wake` and the already-satisfied
+fast path use the same code as the parent. The brief did not require a `clock-waiters`
+comparison because publication did not change.
+
+The independent breaker ran 12 probes on that exact head in Windows x64 Release and
+Debug. All passed in each configuration. The probes covered callback, timer and Wake
+delivery order, timely and late publication, expiry before publication, close and
+fault, and confirmation of a forwarded write and its session position. The three
+historical timeouts keep their separate reopening conditions in S20I.
+
+The coordinator built the same head in Windows x64 Release and Debug with no warnings
+or errors. Each full suite passed 3,768 tests with 129 skips. The Release format check
+and all 18 samples passed. The sprint closed after two code review rounds and
+repeated breaker probes, with no open findings. The S22 architecture dispositions are in the
+[refactoring backlog](refactoring.md#architects-review-after-s22-25-november-2026).
+
 #### S23 · Compaction and shrink
 
 **Collection edit cost carried from S20.** In `EditedList.Apply`, each append
@@ -11124,6 +11170,10 @@ to an initially empty List scans every run created by earlier appends in that
 update. For 8,000 appends the loop visits 31,996,000 runs before placement.
 The sprint removes this repeated scan. Compare two counts of append commands
 within one update on the parent and the fix, including the 8,000-append case.
+
+**Resident collections carried from the S22 architecture review.** Follow the
+[S23 resident collection shape entry](refactoring.md#s23-resident-collection-shape)
+when compaction and shrink first let the same logical count have different layouts.
 
 **Carried from S13, the first question of the study of this sprint:** a root names a
 shared text entry by its address, so the roots that name an entry cannot be found from

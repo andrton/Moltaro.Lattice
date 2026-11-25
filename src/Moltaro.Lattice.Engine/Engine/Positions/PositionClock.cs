@@ -304,6 +304,9 @@ internal sealed class PositionClock
 
                 ThrowIfWaitEnded();
 
+                // A signal or timer can resume this wait while another callback delays cancellation notification.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (reachedAt is { } stamp)
                 {
                     if (ReachedInTime(started, stamp, timeout))
@@ -334,7 +337,7 @@ internal sealed class PositionClock
                 catch (TimeoutException)
                 {
                     // The signal can still be pending after a coherent publication. Recheck its
-                    // reach time and the lifecycle even when timer delivery won.
+                    // reach time, the lifecycle and the token even when timer delivery won.
                 }
             }
         }

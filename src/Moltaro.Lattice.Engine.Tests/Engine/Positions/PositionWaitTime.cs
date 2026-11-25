@@ -3,12 +3,13 @@ using System.Collections.Concurrent;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 
 // A test drives elapsed time and timer delivery separately. Task.WaitAsync arms a one-shot timer and
-// may dispose it on any thread. No timer runs until the test delivers it. The optional action holds
-// the first timestamp after sampling it so a controlled publication can pass the waiter.
-internal sealed class PositionWaitTime(Action? afterFirstTimestamp = null) : TimeProvider
+// may dispose it on any thread. No timer runs until the test delivers it. A test can hold the first
+// timestamp after sampling it or observe that the first timer has been armed.
+internal sealed class PositionWaitTime(Action? afterFirstTimestamp = null, Action? afterFirstTimer = null) : TimeProvider
 {
     private readonly ConcurrentQueue<Expiry> _timers = new();
     private Action? _afterFirstTimestamp = afterFirstTimestamp;
+    private Action? _afterFirstTimer = afterFirstTimer;
     private long _timestamp;
 
     public override long TimestampFrequency => TimeSpan.TicksPerSecond;
@@ -39,6 +40,7 @@ internal sealed class PositionWaitTime(Action? afterFirstTimestamp = null) : Tim
 
         var timer = new Expiry(callback, state, GetTimestamp() + dueTime.Ticks);
         _timers.Enqueue(timer);
+        Interlocked.Exchange(ref _afterFirstTimer, null)?.Invoke();
 
         return timer;
     }

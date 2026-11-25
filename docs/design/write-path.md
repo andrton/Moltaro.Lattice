@@ -253,13 +253,21 @@ original budget and its token has not been cancelled. An already satisfied first
 check uses the local sequence and lifecycle state without a gate or time sample.
 
 A publisher calls `Wake` after it releases the lock of the writes. Timer delivery is
-independent of `Wake`. A wait can succeed on expiry when its target was reached in
-time, or time out when a late publication arrived before the timer ran.
+independent of `Wake`. After checking the database state, a registered waiter checks
+its own token before deciding the outcome from the target's reach time, a lost master
+or an expired budget. The token can already carry a cancellation request while
+another callback delays notification. A wait can succeed on expiry when its target
+was reached in time, or time out when a late publication arrived before the timer ran.
 The sequence store and timestamp sample are separate operations. A scheduling pause
 between them can move the sample past the deadline. The clock then reports timeout
 because it lacks timely evidence. A wait checks `ReadEpochs.Fault`'s authoritative
 mark before returning success. A mark already set causes `Unavailable`, including
 during the interval before the position clock has been notified of the fault.
+
+When the master has confirmed a forwarded write, an application timeout reports the
+committed position and the missed synchronization deadline. The child may have
+applied the position by the time the caller observes the error. The underlying failure
+identifies a lost master or a fault when either ends the wait early.
 
 The clock gate protects in-memory waiter bookkeeping and its order is always the
 lock of the writes followed by the clock gate. A waiter takes only the clock gate
