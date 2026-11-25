@@ -1311,7 +1311,7 @@ Why this order:
 | S20I | Investigate the Debug timeouts | Investigation | Done on 25 November 2026. Historical causes remain open |
 | S20R | Packed Map scalar pairs in owned reads and whole writes | Refactoring | Done on 25 November 2026. [ARM64 measured with S21](refactoring.md#r2-fixed-scalar-pair-comparison) |
 | S21 | Protected views by name | Full, critical | Done on 25 November 2026, Coordinator 12 |
-| S21I | Protected List traversal | Full, critical | In progress |
+| S21I | Protected List traversal | Full, critical | Done on 25 November 2026 |
 | S22 | Typed protected views | Full | Not started |
 | S23 | Compaction and shrink | Full | Not started |
 | S24 | The memory budget | Full | Not started |
@@ -10704,25 +10704,74 @@ The owned path decodes whole spans into the typed collection and then sums
 its typed values. The source and tiered x64 listings show this remaining
 difference in work without resolving its individual timing contributions.
 
-A separate warmed diagnostic kept the cursor's block resolver and the same
-protected acquisition. It checked the nonnullable Int64 declaration once
-and the shape of each chunk, then summed the borrowed native values without
-projecting individual views. Medians fell from 16.260 to 4.294 µs at 1,000
-elements and from 1.249 to 0.055 ms at 100,000. Paired ratios were 0.2496 and
-0.0414, with all six pairs below their lower gauges of 0.89984 and 0.84385.
-Both paths returned equal sums and allocated zero managed bytes. This
-estimates a computational floor for the Int64 fixture and isolates the
-per-element API route as a substantial remaining cost. The specialized sum
-is diagnostic only.
+A separate warmed diagnostic used the earlier one-boundary cursor scratch
+build, its block resolver and the same protected acquisition. It checked
+the nonnullable Int64 declaration once and the shape of each chunk, then
+summed the borrowed native values without projecting individual views.
+Medians fell from 16.260 to 4.294 µs at 1,000 elements and from 1.249 to
+0.055 ms at 100,000. Paired ratios were 0.2496 and 0.0414, with all six pairs
+below their lower gauges of 0.89984 and 0.84385.
+Both paths returned equal sums and allocated zero managed bytes. The
+measured specialized scan cost applies to this Int64 fixture and isolates
+the per-element API route as a substantial remaining cost. The specialized
+sum is diagnostic only.
 
 The final source `c9e0cd8c` closed the P3 from production review. Tests from
 `0845cc7f` kept their assertions. Debug and Release built cleanly and each
 passed 3,731 tests with 129 expected skips. Format and all 18 samples passed
 and the independent breaker passed both probes after the P3 fix.
 
-The raw timing, allocation, rotation and JIT evidence is kept outside Git.
-The ARM64 run awaits the owner's approval. The final measurement record will
-be reviewed under [Step 6](process.md#a-sprint-on-the-full-track) before Close.
+##### ARM64 results
+
+The verified archive reported exit 0 after a 532.4-second queue on Ubuntu
+ARM64, with 16 logical processors, .NET SDK 10.0.404 and runtime 10.0.15.
+The CPU was idle in the initial samples. The 20-worker entry row
+oversubscribed the machine and is descriptive.
+
+The original-window repeat used exact parent `5c1a1c4e`, its independent
+gauge build and exact final source `c9e0cd8c`. All six paired view times fell
+at each size, and every timed view row allocated zero managed bytes.
+
+| Int64 List size | Parent view | Final view | Final owned | Paired final view / parent view | Paired final view / final owned |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 60.233 µs | 27.401 µs | 12.864 µs | 0.452570 | 2.1813 |
+| 100,000 | 5.995 ms | 2.689 ms | 0.666 ms | 0.447442 | 4.0874 |
+
+The owned sums allocated 8,152 B and about 800,278 B respectively. Short
+entry, held and unheld Replace, owned List sums and all 16 ordinary owned
+read-by-key timing metrics were inside their numeric gauges. The seven
+owned FullOpts listings were byte-for-byte equal between parent and final
+source. The exact Release view suite passed all 32 tests, including all
+10 traversal cases, with no skips.
+
+The separate warmed factorial used the same Int64 sum workload on
+experimental builds of the parent. Its combined build applied the scalar
+dispatch diagnostic to the earlier address cache. The original-window
+repeat above measured the exact final cursor. Each ratio below is a
+paired median from the factorial repeat.
+
+| Int64 List size | Address / parent | Scalar dispatch / parent | Both / parent | Both / address |
+| --- | ---: | ---: | ---: | ---: |
+| 1,000 | 0.489742 | 0.866645 | 0.310482 | 0.634329 |
+| 100,000 | 0.483900 | 0.868724 | 0.312592 | 0.641639 |
+
+Each paired median was below the lower gauge and all six paired times
+fell. The gauge used the 3 percent floor. The scalar-only effect crossed
+the ARM64 gauge and stayed within the x64 gauge. Adding scalar dispatch
+after the address cache lowered the paired times on both platforms. These
+measurements apply to the fixed Int64 diagnostic. The source and tiered
+listings identify the remaining per-element projection, checks and scalar
+access. The records do not assign elapsed time to individual checks or calls.
+
+The implementation retains the block cursor and the general per-value
+read contract. The specialized diagnostic variants stay outside the
+product. The remaining time and allocation tradeoff is specific to the
+matched by-name List sums. These runs did not judge release gates.
+
+The raw timing, allocation, rotation, JIT and test evidence is kept
+outside Git. The independent reviewer verified the final Windows x64 and
+ARM64 results and their disposition under [Step 6](process.md#a-sprint-on-the-full-track).
+No measurement finding remains open.
 
 #### S22 · Typed protected views
 
