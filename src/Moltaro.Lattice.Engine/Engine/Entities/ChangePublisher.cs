@@ -786,7 +786,7 @@ internal sealed class ChangePublisher
             LetGoOfScratch();
         }
 
-        _roots.ReleasePublishedDirectory();
+        _roots.ReleasePublishedDirectories();
     }
 
     // The scratch of the values and the handles of a reservation of several changes, empty again (see

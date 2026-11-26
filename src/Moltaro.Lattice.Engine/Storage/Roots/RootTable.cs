@@ -1,3 +1,4 @@
+using System.Numerics;
 using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Roots;
@@ -45,8 +46,10 @@ internal sealed class RootTable
     // the directory copies those references, never an entry. Only the first Pages are pages.
     private RootEntry[][] _pages = [];
 
-    // A previous directory stays owned while only unpublished preparations need the extension.
-    private RootEntry[][]? _previousDirectory;
+    // Each smaller directory remains owned until a published slot needs a bigger one or an
+    // abandoned trailing page permits reuse. There is one entry per doubling, including zero.
+    private readonly RootEntry[][][] _smallerDirectories;
+    private int _smallerDirectoryCount;
     private int _publishedExtent;
 
     // The slots below this were given out at least once. The slots from here to the end of the last
@@ -68,6 +71,7 @@ internal sealed class RootTable
         _pageLimit = pageLimit ?? MostPages;
         ArgumentOutOfRangeException.ThrowIfLessThan(_pageLimit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(_pageLimit, MostPages);
+        _smallerDirectories = budget?.Allocate<RootEntry[][]>(BitOperations.Log2((uint)_pageLimit) + 2, nameof(RootTable)) ?? [];
     }
 
     // Takes a free slot for a new lifetime of a root of the entity type typeId and returns its
@@ -197,14 +201,42 @@ internal sealed class RootTable
     public void NotePublished(RootHandle handle) =>
         _publishedExtent = Math.Max(_publishedExtent, checked((int)handle.Slot + 1));
 
-    public void ReleasePublishedDirectory()
+    public void ReleasePublishedDirectories()
     {
-        if (_previousDirectory is { } previous && _publishedExtent > (long)previous.Length * EntriesPerPage &&
-            _budget is { IsPreparing: false } budget)
+        if (_smallerDirectoryCount == 0 || _budget is not { IsPreparing: false } budget)
         {
-            _previousDirectory = null;
-            budget.Release(previous);
+            return;
         }
+
+        var publishedPages = PublishedPages;
+        var obsolete = FirstDirectoryFor(publishedPages);
+        for (var index = 0; index < obsolete; index++)
+        {
+            budget.Release(_smallerDirectories[index]);
+        }
+
+        if (obsolete == 0)
+        {
+            return;
+        }
+
+        var remain = _smallerDirectoryCount - obsolete;
+        Array.Copy(_smallerDirectories, obsolete, _smallerDirectories, 0, remain);
+        Array.Clear(_smallerDirectories, remain, obsolete);
+        _smallerDirectoryCount = remain;
+    }
+
+    private int PublishedPages => (_publishedExtent + EntriesPerPage - 1) / EntriesPerPage;
+
+    private int FirstDirectoryFor(int pages)
+    {
+        var index = 0;
+        while (index < _smallerDirectoryCount && _smallerDirectories[index].Length < pages)
+        {
+            index++;
+        }
+
+        return index;
     }
 
     // Under Writes after a queued preparation has released its insert lifetimes. A capture
@@ -218,7 +250,7 @@ internal sealed class RootTable
         }
 
         var keep = Pages;
-        var publishedPages = (_publishedExtent + EntriesPerPage - 1) / EntriesPerPage;
+        var publishedPages = PublishedPages;
         while (keep > publishedPages && IsWhollyFree(_pages[keep - 1]))
         {
             keep--;
@@ -239,14 +271,23 @@ internal sealed class RootTable
             budget.Release(page);
         }
 
-        if (_previousDirectory is { } previous && keep <= previous.Length)
+        var saved = FirstDirectoryFor(keep);
+        if (saved != _smallerDirectoryCount)
         {
+            var previous = _smallerDirectories[saved];
             var discarded = _pages;
             Array.Copy(discarded, previous, keep);
             Array.Clear(previous, keep, previous.Length - keep);
             _pages = previous;
-            _previousDirectory = null;
             budget.Release(discarded);
+            while (_smallerDirectoryCount - 1 > saved)
+            {
+                var unused = _smallerDirectories[--_smallerDirectoryCount];
+                _smallerDirectories[_smallerDirectoryCount] = null!;
+                budget.Release(unused);
+            }
+
+            _smallerDirectories[--_smallerDirectoryCount] = null!;
         }
     }
 
@@ -321,10 +362,6 @@ internal sealed class RootTable
                     {
                         RemoveNewPage(index, previous, directory, page);
                     }
-                    else if (grows && !ReferenceEquals(previous, _previousDirectory))
-                    {
-                        budget.Release(previous);
-                    }
                 });
             }
             else if (grows)
@@ -351,7 +388,7 @@ internal sealed class RootTable
         directory[Pages] = page;
         if (grows && _budget is { IsPreparing: true })
         {
-            _previousDirectory ??= previous;
+            _smallerDirectories[_smallerDirectoryCount++] = previous;
         }
 
         _pages = directory;
@@ -369,11 +406,7 @@ internal sealed class RootTable
         _budget!.Release(page);
         if (!ReferenceEquals(directory, previous))
         {
-            if (ReferenceEquals(previous, _previousDirectory))
-            {
-                _previousDirectory = null;
-            }
-
+            _smallerDirectories[--_smallerDirectoryCount] = null!;
             _budget.Release(directory);
         }
     }

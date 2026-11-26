@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
@@ -68,6 +69,77 @@ public sealed class RootPageWithdrawalTests
         }
 
         allocator.ExpectEverythingReturned();
+    }
+
+    [Fact]
+    public async Task Cancelling_a_later_directory_growth_restores_the_directory_of_the_earlier_queued_batch()
+    {
+        var allocator = new CountingNativeAllocator();
+        var storage = new HeldPersistence(holding: false);
+        await using var node = await OpenAsync(16L * Segment, allocator, persistence: storage);
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            parts.Tables.Stored(1).Presize(RootTable.EntriesPerPage + 1);
+            return true;
+        });
+        node.DrainRetired();
+        var pieces = node.Set<PieceSchema.Piece>();
+
+        storage.Hold();
+        try
+        {
+            var predecessor = pieces.DeleteAsync(99_999L).AsTask();
+            await storage.NextAsync();
+            var batch = node.CreateWriteBatch();
+            for (var key = 1; key <= RootTable.EntriesPerPage; key++)
+            {
+                batch.Insert(PieceSchema.Of(key, 8));
+            }
+
+            var earlier = batch.CommitAsync().AsTask();
+            var shared = await DirectoryAsync(node);
+            var page = Assert.Single(shared);
+            var before = ExpectCapacity(node, allocator, out _, shared, page);
+            using var stop = new CancellationTokenSource();
+            // Both tables use the same root address space. Use the other primary index to
+            // keep the earlier batch's key reservations from growing the overflow table.
+            var holders = node.Set("Holder");
+            const long keyToWithdraw = RootTable.EntriesPerPage + 1L;
+            var withdrawn = holders.InsertAsync(new LatticeRecord(holders.EntityType)
+            {
+                ["Id"] = keyToWithdraw,
+                ["Lines"] = new Dictionary<string, string>(),
+            }, stop.Token).AsTask();
+            var expanded = await DirectoryAsync(node);
+            Assert.Equal(2, expanded.Length);
+            Assert.Same(page, expanded[0]);
+            var overlap = ExpectCapacity(node, allocator, out _, shared, page, expanded, expanded[1]);
+            var added = ManagedObjectSize(expanded) + ManagedObjectSize(expanded[1]);
+            Assert.Equal(196_672L, added);
+            Assert.Equal(before.ChargedBytes + added, overlap.ChargedBytes);
+
+            await stop.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => withdrawn.WaitAsync(Bound));
+            Assert.False(earlier.IsCompleted);
+            Assert.False(predecessor.IsCompleted);
+            Assert.Same(shared, await DirectoryAsync(node));
+            var after = ExpectCapacity(node, allocator, out _, shared, page);
+            Assert.Equal(before.ChargedBytes, after.ChargedBytes);
+            Assert.Equal(before.NativeBytes, after.NativeBytes);
+            _ = node.InspectBudget((_, backing) => Assert.NotSame(expanded, backing));
+
+            storage.ReleaseAll();
+            await predecessor.WaitAsync(Bound);
+            var committed = await earlier.WaitAsync(Bound);
+            Assert.Equal(committed.Position, node.Position);
+            Assert.Equal(RootTable.EntriesPerPage, pieces.Enumerate().Count());
+            Assert.Null(holders.Get(keyToWithdraw));
+            Assert.Same(shared, await DirectoryAsync(node));
+        }
+        finally
+        {
+            storage.ReleaseAll();
+        }
     }
 
     [Fact]
@@ -185,18 +257,25 @@ public sealed class RootPageWithdrawalTests
             Assert.Equal((1L, 1), await oldView.WaitAsync(Bound));
             storage.ReleaseAll();
             var earlier = await predecessor.WaitAsync(Bound);
-            var written = await pieces.InsertAsync(PieceSchema.Of(later, 18));
-            Assert.NotEqual(earlier.Position, written.Position);
+            var changed = await pieces.ReplaceAsync(PieceSchema.Of(2, 21));
+            Assert.NotEqual(earlier.Position, changed.Position);
             Assert.Equal(1, master.Counters.ActiveCaptures);
+            Assert.Same(original, await DirectoryAsync(master));
 
             held.Release();
             await opening.WaitAsync(Bound);
-            Assert.Equal(written.Position, child.Position);
+            Assert.Equal(changed.Position, child.Position);
             var local = child.Set<PieceSchema.Piece>();
             Assert.Equal(large.Data, local.Get(1L)?.Data);
-            Assert.Equal(18, local.Get(later)?.Name.Length);
+            Assert.Equal(21, local.Get(2L)?.Name.Length);
             Assert.Null(local.Get(cancelled));
             Assert.Equal(initial, Snapshot(master));
+            Assert.Same(original, await DirectoryAsync(master));
+
+            var written = await pieces.InsertAsync(PieceSchema.Of(later, 18));
+            await child.WaitForPositionAsync(written.Position, Bound);
+            Assert.Equal(written.Position, child.Position);
+            Assert.Equal(18, local.Get(later)?.Name.Length);
             _ = ExpectCapacity(master, allocator);
         }
         finally
