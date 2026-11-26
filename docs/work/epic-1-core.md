@@ -10197,6 +10197,34 @@ an 8-byte increase with the ReturnedKeys observer present. Both historical outer
 wait cases passed in this run. Diagnostic overlays, raw timings and load samples
 stay outside Git.
 
+##### Test harness corrections before S24
+
+The independent controlled cases on `b53fb21a` reproduced the three kinds
+of timeout without changing the engine. The package SHA-256 is
+`7797c5113017218cbd6a7e89b5fa1f02d28d797bfad582b9fb3943434f122595`.
+Their controlled schedules leave the chronology of the historical failures
+above unresolved.
+
+- **PublisherScratch.** The original case captures two weak references per
+  publisher synchronously at publication, while retaining the 5,000 members,
+  the additional real write and the original wait budgets. Separate virtual
+  time controls exercise an application timeout before the child publishes and
+  success at the deadline when notification is delayed. Both verify the later
+  applied result and scratch release.
+- **AcknowledgmentDuringARequest.** The 32 MiB case checks the Applied frame
+  between the first and last frames of the same WriteRequest. A controlled
+  observation times out with a publication held, then verifies that the actual
+  write succeeds and reaches the child's position once released.
+- **ReturnedKeysPages.** The original Int64 and Guid passes keep every
+  operation and the second-page assertion. The watchdog now measures time since
+  the last completed chunk, including during the tail of the controlled pass.
+  The controls distinguish a pass still making progress after two elapsed
+  intervals from a stalled worker. A positive fraction of a millisecond is
+  rounded up before arming the timer.
+
+The final targeted amendment at `8053a40b9628902bec61e0f1c0a2b950f0395c1f`
+passed all 11 cases in Debug and Release. Raw logs and controls stay outside Git.
+
 #### S20R · Refactor packed Map scalar pairs
 
 See [R2](refactoring.md#found-while-reviewing-s19-after-its-merge-24-november-2026)
