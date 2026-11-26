@@ -6,6 +6,8 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 using Moltaro.Lattice.TestSupport.Concurrency;
 using static Moltaro.Lattice.Engine.Tests.Engine.Collections.CollectionShrinkPair;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -230,6 +232,149 @@ public sealed class CollectionPressureTests
         node.ExpectNativeLedger();
     }
 
+    [Fact]
+    public async Task A_ready_slot_can_satisfy_the_same_class_without_releasing_a_mixed_region()
+    {
+        const int nativeLimit = 8;
+        const int shortSlotBytes = 3_328;
+        var allocator = new CountingNativeAllocator();
+        var time = new CollectionMaintenanceTime();
+        await using var database = await OpenAsync(nativeLimit, allocator, time);
+        var node = new CollectionShrinkNode(database, allocator);
+        var items = database.Set("Item");
+        var blobs = database.Set("Blob");
+        await InsertMapAsync(items, 6_000);
+        var original = node.LookupOf(Key, flattened: false);
+        var reduced = await ResizeAsync(items, 6_000, Small);
+        node.Turn(12);
+        ExpectReady(node, original);
+        var revision = ExpectMap(items, Small);
+
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.True(database.TryRunMaintenanceStep(parts => parts.Arena.ReleaseCollectionTail()));
+        var ready = Assert.Single(node.LeaseSnapshot()).Slot;
+        Assert.Equal(shortSlotBytes, ready.NativeBytes);
+        Assert.True(ready.SameGrantAs(Assert.Single(original.Chunks, slot => slot.NativeBytes == shortSlotBytes)));
+        var bytes = Binary(3_250);
+        for (var index = 1; index < WholeChunk / shortSlotBytes; index++)
+        {
+            var key = 100 + index;
+            Assert.True((await InsertBinaryAsync(blobs, bytes, key)).Changed);
+            Assert.Equal(ready.Address.Segment, BinaryAddress(database, key).Segment);
+        }
+
+        await FillCapAsync(node, blobs, nativeLimit);
+        var before = database.Position;
+        Assert.True(before.Sequence > reduced.Position.Sequence);
+        var native = (allocator.Obtained, allocator.Returned, allocator.Outstanding);
+        var refused = await Assert.ThrowsAsync<LatticeException>(() => InsertBinaryAsync(blobs, Binary(5_000)));
+        Assert.Equal(LatticeErrorEnum.WriteRejected, refused.Error);
+        Assert.Equal(before, database.Position);
+        Assert.Null(blobs.Get(2));
+        Assert.True(Assert.Single(node.LeaseSnapshot()).Slot.SameGrantAs(ready));
+
+        var accepted = await InsertBinaryAsync(blobs, bytes);
+        Assert.True(accepted.Changed);
+        Assert.Equal(before.Sequence + 1, accepted.Position.Sequence);
+        Assert.Equal(accepted.Position, database.Position);
+        Assert.Equal(bytes, blobs.Get(2)!.Get<byte[]>("Bytes"));
+        Assert.Equal(revision, ExpectMap(items, Small));
+        Assert.Equal(ready.Address, BinaryAddress(database, 2));
+        var live = Assert.Single(node.Observe([ready]));
+        Assert.True(live.SameGrantAs(ready));
+        Assert.False(live.Prepared);
+        Assert.False(live.Retired);
+        Assert.Equal(native, (allocator.Obtained, allocator.Returned, allocator.Outstanding));
+        Assert.Empty(node.LeaseSnapshot());
+        node.ExpectNativeLedger();
+    }
+
+    [Fact]
+    public async Task All_ready_slots_from_different_owners_can_return_one_region_to_another_class()
+    {
+        const int nativeLimit = 12;
+        const int shortSlotBytes = 3_328;
+        var allocator = new CountingNativeAllocator();
+        var time = new CollectionMaintenanceTime();
+        await using var database = await OpenAsync(nativeLimit, allocator, time);
+        var node = new CollectionShrinkNode(database, allocator);
+        var items = database.Set("Item");
+        var blobs = database.Set("Blob");
+        var keys = new[] { 1, 3 };
+        foreach (var key in keys)
+        {
+            await InsertMapAsync(items, 6_000, key);
+        }
+
+        var original = keys.Select(key => node.LookupOf(key, flattened: false)).ToArray();
+        foreach (var key in keys)
+        {
+            Assert.True((await ResizeAsync(items, 6_000, Small, key)).Changed);
+        }
+
+        node.Turn(12);
+        Assert.Equal(4, node.LeaseSnapshot().Length);
+        var revisions = keys.Select(key => ExpectMap(items, Small, key)).ToArray();
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.True(database.TryRunMaintenanceStep(parts => parts.Arena.ReleaseCollectionTail()));
+        Assert.True(database.TryRunMaintenanceStep(parts => parts.Arena.ReleaseCollectionTail()));
+        var former = node.LeaseSnapshot();
+        Assert.Equal(2, former.Length);
+        Assert.NotEqual(former[0].Slot.Address, former[1].Slot.Address);
+        Assert.Same(former[0].Slot.Grant, former[1].Slot.Grant);
+        foreach (var shape in original)
+        {
+            var slot = Assert.Single(shape.Chunks, chunk => chunk.NativeBytes == shortSlotBytes);
+            Assert.Single(former, entry => entry.Lease.Owner == shape.Handle && entry.Slot.SameGrantAs(slot));
+        }
+
+        await FillCapAsync(node, blobs, nativeLimit);
+        var position = database.Position;
+        var before = (allocator.Obtained, allocator.Returned);
+        var bytes = Binary(5_000);
+        var result = await InsertBinaryAsync(blobs, bytes);
+        Assert.True(result.Changed);
+        Assert.Equal(position.Sequence + 1, result.Position.Sequence);
+        Assert.Equal(result.Position, database.Position);
+        Assert.Equal(bytes, blobs.Get(2)!.Get<byte[]>("Bytes"));
+        Assert.Equal(revisions, keys.Select(key => ExpectMap(items, Small, key)));
+        Assert.Equal((before.Obtained + 1, before.Returned + 1), (allocator.Obtained, allocator.Returned));
+        Assert.Equal(nativeLimit, allocator.Outstanding);
+        Assert.Empty(node.LeaseSnapshot());
+        var oldSlots = former.Select(entry => entry.Slot).ToArray();
+        Assert.All(node.Observe(oldSlots).Zip(oldSlots), pair => Assert.False(pair.First.SameGrantAs(pair.Second)));
+        node.ExpectNativeLedger();
+    }
+
+    private static async Task FillCapAsync(CollectionShrinkNode node, ILatticeSet blobs, int nativeLimit)
+    {
+        var bytes = Binary(62_000);
+        for (var index = 0; index < nativeLimit && node.Allocator.Outstanding < nativeLimit; index++)
+        {
+            Assert.True((await InsertBinaryAsync(blobs, bytes, 1000 + index)).Changed);
+        }
+
+        Assert.Equal(nativeLimit, node.Allocator.Outstanding);
+        Assert.Equal(0, node.Database.Counters.Arena.FreeRegions);
+        Assert.Equal(0, node.Database.Counters.Arena.ReservedSegments);
+        node.ExpectNativeLedger();
+    }
+
+    private static ArenaAddress BinaryAddress(EngineDatabase database, int key)
+    {
+        var result = default(ArenaAddress);
+        database.ForEachLiveRoot((arena, layout, _, root) =>
+        {
+            if (layout.EntityType.Name == "Blob" && new RootReader(arena, layout, root).GetInteger(layout.EntityType.Key) == key)
+            {
+                var field = layout.StoredFieldOf(layout.EntityType.GetField("Bytes")).Offset - BlockHeader.Size;
+                result = ValueBlocks.AddressOf(ResidentDescriptor.Read(arena.Payload(root)[field..]));
+            }
+        });
+        Assert.False(result.IsNull);
+        return result;
+    }
+
     private static async Task<EngineDatabase> OpenAsync(int nativeLimit, CountingNativeAllocator allocator,
         TimeProvider time, HeldPersistence? persistence = null)
     {
@@ -251,17 +396,17 @@ public sealed class CollectionPressureTests
         return database;
     }
 
-    private static async Task InsertMapAsync(ILatticeSet items, int count)
+    private static async Task InsertMapAsync(ILatticeSet items, int count, int key = Key)
     {
         var values = Enumerable.Range(0, count).ToDictionary(index => index, Value);
-        var inserted = await items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = Key, ["Values"] = values })
+        var inserted = await items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = key, ["Values"] = values })
             .AsTask().WaitAsync(Bound);
         Assert.True(inserted.Changed);
     }
 
-    private static Task<LatticeWriteResult> ResizeAsync(ILatticeSet items, int before, int after)
+    private static Task<LatticeWriteResult> ResizeAsync(ILatticeSet items, int before, int after, int key = Key)
     {
-        var updated = items.CreateUpdate(Key);
+        var updated = items.CreateUpdate(key);
         for (var index = Math.Min(before, after); index < Math.Max(before, after); index++)
         {
             _ = before > after ? updated.MapRemove("Values", index) : updated.MapSet("Values", index, Value(index));
@@ -270,11 +415,11 @@ public sealed class CollectionPressureTests
         return updated.CommitAsync().AsTask().WaitAsync(Bound);
     }
 
-    private static Task<LatticeWriteResult> InsertBinaryAsync(ILatticeSet blobs, byte[] bytes) =>
-        blobs.InsertAsync(BinaryRecord(blobs, bytes)).AsTask().WaitAsync(Bound);
+    private static Task<LatticeWriteResult> InsertBinaryAsync(ILatticeSet blobs, byte[] bytes, int key = 2) =>
+        blobs.InsertAsync(BinaryRecord(blobs, bytes, key)).AsTask().WaitAsync(Bound);
 
-    private static LatticeRecord BinaryRecord(ILatticeSet blobs, byte[] bytes) =>
-        new(blobs.EntityType) { ["Id"] = 2, ["Bytes"] = bytes };
+    private static LatticeRecord BinaryRecord(ILatticeSet blobs, byte[] bytes, int key = 2) =>
+        new(blobs.EntityType) { ["Id"] = key, ["Bytes"] = bytes };
 
     private static byte[] Binary(int size) => Enumerable.Range(0, size).Select(index => unchecked((byte)(13 + 17 * index))).ToArray();
 
@@ -301,9 +446,9 @@ public sealed class CollectionPressureTests
         return leases;
     }
 
-    private static LatticeRevision ExpectMap(ILatticeSet items, int count)
+    private static LatticeRevision ExpectMap(ILatticeSet items, int count, int key = Key)
     {
-        Assert.True(items.TryGet(Key, out var item, out var revision));
+        Assert.True(items.TryGet(key, out var item, out var revision));
         var values = Assert.IsType<Dictionary<int, int>>(item["Values"]);
         Assert.Equal(count, values.Count);
         foreach (var index in Enumerable.Range(0, count))
@@ -311,7 +456,7 @@ public sealed class CollectionPressureTests
             Assert.Equal(Value(index), values[index]);
         }
 
-        Assert.True(items.TryView(Key, view =>
+        Assert.True(items.TryView(key, view =>
         {
             ExpectMap(view["Values"].Map, count);
             return view.Revision;
