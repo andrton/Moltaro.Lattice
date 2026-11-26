@@ -135,10 +135,11 @@ internal sealed class ReceivedChanges
 
     // The changes prepared and not published yet, in the order they were received: not reserved while the
     // effects of their transaction are prepared, and reserved together once every one is (TryReserve).
-    private List<PreparedChange> _prepared = [];
+    private List<PreparedChange>? _prepared = [];
 
     // The keys the effects named since the last Publish, prepared or skipped (see the class, "Each key once").
-    private PublicationKeys _keys = new(0);
+    // Both scratch fields are null between attempts after oversized scratch was discarded.
+    private PublicationKeys? _keys = new(0);
 
     // The states the rule skipped since the last Publish.
     private int _skipped;
@@ -375,6 +376,8 @@ internal sealed class ReceivedChanges
     {
         lock (_writes)
         {
+            PrepareScratch();
+
             try
             {
                 if (!TryPrepareWrite(table, lastMutation, member, ref rest) || !TryReserve())
@@ -408,6 +411,8 @@ internal sealed class ReceivedChanges
     {
         lock (_writes)
         {
+            PrepareScratch();
+
             var reader = new SequenceReader<byte>(effects);
             string? divergence = null;
 
@@ -525,11 +530,12 @@ internal sealed class ReceivedChanges
         }
 
         // Once the root takes storage, recording the change for rollback must not allocate.
-        var preparedCount = _prepared.Count;
-        if (preparedCount == _prepared.Capacity)
+        var prepared = _prepared!;
+        var preparedCount = prepared.Count;
+        if (preparedCount == prepared.Capacity)
         {
             _beforeRootListGrowth?.Invoke(preparedCount, member, _arena, _roots);
-            _prepared.EnsureCapacity(preparedCount + 1);
+            prepared.EnsureCapacity(preparedCount + 1);
         }
 
         // A new lifetime for a key the child does not hold; the lifetime of the entity for one it holds.
@@ -561,7 +567,7 @@ internal sealed class ReceivedChanges
             return false;
         }
 
-        _prepared.Add(new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
+        prepared.Add(new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
 
         return true;
     }
@@ -612,14 +618,15 @@ internal sealed class ReceivedChanges
             return true;
         }
 
-        _prepared.EnsureCapacity(_prepared.Count + 1);
+        var prepared = _prepared!;
+        prepared.EnsureCapacity(prepared.Count + 1);
         var root = RootValues.Place(_arena, table.Layout, handle, values: null, out _, out _, plan);
         if (root.IsNull)
         {
             return false;
         }
 
-        _prepared.Add(new PreparedChange(ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
+        prepared.Add(new PreparedChange(ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
         return true;
     }
 
@@ -652,7 +659,7 @@ internal sealed class ReceivedChanges
             return true;
         }
 
-        _prepared.Add(new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default, replaced));
+        _prepared!.Add(new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default, replaced));
 
         return true;
     }
@@ -703,9 +710,9 @@ internal sealed class ReceivedChanges
             throw;
         }
 
-        AppliedStates += _prepared.Count;
+        AppliedStates += _prepared!.Count;
         SkippedStates += _skipped;
-        StartNext();
+        EndAttempt();
         _retired.AfterWrite();
     }
 
@@ -715,27 +722,42 @@ internal sealed class ReceivedChanges
     private void GiveBack()
     {
         _publisher.GiveBack(CollectionsMarshal.AsSpan(_prepared));
-        StartNext();
+        EndAttempt();
     }
 
-    // Under the lock of the writes, once a transaction or a root of the load is published or given back: the
-    // list of the prepared changes and the set of the named keys are emptied for the next one, or let go after
-    // one that named more keys than ChangePublisher.KeptRoom, so that the next starts with new ones (see the
-    // class, "Each key once"). Every prepared change names its key, so the set counts the room of both: at that
-    // count a list of 1,024 changes of 96 bytes and a set grown to 1,931 entries of 56 bytes with their buckets,
-    // about 210 KiB at most kept between transactions.
-    private void StartNext()
+    // Under the lock of the writes, before an attempt takes ownership of any change.
+    // If either allocation fails, the receiver still has no scratch for that attempt.
+    private void PrepareScratch()
     {
-        if (_keys.Count > ChangePublisher.KeptRoom)
+        if (_prepared is not null)
         {
-            _beforeScratchAllocation?.Invoke();
-            _prepared = [];
-            _keys = new PublicationKeys(0);
+            return;
+        }
+
+        _beforeScratchAllocation?.Invoke();
+        var prepared = new List<PreparedChange>();
+        var keys = new PublicationKeys(0);
+        _prepared = prepared;
+        _keys = keys;
+    }
+
+    // Under the lock of the writes, after publication or rollback. Drop oversized scratch
+    // without allocating. A later attempt obtains its own scratch before it prepares anything.
+    // The named keys count the room of both containers because every prepared change names
+    // its key. At the limit (ChangePublisher.KeptRoom), 1,024 changes of 96 bytes and 1,931
+    // key entries of 56 bytes with their buckets keep about 210 KiB between attempts.
+    private void EndAttempt()
+    {
+        var keys = _keys!;
+        if (keys.Count > ChangePublisher.KeptRoom)
+        {
+            _prepared = null;
+            _keys = null;
         }
         else
         {
-            _prepared.Clear();
-            _keys.Clear();
+            _prepared!.Clear();
+            keys.Clear();
         }
 
         _skipped = 0;
@@ -758,7 +780,7 @@ internal sealed class ReceivedChanges
     // effect of the transaction named.
     private void NameOnce(EntityTable table, in EntityKey key)
     {
-        if (!_keys.TryAdd(table, key))
+        if (!_keys!.TryAdd(table, key))
         {
             throw NamedTwice(table, key);
         }

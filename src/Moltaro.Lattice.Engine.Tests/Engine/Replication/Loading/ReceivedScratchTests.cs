@@ -8,12 +8,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Loading;
 // have no effect on the outcome or resource ownership of the current one.
 public sealed class ReceivedScratchTests
 {
-    private const string EagerScratch = "Replacing oversized receive scratch can allocate after publication or rollback.";
     private const int KeptMembers = ReceivedScratchFixture.FirstOversizedMember - 1;
     private const int OversizedMembers = ReceivedScratchFixture.FirstOversizedMember;
     private const int FollowUpKey = 9_000;
 
-    [Theory(Skip = EagerScratch)]
+    [Theory]
     [InlineData(KeptMembers)]
     [InlineData(OversizedMembers)]
     public void A_large_committed_replay_reports_its_own_success_and_keeps_or_discards_scratch_at_the_boundary(int members)
@@ -54,7 +53,7 @@ public sealed class ReceivedScratchTests
         }
     }
 
-    [Fact(Skip = EagerScratch)]
+    [Fact]
     public void Rollback_reports_the_original_preparation_exception_and_the_next_attempt_can_reuse_its_keys()
     {
         var allocator = new CountingNativeAllocator();
@@ -89,7 +88,7 @@ public sealed class ReceivedScratchTests
         }
     }
 
-    [Theory(Skip = EagerScratch)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void A_native_refusal_returns_the_staged_roots_once_on_each_attempt_and_leaves_the_child_usable(bool refusesScratch)
