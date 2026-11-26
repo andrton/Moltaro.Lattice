@@ -12,9 +12,6 @@ namespace Moltaro.Lattice.Engine.Maintenance;
 // (docs/design/arena-protocol.md, "Deferred reclamation").
 internal static class CompoundRelocation
 {
-    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source) =>
-        TryMove(parts, expected, source, 0, out _, out _);
-
     public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
         out ArenaAddress replacement, out DescriptorKindEnum descriptorKind)
     {

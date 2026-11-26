@@ -348,25 +348,6 @@ internal sealed class RetiredMemory
         _retiredSincePublication = false;
     }
 
-    // One bounded turn. The ordinary drain owns an earlier non-relocation item.
-    // The one epoch scan can make an old slot reusable even while later reads are held.
-    public bool TryReclaimRelocated()
-    {
-        if (_headActive || !_items.TryPeek(out var item) || item.Kind != RetiredKindEnum.RelocatedBlock || item.Epoch > _epochs.Advance())
-        {
-            return false;
-        }
-
-        _items.Dequeue();
-        Free(item);
-        if (_items.Count == 0)
-        {
-            ForgetLook();
-        }
-
-        return true;
-    }
-
     // Frees every retired thing that no read in progress can reach, and returns; it does not wait.
     // With no read in progress it leaves nothing retired.
     public void Drain()

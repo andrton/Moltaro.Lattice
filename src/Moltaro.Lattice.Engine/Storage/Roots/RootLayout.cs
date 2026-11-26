@@ -130,22 +130,6 @@ internal sealed class RootLayout
 
     internal int DescriptorCount { get; }
 
-    // A native backlink records a block offset, which must lie exactly on a
-    // descriptor of this layout rather than anywhere inside its fixed part.
-    internal bool TryGetDescriptorIndex(uint offset, out int index)
-    {
-        var withinDescriptors = (long)offset - DescriptorOffset;
-        if (withinDescriptors < 0 || withinDescriptors >= DescriptorCount * ValueBlocks.DescriptorSize ||
-            withinDescriptors % ValueBlocks.DescriptorSize != 0)
-        {
-            index = -1;
-            return false;
-        }
-
-        index = (int)withinDescriptors / ValueBlocks.DescriptorSize;
-        return true;
-    }
-
     // The place whose descriptor is the one at the index, 0 to DescriptorCount less one.
     internal ref readonly StoredField DescriptorField(int index) => ref Structure.DescriptorField(index);
 

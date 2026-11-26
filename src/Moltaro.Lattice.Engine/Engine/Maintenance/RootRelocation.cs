@@ -1,6 +1,5 @@
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
-using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Maintenance;
 
@@ -11,17 +10,8 @@ namespace Moltaro.Lattice.Engine.Maintenance;
 // (docs/design/arena-protocol.md, "Deferred reclamation").
 internal static class RootRelocation
 {
-    // The controlled move retains its fixed-root and raw-child scope. The
-    // automatic caller supplies a selected region and validates any root shape.
-    public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source) =>
-        TryMove(parts, expected, source, 0, controlled: true, out _);
-
     public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
-        out ArenaAddress replacement) =>
-        TryMove(parts, expected, source, region, controlled: false, out replacement);
-
-    private static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
-        bool controlled, out ArenaAddress replacement)
+        out ArenaAddress replacement)
     {
         replacement = default;
         // A master write can keep the physical source between preparation and
@@ -41,7 +31,6 @@ internal static class RootRelocation
         var arena = parts.Arena;
         if (!arena.TryFindRelocationDestination(source, ref region, out var sizeClass) ||
             !RelocationBlock.TryReadRoot(arena, layout, source, expected, out var holder) ||
-            (controlled && layout.DescriptorCount != 0 && !HasControlledChildren(arena, layout, source)) ||
             !RelocationChildren.Validate(arena, holder))
         {
             return false;
@@ -60,29 +49,5 @@ internal static class RootRelocation
         entry.ReleaseRoot(replacement);
         retired.RetireRelocated(source, slotBytes);
         return true;
-    }
-
-    private static bool HasControlledChildren(Arena arena, RootLayout layout, ArenaAddress root)
-    {
-        var descriptors = new RootDescriptors(layout, arena.Payload(root));
-        var hasOwnedChild = false;
-        while (descriptors.MoveNext())
-        {
-            var kind = descriptors.Current.Kind;
-            if (kind is DescriptorKindEnum.Null or DescriptorKindEnum.Inline)
-            {
-                continue;
-            }
-
-            if (kind != DescriptorKindEnum.Block &&
-                (kind != DescriptorKindEnum.Chunked || descriptors.Field.Type != StoredTypeEnum.Binary))
-            {
-                return false;
-            }
-
-            hasOwnedChild = true;
-        }
-
-        return hasOwnedChild;
     }
 }

@@ -198,15 +198,7 @@ internal sealed unsafe class Arena : IDisposable
         return true;
     }
 
-    public bool TryFindRelocationClass(ArenaAddress source, out int sizeClass)
-    {
-        long destination = NoRegion;
-        return TryFindRelocationDestination(source, ref destination, out sizeClass);
-    }
-
-    // Under the writes lock: recheck the source and selected earlier vacancy. With no
-    // destination supplied, the controlled move keeps its stricter allocated-slot test
-    // and considers only the current head of the size class.
+    // Under the writes lock: recheck source occupancy and the selected earlier vacancy.
     public bool TryFindRelocationDestination(ArenaAddress source, ref long destination, out int sizeClass)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -221,14 +213,8 @@ internal sealed unsafe class Arena : IDisposable
         ref var region = ref segment.Regions[regionIndex];
         sizeClass = region.SizeClass;
         var slotCount = ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
-        if (destination != NoRegion)
-        {
-            return region.Live * 2 < slotCount && (uint)SegmentSlotOf(destination) < source.Segment &&
-                HasRelocationVacancy(SegmentSlotOf(destination), RegionIndexOf(destination), sizeClass);
-        }
-
-        destination = RelocationHead(sizeClass, source.Segment);
-        return region.Allocated * 2 < slotCount && destination != NoRegion;
+        return destination != NoRegion && region.Live * 2 < slotCount && (uint)SegmentSlotOf(destination) < source.Segment &&
+            HasRelocationVacancy(SegmentSlotOf(destination), RegionIndexOf(destination), sizeClass);
     }
 
     // Under the writes lock: numeric coordinates give a bounded view of the current arena.

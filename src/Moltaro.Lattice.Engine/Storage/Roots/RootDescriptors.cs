@@ -36,9 +36,6 @@ internal ref struct RootDescriptors
     // descriptor names records it (BlockHeader.DescriptorOffset).
     public readonly int Offset => _layout.DescriptorOffset + (_index * ValueBlocks.DescriptorSize);
 
-    // The place of the descriptor: a String, Binary or List field, of the entity or of one of its owned values.
-    public readonly ref readonly StoredField Field => ref _layout.DescriptorField(_index);
-
     // The position of the descriptor among those of the root, from 0; -1 before the first.
     public readonly int Index => _index;
 
