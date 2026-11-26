@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Measurements.Manifests;
 using Moltaro.Lattice.Measurements.Scenarios;
+using Moltaro.Lattice.Measurements.Scenarios.StorageChurn;
 
 // The measurement program of the engine (docs/work/epic-1-core.md, "Test lanes"). It is started by
 // hand, from src, with the name of a scenario and the name of the manifest the run is made under:
@@ -74,12 +75,14 @@ IReadOnlyList<string>? results = scenario switch
     BatchWritesScenario.Name => BatchWritesScenario.Run(),
     ReadsBesideBatchesScenario.Name => ReadsBesideBatchesScenario.Run(),
     FullFormUsersScenario.Name => FullFormUsersScenario.Run(),
+    ChurnScenario.Name => await ChurnScenario.RunAsync(maintenance: true),
+    ChurnScenario.OffName => await ChurnScenario.RunAsync(maintenance: false),
     _ => null,
 };
 
 if (results is null)
 {
-    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}, {ClockWaitersScenario.Name}, {ForwardingScenario.Name}, {ForwardingCostsScenario.Name}, {DictionaryReadsScenario.Name}, {DictionaryWritesScenario.Name}, {DictionaryMemoryScenario.Name}, {DictionaryChildScenario.Name}, {IndexSearchScenario.Name}, {IndexWritesScenario.Name}, {IndexReadByKeyScenario.Name}, {IndexBuildScenario.Name}, {IndexLongTextScenario.Name}, {UniqueWritesScenario.Name}, {BatchWritesScenario.Name}, {ReadsBesideBatchesScenario.Name}, {FullFormUsersScenario.Name}, {NestedIndexReadScenario.Name}, {NestedIndexReadScenario.CollectionName}, {MapLookupScenario.Name}.");
+    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}, {ClockWaitersScenario.Name}, {ForwardingScenario.Name}, {ForwardingCostsScenario.Name}, {DictionaryReadsScenario.Name}, {DictionaryWritesScenario.Name}, {DictionaryMemoryScenario.Name}, {DictionaryChildScenario.Name}, {IndexSearchScenario.Name}, {IndexWritesScenario.Name}, {IndexReadByKeyScenario.Name}, {IndexBuildScenario.Name}, {IndexLongTextScenario.Name}, {UniqueWritesScenario.Name}, {BatchWritesScenario.Name}, {ReadsBesideBatchesScenario.Name}, {FullFormUsersScenario.Name}, {NestedIndexReadScenario.Name}, {NestedIndexReadScenario.CollectionName}, {MapLookupScenario.Name}, {ChurnScenario.Name}, {ChurnScenario.OffName}.");
 }
 
 var finished = DateTimeOffset.UtcNow;
