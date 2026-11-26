@@ -253,11 +253,12 @@ internal static class ChurnScenario
         };
         await using var file = new FileStream(Path.Combine(output, "run.json"), FileMode.CreateNew);
         await JsonSerializer.SerializeAsync(file, status, Json, stop);
+        long earlyEnd = Math.Min(measuredTicks + (quick ? 5 : 30) * Stopwatch.Frequency, endTicks);
         List<string> results =
         [
             $"Storage churn {mode} with {initialCount} fixture rows and trace {trace.Digest}",
             $"{phase.Transactions} transactions, {phase.LateStarts} late writer starts, {phase.CrossedFrameBoundary} crossed frame boundaries",
-            .. ChurnReport.Timings(output, readers, measuredTicks, endTicks)
+            .. ChurnReport.Timings(output, readers, startTicks, measuredTicks, earlyEnd, endTicks)
         ];
         if (volume is not null)
         {
