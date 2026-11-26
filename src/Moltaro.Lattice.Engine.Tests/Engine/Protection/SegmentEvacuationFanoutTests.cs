@@ -27,8 +27,8 @@ public sealed class SegmentEvacuationFanoutTests
     private static readonly LatticeSchema WideSchema = MakeSchema();
 
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task Evacuating_a_wide_root_adopts_all_four_thousand_owning_edges(LatticeRoleEnum role)
     {
         const int sourceFill = 101;

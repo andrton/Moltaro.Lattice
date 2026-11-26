@@ -12,8 +12,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class SegmentEvacuationChargeTests
 {
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task At_the_live_cutoff_an_ordinary_retained_slot_does_not_refuse_an_eligible_move(LatticeRoleEnum role)
     {
         const int anchorHalf = 401;

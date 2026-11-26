@@ -14,11 +14,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class SegmentEvacuationSelectionTests
 {
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, -16, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Master, 0, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master, -16)]
+    [InlineData(LatticeRoleEnum.Master, 0)]
     [InlineData(LatticeRoleEnum.Master, 16)]
-    [InlineData(LatticeRoleEnum.Child, -16, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, 0, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Child, -16)]
+    [InlineData(LatticeRoleEnum.Child, 0)]
     [InlineData(LatticeRoleEnum.Child, 16)]
     public async Task The_segment_cutoff_counts_mixed_live_slot_capacity_and_includes_its_boundary(LatticeRoleEnum role,
         int offset)
@@ -100,8 +100,8 @@ public sealed class SegmentEvacuationSelectionTests
     }
 
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task Equal_segment_charges_only_allow_movement_into_the_lower_segment_number(LatticeRoleEnum role)
     {
         const int lowerKey = TargetKey;

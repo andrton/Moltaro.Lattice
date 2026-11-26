@@ -14,8 +14,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class SegmentEvacuationCadenceTests
 {
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task The_ready_worker_releases_a_segment_on_its_own_cadence(LatticeRoleEnum role)
     {
         const int turnCount = TurnsPerSweep;

@@ -14,8 +14,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class MixedSegmentEvacuationWorkspaceTests
 {
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task Thirty_two_held_KiB_refuses_a_sixty_four_KiB_destination_without_touching_it(LatticeRoleEnum role)
     {
         const int halfAnchor = 401;

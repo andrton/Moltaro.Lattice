@@ -18,8 +18,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // its region does not qualify for ordinary compaction (allocation-and-compaction.md).
 public sealed class SegmentEvacuationTests
 {
-    internal const string PendingSegmentEvacuation = "Automatic segment evacuation is not implemented.";
-
     internal const int SegmentBytes = LatticeDatabaseOptions.ArenaSegmentSize;
     internal const int RegionBytes = Arena.MaxBlockSize;
     internal const int RegionsPerSegment = SegmentBytes / RegionBytes;
@@ -45,16 +43,16 @@ public sealed class SegmentEvacuationTests
         """);
 
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, RegionBytes, VacancyEnum.Unassigned, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, RegionBytes, VacancyEnum.Unassigned, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master, RegionBytes, VacancyEnum.Unassigned)]
+    [InlineData(LatticeRoleEnum.Child, RegionBytes, VacancyEnum.Unassigned)]
     [InlineData(LatticeRoleEnum.Master, RegionBytes, VacancyEnum.None)]
     [InlineData(LatticeRoleEnum.Child, RegionBytes, VacancyEnum.None)]
-    [InlineData(LatticeRoleEnum.Master, RegionBytes, VacancyEnum.LaterUnassigned, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, RegionBytes, VacancyEnum.LaterUnassigned, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Master, RegionBytes / 2, VacancyEnum.Compatible, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, RegionBytes / 2, VacancyEnum.Compatible, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Master, RegionBytes / 2, VacancyEnum.Unassigned, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, RegionBytes / 2, VacancyEnum.Unassigned, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master, RegionBytes, VacancyEnum.LaterUnassigned)]
+    [InlineData(LatticeRoleEnum.Child, RegionBytes, VacancyEnum.LaterUnassigned)]
+    [InlineData(LatticeRoleEnum.Master, RegionBytes / 2, VacancyEnum.Compatible)]
+    [InlineData(LatticeRoleEnum.Child, RegionBytes / 2, VacancyEnum.Compatible)]
+    [InlineData(LatticeRoleEnum.Master, RegionBytes / 2, VacancyEnum.Unassigned)]
+    [InlineData(LatticeRoleEnum.Child, RegionBytes / 2, VacancyEnum.Unassigned)]
     [InlineData(LatticeRoleEnum.Master, RegionBytes / 2, VacancyEnum.None)]
     [InlineData(LatticeRoleEnum.Child, RegionBytes / 2, VacancyEnum.None)]
     public async Task A_large_region_empties_only_into_an_existing_active_segment(LatticeRoleEnum role, int slotBytes,

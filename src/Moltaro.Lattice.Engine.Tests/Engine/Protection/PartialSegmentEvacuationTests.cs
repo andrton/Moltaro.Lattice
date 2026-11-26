@@ -12,8 +12,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class PartialSegmentEvacuationTests
 {
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task Enough_space_for_one_of_two_survivors_makes_monotonic_partial_progress(LatticeRoleEnum role)
     {
         const int sourceStart = 501;

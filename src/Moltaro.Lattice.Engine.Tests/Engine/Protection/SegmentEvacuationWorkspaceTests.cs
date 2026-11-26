@@ -14,8 +14,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class SegmentEvacuationWorkspaceTests
 {
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task Two_held_half_slots_fill_the_workspace_while_a_third_destination_stays_unclaimed(LatticeRoleEnum role)
     {
         const int anchorStart = 401;
@@ -135,8 +135,8 @@ public sealed class SegmentEvacuationWorkspaceTests
     }
 
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task Old_copies_in_different_segments_share_one_node_wide_workspace(LatticeRoleEnum role)
     {
         const int anchorStart = 401;

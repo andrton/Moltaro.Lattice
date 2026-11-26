@@ -30,8 +30,8 @@ public sealed class SegmentEvacuationIndexTests
     [Theory]
     [InlineData(LatticeRoleEnum.Master, true)]
     [InlineData(LatticeRoleEnum.Child, true)]
-    [InlineData(LatticeRoleEnum.Master, false, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, false, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master, false)]
+    [InlineData(LatticeRoleEnum.Child, false)]
     public async Task A_secondary_index_node_blocks_evacuation_only_when_it_occupies_the_source(LatticeRoleEnum role, bool nodeInSource)
     {
         const int sourceFill = 101;

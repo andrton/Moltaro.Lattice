@@ -25,8 +25,8 @@ public sealed class SegmentEvacuationResumptionTests
         """);
 
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task A_bounded_turn_takes_the_only_external_capacity_or_rechecks_it_after_a_forwarded_write(LatticeRoleEnum role)
     {
         const int activeSourceSegments = 5;

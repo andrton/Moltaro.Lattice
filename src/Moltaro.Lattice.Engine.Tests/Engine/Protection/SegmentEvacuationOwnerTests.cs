@@ -17,12 +17,12 @@ public sealed class SegmentEvacuationOwnerTests
     private const int OwnerKey = 701;
 
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, "Text", Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, "Text", Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Master, "Records", Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, "Records", Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Master, "Lookup", Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, "Lookup", Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master, "Text")]
+    [InlineData(LatticeRoleEnum.Child, "Text")]
+    [InlineData(LatticeRoleEnum.Master, "Records")]
+    [InlineData(LatticeRoleEnum.Child, "Records")]
+    [InlineData(LatticeRoleEnum.Master, "Lookup")]
+    [InlineData(LatticeRoleEnum.Child, "Lookup")]
     public async Task Large_text_records_and_lookup_chunks_republish_their_real_owning_edge(LatticeRoleEnum role, string kind)
     {
         const int sourceFill = 201;

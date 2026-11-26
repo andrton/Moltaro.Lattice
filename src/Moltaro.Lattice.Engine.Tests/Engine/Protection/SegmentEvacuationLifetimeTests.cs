@@ -17,8 +17,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class SegmentEvacuationLifetimeTests
 {
     [Theory]
-    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
-    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
     public async Task A_live_chunk_is_returned_only_after_both_the_view_and_export_finish(LatticeRoleEnum role)
     {
         var allocator = new CountingNativeAllocator();
