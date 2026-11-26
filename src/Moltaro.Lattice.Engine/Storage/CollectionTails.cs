@@ -16,7 +16,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
     private static readonly TimeSpan Underuse = TimeSpan.FromSeconds(5);
 
     private readonly Dictionary<RootHandle, Dictionary<int, CollectionTail>> _owners = [];
-    private readonly Dictionary<ArenaAddress, Dictionary<int, CollectionTailEdit>> _preparations = [];
+    private readonly Dictionary<ArenaAddress, Dictionary<int, CollectionTailEdit>?> _preparations = [];
     private readonly Dictionary<ArenaAddress, CollectionTail> _borrowed = [];
     private readonly LinkedList<CollectionTail> _ready = new();
 
@@ -24,7 +24,9 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     public bool HasSlots(RootHandle handle, int offset) => Find(handle, offset) is { ReadySlots: > 0 };
 
-    public void PrepareSparse(ArenaAddress root) => _preparations.Add(root, []);
+    // A sparse root keeps its leases even when none of their fields changes.
+    // Only an actual collection edit needs a field table.
+    public void PrepareSparse(ArenaAddress root) => _preparations.Add(root, null);
 
     public void PrepareChange(ArenaAddress root, RootHandle handle, int offset, ArenaAddress former, int active, int need)
     {
@@ -81,6 +83,11 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             return;
         }
 
+        if (edits is null)
+        {
+            return;
+        }
+
         foreach (var edit in edits.Values)
         {
             var tail = edit.Tail;
@@ -110,7 +117,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     public void Abandon(ArenaAddress root)
     {
-        if (_preparations.Remove(root, out var edits))
+        if (_preparations.Remove(root, out var edits) && edits is not null)
         {
             foreach (var edit in edits.Values)
             {
@@ -353,10 +360,10 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     private Dictionary<int, CollectionTailEdit> Preparation(ArenaAddress root)
     {
-        if (!_preparations.TryGetValue(root, out var changes))
+        if (!_preparations.TryGetValue(root, out var changes) || changes is null)
         {
             changes = [];
-            _preparations.Add(root, changes);
+            _preparations[root] = changes;
         }
 
         return changes;
