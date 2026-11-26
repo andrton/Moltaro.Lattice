@@ -1,7 +1,10 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Tests.Engine.Positions;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.Engine.Tests.Engine.Batches.BatchSchema;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -12,10 +15,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Memory;
 // scratch arrays of the publisher, which a publication that grew them past the size they are kept for lets go,
 // so that the managed memory of a node does not stay at the largest batch it ever checked. A batch through a
 // child moves the login of 5,000 items, each member freeing a value of the unique index ByLogin and claiming
-// another; while the publication of each node is held before its position (HeldPublication), the test watches
-// every array of the two scratch structures of that node's publisher, the largest of which holds the 5,000;
-// after the batch and a single write, and a full collection, none of them is alive on either node. The arrays
-// are found through the publisher, which has no public surface for them. Every wait is bounded.
+// another. Each publisher's callback captures the scratch arrays before the position is stamped, without
+// holding publication across the forwarded write's wait for its position. After the batch and a single
+// write, a full collection leaves none of the four arrays alive. The arrays have no public surface.
 public sealed class PublisherScratchTests
 {
     private const int Members = 5_000;
@@ -33,29 +35,97 @@ public sealed class PublisherScratchTests
         await InsertInPartsAsync(master, session);
         await child.WaitForPositionAsync(session).AsTask().WaitAsync(Bound);
 
-        var watched = new List<WeakReference>();
+        List<WeakReference>? masterScratch = null;
+        List<WeakReference>? childScratch = null;
+        master.ArmPublicationSwitch(PublicationPointEnum.BeforePosition, () => masterScratch = WatchScratch(master));
+        child.ArmPublicationSwitch(PublicationPointEnum.BeforePosition, () => childScratch = WatchScratch(child));
 
-        using (var onMaster = HeldPublication.Arm(master, PublicationPointEnum.BeforePosition))
-        using (var onChild = HeldPublication.Arm(child, PublicationPointEnum.BeforePosition))
+        var result = await CommitMovesAsync(child, session).WaitAsync(Bound);
+        Assert.True(result.Changed);
+        Assert.NotNull(masterScratch);
+        Assert.NotNull(childScratch);
+        await CheckScratchAfterAnotherWriteAsync(master, child, session, [.. masterScratch, .. childScratch]);
+    }
+
+    [Fact]
+    public Task Forwarded_batch_reports_a_timeout_if_the_child_has_not_reached_the_position_at_the_deadline() =>
+        CheckForwardedBatchDeadlineAsync(reachAtDeadline: false);
+
+    [Fact]
+    public Task Forwarded_batch_succeeds_if_the_child_reaches_the_position_at_the_deadline_with_wake_held() =>
+        CheckForwardedBatchDeadlineAsync(reachAtDeadline: true);
+
+    private static async Task CheckForwardedBatchDeadlineAsync(bool reachAtDeadline)
+    {
+        var deadline = TimeSpan.FromSeconds(10);
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { PositionWaitTime = time });
+        var session = new LatticeSession { SynchronizationTimeout = deadline };
+        await InsertInPartsAsync(master, session);
+        await Eventually.AtAsync(child, master.Position);
+
+        List<WeakReference>? masterScratch = null;
+        master.ArmPublicationSwitch(PublicationPointEnum.BeforePosition, () => masterScratch = WatchScratch(master));
+        using var childBefore = HeldPublication.Arm(child, PublicationPointEnum.BeforePosition);
+        var commit = CommitMovesAsync(child, session);
+
+        await childBefore.ReachedAsync();
+        var childScratch = WatchScratch(child);
+
+        await timerArmed.Task.WaitAsync(Bound);
+        var committed = master.Position;
+        Assert.Equal(11UL, PositionSequence.Of(committed));
+        Assert.Equal(10UL, PositionSequence.Of(child.Position));
+        Assert.False(childBefore.HasContinued);
+        Assert.False(commit.IsCompleted);
+
+        time.Advance(deadline);
+        if (reachAtDeadline)
         {
-            var commit = CommitMovesAsync(child, session);
+            using var childAfter = HeldPublication.Arm(child, PublicationPointEnum.AfterPosition);
+            childBefore.Release();
+            await childAfter.ReachedAsync();
+            Assert.Equal(committed, child.Position);
+            Assert.False(commit.IsCompleted);
 
-            await onMaster.ReachedAsync();
-            watched.AddRange(WatchScratch(master));
-            onMaster.Release();
+            time.DeliverDueTimers();
+            var result = await commit.WaitAsync(Bound);
+            Assert.True(result.Changed);
+            Assert.Equal(committed, result.Position);
+            Assert.False(childAfter.HasContinued);
+        }
+        else
+        {
+            time.DeliverDueTimers();
+            var failure = await Assert.ThrowsAsync<LatticeException>(() => commit.WaitAsync(Bound));
+            Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, failure.Error);
+            Assert.Equal(committed, failure.CommittedPosition);
+            Assert.Equal(10UL, PositionSequence.Of(child.Position));
+            Assert.False(childBefore.HasContinued);
 
-            await onChild.ReachedAsync();
-            watched.AddRange(WatchScratch(child));
-            onChild.Release();
-
-            await commit.WaitAsync(Bound);
+            childBefore.Release();
+            await child.WaitForPositionAsync(committed, Bound).AsTask().WaitAsync(Bound);
         }
 
-        await child.Set<Item>().InsertAsync(Of(Members + 1, "old", group: 1), session);
+        Assert.Equal(committed, session.MinPosition);
+        Assert.NotNull(masterScratch);
+        await CheckScratchAfterAnotherWriteAsync(master, child, session, [.. masterScratch, .. childScratch]);
+    }
+
+    private static async Task CheckScratchAfterAnotherWriteAsync(
+        EngineDatabase master, EngineDatabase child, LatticeSession session, List<WeakReference> watched)
+    {
+        var followUp = await child.Set<Item>().InsertAsync(Of(Members + 1, "old", group: 1), session).AsTask().WaitAsync(Bound);
         await child.WaitForPositionAsync(session).AsTask().WaitAsync(Bound);
 
+        Assert.True(followUp.Changed);
+        Assert.Equal(12UL, PositionSequence.Of(child.Position));
+        Assert.Equal(4, watched.Count);
         Assert.Equal(0, Collect(watched));
         Assert.Equal($"moved {Members}", master.Set<Item>().Get((long)Members)!.Login);
+        Assert.Equal($"moved {Members}", child.Set<Item>().Get((long)Members)!.Login);
     }
 
     // The items before the batch, in batches of Part through the master.
@@ -77,7 +147,7 @@ public sealed class PublisherScratchTests
     // The batch of the moves, through the child, apart from the test, so that nothing of it stays on the
     // stack of the test.
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static Task CommitMovesAsync(EngineDatabase child, LatticeSession session)
+    private static Task<LatticeWriteResult> CommitMovesAsync(EngineDatabase child, LatticeSession session)
     {
         var batch = child.CreateWriteBatch();
 
