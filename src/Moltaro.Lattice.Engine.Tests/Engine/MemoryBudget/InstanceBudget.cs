@@ -139,7 +139,7 @@ internal static class InstanceBudget
 
         // Size the existing object. A first allocation following collection of the
         // weak RuntimeType cache also includes allocation of that metadata.
-        return checked((long)RawObjectSize(backing) + 2L * IntPtr.Size);
+        return Align(checked((long)RawObjectSize(backing) + 2L * IntPtr.Size));
     }
 
     private static long Align(long bytes) => (bytes + IntPtr.Size - 1) / IntPtr.Size * IntPtr.Size;

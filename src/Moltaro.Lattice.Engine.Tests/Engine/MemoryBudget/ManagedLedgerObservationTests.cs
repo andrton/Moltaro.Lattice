@@ -13,6 +13,8 @@ public sealed class ManagedLedgerObservationTests
         Assert.Equal(3L * IntPtr.Size, ManagedObjectSize(new Empty()));
         var owned = new Fields(1, 2, 3);
         Assert.Equal(2L * IntPtr.Size + 3 * sizeof(long), ManagedObjectSize(owned));
+        Assert.Equal(32, ManagedObjectSize(new string('x', 2)));
+        Assert.Equal(32, ManagedObjectSize(new string('x', 3)));
 
         var allocator = new CountingNativeAllocator();
         await using var node = await OpenAsync(2L * Segment, allocator);
