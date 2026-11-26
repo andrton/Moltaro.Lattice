@@ -53,15 +53,22 @@ public sealed class BatchSnapshotAdmissionTests
         var invalidLate = Record(node, 2L, items, null);
         var rejectedTyped = new Snapshot(2L, items, null);
         var validatedTyped = new Snapshot(2L, items, null);
+        List<byte[]> withInvalidElement = [.. items, null!];
+        var rejectedElement = new Snapshot(3L, withInvalidElement, "valid");
+        var validatedElement = new Snapshot(3L, withInvalidElement, "valid");
         var update = set.CreateUpdate(1L);
         var replacement = update.Assign("Items", items);
         var invalidText = update.Assign("Name", new string((char)0xD800, 1));
 
         var batch = node.CreateWriteBatch();
-        batch.Delete<Snapshot>(70L);
+        byte[] earlier = [53, 91];
+        batch.Insert(Record(node, 70L, [earlier], "kept"));
+        var earlierPieces = BatchPieceArrays(batch);
+        Assert.NotEmpty(earlierPieces);
+        batch.Delete<Snapshot>(71L);
         var operations = Backing<object>(batch, "_operations");
         var identities = Backing<object>(batch, "_identities");
-        object[] retained = [Backing<Array>(operations, "_items"), .. DictionaryArrays(identities)];
+        object[] retained = [Backing<Array>(operations, "_items"), .. DictionaryArrays(identities), .. earlierPieces];
         var before = ExpectCapacity(node, allocator, out _, retained);
         var holdLength = checked((int)(Limit - before.ChargedBytes - WorkingRoom - ManagedObjectSize(Array.Empty<byte>())));
         using (node.HoldBudgetBacking(holdLength))
@@ -72,9 +79,15 @@ public sealed class BatchSnapshotAdmissionTests
             ExpectMemory(() => batch.Insert(invalidLate));
             ExpectMemory(() => batch.Insert(rejectedTyped));
             Assert.Equal((1, 1, 0), rejectedTyped.Reads);
+            node.ResetBudgetPeak();
+            ExpectMemory(() => batch.Insert(rejectedElement));
+            Assert.Equal((1, 1, 0), rejectedElement.Reads);
+            var afterElement = ExpectCapacity(node, allocator, out _, retained);
+            Assert.InRange(afterElement.PeakBytes - bound.ChargedBytes, ManagedObjectSize(new object?[3]), WorkingRoom);
+            Assert.Equal(bound.ChargedBytes, afterElement.ChargedBytes);
             ExpectMemory(() => batch.Update(update));
             Assert.Equal(bound.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
-            Assert.Equal(1, batch.Count);
+            Assert.Equal(2, batch.Count);
             Assert.Equal(2, update.Count);
             Assert.Throws<InvalidOperationException>(() => replacement.Changed);
             Assert.Throws<InvalidOperationException>(() => invalidText.Changed);
@@ -84,10 +97,13 @@ public sealed class BatchSnapshotAdmissionTests
         ExpectValidation("Name", () => batch.Insert(invalidLate));
         ExpectValidation("Name", () => batch.Insert(validatedTyped));
         Assert.Equal((1, 1, 1), validatedTyped.Reads);
+        ExpectValidation("Items", () => batch.Insert(validatedElement));
+        Assert.Equal((1, 1, 0), validatedElement.Reads);
         ExpectValidation("Name", () => batch.Update(update));
-        Assert.Equal(1, batch.Count);
+        Assert.Equal(2, batch.Count);
         Assert.Equal(2, update.Count);
         Assert.Throws<ArgumentException>(() => batch.Delete<Snapshot>(70L));
+        Assert.Throws<ArgumentException>(() => batch.Delete<Snapshot>(71L));
         Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
         Assert.Equal(saved.Position, master.Position);
         Assert.Equal(saved.Position, child.Position);
@@ -97,6 +113,17 @@ public sealed class BatchSnapshotAdmissionTests
         Assert.Equal(original, Assert.Single(copy.Get<List<byte[]>>("Items")!));
         Assert.Equal("seed", copy.Get<string>("Name"));
         Assert.Null(set.Get(2L));
+        Assert.Null(set.Get(3L));
+        var committed = await batch.CommitAsync().AsTask().WaitAsync(Bound);
+        await child.WaitForPositionAsync(committed.Position, Bound);
+        foreach (var replica in new[] { master, child })
+        {
+            var member = replica.Set("Snapshot").Get(70L);
+            Assert.NotNull(member);
+            Assert.Equal(earlier, Assert.Single(member.Get<List<byte[]>>("Items")!));
+            Assert.Equal("kept", member.Get<string>("Name"));
+            Assert.Null(replica.Set("Snapshot").Get(71L));
+        }
     }
 
     private static LatticeRecord Record(ILatticeDatabase node, long? key, List<byte[]> items, string? name) =>
