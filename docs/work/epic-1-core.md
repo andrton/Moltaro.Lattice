@@ -15215,6 +15215,12 @@ prepare a replay effect. Count attempts from these points. The tests use the
 existing maintenance, growth, publication and allocator controls where
 those already expose the required distinction.
 
+`EngineTestInputs.ObserveMasterRequestFrame` is a test-only
+`Action<RequestReceiver>` on the master's receiving task. It runs once
+after accepting a forwarded request frame and before giving a completed
+body to the write path. It exposes the actual request pieces, import
+workspace and recorded reply owner for independent inventory.
+
 ##### Source study
 
 The independent study checked each licence at the source commit before
