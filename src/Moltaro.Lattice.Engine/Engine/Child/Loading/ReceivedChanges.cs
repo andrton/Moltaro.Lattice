@@ -521,6 +521,14 @@ internal sealed class ReceivedChanges
             return true;
         }
 
+        // Once the root takes storage, recording the change for rollback must not allocate.
+        var preparedCount = _prepared.Count;
+        if (preparedCount == _prepared.Capacity)
+        {
+            _beforeRootListGrowth?.Invoke(preparedCount, member, _arena, _roots);
+            _prepared.EnsureCapacity(preparedCount + 1);
+        }
+
         // A new lifetime for a key the child does not hold; the lifetime of the entity for one it holds.
         var inserts = !held;
 
@@ -548,11 +556,6 @@ internal sealed class ReceivedChanges
             ReleaseHandle(inserts, handle);
 
             return false;
-        }
-
-        if (_beforeRootListGrowth is not null && _prepared.Count == _prepared.Capacity)
-        {
-            _beforeRootListGrowth(_prepared.Count, member, _arena, _roots);
         }
 
         _prepared.Add(new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });

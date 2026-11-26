@@ -11,11 +11,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Loading;
 // attempt. The first loaded root and a live full-root transaction share the preparation.
 public sealed class ReceivedRootRollbackTests
 {
-    private const string GrowthRollback = "A received full root can be acquired before its rollback list grows.";
     private const int LargeName = 512;
     private const int DataBytes = 200;
 
-    [Fact(Skip = GrowthRollback)]
+    [Fact]
     public async Task A_child_returns_everything_prepared_when_its_first_loaded_root_cannot_be_recorded()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -57,7 +56,7 @@ public sealed class ReceivedRootRollbackTests
         Assert.Equal((0, 0L), beforeDispose);
     }
 
-    [Theory(Skip = GrowthRollback)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_child_keeps_its_applied_prefix_and_returns_prepared_roots_when_the_fifth_full_write_cannot_be_recorded(bool replaces)
