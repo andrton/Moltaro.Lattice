@@ -12,13 +12,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // or stop a child from applying and forwarding subsequent writes.
 public sealed class PublishedRetirementTrimTests
 {
-    private const string PendingCorrection = "A refused optional queue trim can still disrupt a running node.";
-
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
-    [InlineData(false, true, Skip = PendingCorrection)]
-    [InlineData(true, true, Skip = PendingCorrection)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
     public async Task A_failed_optional_trim_after_publication_leaves_the_node_able_to_write(
         bool useChild,
         bool failAtTrim)

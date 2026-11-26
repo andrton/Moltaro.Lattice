@@ -303,16 +303,7 @@ internal sealed class RetiredMemory
 
             if (spent < workLimit && CanTrimEmptyQueue())
             {
-                try
-                {
-                    TrimEmptyQueue();
-                }
-                catch (OutOfMemoryException)
-                {
-                    // The empty-array allocation was refused. Keep the current
-                    // backing and try again in a later turn.
-                }
-
+                TryTrimEmptyQueue();
                 spent++;
             }
         }
@@ -380,16 +371,35 @@ internal sealed class RetiredMemory
         _retiredSincePublication = false;
     }
 
-    // Frees every retired thing that no read in progress can reach, and returns; it does not wait.
-    // With no read in progress it leaves nothing retired.
-    public void Drain(Action? beforeTrim = null, Action<int, int, int>? inspectPublishedTrim = null)
+    // Frees every retired thing that no read in progress can reach without waiting.
+    // Refusal to shrink the empty queue leaves its backing available for future retirements.
+    public void Drain(Action<int, int, int>? inspectPublishedTrim = null)
+    {
+        if (DrainAndCanTrim())
+        {
+            TryTrimEmptyQueue(inspectPublishedTrim);
+        }
+    }
+
+    // After the admitted operations and protected reads have left, the close reports a
+    // failure from the final drain. It frees the arena even when the drain fails.
+    public void DrainAtClose(Action? beforeTrim)
+    {
+        if (DrainAndCanTrim())
+        {
+            beforeTrim?.Invoke();
+            TrimEmptyQueue();
+        }
+    }
+
+    private bool DrainAndCanTrim()
     {
         _itemsSinceLook = 0;
         _bytesSinceLook = 0;
 
         if (_items.Count == 0)
         {
-            return;
+            return false;
         }
 
         if (_headActive)
@@ -422,16 +432,25 @@ internal sealed class RetiredMemory
         // before a publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
         // one or two looks' worth, from trimming and growing again: only a peak of 64 looks' worth
         // does, and its growth costs about as much as it retired.
-        if (CanTrimEmptyQueue())
-        {
-            inspectPublishedTrim?.Invoke(_items.Count, _reserved, _capacity);
-            beforeTrim?.Invoke();
-            TrimEmptyQueue();
-        }
+        return CanTrimEmptyQueue();
     }
 
     private bool CanTrimEmptyQueue() =>
         _items.Count == 0 && _reserved == 0 && _capacity > 64 * _itemsPerLook;
+
+    private void TryTrimEmptyQueue(Action<int, int, int>? inspectPublishedTrim = null)
+    {
+        try
+        {
+            inspectPublishedTrim?.Invoke(_items.Count, _reserved, _capacity);
+            TrimEmptyQueue();
+        }
+        catch (OutOfMemoryException)
+        {
+            // The empty-array allocation was refused. Keep the backing for reuse
+            // or a later trim.
+        }
+    }
 
     private void TrimEmptyQueue()
     {
