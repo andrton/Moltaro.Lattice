@@ -1,6 +1,11 @@
+using System.Buffers;
+using System.Buffers.Binary;
+using System.Diagnostics.Tracing;
 using System.Globalization;
+using System.Text;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Child.Forwarding;
 using Moltaro.Lattice.Engine.Children;
@@ -11,9 +16,13 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Updates;
+using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.TestSupport.Replication;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
@@ -25,6 +34,164 @@ public sealed class PreparedSparseCommandsBudgetTests
 {
     private const int Commands = 4_096;
     private const long Limit = 16L * Segment;
+    private static readonly LatticeSchema OperandSchema = ItemSchema.Compile(
+        "{ 'Id': 2, 'Name': 'Text', 'Type': 'String' }, { 'Id': 3, 'Name': 'Instant', 'Type': 'DateTimeOffset' }");
+
+    [Fact]
+    public void Split_text_admits_its_exact_string_without_pooled_scratch_and_checks_bad_utf8_first()
+    {
+        var text = LongText();
+        var wire = new byte[sizeof(uint) + Encoding.UTF8.GetByteCount(text)];
+        BinaryPrimitives.WriteUInt32LittleEndian(wire, (uint)(wire.Length - sizeof(uint)));
+        Encoding.UTF8.GetBytes(text, wire.AsSpan(sizeof(uint)));
+        Assert.Equal(0xF0, wire[TransferBuffer.PieceSize - 1]);
+        Assert.InRange(wire[TransferBuffer.PieceSize], 0x80, 0xBF);
+
+        Assert.True(OperandSchema.TryGetEntityType(ItemSchema.EntityTypeName, out var type));
+        var layout = StructureLayout.OfRoot(type, []);
+        var position = layout.PositionOf([type.GetField("Text")]);
+        using var transfer = new TransferBuffer();
+        var budget = new Budgeting.MemoryBudget(observesBackings: true);
+        using var lease = new MemoryLease(budget);
+        var bytes = ManagedObjectSize(text);
+        budget.Open(bytes - 1);
+        transfer.Write(wire);
+        var noRoom = Assert.Throws<BudgetRefusedException>(() => Read());
+        Assert.Equal(LatticeLimitEnum.Memory, noRoom.Limit);
+        Assert.Equal((0L, 0L, 0L), budget.Inspect(null));
+
+        budget.Open(0);
+        var goodContinuation = wire[TransferBuffer.PieceSize];
+        wire[TransferBuffer.PieceSize] = (byte)'(';
+        Reload(wire);
+        Assert.Equal(LatticeErrorEnum.ValidationFailed, Assert.Throws<LatticeException>(() => Read()).Error);
+        wire[TransferBuffer.PieceSize] = goodContinuation;
+        BinaryPrimitives.WriteUInt32LittleEndian(wire, (uint)(wire.Length - sizeof(uint) - 1));
+        Reload(wire.AsSpan(0, wire.Length - 1));
+        Assert.Equal(LatticeErrorEnum.ValidationFailed, Assert.Throws<LatticeException>(() => Read()).Error);
+        Assert.Equal((0L, 0L, 0L), budget.Inspect(null));
+
+        BinaryPrimitives.WriteUInt32LittleEndian(wire, (uint)(wire.Length - sizeof(uint)));
+        Reload(wire);
+        budget.Open(bytes);
+        using var trace = new DecodePoolTrace();
+        var decoded = Read();
+        Assert.Equal(0, trace.LargestRent);
+        Assert.NotSame(text, decoded);
+        Assert.Equal(text, decoded);
+        var owners = new List<object>();
+        Assert.Equal((bytes, bytes, 0L), budget.Inspect((_, owner) => owners.Add(owner)));
+        Assert.Same(decoded, Assert.Single(owners));
+        lease.Dispose();
+        Assert.Equal((0L, bytes, 0L), budget.Inspect(null));
+
+        string Read()
+        {
+            var sequence = transfer.Sequence;
+            Assert.False(sequence.IsSingleSegment);
+            var reader = new SequenceReader<byte>(sequence);
+            var result = UpdateOperands.Read(ref reader, type, layout, position, lease);
+            Assert.True(reader.End);
+            return Assert.IsType<string>(result);
+        }
+
+        void Reload(ReadOnlySpan<byte> value)
+        {
+            transfer.Clear();
+            transfer.Write(value);
+        }
+    }
+
+    [Fact]
+    public async Task A_multiframe_sparse_write_owns_the_decoded_text_and_full_timestamp_box()
+    {
+        var allocator = new CountingNativeAllocator();
+        var storage = new HeldPersistence(holding: false);
+        await using var master = EngineDatabase.Create(new LatticeDatabaseOptions
+        {
+            Schema = OperandSchema,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            ListenUri = MasterAndChild.Loopback,
+            MemoryLimit = Limit,
+        }, new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, Persistence = storage });
+        await master.OpenAsync();
+        var source = master.Set(ItemSchema.EntityTypeName);
+        var seed = await source.InsertAsync(new LatticeRecord(source.EntityType)
+        {
+            ["Id"] = 1L,
+            ["Text"] = "before",
+            ["Instant"] = DateTimeOffset.UnixEpoch,
+        });
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var local = child.Set(ItemSchema.EntityTypeName);
+        var text = LongText();
+        var instant = DateTimeOffset.UnixEpoch.AddHours(29);
+        var update = local.CreateUpdate(1L);
+        update.Assign("Text", text);
+        update.Assign("Instant", instant);
+        storage.Hold();
+        var done = update.CommitAsync().AsTask();
+        try
+        {
+            await storage.NextAsync();
+            var commands = await MaintenanceStep.RunAfterAdmissionAsync(master, parts =>
+                Assert.Single(Backing<CommitGroup>(parts.Coordinator, "_group").Writes).Write.Update!.Commands);
+            var heldText = Assert.IsType<string>(commands[0].First);
+            var timestampBox = commands[1].First!;
+            Assert.NotSame(text, heldText);
+            Assert.Equal(text, heldText);
+            Assert.Equal(instant, Assert.IsType<DateTimeOffset>(timestampBox));
+            Assert.Equal(32, ManagedObjectSize(timestampBox));
+            _ = ExpectCapacity(master, allocator, out _, heldText, timestampBox);
+            Assert.Equal(seed.Position, master.Position);
+            Assert.Equal(seed.Position, child.Position);
+            Assert.True(relay.FromChild.Count(frame => frame.Kind == FrameKindEnum.WriteRequest) > 1);
+
+            storage.ReleaseAll();
+            var published = await done.WaitAsync(Bound);
+            Assert.Equal(published.Position, child.Position);
+            Assert.Equal(published.Position, master.Position);
+            Assert.True(relay.FromMaster.Count(frame => frame.Kind == FrameKindEnum.Transaction) > 1);
+            Assert.Equal(text, local.Get(1L)!.Get<string>("Text"));
+            Assert.Equal(instant, local.Get(1L)!.Get<DateTimeOffset>("Instant"));
+            master.InspectBudget((_, backing) =>
+            {
+                Assert.NotSame(heldText, backing);
+                Assert.NotSame(timestampBox, backing);
+            });
+            _ = ExpectCapacity(master, allocator);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+        }
+    }
+
+    private static string LongText() => string.Concat(Enumerable.Repeat("a\U0001F600", 50_000));
+
+    private sealed class DecodePoolTrace : EventListener
+    {
+        private readonly int _thread = Environment.CurrentManagedThreadId;
+
+        public int LargestRent { get; private set; }
+
+        protected override void OnEventSourceCreated(EventSource source)
+        {
+            if (source.Name == "System.Buffers.ArrayPoolEventSource")
+            {
+                EnableEvents(source, EventLevel.Verbose);
+            }
+        }
+
+        protected override void OnEventWritten(EventWrittenEventArgs data)
+        {
+            if (Environment.CurrentManagedThreadId == _thread && data.EventName == "BufferRented")
+            {
+                LargestRent = Math.Max(LargestRent, (int)data.Payload![1]!);
+            }
+        }
+    }
 
     [Theory]
     [InlineData(false)]

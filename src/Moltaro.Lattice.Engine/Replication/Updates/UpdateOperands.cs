@@ -227,38 +227,74 @@ internal static class UpdateOperands
 
     private static string ReadText(ReadOnlySequence<byte> bytes, MemoryLease? lease)
     {
-        if (lease is null || bytes.IsEmpty)
+        if (bytes.IsEmpty)
         {
-            return Protocol.StrictUtf8.GetString(bytes);
+            return string.Empty;
         }
 
-        var characters = CountCharacters(bytes);
-        return lease.Allocate(MemoryBudget.StringBytes(characters), nameof(UpdateOperands), () => Protocol.StrictUtf8.GetString(bytes));
+        if (lease is null && bytes.IsSingleSegment)
+        {
+            return Protocol.StrictUtf8.GetString(bytes.FirstSpan);
+        }
+
+        var characters = bytes.IsSingleSegment ? Protocol.StrictUtf8.GetCharCount(bytes.FirstSpan) : DecodeSplitText(bytes, []);
+        var capacity = MemoryBudget.StringBytes(characters);
+        lease?.Budget.Reserve(capacity);
+        try
+        {
+            // Writing directly into the exact string needs only the bytes of one split rune
+            // on the stack. The sequence GetString would rent full-sized scratch per piece.
+            var text = bytes.IsSingleSegment
+                ? Protocol.StrictUtf8.GetString(bytes.FirstSpan)
+                : string.Create(characters, bytes, static (output, source) => DecodeSplitText(source, output));
+            lease?.OwnReserved(text, capacity, nameof(UpdateOperands));
+            return text;
+        }
+        catch
+        {
+            lease?.Budget.Release(capacity);
+            throw;
+        }
     }
 
-    private static int CountCharacters(in ReadOnlySequence<byte> bytes)
+    // An empty destination counts UTF-16 units. Both passes use the same strict decoder.
+    private static int DecodeSplitText(in ReadOnlySequence<byte> bytes, Span<char> output)
     {
-        if (bytes.IsSingleSegment)
-        {
-            return Protocol.StrictUtf8.GetCharCount(bytes.FirstSpan);
-        }
-
-        var decoder = Protocol.StrictUtf8.GetDecoder();
+        var reader = new SequenceReader<byte>(bytes);
         Span<char> scratch = stackalloc char[256];
+        Span<byte> split = stackalloc byte[4];
+        bool countsOnly = output.IsEmpty;
         var characters = 0;
-        foreach (var piece in bytes)
+        while (!reader.End)
         {
-            var remaining = piece.Span;
-            while (!remaining.IsEmpty)
+            var piece = reader.UnreadSpan;
+            var destination = countsOnly ? scratch : output[characters..];
+            var status = Utf8.ToUtf16(piece, destination, out var read, out var written,
+                replaceInvalidSequences: false, isFinalBlock: reader.Remaining == piece.Length);
+            reader.Advance(read);
+            characters += written;
+            if (status == OperationStatus.NeedMoreData)
             {
-                decoder.Convert(remaining, scratch, flush: false, out var read, out var count, out _);
-                characters += count;
-                remaining = remaining[read..];
+                var available = split[..(int)Math.Min(reader.Remaining, split.Length)];
+                if (!reader.TryCopyTo(available) || Rune.DecodeFromUtf8(available, out var rune, out var consumed) != OperationStatus.Done)
+                {
+                    throw new DecoderFallbackException();
+                }
+
+                characters += countsOnly ? rune.Utf16SequenceLength : rune.EncodeToUtf16(output[characters..]);
+                reader.Advance(consumed);
+            }
+            else if (status == OperationStatus.InvalidData)
+            {
+                throw new DecoderFallbackException();
+            }
+            else if (status == OperationStatus.DestinationTooSmall && !countsOnly)
+            {
+                throw new InvalidOperationException("A counted UTF-8 operand did not fit its string.");
             }
         }
 
-        decoder.Convert([], scratch, flush: true, out _, out var final, out _);
-        return characters + final;
+        return characters;
     }
 
     private static object ReadScalar(ReadOnlySpan<byte> bytes, LatticeFieldTypeEnum scalar, MemoryLease? lease)
@@ -266,6 +302,12 @@ internal static class UpdateOperands
         if (lease is null)
         {
             return StoredScalars.ReadBoxed(bytes, scalar);
+        }
+
+        if (scalar == LatticeFieldTypeEnum.DateTimeOffset)
+        {
+            // Its stored instant is eight bytes, while the boxed .NET value also holds an offset.
+            return lease.Box(StoredScalars.ReadDateTimeOffset(bytes), nameof(UpdateOperands));
         }
 
         var capacity = MemoryBudget.ObjectBytes(bytes.Length);
