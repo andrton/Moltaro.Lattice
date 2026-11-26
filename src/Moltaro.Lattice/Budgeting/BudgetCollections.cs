@@ -10,6 +10,16 @@ internal static class BudgetCollections
 
     public static ref T[] Items<T>(Queue<T> queue) => ref Backing<T>.Items(queue);
 
+    // A queue can return to a prepaid backing even after dequeue and wraparound.
+    public static void UseBacking<T>(this Queue<T> queue, T[] backing)
+    {
+        queue.CopyTo(backing, 0);
+        Items(queue) = backing;
+        Backing<T>.Head(queue) = 0;
+        Backing<T>.Tail(queue) = queue.Count == backing.Length ? 0 : queue.Count;
+        Backing<T>.Version(queue)++;
+    }
+
     private static class Backing<T>
     {
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
@@ -17,6 +27,15 @@ internal static class BudgetCollections
 
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_array")]
         public static extern ref T[] Items(Queue<T> queue);
+
+        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_head")]
+        public static extern ref int Head(Queue<T> queue);
+
+        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_tail")]
+        public static extern ref int Tail(Queue<T> queue);
+
+        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_version")]
+        public static extern ref int Version(Queue<T> queue);
     }
 
     public static int CapacityFor(int current, int needed) =>

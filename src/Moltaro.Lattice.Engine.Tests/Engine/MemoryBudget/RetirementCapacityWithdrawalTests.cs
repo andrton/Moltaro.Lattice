@@ -18,7 +18,7 @@ public sealed class RetirementCapacityWithdrawalTests
 {
     private const long Limit = 8L * Segment;
 
-    [Fact(Skip = BudgetOwnershipCorrection.Pending)]
+    [Fact]
     public async Task A_precommit_cancellation_returns_the_first_retirement_backing()
     {
         var allocator = new CountingNativeAllocator();
@@ -70,7 +70,7 @@ public sealed class RetirementCapacityWithdrawalTests
         }
     }
 
-    [Fact(Skip = BudgetOwnershipCorrection.Pending)]
+    [Fact]
     public async Task Cancelling_a_larger_retirement_target_leaves_the_published_queue_and_surviving_reservation_usable()
     {
         var allocator = new CountingNativeAllocator();
@@ -152,7 +152,7 @@ public sealed class RetirementCapacityWithdrawalTests
         }
     }
 
-    [Fact(Skip = BudgetOwnershipCorrection.Pending)]
+    [Fact]
     public async Task A_ready_child_returns_retirement_backing_after_a_later_reservation_refuses_and_resumes_in_order()
     {
         await using var master = await OpenAsync(Limit, new CountingNativeAllocator(), listen: true);
@@ -247,7 +247,7 @@ public sealed class RetirementCapacityWithdrawalTests
         }
     }
 
-    [Fact(Skip = BudgetOwnershipCorrection.Pending)]
+    [Fact]
     public async Task Withdrawing_growth_preserves_fifo_order_after_dequeue_and_allocation_free_retirement()
     {
         var allocator = new CountingNativeAllocator();

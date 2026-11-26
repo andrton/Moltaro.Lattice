@@ -984,7 +984,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         try
         {
             var roots = RootTable.Create(_budget, _testInputs?.RootPageLimit);
-            var retired = new RetiredMemory(_epochs, arena, roots, _testInputs?.BeforePublishedRetiredTrim);
+            var retired = new RetiredMemory(_epochs, arena, roots, _testInputs?.BeforePublishedRetiredTrim,
+                _testInputs?.ObserveRetirementBackingRefusal);
             var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime, _epochs,
                 isDatabaseClosed: () => IsClosed);
             var delivery = new DeliveryTail();
