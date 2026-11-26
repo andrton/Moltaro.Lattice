@@ -15479,6 +15479,30 @@ runtime revision above. The coordinator built the clean revision in Debug
 and Release, verified format and ran all 18 samples. Both complete test
 suites reported 4,818 passes, 129 expected skips and no failures.
 
+###### First push verification
+
+The first squash, `f801571f`, had three green pull request jobs. Its
+push run failed one Linux x64 case, the oversized late-member disconnect
+in `ChildApplyBudgetTests`. Windows and ARM64 passed. The case sampled
+66,687,488 B of physical backing against 66,785,816 B of charged capacity.
+
+The independent replay forced the same observation during the first
+paced retry. The 98,328 B reservation was for a 1,024-element backing
+array of 96 B changes. After the array was registered, both measurements
+read 66,785,816 B. After rollback, an inventory under the write lock
+read 66,478,224 B on both sides and found the exact new array gone.
+The replay observed the reservation before its backing was registered.
+The test review accepted the correction. Release checks passed on the
+exact test commit, 22 focused cases on Windows x64 and 19 on Linux x64.
+
+The test correction at `16904574` takes the same strict inventory under
+the existing write lock at the post-pressure and pre-disconnect
+boundaries. It preserves the rollback, retained-reference, position,
+acknowledgement and disconnect assertions. The engine and measured
+scenario source are identical to the first squash. The two timing
+comparisons and the separate historical −48 B observation remain
+attached to their original evidence. See [the initial push run](https://github.com/andrton/Moltaro.Lattice/actions/runs/45869888064).
+
 ##### Measurement evidence
 
 Local Release measurements use the development-5 manifest on Windows x64.

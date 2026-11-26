@@ -156,21 +156,27 @@ public sealed class ChildApplyBudgetTests
             Assert.True(prepared.Item3 >= loaded.NativeBytes);
             Assert.Equal(readiness.Position, child.Position);
             Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
-            Assert.Equal(1, child.Counters.RootEntries);
-            Assert.Equal(child.ReservedNodeBytes(), child.Counters.Arena.PreparedBytes);
-            Assert.Equal(loaded.NativeBytes, ExpectCapacity(child, allocator).NativeBytes);
-            if (oversized)
+            // A timed retry may already be reserving its next backing. Inventory the
+            // rolled-back state between attempts under the same Writes lock.
+            child.WithOwnershipAudit(() =>
             {
-                var grown = Assert.IsType<Array[]>(enlarged);
-                Assert.True(grown.Sum(ManagedObjectSize) > 1_024 * 96);
-                _ = child.InspectBudget((_, backing) =>
+                Assert.Equal(1, child.Counters.RootEntries);
+                Assert.Equal(child.ReservedNodeBytes(), child.Counters.Arena.PreparedBytes);
+                Assert.Equal(loaded.NativeBytes, ExpectCapacity(child, allocator).NativeBytes);
+                if (oversized)
                 {
-                    foreach (var old in grown)
+                    var grown = Assert.IsType<Array[]>(enlarged);
+                    Assert.True(grown.Sum(ManagedObjectSize) > 1_024 * 96);
+                    _ = child.InspectBudget((_, backing) =>
                     {
-                        Assert.NotSame(old, backing);
-                    }
-                });
-            }
+                        foreach (var old in grown)
+                        {
+                            Assert.NotSame(old, backing);
+                        }
+                    });
+                }
+            });
+
             Assert.True(local.TryGet((long)ExistingKey, out var installed, out var still));
             Assert.Equal(7L, installed.Number);
             Assert.Equal(revision, still);
@@ -202,9 +208,14 @@ public sealed class ChildApplyBudgetTests
 
             if (end == "disconnect")
             {
-                var physical = ChildReceiveBudgetTests.ReceiveBackings(child);
-                Assert.NotEmpty(physical.Pieces);
-                var pendingCharge = ExpectCapacity(child, allocator, out _, [physical.Receive, .. physical.Pieces]);
+                var pending = (Pieces: Array.Empty<byte[]>(), ChargedBytes: 0L);
+                child.WithOwnershipAudit(() =>
+                {
+                    var physical = ChildReceiveBudgetTests.ReceiveBackings(child);
+                    Assert.NotEmpty(physical.Pieces);
+                    var charge = ExpectCapacity(child, allocator, out _, [physical.Receive, .. physical.Pieces]);
+                    pending = (physical.Pieces, charge.ChargedBytes);
+                });
                 var followingTask = Backing<Task>(child, "_following");
                 relay.Cut();
                 // The sender has room to start this short request and observes the
@@ -228,8 +239,8 @@ public sealed class ChildApplyBudgetTests
 
                 var released = ExpectCapacity(child, allocator);
                 Assert.Equal(loaded.NativeBytes, released.NativeBytes);
-                Assert.True(pendingCharge.ChargedBytes - released.ChargedBytes >= physical.Pieces.Sum(ManagedObjectSize));
-                _ = child.InspectBudget((_, backing) => Assert.DoesNotContain(backing, physical.Pieces, ReferenceEqualityComparer.Instance));
+                Assert.True(pending.ChargedBytes - released.ChargedBytes >= pending.Pieces.Sum(ManagedObjectSize));
+                _ = child.InspectBudget((_, backing) => Assert.DoesNotContain(backing, pending.Pieces, ReferenceEqualityComparer.Instance));
                 OwnershipAudit.Expect(child);
                 await NothingRegistered.ExpectAsync(master, async () =>
                     await rows.UpsertAsync(new IndexSchema.Counted { Id = 1_000, Number = 3 }));
