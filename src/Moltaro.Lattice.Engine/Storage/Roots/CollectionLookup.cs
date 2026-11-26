@@ -94,6 +94,14 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     public static Span<ArenaAddress> ChunkAddresses(Span<byte> lookupPayload) =>
         MemoryMarshal.Cast<byte, ArenaAddress>(lookupPayload[ValueBlocks.DescriptorSize..]);
 
+    public static int ChunkOffset(int index) => FirstChunkOffset + index * SlotBytes;
+
+    public static int ChunkIndexAtOffset(int offset)
+    {
+        var delta = offset - FirstChunkOffset;
+        return delta >= 0 && delta % SlotBytes == 0 ? delta / SlotBytes : -1;
+    }
+
     // These words begin at aligned block offset 48. Protection of the lookup
     // keeps a slot block alive after this acquisition, even if its address changes.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -157,7 +165,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
             for (var chunk = 0; chunk < chunks; chunk++)
             {
                 var bytes = ChunkPayloadForSlots(wanted, chunk);
-                var link = FirstChunkOffset + chunk * sizeof(ulong);
+                var link = ChunkOffset(chunk);
                 ArenaAddress block;
                 if (reuseTail && holder.Arena.CollectionTails!.Borrow(holder.Root, offset, address, (uint)link,
                     holder.Layout.LayoutVersion, bytes, out block))

@@ -49,7 +49,7 @@ internal static class CompoundRelocation
         var header = holder.Header;
         if (header.Flags == BlockHeader.LookupSlotsFlag)
         {
-            var index = ((int)header.DescriptorOffset - CollectionLookup.FirstChunkOffset) / sizeof(ulong);
+            var index = CollectionLookup.ChunkIndexAtOffset((int)header.DescriptorOffset);
             CollectionLookup.PublishChunk(CollectionLookup.Chunks(arena, header.Parent), index, replacement);
         }
         else
