@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
@@ -167,86 +166,9 @@ public sealed class BatchOwnershipBudgetTests
         }
     }
 
-    private static HashSet<object> OwnedObjects(ILatticeWriteBatch batch)
-    {
-        // Traverse the actual holder independently of the ledger. Embedded values expose
-        // reference fields, but a reflection-created box is not itself a managed backing.
-        var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        var fields = new Dictionary<Type, FieldInfo[]>();
-        var pending = new Stack<(object? Item, bool Embedded)>();
-        pending.Push((batch, false));
-        while (pending.TryPop(out var next))
-        {
-            var (item, embedded) = next;
-            if (item is null or LatticeSchema or LatticeEntityType or IWriteBatchExecutor or InstanceMemoryBudget or IEqualityComparer)
-            {
-                continue;
-            }
-
-            if (item is Delegate action)
-            {
-                if (action.Target is { } target && Fields(target.GetType()).Length != 0 && owned.Add(action))
-                {
-                    pending.Push((target, false));
-                }
-
-                continue;
-            }
-
-            if (item is Array { Length: 0 } || (!embedded && !owned.Add(item)))
-            {
-                continue;
-            }
-
-            var type = item.GetType();
-            if (item is Array array)
-            {
-                var element = type.GetElementType()!;
-                if (!element.IsPrimitive && !element.IsEnum)
-                {
-                    foreach (var value in array)
-                    {
-                        pending.Push((value, element.IsValueType));
-                    }
-                }
-
-                continue;
-            }
-
-            if (type.IsPrimitive || type.IsEnum || item is string)
-            {
-                continue;
-            }
-
-            foreach (var field in Fields(type))
-            {
-                if (!field.FieldType.IsPrimitive && !field.FieldType.IsEnum && !field.FieldType.IsPointer)
-                {
-                    pending.Push((field.GetValue(item), field.FieldType.IsValueType));
-                }
-            }
-        }
-
-        return owned;
-
-        FieldInfo[] Fields(Type type)
-        {
-            if (!fields.TryGetValue(type, out var members))
-            {
-                const BindingFlags declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-                var all = new List<FieldInfo>();
-                for (var owner = type; owner is not null; owner = owner.BaseType)
-                {
-                    all.AddRange(owner.GetFields(declared));
-                }
-
-                members = [.. all];
-                fields.Add(type, members);
-            }
-
-            return members;
-        }
-    }
+    private static HashSet<object> OwnedObjects(ILatticeWriteBatch batch) =>
+        OwnedBackingGraph.Find(batch,
+            static item => item is LatticeSchema or LatticeEntityType or IWriteBatchExecutor or InstanceMemoryBudget or IEqualityComparer);
 
     private static void ExpectMemory(LatticeException failure)
     {

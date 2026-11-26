@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
-using System.Reflection;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -161,6 +159,7 @@ public sealed class RetirementCapacityWithdrawalTests
         var allocator = new CountingNativeAllocator();
         var pause = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
         var refusedPlaces = new ConcurrentQueue<int>();
+        Action<int> observeRefusal = refusedPlaces.Enqueue;
         EngineDatabase? receiving = null;
         IDisposable? holder = null;
         var armed = 0;
@@ -173,7 +172,7 @@ public sealed class RetirementCapacityWithdrawalTests
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 ObserveChildPressure = sample => pause.TrySetResult(sample),
-                ObserveRetirementBackingRefusal = refusedPlaces.Enqueue,
+                ObserveRetirementBackingRefusal = observeRefusal,
                 BeforeChildPreparationMember = _ =>
                 {
                     if (Volatile.Read(ref armed) == 0 || Interlocked.Exchange(ref attempted, 1) != 0)
@@ -200,7 +199,7 @@ public sealed class RetirementCapacityWithdrawalTests
 
         var seeded = await seed.CommitAsync().AsTask().WaitAsync(Bound);
         await child.WaitForPositionAsync(seeded.Position, Bound);
-        var before = await ObserveAsync(child, allocator);
+        var before = await ObserveAsync(child, allocator, observeRefusal);
         Assert.Empty(before.Backing);
         var local = child.Set<PieceSchema.Piece>();
         Assert.True(local.TryGet(1L, out _, out var revision));
@@ -222,7 +221,7 @@ public sealed class RetirementCapacityWithdrawalTests
             Assert.NotNull(holder);
             Assert.NotEmpty(refusedPlaces);
             Assert.All(refusedPlaces, places => Assert.Equal(5, places));
-            var withdrawn = await ObserveAsync(child, allocator);
+            var withdrawn = await ObserveAsync(child, allocator, observeRefusal);
             Assert.True(withdrawn.Budget.PeakBytes > heldCharge);
             Assert.Equal(before.Bytes, withdrawn.Bytes);
             Assert.Empty(withdrawn.Items);
@@ -311,11 +310,11 @@ public sealed class RetirementCapacityWithdrawalTests
         Assert.Equal(0, node.Counters.RetiredIndexBytes);
     }
 
-    private static Task<RetirementSample> ObserveAsync(EngineDatabase node, CountingNativeAllocator allocator) =>
+    private static Task<RetirementSample> ObserveAsync(EngineDatabase node, CountingNativeAllocator allocator, Action<int>? observeRefusal = null) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
             var queue = Backing<Queue<RetiredItem>>(parts.Retired, "_items");
-            var actual = RetirementBackings(parts.Retired);
+            var actual = RetirementBackings(parts.Retired, queue, observeRefusal);
             var backing = new List<object>();
             node.InspectBudget((owner, item) =>
             {
@@ -325,58 +324,25 @@ public sealed class RetirementCapacityWithdrawalTests
                 }
             });
             var budget = ExpectCapacity(node, allocator, out _, actual);
+            Assert.True(actual.ToHashSet(ReferenceEqualityComparer.Instance).SetEquals(backing));
             Assert.Equal(actual.Sum(ManagedObjectSize), backing.Sum(ManagedObjectSize));
             return new RetirementSample(actual, queue.ToArray(), budget);
         });
 
-    private static object[] RetirementBackings(RetiredMemory retired)
+    private static object[] RetirementBackings(RetiredMemory retired, Queue<RetiredItem> queue, Action<int>? observeRefusal)
     {
-        // The queue shell and its dependencies stand for the instance's fixed state.
-        // Walk the queue's actual array and the retained capacity owners from their
-        // fields rather than using the budget's list to discover them.
-        var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        var pending = new Stack<object>();
-        PushFields(retired);
-        while (pending.TryPop(out var item))
-        {
-            if (item is ReadEpochs or Arena or RootTable or RootReclamation or Moltaro.Lattice.Budgeting.MemoryBudget or Delegate)
-            {
-                continue;
-            }
-
-            if (item is Queue<RetiredItem> queue)
-            {
-                pending.Push(BudgetCollections.Items(queue));
-                continue;
-            }
-
-            if (item is Array { Length: 0 } || !owned.Add(item))
-            {
-                continue;
-            }
-
-            if (item is not RetiredItem[])
-            {
-                PushFields(item);
-            }
-        }
-
+        // Follow capacity owners reachable through the queue, including embedded
+        // records and callbacks. The reclaimed payloads and test controls have
+        // their own owners, as do the instance services.
+        var owned = OwnedBackingGraph.Find(retired,
+            item => ReferenceEquals(item, observeRefusal) ||
+                item is ReadEpochs or Arena or RootTable or RootReclamation or Moltaro.Lattice.Budgeting.MemoryBudget,
+            static field =>
+                (field.DeclaringType == typeof(RetiredMemory) && field.Name is "_beforePublishedTrim" or "_waitSwitch") ||
+                (field.DeclaringType == typeof(RetiredItem) && field.Name == "<Owner>k__BackingField"));
+        owned.Remove(retired);
+        owned.Remove(queue);
         return [.. owned];
-
-        void PushFields(object owner)
-        {
-            const BindingFlags fields = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-            for (var type = owner.GetType(); type is not null; type = type.BaseType)
-            {
-                foreach (var field in type.GetFields(fields))
-                {
-                    if (!field.FieldType.IsValueType && field.GetValue(owner) is { } value)
-                    {
-                        pending.Push(value);
-                    }
-                }
-            }
-        }
     }
 
     private sealed record RetirementSample(object[] Backing, RetiredItem[] Items, BudgetCapacitySample Budget)
