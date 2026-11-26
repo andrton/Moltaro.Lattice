@@ -14,6 +14,9 @@ internal static class SizeClasses
     // and 4 powers of two (8 KiB to 64 KiB).
     public const int Count = 79;
 
+    // The 32 KiB and 64 KiB classes each hold too few slots to be nonempty and below half live.
+    public const int FirstEvacuationClass = Count - 2;
+
     // The smallest class: a header and no payload.
     public const int Smallest = BlockHeader.Size;
 

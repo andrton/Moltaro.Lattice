@@ -175,7 +175,7 @@ public interface ILatticeSet<TEntity>
     /// the session depends on. Moves the session forward to the position of the answer.
     /// </summary>
     /// <remarks>
-    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// If close interrupts a registered position wait, the task reports <see cref="LatticeErrorEnum.Unavailable"/>.
     /// </remarks>
     /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
@@ -188,6 +188,9 @@ public interface ILatticeSet<TEntity>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
     /// required position in time; nothing was read.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">
+    /// The database reports Closed when an uncancelled read begins. The failure comes through the returned task.
     /// </exception>
     ValueTask<LatticeReadResult<TEntity>> GetAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
         where TKey : notnull;
@@ -296,10 +299,9 @@ public interface ILatticeSet<TEntity>
     /// it.
     /// </para>
     /// <para>
-    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>:
-    /// a first step that waits for the position of the session when the instance is closed
-    /// ends so. A step after the close of an enumeration that had started is
-    /// <see cref="ObjectDisposedException"/>.
+    /// If close interrupts a registered position wait, the step's task reports
+    /// <see cref="LatticeErrorEnum.Unavailable"/>. An uncancelled read step begun after Closed
+    /// reports <see cref="ObjectDisposedException"/> through its task, including the first step.
     /// </para>
     /// </remarks>
     /// <param name="session">The consistency context of the caller.</param>

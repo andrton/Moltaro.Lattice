@@ -379,7 +379,7 @@ internal sealed class RetiredMemory
 
     // Frees every retired thing that no read in progress can reach, and returns; it does not wait.
     // With no read in progress it leaves nothing retired.
-    public void Drain()
+    public void Drain(Action? beforeTrim = null)
     {
         _itemsSinceLook = 0;
         _bytesSinceLook = 0;
@@ -421,6 +421,7 @@ internal sealed class RetiredMemory
         // does, and its growth costs about as much as it retired.
         if (CanTrimEmptyQueue())
         {
+            beforeTrim?.Invoke();
             TrimEmptyQueue();
         }
     }

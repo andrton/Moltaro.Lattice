@@ -222,10 +222,18 @@ While a master or child is Ready, a periodic worker offers a turn every 16 ms.
 It enters the operation barrier, tries the local writes lock and rechecks admission
 before changing storage. Reclamation and text maintenance share 64 work units.
 A search of at most 128 units selects storage from a nonempty region strictly below
-half live occupancy with compatible vacancy in an earlier segment. A prepared
-master write prevents relocation. The worker can publish one move per turn and
-retires the old slot under its epoch. Secondary index nodes stay in place. Lookups
-continue through their root handles and shared text IDs.
+half live occupancy with an assigned compatible vacancy in an earlier segment.
+The same search can select a live 32 KiB or 64 KiB block from a segment whose
+published slots charge no more than one sixteenth of its capacity. A segment with
+an allocated secondary index node is ineligible for this second rule. The destination
+is an assigned compatible slot or an unassigned region in another active segment
+with higher published slot charge, or a lower segment number at equal charge.
+An individual block can progress when space is available for it. The empty reserve
+remains available for normal allocations.
+
+A prepared master write prevents relocation. The worker can publish one move per
+turn and retires the old slot under its epoch. Secondary index nodes stay in place.
+Lookups continue through their root handles and shared text IDs.
 
 The total charge of retained relocation copies and the proposed destination fits
 one 64 KiB slot. The target for local work is approximately 1 ms per turn, and the

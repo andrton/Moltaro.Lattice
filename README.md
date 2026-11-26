@@ -30,10 +30,11 @@ Sets. The master executes them alone or in a write batch, also when a child subm
 Children apply the changed fields and collection entries at the committed position.
 Both by-name and generated typed views read one entity directly from its local arena
 inside a short synchronous callback. Master and child run bounded storage maintenance
-in the background. Compatible blocks can move while earlier readers retain their
-original storage. The arena reuses and returns empty segments, and collections can
-release persistently unused lookup capacity. PostgreSQL persistence is planned, and
-the contract may still change.
+in the background. The worker can evacuate large blocks from a nearly empty segment
+into existing space in another active segment. Earlier readers retain their original
+storage until they leave. The arena reuses and returns empty segments, and collections
+can release persistently unused lookup capacity. PostgreSQL persistence is planned,
+and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -426,11 +427,12 @@ var user = child.Set<User>().Index("ByEmail").Find(IndexKey.Equal(email)).FirstO
 ```
 
 **Closing a database.** By the time a master or child reports `Closed`, it has stopped
-admitting new reads and writes. For an uncancelled write with valid arguments
-submitted after that point, the returned task fails with `ObjectDisposedException`.
-This includes writes through sets obtained earlier and commits of prepared updates
-or batches. Await successful completion of `CloseAsync` to know that the instance has
-released its native memory.
+admitting new reads and writes. A fresh uncancelled asynchronous read or write
+with valid arguments reports `ObjectDisposedException` through its task.
+This includes operations through sets obtained earlier, the first step of an
+asynchronous enumeration and commits of prepared updates or batches. Await
+successful completion of `CloseAsync` to know that the instance has released
+its native memory.
 
 **With dependency injection.** The `Moltaro.Lattice.DependencyInjection` package registers
 the database in the container as a singleton. A background service opens it when the
