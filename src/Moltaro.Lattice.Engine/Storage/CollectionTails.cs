@@ -225,6 +225,25 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         ReleaseSlot(tail, full: !tail.Full.IsNull);
     }
 
+    // Under Writes, a failed size estimate can discount ready slots. Only the
+    // allocator can decide whether their classes and regions make an allocation fit.
+    public bool HasReadyBytes(long bytes)
+    {
+        foreach (var tail in SpareTails())
+        {
+            // Each ready slot accounts for its whole native block. Full slots
+            // have a common size, and only the last slot can be smaller.
+            var blocks = tail.ReadySlots / FullSlots + (tail.Last.IsNull ? 0 : 1);
+            bytes -= tail.ReadySlots * (long)sizeof(ulong) + blocks * (long)BlockHeader.Size;
+            if (bytes <= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     // A lease is spare capacity even when the normal shrink threshold is not
     // met. Under Writes, only detached slots can be donated. A borrowed slot
     // is already out of these lists and a retired one has never entered them.

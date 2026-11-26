@@ -162,7 +162,8 @@ internal sealed unsafe class Arena : IDisposable
 
     // Allocates a block for payloadLength bytes of payload, in the size class BlockSizeFor gives.
     // It takes a free slot of that class, then a free region, then a reserved segment, and only
-    // then a new segment.
+    // then a new segment. At the hard limit it may reclaim ready collection capacity for a
+    // required allocation. A best-effort allocation can leave that capacity alone.
     //
     // It writes the whole header, also in a reused slot: the root, the kind and the payload length
     // as given, every other field zero. It does not check the kind or the root. The payload is not
@@ -170,19 +171,20 @@ internal sealed unsafe class Arena : IDisposable
     //
     // Returns false, with the counters unchanged, when the allocation would take Segments times
     // SegmentSize beyond ArenaOptions.MemoryLimit; that is the only case of false. A length that
-    // BlockSizeFor refuses is refused in the same way, with ArgumentOutOfRangeException. When the
-    // native allocator cannot supply a new segment, its OutOfMemoryException leaves the arena as
-    // it was.
+    // BlockSizeFor refuses is refused in the same way, with ArgumentOutOfRangeException. An
+    // OutOfMemoryException from the native allocator leaves no new prepared block. Any safe
+    // collection capacity already returned to make room stays returned.
     //
     // The block is prepared: no reader can reach it, its whole slot counts in PreparedBytes, and nothing of it
     // in LiveBytes or ClassSlackBytes, until Publish makes it live.
-    public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address)
+    public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address,
+        bool reclaimCollectionSlots = true)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var sizeClass = SizeClasses.IndexFor(payloadLength);
 
-        if (_regionsWithFreeSlot[sizeClass] == NoRegion && !TryTakeRegion(sizeClass))
+        if (_regionsWithFreeSlot[sizeClass] == NoRegion && !TryTakeRegion(sizeClass, reclaimCollectionSlots))
         {
             address = default;
 
@@ -554,6 +556,8 @@ internal sealed unsafe class Arena : IDisposable
 
     internal void ReleaseCollectionTail() => _collectionTails?.ReleaseOne();
 
+    internal bool HasReadyCollectionBytes(long bytes) => _collectionTails?.HasReadyBytes(bytes) == true;
+
     // Under Writes and after the old reader epoch. The cold block keeps its
     // allocation and class but is neither reachable from a live lookup nor
     // available to ordinary allocation or relocation.
@@ -740,7 +744,7 @@ internal sealed unsafe class Arena : IDisposable
     // region of a reserved segment, else the first region of a new segment. False when none of them
     // is there, a new segment would exceed the memory limit, and no ready collection capacity
     // can make the allocation fit. Only the hard limit can reclaim such capacity.
-    private bool TryTakeRegion(int sizeClass)
+    private bool TryTakeRegion(int sizeClass, bool reclaimCollectionSlots)
     {
         long regionNumber;
 
@@ -761,8 +765,8 @@ internal sealed unsafe class Arena : IDisposable
         {
             // A returned region is now either free, in reserve, or has
             // reduced SegmentCount. A same-class return already made a slot.
-            return _collectionTails?.ReleaseForPressure(sizeClass) == true &&
-                (_regionsWithFreeSlot[sizeClass] != NoRegion || TryTakeRegion(sizeClass));
+            return reclaimCollectionSlots && _collectionTails?.ReleaseForPressure(sizeClass) == true &&
+                (_regionsWithFreeSlot[sizeClass] != NoRegion || TryTakeRegion(sizeClass, reclaimCollectionSlots: false));
         }
 
         var segment = _segments[SegmentSlotOf(regionNumber)]!;

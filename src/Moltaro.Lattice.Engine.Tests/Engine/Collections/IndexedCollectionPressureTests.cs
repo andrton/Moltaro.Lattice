@@ -13,11 +13,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
 // The cases distinguish the required first page from a best-effort top-up.
 public sealed class IndexedCollectionPressureTests
 {
-    private const string Pending = "Required index pages and the optional standing reserve do not distinguish ready collection capacity.";
     private const int IndexNodeBytes = 1_024;
     private static readonly int[] FilledClasses = [48, 80, 112, 64];
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task First_required_index_page_can_use_safe_collection_capacity_at_the_arena_limit()
     {
         const int limit = 8;
@@ -82,7 +81,7 @@ public sealed class IndexedCollectionPressureTests
         ExpectNativeCharges(database, allocator, regions, limit);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Optional_index_top_up_does_not_replace_ready_collection_capacity_at_the_limit()
     {
         const int limit = 9;

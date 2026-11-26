@@ -193,13 +193,13 @@ internal sealed class NodePool
     }
 
     // Once every index of the changes has what they need: tops the pool up to the standing reserve, as far
-    // as the arena gives. What the arena refuses, or the native allocator cannot supply, is not taken, and
-    // nothing fails.
+    // as the arena gives without taking ready collection slots. What the arena refuses, or the native
+    // allocator cannot supply, is not taken, and nothing fails.
     public void TopUp()
     {
         try
         {
-            while (_count < _reserve && TryAllocate())
+            while (_count < _reserve && TryAllocate(reclaimCollectionSlots: false))
             {
             }
         }
@@ -586,11 +586,10 @@ internal sealed class NodePool
         AssertReserved();
     }
 
-    // Whether the nodes given may fit the arena: their slots no more than what the memory limit leaves beside
-    // the slots in use. A reservation of more is refused before it takes anything, so that it obtains no
-    // segment for nodes it would give back; one of less may still be refused by the arena, which then takes
-    // nothing either (TryAllocate, Undo). Inlined, so that a reservation makes no call for it beside the read
-    // of the counters of the arena (JIT listing at full optimization).
+    // The usual estimate reads only the arena counters. If it fails, a required reservation may
+    // discount ready collection slots because those slots can be returned. A reservation that
+    // cannot fit even then takes nothing, and the arena still checks classes and regions before
+    // allocating any node.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool Fits(long nodes)
     {
@@ -602,16 +601,17 @@ internal sealed class NodePool
         var arena = _arena.Counters;
         var inUse = arena.LiveBytes + arena.ClassSlackBytes + arena.PreparedBytes + arena.RetiredBytes;
 
-        return nodes * _layout.NodeBytes <= _arena.MemoryLimit - inUse;
+        var deficit = nodes * _layout.NodeBytes - (_arena.MemoryLimit - inUse);
+        return deficit <= 0 || _arena.HasReadyCollectionBytes(deficit);
     }
 
     // Takes a prepared node from the arena into the pool; false when the arena refuses it. Inlined into the
     // loops of a reservation and of a top-up, so that a node refilled costs the calls of the arena and no call
     // of its own (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool TryAllocate()
+    private bool TryAllocate(bool reclaimCollectionSlots = true)
     {
-        if (!_arena.TryAllocatePrepared(_layout.PayloadBytes, BlockKindEnum.IndexNode, default, out var node))
+        if (!_arena.TryAllocatePrepared(_layout.PayloadBytes, BlockKindEnum.IndexNode, default, out var node, reclaimCollectionSlots))
         {
             return false;
         }
