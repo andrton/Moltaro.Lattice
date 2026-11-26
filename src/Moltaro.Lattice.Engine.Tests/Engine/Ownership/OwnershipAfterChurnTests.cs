@@ -1,6 +1,8 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
@@ -55,6 +57,12 @@ public sealed class OwnershipAfterChurnTests
                 OwnershipAudit.Expect(database);
             }
 
+            // A generated batch can now run out of room during Add. Keep the audit of
+            // rollback during execution deterministic without changing the random tape.
+            await ExpectBatchExecutionAsync(binds: false);
+            await ExpectBatchExecutionAsync(binds: true);
+            outcomes["batch Memory"] = outcomes.GetValueOrDefault("batch Memory") + 1;
+
             // Every way a write ends was met.
             foreach (var outcome in new[] { "written", "deleted", "Memory", "DuplicateKey", "NotFound", "RevisionConflict", "ValidationFailed", "batch written", "batch Memory", "batch refused" })
             {
@@ -66,6 +74,57 @@ public sealed class OwnershipAfterChurnTests
             storage.ReleaseAll();
             await database.CloseAsync().AsTask().WaitAsync(Bound);
         }
+    }
+
+    private static async Task ExpectBatchExecutionAsync(bool binds)
+    {
+        const long limit = 18L * 1024 * 1024;
+        const long roomForPreparation = 2L * 1024 * 1024;
+        var allocator = new CountingNativeAllocator();
+        await using var database = await OpenAsync(limit, allocator, schema: TreeSchema.Schema);
+        var items = database.Set("Item");
+        var seed = await items.InsertAsync(TreeSchema.RecordOf(items, 1, shape: 1, number: 9001));
+        Assert.True(items.TryGet(1L, out _, out var initialRevision));
+        var batch = database.CreateWriteBatch();
+        batch.Insert(TreeSchema.RecordOf(items, 2, shape: 1, number: 9002));
+        batch.Insert(TreeSchema.RecordOf(items, 3, shape: 3, number: 9003));
+        Assert.Equal(2, batch.Count);
+        var built = ExpectCapacity(database, allocator);
+        Assert.Equal(Segment, built.NativeBytes);
+
+        if (binds)
+        {
+            using var withheld = database.HoldBudgetBacking(checked((int)(limit - built.ChargedBytes - roomForPreparation)));
+            var afterHold = ExpectCapacity(database, allocator);
+            Assert.InRange(limit - afterHold.ChargedBytes, 1024 * 1024, Segment - 1);
+
+            await RefusedAsync(batch.CommitAsync().AsTask(), LatticeLimitEnum.Memory);
+            Assert.Equal(seed.Position, database.Position);
+            Assert.Equal(built.NativeBytes, allocator.OutstandingBytes);
+            Assert.Null(items.Get(2L));
+            Assert.Null(items.Get(3L));
+        }
+        else
+        {
+            var prepared = 0L;
+            var entries = 0;
+            allocator.HoldNextAllocation(() =>
+            {
+                prepared = database.Counters.Arena.PreparedBytes;
+                entries = database.Counters.RootEntries;
+            });
+            var result = await batch.CommitAsync();
+            Assert.Equal(result.Position, database.Position);
+            Assert.True(prepared > 0);
+            Assert.Equal(3, entries);
+            Assert.Equal(2L * Segment, allocator.OutstandingBytes);
+            Assert.Equal(3, items.Get(2L)!.Get<List<long>>("Scores")!.Count);
+            Assert.Equal(750_000, items.Get(3L)!.Get<List<long>>("Scores")!.Count);
+        }
+
+        Assert.True(items.TryGet(1L, out _, out var original));
+        Assert.Equal(initialRevision, original);
+        OwnershipAudit.Expect(database);
     }
 
     // One operation drawn from the generator, and how it ended.
