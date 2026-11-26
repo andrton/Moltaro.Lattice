@@ -33,7 +33,10 @@ public sealed class FailedNodeAllocationTests
     // Leave a fifth physical region for the injected allocation failure after the root fits.
     private static readonly ArenaOptions Options = new()
     {
-        SegmentSize = Region, MemoryLimit = 4L * 1024 * 1024, NativeCapacityLimit = Regions * (long)Region, ReservedSegments = 0,
+        SegmentSize = Region,
+        MemoryLimit = 4L * 1024 * 1024,
+        NativeCapacityLimit = Regions * (long)Region,
+        ReservedSegments = 0,
     };
 
     [Fact]

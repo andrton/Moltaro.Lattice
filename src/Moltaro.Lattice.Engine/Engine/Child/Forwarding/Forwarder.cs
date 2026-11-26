@@ -1,6 +1,6 @@
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;

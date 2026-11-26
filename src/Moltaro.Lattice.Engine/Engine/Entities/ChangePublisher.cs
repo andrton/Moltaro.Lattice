@@ -1,5 +1,5 @@
-using Moltaro.Lattice.Budgeting;
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;

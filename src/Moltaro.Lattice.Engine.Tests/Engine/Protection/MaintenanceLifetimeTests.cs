@@ -44,7 +44,9 @@ public sealed class MaintenanceLifetimeTests
             // Exactly one native region can participate in the maintenance and close race.
             Arena = new ArenaOptions
             {
-                SegmentSize = Arena.MaxBlockSize, MemoryLimit = 4L * 1024 * 1024, NativeCapacityLimit = Arena.MaxBlockSize,
+                SegmentSize = Arena.MaxBlockSize,
+                MemoryLimit = 4L * 1024 * 1024,
+                NativeCapacityLimit = Arena.MaxBlockSize,
             },
             Allocator = allocator,
             BeforeMaintenanceWrites = () => Interlocked.Increment(ref attempts),
@@ -118,7 +120,10 @@ public sealed class MaintenanceLifetimeTests
             // Keep the child framing and root page affordable while it returns its one native grant.
             Arena = new ArenaOptions
             {
-                SegmentSize = Arena.MaxBlockSize, MemoryLimit = 4L * 1024 * 1024, NativeCapacityLimit = Arena.MaxBlockSize, ReservedSegments = 0,
+                SegmentSize = Arena.MaxBlockSize,
+                MemoryLimit = 4L * 1024 * 1024,
+                NativeCapacityLimit = Arena.MaxBlockSize,
+                ReservedSegments = 0,
             },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,

@@ -601,7 +601,9 @@ public sealed class OwnedValueRelocationTests
         // Keep the sixteen-region relocation geometry even while the child loads through TCP.
         Arena = new ArenaOptions
         {
-            SegmentSize = Arena.MaxBlockSize, MemoryLimit = 8L * 1024 * 1024, NativeCapacityLimit = 16L * Arena.MaxBlockSize,
+            SegmentSize = Arena.MaxBlockSize,
+            MemoryLimit = 8L * 1024 * 1024,
+            NativeCapacityLimit = 16L * Arena.MaxBlockSize,
         },
         Allocator = allocator,
         Persistence = persistence,

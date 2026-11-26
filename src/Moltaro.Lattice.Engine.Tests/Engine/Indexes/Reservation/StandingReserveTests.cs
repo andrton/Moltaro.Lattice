@@ -130,8 +130,10 @@ public sealed class StandingReserveTests
         // Two regions make the index reserve compete with the write for reusable native slots.
         var arena = new ArenaOptions
         {
-            SegmentSize = Arena.MaxBlockSize, MemoryLimit = 4L * 1024 * 1024,
-            NativeCapacityLimit = 2L * Arena.MaxBlockSize, ReservedSegments = 0,
+            SegmentSize = Arena.MaxBlockSize,
+            MemoryLimit = 4L * 1024 * 1024,
+            NativeCapacityLimit = 2L * Arena.MaxBlockSize,
+            ReservedSegments = 0,
         };
 
         await using var database = await EngineMaster.OpenAsync(SpreadSchema, new EngineTestInputs { Arena = arena });

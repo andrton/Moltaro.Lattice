@@ -1,8 +1,8 @@
 using System.Buffers;
-using Moltaro.Lattice.Budgeting;
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;

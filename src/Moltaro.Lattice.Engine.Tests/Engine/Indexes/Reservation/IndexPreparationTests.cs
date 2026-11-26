@@ -70,7 +70,9 @@ public sealed class IndexPreparationTests
             // The physical last slot must bind before the indexes' already reserved publication.
             Arena = new ArenaOptions
             {
-                SegmentSize = Arena.MaxBlockSize, MemoryLimit = 32L * 1024 * 1024, NativeCapacityLimit = (long)Regions * Arena.MaxBlockSize,
+                SegmentSize = Arena.MaxBlockSize,
+                MemoryLimit = 32L * 1024 * 1024,
+                NativeCapacityLimit = (long)Regions * Arena.MaxBlockSize,
             },
             Allocator = allocator,
             Persistence = storage,

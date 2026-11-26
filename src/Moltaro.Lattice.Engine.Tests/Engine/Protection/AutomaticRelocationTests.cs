@@ -1058,8 +1058,10 @@ public sealed class AutomaticRelocationTests
             // The relocation strategy is compared against this exact native geometry.
             Arena = new ArenaOptions
             {
-                SegmentSize = regions * Arena.MaxBlockSize, MemoryLimit = 32L * 1024 * 1024,
-                NativeCapacityLimit = (long)maxSegments * Arena.MaxBlockSize, ReservedSegments = reserve,
+                SegmentSize = regions * Arena.MaxBlockSize,
+                MemoryLimit = 32L * 1024 * 1024,
+                NativeCapacityLimit = (long)maxSegments * Arena.MaxBlockSize,
+                ReservedSegments = reserve,
             },
             Allocator = allocator,
             DisableBackgroundMaintenance = beforeWait is null,
