@@ -45,6 +45,7 @@ internal sealed class AutomaticMaintenance
         ArenaAddress source = default;
         ArenaAddress destination = default;
         var slotBytes = 0;
+        (BlockKindEnum Kind, ushort Flags, DescriptorKindEnum DescriptorKind) sourceShape = default;
 
         if (!parts.Coordinator.HoldsPreparedMemory())
         {
@@ -72,7 +73,7 @@ internal sealed class AutomaticMaintenance
             {
                 if (!_source.IsNull)
                 {
-                    if (TryNextVacancy(parts, ref work, out source, out destination, out slotBytes))
+                    if (TryNextVacancy(parts, ref work, out source, out destination, out slotBytes, out sourceShape))
                     {
                         break;
                     }
@@ -92,7 +93,8 @@ internal sealed class AutomaticMaintenance
         // here therefore counts actual native returns, separately from the reserve.
         var returned = segments - arena.Counters.Segments;
         return new MaintenanceTurnSample(true, 0, candidates, work, reclaimed + textWork, source, destination, slotBytes,
-            returned, (long)returned * arena.SegmentSize, parts.Retired.RelocationBytes, TextMetadataWork: textWork);
+            returned, (long)returned * arena.SegmentSize, parts.Retired.RelocationBytes, sourceShape.Kind,
+            sourceShape.Flags, sourceShape.DescriptorKind, textWork);
     }
 
     private void SeekSource(Arena arena, ref int work, ref int candidates)
@@ -139,11 +141,13 @@ internal sealed class AutomaticMaintenance
     }
 
     private bool TryNextVacancy(DatabaseParts parts, ref int work, out ArenaAddress source,
-        out ArenaAddress destination, out int slotBytes)
+        out ArenaAddress destination, out int slotBytes,
+        out (BlockKindEnum Kind, ushort Flags, DescriptorKindEnum DescriptorKind) sourceShape)
     {
         source = default;
         destination = default;
         slotBytes = 0;
+        sourceShape = default;
         var arena = parts.Arena;
         var bytes = SizeClasses.SizeOf(_sizeClass);
         var earlier = arena.EarlierRelocationExtent(_source);
@@ -165,17 +169,23 @@ internal sealed class AutomaticMaintenance
 
         var old = _source;
         _source = default;
+        // A shared locator has no descriptor. Only its chunks have an
+        // incoming Block descriptor, which the text mover validates.
+        var incoming = _kind == BlockKindEnum.SharedTextChunk ? DescriptorKindEnum.Block : default;
         var moved = _kind switch
         {
             BlockKindEnum.Root => RootRelocation.TryMove(parts, _owner, old, region, out destination),
             BlockKindEnum.SharedText or BlockKindEnum.SharedTextDirectory or BlockKindEnum.SharedTextChunk =>
                 TextRelocation.TryMove(parts, _owner, old, region, out destination),
-            _ => CompoundRelocation.TryMove(parts, _owner, old, region, out destination),
+            _ => CompoundRelocation.TryMove(parts, _owner, old, region, out destination, out incoming),
         };
         if (moved)
         {
             source = old;
             slotBytes = bytes;
+            // The source was just queued for retirement under this same Writes
+            // lock. Capture its flags before entering the observer.
+            sourceShape = (_kind, arena.Header(old).Flags, incoming);
         }
 
         // A vacancy admits one owner walk in a turn, even if validation or

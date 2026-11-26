@@ -13,12 +13,13 @@ namespace Moltaro.Lattice.Engine.Maintenance;
 internal static class CompoundRelocation
 {
     public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source) =>
-        TryMove(parts, expected, source, 0, out _);
+        TryMove(parts, expected, source, 0, out _, out _);
 
     public static bool TryMove(DatabaseParts parts, RootHandle expected, ArenaAddress source, long region,
-        out ArenaAddress replacement)
+        out ArenaAddress replacement, out DescriptorKindEnum descriptorKind)
     {
         replacement = default;
+        descriptorKind = default;
         // Prepared master writes may carry the old address across the Writes
         // lock. The child keeps Writes through preparation and publication.
         if (parts.Coordinator.HoldsPreparedMemory() || expected.Slot >= (uint)parts.Roots.SlotExtent)
@@ -35,7 +36,8 @@ internal static class CompoundRelocation
         }
 
         var layout = parts.Tables.Stored(entry.TypeId).Layout;
-        if (!TryResolve(arena, layout, entry.Root, expected, source, out var holder) || !RelocationChildren.Validate(arena, holder))
+        if (!TryResolve(arena, layout, entry.Root, expected, source, out var holder, out var incoming) ||
+            !RelocationChildren.Validate(arena, holder))
         {
             return false;
         }
@@ -60,14 +62,16 @@ internal static class CompoundRelocation
         }
 
         retired.RetireRelocated(source, slotBytes);
+        descriptorKind = incoming;
         return true;
     }
 
     // At each admitted schema depth a collection can add a lookup, a directory
     // and a record block. Bound the parent path before reading any edge.
     private static bool TryResolve(Arena arena, RootLayout layout, ArenaAddress root, RootHandle expected, ArenaAddress source,
-        out RelocationBlock block)
+        out RelocationBlock block, out DescriptorKindEnum descriptorKind)
     {
+        descriptorKind = default;
         if (!RelocationBlock.TryReadRoot(arena, layout, root, expected, out block))
         {
             return false;
@@ -92,7 +96,8 @@ internal static class CompoundRelocation
             var childAddress = path[--depth];
             var offset = arena.Header(childAddress).DescriptorOffset;
             if (!block.TryGetIndex(offset, out var index) ||
-                !RelocationChildren.TryRead(arena, block, arena.Payload(block.Address), index, out var child) || child.Address != childAddress)
+                !RelocationChildren.TryRead(arena, block, arena.Payload(block.Address), index, out var child, out descriptorKind) ||
+                child.Address != childAddress)
             {
                 return false;
             }

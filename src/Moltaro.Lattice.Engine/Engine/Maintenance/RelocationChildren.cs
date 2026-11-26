@@ -16,7 +16,7 @@ internal static class RelocationChildren
         var payload = count == 0 ? default : arena.Payload(parent.Address);
         for (var index = 0; index < count; index++)
         {
-            if (!TryRead(arena, parent, payload, index, out _))
+            if (!TryRead(arena, parent, payload, index, out _, out _))
             {
                 return false;
             }
@@ -42,9 +42,11 @@ internal static class RelocationChildren
         }
     }
 
-    public static bool TryRead(Arena arena, in RelocationBlock parent, Span<byte> payload, int index, out RelocationBlock child)
+    public static bool TryRead(Arena arena, in RelocationBlock parent, Span<byte> payload, int index,
+        out RelocationBlock child, out DescriptorKindEnum descriptorKind)
     {
         child = default;
+        descriptorKind = default;
         var offset = parent.OffsetOf(index);
         if (parent.IsLookupWord(index))
         {
@@ -52,6 +54,7 @@ internal static class RelocationChildren
         }
 
         var edge = ReadDescriptor(payload, offset);
+        descriptorKind = edge.Kind;
         if (parent.Header.Kind == BlockKindEnum.ChunkDirectory)
         {
             return TryReadDirectoryChunk(arena, parent, index, offset, edge, out child);

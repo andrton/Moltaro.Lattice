@@ -29,9 +29,7 @@ public sealed class AutomaticRelocationTests
     private const int FillerCount = 64;
     private static readonly LatticeSchema Schema = MakeSchema();
 
-    internal const string SourceReportPending = "An automatic relocation sample does not report its source shape yet.";
-
-    [Theory(Skip = SourceReportPending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_worker_reports_the_actual_fixed_root_shape_only_after_a_move(LatticeRoleEnum role)

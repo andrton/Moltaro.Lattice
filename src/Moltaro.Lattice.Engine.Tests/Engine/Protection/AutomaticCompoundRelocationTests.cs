@@ -67,7 +67,7 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         }
     }
 
-    [Theory(Skip = AutomaticRelocationTests.SourceReportPending)]
+    [Theory]
     [MemberData(nameof(SourceReports))]
     public Task A_worker_reports_the_verified_native_source_kind_and_owner_edge(LatticeRoleEnum role, string kind) =>
         RunAsync(role, Enum.Parse<SourceEnum>(kind), reportSource: true);
