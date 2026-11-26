@@ -155,7 +155,7 @@ internal static class RelocationChildren
         }
 
         return header.Kind == BlockKindEnum.ChunkDirectory && header.Flags == 0 &&
-            header.PayloadLength == RelocationBlock.RecordChunkCount(count, element.RecordsPerChunk) * ValueBlocks.DescriptorSize;
+            header.PayloadLength == RecordBlocks.ChunkCount(count, element.RecordsPerChunk) * ValueBlocks.DescriptorSize;
     }
 
     private static bool TryDescribeLookup(ArenaAddress address, in BlockHeader header, StructureLayout element, int count,
@@ -184,7 +184,8 @@ internal static class RelocationChildren
 
         if (directory.Layout is { } element)
         {
-            var count = Math.Min(directory.Length - index * element.RecordsPerChunk, element.RecordsPerChunk);
+            var first = index * element.RecordsPerChunk;
+            var count = RecordBlocks.RecordsInChunk(directory.Length, first, element.RecordsPerChunk);
             child = new RelocationBlock(address, header, element, count);
             return IsRecordBlock(header, BlockKindEnum.Chunk, element, count);
         }

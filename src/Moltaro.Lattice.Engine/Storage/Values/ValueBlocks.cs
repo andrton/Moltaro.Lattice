@@ -51,6 +51,9 @@ internal static class ValueBlocks
     // How many chunks a value of this many bytes takes, for a value within MostValueBytes.
     public static int ChunkCount(int length) => (length + ChunkPayload - 1) / ChunkPayload;
 
+    // The block-relative offset stored in the backlink of a chunk.
+    public static int DirectoryEntryOffset(int chunk) => BlockHeader.Size + chunk * DescriptorSize;
+
     public static ValueDescriptor Read(ReadOnlySpan<byte> place) => MemoryMarshal.Read<ValueDescriptor>(place);
 
     public static void Write(Span<byte> place, ValueDescriptor descriptor) => MemoryMarshal.Write(place, in descriptor);
@@ -281,16 +284,16 @@ internal static class ValueBlocks
             for (var chunk = 0; chunk < chunks; chunk++)
             {
                 var chunkLength = Math.Min(ChunkPayload, length - chunk * ChunkPayload);
-                var entryOffset = chunk * DescriptorSize;
+                var entryOffset = DirectoryEntryOffset(chunk);
 
-                if (!TryAllocate(arena, chunkLength, chunkKind, owner, layoutVersion, sharedText ? default : directory, (uint)(BlockHeader.Size + entryOffset), out var block))
+                if (!TryAllocate(arena, chunkLength, chunkKind, owner, layoutVersion, sharedText ? default : directory, (uint)entryOffset, out var block))
                 {
                     FreeBlocks(arena, directory, chunks: true);
 
                     return false;
                 }
 
-                ResidentDescriptor.Write(entries[entryOffset..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)chunkLength, Location = block.Value });
+                ResidentDescriptor.Write(entries[(entryOffset - BlockHeader.Size)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)chunkLength, Location = block.Value });
                 source.Fill(arena.Payload(block));
             }
         }

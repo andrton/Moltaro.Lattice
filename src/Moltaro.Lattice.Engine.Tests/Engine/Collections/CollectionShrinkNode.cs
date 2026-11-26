@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -162,7 +161,7 @@ internal sealed class CollectionShrinkNode(EngineDatabase database, CountingNati
             long retired = 0;
             var segments = 0;
             var reserve = 0;
-            var table = Segments(arena);
+            var table = ArenaSegmentTable.Slots(arena);
             for (var segmentIndex = 1; segmentIndex < table.Length; segmentIndex++)
             {
                 if (table[segmentIndex] is not { } segment)
@@ -253,8 +252,7 @@ internal sealed class CollectionShrinkNode(EngineDatabase database, CountingNati
 
     private static CollectionNativeSlot Read(Arena arena, ArenaAddress address)
     {
-        var table = Segments(arena);
-        var segment = table[address.Segment];
+        var segment = ArenaSegmentTable.At(arena, address.Segment);
         if (segment is null)
         {
             return new(address, null, 0, 0, false, false, false, default);
@@ -268,7 +266,4 @@ internal sealed class CollectionShrinkNode(EngineDatabase database, CountingNati
             allocated && segment.IsRetired(region, slot), allocated && segment.IsPrepared(region, slot),
             allocated ? arena.Header(address).Parent : default);
     }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_segments")]
-    private static extern ref ArenaSegment?[] Segments(Arena arena);
 }

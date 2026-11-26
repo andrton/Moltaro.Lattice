@@ -13,7 +13,7 @@ internal static class TextRelocation
         destination = default;
         var arena = parts.Arena;
         if (expected.Generation != 0 || expected.Slot == 0 || parts.Coordinator.HoldsPreparedMemory() ||
-            !arena.TryFindRelocationDestination(source, ref region, out var sizeClass) ||
+            !arena.TryFindRelocationDestination(source, region, out var sizeClass) ||
             !arena.Texts.TryLocation(expected.Slot, out var current, out var length))
         {
             return false;

@@ -545,7 +545,7 @@ internal static class NestedValues
             return TryFill(ref holder, element, block, 0, count, ref source);
         }
 
-        var chunks = (count + perChunk - 1) / perChunk;
+        var chunks = RecordBlocks.ChunkCount(count, perChunk);
 
         if (!holder.TryAllocate(chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Address, offset, out var directory))
         {
@@ -562,16 +562,17 @@ internal static class NestedValues
         for (var chunk = 0; chunk < chunks; chunk++)
         {
             var first = chunk * perChunk;
-            var records = Math.Min(perChunk, count - first);
+            var records = RecordBlocks.RecordsInChunk(count, first, perChunk);
             var length = source.BlockLength(element, first, records);
 
-            if (!holder.TryAllocate(length, BlockKindEnum.Chunk, directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), out var block))
+            var entryOffset = ValueBlocks.DirectoryEntryOffset(chunk);
+            if (!holder.TryAllocate(length, BlockKindEnum.Chunk, directory, entryOffset, out var block))
             {
                 return false;
             }
 
             holder.Arena.Header(block).Flags = BlockHeader.RecordBlockFlag;
-            ResidentDescriptor.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
+            ResidentDescriptor.Write(entries[(entryOffset - BlockHeader.Size)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
 
             if (!TryFill(ref holder, element, block, first, records, ref source))
             {

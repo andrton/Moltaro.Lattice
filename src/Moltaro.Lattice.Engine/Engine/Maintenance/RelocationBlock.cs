@@ -23,7 +23,7 @@ internal readonly record struct RelocationBlock(
 
             return Header.Kind switch
             {
-                BlockKindEnum.ChunkDirectory => Layout is null ? ValueBlocks.ChunkCount(Length) : RecordChunkCount(Length, Layout.RecordsPerChunk),
+                BlockKindEnum.ChunkDirectory => Layout is null ? ValueBlocks.ChunkCount(Length) : RecordBlocks.ChunkCount(Length, Layout.RecordsPerChunk),
                 BlockKindEnum.Lookup => 1 + CollectionLookup.ChunkCountForSlots(CollectionLookup.SlotsNeeded(Length)),
                 _ => 0,
             };
@@ -45,8 +45,6 @@ internal readonly record struct RelocationBlock(
         return true;
     }
 
-    public static int RecordChunkCount(int count, int perChunk) => (count + perChunk - 1) / perChunk;
-
     public bool IsLookupWord(int index) => Header.Kind == BlockKindEnum.Lookup && index != 0;
 
     public int OffsetOf(int index)
@@ -65,8 +63,8 @@ internal readonly record struct RelocationBlock(
         }
 
         return IsLookupWord(index)
-            ? CollectionLookup.FirstChunkOffset + (index - 1) * sizeof(ulong)
-            : BlockHeader.Size + index * ValueBlocks.DescriptorSize;
+            ? CollectionLookup.ChunkOffset(index - 1)
+            : ValueBlocks.DirectoryEntryOffset(index);
     }
 
     public bool TryGetIndex(uint offset, out int index)
@@ -101,13 +99,13 @@ internal readonly record struct RelocationBlock(
             }
             else
             {
-                var word = AlignedIndex(at - CollectionLookup.FirstChunkOffset, sizeof(ulong));
+                var word = CollectionLookup.ChunkIndexAtOffset(at);
                 index = word >= 0 ? word + 1 : -1;
             }
         }
         else if (Header.Kind == BlockKindEnum.ChunkDirectory)
         {
-            index = AlignedIndex(at - BlockHeader.Size, ValueBlocks.DescriptorSize);
+            index = AlignedIndex(at - ValueBlocks.DirectoryEntryOffset(0), ValueBlocks.DescriptorSize);
         }
 
         return (uint)index < (uint)EdgeCount;

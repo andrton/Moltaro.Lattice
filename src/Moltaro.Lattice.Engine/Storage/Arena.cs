@@ -201,7 +201,7 @@ internal sealed unsafe class Arena : IDisposable
     }
 
     // Under the writes lock: recheck source eligibility and the selected vacancy.
-    public bool TryFindRelocationDestination(ArenaAddress source, ref long destination, out int sizeClass)
+    public bool TryFindRelocationDestination(ArenaAddress source, long destination, out int sizeClass)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -460,7 +460,8 @@ internal sealed unsafe class Arena : IDisposable
             throw new InvalidOperationException($"The block at {address} is not live; only a live block is retired.");
         }
 
-        var blockSize = SizeClasses.SizeOf(segment.Regions[regionIndex].SizeClass);
+        ref var region = ref segment.Regions[regionIndex];
+        var blockSize = SizeClasses.SizeOf(region.SizeClass);
         var payloadLength = ((BlockHeader*)(segment.Memory + address.Offset))->PayloadLength;
 
         if (payloadLength > blockSize - BlockHeader.Size)
@@ -469,11 +470,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         segment.SetRetired(regionIndex, slot, retired: true);
-        segment.Regions[regionIndex].Live--;
-        segment.LiveSlotBytes -= blockSize;
-
-        _tally.LiveBytes -= BlockHeader.Size + payloadLength;
-        _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+        RemoveLiveSlot(segment, ref region, blockSize, payloadLength);
         _tally.RetiredBytes += blockSize;
         return blockSize;
     }
@@ -542,10 +539,7 @@ internal sealed unsafe class Arena : IDisposable
         }
         else
         {
-            region.Live--;
-            segment.LiveSlotBytes -= blockSize;
-            _tally.LiveBytes -= BlockHeader.Size + payloadLength;
-            _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+            RemoveLiveSlot(segment, ref region, blockSize, payloadLength);
         }
 
         if (region.Allocated > 0)
@@ -567,6 +561,14 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         ReturnRegion((int)address.Segment, segment, regionIndex);
+    }
+
+    private void RemoveLiveSlot(ArenaSegment segment, ref ArenaRegion region, int blockSize, uint payloadLength)
+    {
+        region.Live--;
+        segment.LiveSlotBytes -= blockSize;
+        _tally.LiveBytes -= BlockHeader.Size + payloadLength;
+        _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
     }
 
     // Under the writes lock: reads a header only while its slot is live.

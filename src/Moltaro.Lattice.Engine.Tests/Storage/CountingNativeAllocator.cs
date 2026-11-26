@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Moltaro.Lattice.Storage.Allocation;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage;
@@ -23,6 +24,11 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     private Action? _hold;
     private Action? _holdLastFree;
 
+    public CountingNativeAllocator()
+    {
+        OutstandingAddresses = new ReadOnlySet<nint>(_outstanding);
+    }
+
     // How many times memory was obtained.
     public int Obtained { get; private set; }
 
@@ -31,6 +37,8 @@ internal sealed class CountingNativeAllocator : NativeAllocator
 
     // How many pieces of memory were obtained and not returned.
     public int Outstanding => _outstanding.Count;
+
+    public IReadOnlyCollection<nint> OutstandingAddresses { get; }
 
     public bool FailNextAllocation { get; set; }
 

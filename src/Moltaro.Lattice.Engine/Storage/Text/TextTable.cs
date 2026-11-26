@@ -150,16 +150,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
     {
         AssertWrites();
         var number = (uint)id;
-        var reference = ReferenceOf(number);
-        ref var slot = ref _slots.At(reference);
-        if (--slot.References != 0)
+        if (!TryDetachLastReference(number, out var address, out var length))
         {
             return;
         }
 
-        var length = slot.Length;
-        var address = AddressOf(id);
-        Remove(reference);
         ValueBlocks.FreeText(_arena, address, length);
         _locator.Return(number);
     }
@@ -169,17 +164,13 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         AssertWrites();
         if (!work.Detached)
         {
-            var reference = ReferenceOf(work.Id);
-            ref var slot = ref _slots.At(reference);
-            if (--slot.References != 0)
+            if (!TryDetachLastReference(work.Id, out work.Address, out var length))
             {
                 work = default;
                 return true;
             }
 
-            work.Address = AddressOf(work.Id);
-            work.ChunkCount = slot.Length > ValueBlocks.SingleBlockLimit ? ValueBlocks.ChunkCount((int)slot.Length) : 0;
-            Remove(reference);
+            work.ChunkCount = length > ValueBlocks.SingleBlockLimit ? ValueBlocks.ChunkCount((int)length) : 0;
             work.Detached = true;
             return false;
         }
@@ -396,6 +387,24 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         {
             _slots.At(next).Previous = slot.Previous;
         }
+    }
+
+    // Unlinking leaves the ID reserved until its caller finishes freeing the native blocks.
+    private bool TryDetachLastReference(uint id, out ArenaAddress address, out uint length)
+    {
+        var reference = ReferenceOf(id);
+        ref var slot = ref _slots.At(reference);
+        if (--slot.References != 0)
+        {
+            address = default;
+            length = 0;
+            return false;
+        }
+
+        length = slot.Length;
+        address = AddressOf(id);
+        Remove(reference);
+        return true;
     }
 
     private void Remove(uint reference)

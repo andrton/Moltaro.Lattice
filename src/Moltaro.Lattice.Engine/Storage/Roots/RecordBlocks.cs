@@ -43,6 +43,10 @@ internal ref struct RecordBlocks
     // How many records the block holds.
     public int Count { get; private set; }
 
+    public static int ChunkCount(int count, int perChunk) => (count + perChunk - 1) / perChunk;
+
+    public static int RecordsInChunk(int count, int first, int perChunk) => Math.Min(perChunk, count - first);
+
     // Moves to the next block that holds records; false after the last one.
     public bool MoveNext()
     {

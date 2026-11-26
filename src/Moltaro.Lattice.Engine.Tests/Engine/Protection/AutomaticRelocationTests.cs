@@ -786,7 +786,7 @@ public sealed class AutomaticRelocationTests
             var candidateHeader = HeaderBytes(arena, candidate);
             for (var segmentIndex = 1u; segmentIndex < candidate.Segment; segmentIndex++)
             {
-                if (ArenaSegments(arena)[segmentIndex] is not { } segment)
+                if (ArenaSegmentTable.At(arena, segmentIndex) is not { } segment)
                 {
                     continue;
                 }
@@ -1094,9 +1094,6 @@ public sealed class AutomaticRelocationTests
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
     private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_segments")]
-    private static extern ref ArenaSegment?[] ArenaSegments(Arena arena);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_regionsWithFreeSlot")]
     private static extern ref long[] ClassHeads(Arena arena);

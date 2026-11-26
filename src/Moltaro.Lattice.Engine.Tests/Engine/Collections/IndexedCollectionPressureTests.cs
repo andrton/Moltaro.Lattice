@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
@@ -223,7 +222,7 @@ public sealed class IndexedCollectionPressureTests
         Assert.True(database.TryRunMaintenanceStep(parts =>
         {
             var arena = parts.Arena;
-            var segments = Segments(arena);
+            var segments = ArenaSegmentTable.Slots(arena);
             for (var segmentIndex = 1; segmentIndex < segments.Length; segmentIndex++)
             {
                 if (segments[segmentIndex] is not { } segment)
@@ -273,7 +272,4 @@ public sealed class IndexedCollectionPressureTests
         Assert.Equal(allocated, arena.LiveBytes + arena.ClassSlackBytes + arena.PreparedBytes + arena.RetiredBytes);
         return allocated;
     }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_segments")]
-    private static extern ref ArenaSegment?[] Segments(Arena arena);
 }

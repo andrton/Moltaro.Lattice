@@ -11570,10 +11570,13 @@ cost G1 after churn.
 **Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
 under the lock of the writes or by the rule this sprint states.
 
-**Carried from S14, part 2, deferred here by the owner on 20 November 2026, as the planner
-relays:** before its design, the references of a shared text for each entry are decided
-with the figures of 20 November 2026 (F8 of the [refactoring backlog](refactoring.md)):
-compaction revisits the shared entries anyway.
+**Index text ownership (F8).** S23 kept the reference held by each index node
+for each of its shared text keys. A text move updates the stable locator and
+preserves that ownership. The independent final indexed-text probe kept the
+view and export across a relocation on both roles, checked the reference count
+before and after the drain and checked index lookup after deletion and recreation.
+See the [index lifetime rule](../design/ordered-index.md#text-references) and the
+[F8 disposition](refactoring.md#found-while-coordinating-s14-part-2-20-november-2026).
 
 **Track:** full · **Needs:** S22C · **Owners:** E01, E03 · **Closes:** Q17
 
@@ -14542,11 +14545,37 @@ The independent code and breaker reviews are closed. The final
 executable tree is the one verified at `62c5c4c1`. The full
 local checks, canonical transfer review, ARM64 acceptance and
 the accepted measurement dispositions are recorded above.
-S24 takes the [retained-capacity inventory](#retained-memory-inventory-for-s24)
-and owns actual budget enforcement and rollback. S33 owns the
-connection assembler's retention policy. [S23B](#fresh-session-reads-at-close) corrects
-fresh session read admission during close. S23A runs next in a separate
-full-track PR before S24 starts product work.
+###### Pre-S24 debt dispositions
+
+- The pre-S24 corrections cover [S23B session admission](#fresh-session-reads-at-close),
+  [S23C final cleanup](#pre-s24-close-cleanup-investigation),
+  [S23D full-root rollback](#s24--the-memory-budget),
+  [S23E ordinary retirement trim](#s23e-retirement-queue-upkeep-on-a-running-instance),
+  and [S23F child scratch](#s23f-child-scratch-after-publishing-or-returning-a-batch).
+  The cases preserve the documented outcomes for waits and writes that were
+  already admitted. Each correction has its own evidence.
+- The below-half trigger in S23 and the separate
+  [S23A evacuation trigger](#s23a-arm64-verification) implement
+  [Q66](open-questions.md#q66-may-segment-evacuation-start-without-a-sparse-occupied-region).
+  Successful native return, the standing reserve, no-room refusal and work-accounted
+  resumption have verified role controls. The observed wide-turn cold and GC tails
+  have the disposition recorded with the S23A verification.
+- [S23AR](refactoring.md#s23ar-verification) shares storage geometry, accounting
+  transitions and test setup. [F8](refactoring.md)
+  keeps the accepted per-node reference. [F9](refactoring.md#f9-index-read-by-key-driver-comparison)
+  preserves the historical comparison restriction. The older S19
+  [concurrent scalar writer timing](#s19--maps-and-sets) still lacks a directly
+  comparable follow-up. It records a historical measurement with unresolved cause.
+  The [historical Debug controls](#historical-debug-controls) record the test
+  triggers and their distinct evidence.
+- [S24](#s24--the-memory-budget) owns budget reservation and accounting, using
+  the [retained-capacity inventory](#retained-memory-inventory-for-s24).
+  [Q31 and Q33](open-questions.md#open) remain decisions for that contract.
+  [X6](exceptions.md#x6-waits-inside-the-engine-that-have-no-timeout)
+  continues to record the accepted in-process waits and the transport waits
+  that end with [bounded delivery](#s33--bounded-delivery-and-slow-children)
+  and [reconnection](#s34--reconnect-reload-and-a-restarted-master).
+  Buffer retention, PostgreSQL and the release gates remain in their planned stages.
 
 ###### Post-merge ARM64 verification
 

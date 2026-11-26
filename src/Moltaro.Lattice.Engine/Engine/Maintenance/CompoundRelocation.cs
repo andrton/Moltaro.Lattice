@@ -27,7 +27,7 @@ internal static class CompoundRelocation
         ref var entry = ref parts.Roots.EntryOfSlot(expected.Slot);
         var arena = parts.Arena;
         if (entry.Generation != expected.Generation || entry.State != RootStateEnum.Live || entry.Root == source ||
-            !arena.TryFindRelocationDestination(source, ref region, out var sizeClass))
+            !arena.TryFindRelocationDestination(source, region, out var sizeClass))
         {
             return false;
         }
@@ -49,7 +49,7 @@ internal static class CompoundRelocation
         var header = holder.Header;
         if (header.Flags == BlockHeader.LookupSlotsFlag)
         {
-            var index = ((int)header.DescriptorOffset - CollectionLookup.FirstChunkOffset) / sizeof(ulong);
+            var index = CollectionLookup.ChunkIndexAtOffset((int)header.DescriptorOffset);
             CollectionLookup.PublishChunk(CollectionLookup.Chunks(arena, header.Parent), index, replacement);
         }
         else

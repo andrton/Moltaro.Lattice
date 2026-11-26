@@ -570,7 +570,7 @@ public sealed class OwnedValueRelocationTests
         var requests = allocator.Requests;
         Assert.True(master.TryRunMaintenanceStep(parts =>
         {
-            Assert.True(parts.Arena.TryFindRelocationDestination(source.Value, ref destination, out _));
+            Assert.True(parts.Arena.TryFindRelocationDestination(source.Value, destination, out _));
             var queue = RetiredItems(parts.Retired);
             Assert.Empty(queue);
             var capacity = queue.EnsureCapacity(0);
@@ -690,7 +690,7 @@ public sealed class OwnedValueRelocationTests
 
     private static async Task ExpectEligibilityAsync(EngineDatabase node, ArenaAddress source, long destination, bool expected) =>
         Assert.Equal(expected, await MaintenanceStep.RunAfterAdmissionAsync(node,
-            parts => parts.Arena.TryFindRelocationDestination(source, ref destination, out _)));
+            parts => parts.Arena.TryFindRelocationDestination(source, destination, out _)));
 
     private static Task<bool> MoveAfterAdmissionAsync(EngineDatabase node, RootHandle handle, ArenaAddress source, long destination) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts => CompoundRelocation.TryMove(parts, handle, source, destination, out _, out _));
@@ -764,17 +764,8 @@ public sealed class OwnedValueRelocationTests
     private static byte[] ExpectedBody(Location location, sbyte code, byte[] data) =>
         RootValues.Export(location.Layout, location.Layout.EntityType, [location.Key, code, data, "tri", null]).ToArray();
 
-    private static byte[] Export(ILatticeSet items, Location location)
-    {
-        Assert.True(items.TryView(location.Key, _ =>
-        {
-            var output = new ArrayBufferWriter<byte>();
-            BlockExport.Write(output, location.Arena, location.Layout, location.Root);
-            Assert.Equal(output.WrittenCount, BlockExport.Length(location.Arena, location.Layout, location.Root));
-            return output.WrittenSpan.ToArray();
-        }, out var body));
-        return body;
-    }
+    private static byte[] Export(ILatticeSet items, Location location) =>
+        ProtectedExport.Capture(items, location.Key, location.Arena, location.Layout, location.Root);
 
     private static void ExpectFreed(Location location, ArenaAddress address) =>
         Assert.Throws<ArgumentException>("address", () => _ = location.Arena.Header(address));
