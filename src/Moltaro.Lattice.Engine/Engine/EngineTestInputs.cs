@@ -28,6 +28,9 @@ internal sealed class EngineTestInputs
     // another seed than its master. Null: the instance draws its own when it opens.
     public ulong? IndexSeed { get; init; }
 
+    // Includes actual managed backing identities in the independent test inventory.
+    public bool ObserveBudgetBackings { get; init; }
+
     // The persistence step of the commit stage, so that a test can hold a commit until it releases it
     // (IPersistence). Null: the persistence of MemoryOnly, which completes at once.
     public IPersistence? Persistence { get; init; }
