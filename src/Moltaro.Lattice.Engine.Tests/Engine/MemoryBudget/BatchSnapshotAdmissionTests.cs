@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 public sealed class BatchSnapshotAdmissionTests
 {
-    private const string SnapshotPending = "Batch input snapshots do not reserve their memory before copying.";
+    internal const string SnapshotPending = "Batch input snapshots do not reserve their memory before copying.";
     private const long Limit = 8L * Segment;
     private const int WorkingRoom = 512;
     private static readonly LatticeSchema Schema = LatticeSchema.Compile($$"""

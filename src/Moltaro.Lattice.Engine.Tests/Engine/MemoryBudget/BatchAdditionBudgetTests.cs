@@ -1,10 +1,12 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.Schema;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -15,6 +17,7 @@ public sealed class BatchAdditionBudgetTests
     private const long Limit = 16L * Segment;
     private const int LongValue = 250_000;
     private const int CompetingRoom = 650_000;
+    private const int SmallSnapshotRoom = 256;
 
     [Theory]
     [InlineData(false)]
@@ -38,9 +41,10 @@ public sealed class BatchAdditionBudgetTests
         var update = acting.Set<PieceSchema.Piece>().CreateUpdate(1L);
         var command = update.Assign("Data", new byte[LongValue]);
         var before = ExpectCapacity(acting, allocator);
-        using (acting.HoldBudgetBacking(checked((int)(Limit - before.ChargedBytes - 64))))
+        using (LeaveRoom(acting, before, SmallSnapshotRoom))
         {
             var held = ExpectCapacity(acting, allocator);
+            Assert.Equal(SmallSnapshotRoom, Limit - held.ChargedBytes);
             Assert.Throws<ArgumentException>(() => batch.Insert(PieceSchema.Of(2, 21)));
             AssertMemoryRefusal(() => batch.Insert(PieceSchema.Of(3, 8, data: LongValue)));
             AssertMemoryRefusal(() => batch.Update(update));
@@ -179,9 +183,14 @@ public sealed class BatchAdditionBudgetTests
         var invalid = PieceSchema.Of(1, 8);
         invalid.Name = new string((char)0xD800, 1);
         var before = ExpectCapacity(node, allocator);
+        var retained = BuilderArrays(open);
+        var copyValues = ManagedObjectSize(new object?[pieces.EntityType.Fields.Count]);
+        var copyCommand = ManagedObjectSize(new UpdateCommand[1]) + ManagedObjectSize(new LatticeField[1]);
+        Assert.InRange(SmallSnapshotRoom, Math.Max(copyValues, copyCommand), 511);
 
-        using (node.HoldBudgetBacking(checked((int)(Limit - before.ChargedBytes - 64))))
+        using (LeaveRoom(node, before, SmallSnapshotRoom))
         {
+            Assert.Equal(SmallSnapshotRoom, Limit - ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
             ExpectValidation(() => open.Insert(invalid));
             ExpectValidation(() => open.Update(malformed));
             Assert.Throws<ArgumentException>(() => open.Insert(PieceSchema.Of(1, 10)));
@@ -202,6 +211,47 @@ public sealed class BatchAdditionBudgetTests
         Assert.Equal(1, open.Count);
         Assert.Equal(0, closing.Count);
         Assert.Equal(1, valid.Count);
+    }
+
+    [Fact(Skip = BatchSnapshotAdmissionTests.SnapshotPending)]
+    public async Task An_earlier_snapshot_allocation_can_refuse_before_checking_batch_identity_or_submission()
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(Limit, allocator);
+        var pieces = node.Set<PieceSchema.Piece>();
+        var open = node.CreateWriteBatch();
+        open.Insert(PieceSchema.Of(1, 8));
+        var submitted = node.CreateWriteBatch();
+        submitted.Delete<PieceSchema.Piece>(20L);
+        await submitted.CommitAsync();
+        var valid = pieces.CreateUpdate(1L);
+        valid.Assign("Name", "modified");
+        var retained = BuilderArrays(open);
+        var before = ExpectCapacity(node, allocator, out _, retained);
+        var copyValues = ManagedObjectSize(new object?[pieces.EntityType.Fields.Count]);
+        var copyCommand = ManagedObjectSize(new UpdateCommand[1]);
+        Assert.InRange(40, 0, Math.Min(copyValues, copyCommand) - 1);
+
+        using (LeaveRoom(node, before, 40))
+        {
+            var bound = ExpectCapacity(node, allocator, out _, retained);
+            Assert.Equal(40, Limit - bound.ChargedBytes);
+            Assert.Throws<ArgumentNullException>(() => open.Insert<PieceSchema.Piece>(null!));
+            Assert.Throws<InvalidOperationException>(() => open.Update(pieces.CreateUpdate(1L)));
+            AssertMemoryRefusal(() => open.Insert(PieceSchema.Of(1, 10)));
+            AssertMemoryRefusal(() => open.Update(valid));
+            AssertMemoryRefusal(() => submitted.Insert(PieceSchema.Of(1, 10)));
+            AssertMemoryRefusal(() => submitted.Update(valid));
+            Assert.Equal((1, 1, 1), (open.Count, submitted.Count, valid.Count));
+            Assert.Equal(bound.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
+        }
+
+        Assert.Throws<ArgumentException>(() => open.Insert(PieceSchema.Of(1, 10)));
+        Assert.Throws<ArgumentException>(() => open.Update(valid));
+        Assert.Throws<InvalidOperationException>(() => submitted.Insert(PieceSchema.Of(1, 10)));
+        Assert.Throws<InvalidOperationException>(() => submitted.Update(valid));
+        Assert.Equal((1, 1, 1), (open.Count, submitted.Count, valid.Count));
+        Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
     }
 
     [Fact]
@@ -263,6 +313,9 @@ public sealed class BatchAdditionBudgetTests
 
     private static void ExpectValidation(Action add) =>
         Assert.Equal(LatticeErrorEnum.ValidationFailed, Assert.Throws<LatticeException>(add).Error);
+
+    private static IDisposable LeaveRoom(EngineDatabase node, BudgetCapacitySample before, int bytes) =>
+        node.HoldBudgetBacking(checked((int)(Limit - before.ChargedBytes - bytes - ManagedObjectSize(Array.Empty<byte>()))));
 
     private static ILatticeWriteBatch BuildDeletes(ILatticeDatabase node, int entries)
     {
