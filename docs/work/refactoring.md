@@ -1065,10 +1065,10 @@ their disposition.
   sequence was repeated in
   [AutomaticCompoundRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/AutomaticCompoundRelocationTests.cs#L564),
   [CompoundCollectionRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/CompoundCollectionRelocationTests.cs#L992),
-  [FixedRootRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/FixedRootRelocationTests.cs#L652)
+  [FixedRootRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/FixedRootRelocationTests.cs#L652),
   [OwnedValueRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/OwnedValueRelocationTests.cs),
   [CompoundRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/CompoundRelocationTests.cs)
-  and [RelocatedCollectionMatrixTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/RelocatedCollectionMatrixTests.cs).
+  and [RelocatedCollectionMatrixTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Collections/RelocatedCollectionMatrixTests.cs).
   Share only the equivalent capture setup. Keep each case's timing cuts, data,
   revision and physical placement assertions local.
 
