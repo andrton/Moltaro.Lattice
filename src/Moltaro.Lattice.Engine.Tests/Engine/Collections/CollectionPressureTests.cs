@@ -17,8 +17,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
 // their prior lifetime guarantees. Each grant here is one actual native segment.
 public sealed class CollectionPressureTests
 {
-    private const string Pending = "A write cannot reclaim ready collection capacity under the hard arena limit.";
-
     private static readonly LatticeSchema Schema = LatticeSchema.Compile("""
         {
           "EntityTypes": [
@@ -42,7 +40,7 @@ public sealed class CollectionPressureTests
         }
         """);
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(9_000, 5, 7, 180_000, 2, 3, 1, WholeChunk)]
     [InlineData(17_100, 5_731, 11, 300_000, 3, 6, 2, WholeChunk)]
     [InlineData(6_000, 5, 8, 240_000, 2, 5, 2, 3_328)]

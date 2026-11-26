@@ -106,6 +106,24 @@ internal sealed unsafe class ArenaSegment
     public bool IsAllocated(int region, int slot) =>
         (_slotBits[region * SlotWordsPerRegion + slot / 64] & (1UL << (slot % 64))) != 0;
 
+    // A pass choosing a region may encounter several detached slots in it.
+    // Its first occupied slot is the only one that can nominate the region.
+    public bool IsFirstAllocated(int region, int slot)
+    {
+        var firstWord = region * SlotWordsPerRegion;
+        var slotWord = slot / 64;
+        for (var word = 0; word < slotWord; word++)
+        {
+            if (_slotBits[firstWord + word] != 0)
+            {
+                return false;
+            }
+        }
+
+        var lowerBits = (1UL << (slot % 64)) - 1;
+        return (_slotBits[firstWord + slotWord] & lowerBits) == 0;
+    }
+
     // Whether the block in the slot of the region is prepared.
     public bool IsPrepared(int region, int slot) =>
         (_preparedBits[region * SlotWordsPerRegion + slot / 64] & (1UL << (slot % 64))) != 0;

@@ -222,29 +222,93 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             tail.Shrinking = true;
         }
 
-        var slot = Pop(tail, full: !tail.Full.IsNull);
-        arena.Free(slot);
+        ReleaseSlot(tail, full: !tail.Full.IsNull);
+    }
+
+    // A lease is spare capacity even when the normal shrink threshold is not
+    // met. Under Writes, only detached slots can be donated. A borrowed slot
+    // is already out of these lists and a retired one has never entered them.
+    public bool ReleaseForPressure(int neededClass)
+    {
+        foreach (var tail in SpareTails())
+        {
+            if (!tail.Full.IsNull)
+            {
+                ReleaseSlot(tail, full: true);
+                return true;
+            }
+
+            if (tail.Last.IsNull || !arena.CanReleaseColdLookupForPressure(tail.Last, neededClass, out var clearRegion))
+            {
+                continue;
+            }
+
+            if (!clearRegion)
+            {
+                ReleaseSlot(tail, full: false);
+            }
+            else
+            {
+                ReleaseRegion(Arena.RegionOf(tail.Last));
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ReleaseRegion(long region)
+    {
+        // Every allocated slot in this region was already checked. Slot
+        // donation does not add a lease, and Dictionary permits removal
+        // of empty owners and fields while enumerating them.
+        foreach (var tail in SpareTails())
+        {
+            if (!tail.Last.IsNull && Arena.RegionOf(tail.Last) == region)
+            {
+                ReleaseSlot(tail, full: false);
+            }
+        }
+    }
+
+    private void ReleaseSlot(CollectionTail tail, bool full)
+    {
+        arena.Free(Pop(tail, full));
         Refresh(tail);
         ForgetEmpty(tail);
+    }
+
+    private IEnumerable<CollectionTail> SpareTails()
+    {
+        foreach (var fields in _owners.Values)
+        {
+            foreach (var tail in fields.Values)
+            {
+                yield return tail;
+            }
+        }
+
+        // An ended owner is removed from _owners but keeps its ready worker
+        // link until its last slot is returned. Its link may go during yield.
+        var work = _ready.First;
+        while (work is not null)
+        {
+            var tail = work.Value;
+            work = work.Next;
+            if (tail.Ended)
+            {
+                yield return tail;
+            }
+        }
     }
 
     public CollectionSlotOwnership[] Snapshot()
     {
         var result = new List<CollectionSlotOwnership>();
-        foreach (var fields in _owners.Values)
+        foreach (var tail in SpareTails())
         {
-            foreach (var tail in fields.Values)
-            {
-                AddReady(tail, result);
-            }
-        }
-
-        foreach (var tail in _ready)
-        {
-            if (tail.Ended)
-            {
-                AddReady(tail, result);
-            }
+            AddReady(tail, result);
         }
 
         foreach (var (slot, tail) in _borrowed)

@@ -614,6 +614,42 @@ internal sealed unsafe class Arena : IDisposable
 
     internal void SetColdLookupLink(ArenaAddress address, ArenaAddress next) => MemoryMarshal.Write(Payload(address), in next);
 
+    // At the hard limit: a same-class slot is immediately useful. For a
+    // different class, the whole region must be returnable. Only its first
+    // occupied slot may nominate it, so a region is inspected at most once.
+    internal bool CanReleaseColdLookupForPressure(ArenaAddress address, int neededClass, out bool clearRegion)
+    {
+        var segment = Locate(address, out var region, out var slot) ?? throw NotABlock(address);
+        var sizeClass = segment.Regions[region].SizeClass;
+        clearRegion = sizeClass != neededClass;
+        if (!clearRegion)
+        {
+            return true;
+        }
+
+        if (!segment.IsFirstAllocated(region, slot))
+        {
+            return false;
+        }
+
+        var size = SizeClasses.SizeOf(sizeClass);
+        var regionStart = segment.Memory + region * ArenaSegment.RegionSize;
+        for (var index = 0; index < ArenaSegment.RegionSize / size; index++)
+        {
+            if (segment.IsAllocated(region, index) &&
+                (!segment.IsPrepared(region, index) || segment.IsRetired(region, index) ||
+                 ((BlockHeader*)(regionStart + index * size))->Kind != BlockKindEnum.ColdLookupSlots))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    internal static long RegionOf(ArenaAddress address) =>
+        RegionNumber((int)address.Segment, (int)(address.Offset / ArenaSegment.RegionSize));
+
     // Tests take this snapshot under Writes; ordinary engine paths read no audit rows.
     internal CollectionSlotOwnership[] CollectionSlotOwnershipForTest() => _collectionTails?.Snapshot() ?? [];
 
@@ -716,8 +752,8 @@ internal sealed unsafe class Arena : IDisposable
 
     // Gives the class a region, so that it has one with a free slot: a free region, else the first
     // region of a reserved segment, else the first region of a new segment. False when none of them
-    // is there and a new segment would take the arena beyond its memory limit; then nothing has
-    // changed.
+    // is there, a new segment would exceed the memory limit, and no ready collection capacity
+    // can make the allocation fit. Only the hard limit can reclaim such capacity.
     private bool TryTakeRegion(int sizeClass)
     {
         long regionNumber;
@@ -737,7 +773,10 @@ internal sealed unsafe class Arena : IDisposable
         }
         else
         {
-            return false;
+            // A returned region is now either free, in reserve, or has
+            // reduced SegmentCount. A same-class return already made a slot.
+            return _collectionTails?.ReleaseForPressure(sizeClass) == true &&
+                (_regionsWithFreeSlot[sizeClass] != NoRegion || TryTakeRegion(sizeClass));
         }
 
         var segment = _segments[SegmentSlotOf(regionNumber)]!;
