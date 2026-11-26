@@ -64,12 +64,18 @@ internal sealed class EngineTestInputs
     // retirement queue's trim at the end of a publication. A test may fail that allocation.
     public Action<int, int, int>? BeforePublishedRetiredTrim { get; init; }
 
+    // Under Writes, reports the total places needed when a retirement backing reservation refuses.
+    public Action<int>? ObserveRetirementBackingRefusal { get; init; }
+
     // Invoked with a maintenance attempt counted by the close barrier, after observing Ready
     // and before trying the lock of the writes. Tests can hold an attempt that close may overtake.
     public Action? BeforeMaintenanceWrites { get; init; }
 
     // Under Writes, immediately before a missing destination page is allocated during text migration.
     public Action? BeforeTextMigrationPageAllocation { get; init; }
+
+    // Under Writes, before reserving backing for a prepared dictionary's bucket growth.
+    public Action? BeforePreparedTextBucketGrowth { get; init; }
 
     // Under Writes, just before allocating the first automatic root reclamation cursor.
     public Action? BeforeRootReclamationAllocation { get; init; }

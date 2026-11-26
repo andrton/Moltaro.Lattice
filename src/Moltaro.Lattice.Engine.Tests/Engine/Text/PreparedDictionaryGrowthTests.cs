@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
+using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
@@ -130,6 +131,119 @@ public sealed class PreparedDictionaryGrowthTests
         {
             persistence.ReleaseAll();
         }
+    }
+
+    [Fact(Skip = MemoryBudget.BudgetOwnershipCorrection.Pending)]
+    public async Task Refused_dictionary_bucket_growth_keeps_installed_mappings_and_the_same_data_can_be_retried()
+    {
+        const long limit = 8L * Segment;
+        var allocator = new CountingNativeAllocator();
+        IDisposable? holder = null;
+        long availableAtGrowth = 0;
+        var watching = false;
+        EngineDatabase? receiving = null;
+        var inputs = new EngineTestInputs
+        {
+            IndexSeed = Seed,
+            Allocator = allocator,
+            DisableBackgroundMaintenance = true,
+            ObserveBudgetBackings = true,
+            BeforePreparedTextBucketGrowth = () =>
+            {
+                if (!watching || holder is not null)
+                {
+                    return;
+                }
+
+                var current = Assert.IsType<EngineDatabase>(receiving);
+                var owned = ExpectCapacity(current, allocator);
+                availableAtGrowth = limit - owned.ChargedBytes;
+                Assert.True(availableAtGrowth > ManagedObjectSize(Array.Empty<byte>()));
+                holder = current.HoldBudgetBacking(checked((int)(availableAtGrowth - ManagedObjectSize(Array.Empty<byte>()))));
+                Assert.Equal(limit, current.InspectBudget().ChargedBytes);
+            },
+        };
+        await using var node = EngineDatabase.Create(new LatticeDatabaseOptions
+        {
+            Schema = TextSchema.Utf8,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            MemoryLimit = limit,
+        }, inputs);
+        receiving = node;
+        await node.OpenAsync().AsTask().WaitAsync(Bound);
+        var depots = node.Set<TextSchema.Depot>();
+        var first = await depots.InsertAsync(Depot(1L, "existing")).AsTask().WaitAsync(Bound);
+        var second = await depots.InsertAsync(Depot(2L, "existing")).AsTask().WaitAsync(Bound);
+        var expectedIds = TextIds(node, "Depot", "Area", [1L, 2L]);
+        Assert.Equal(expectedIds[1L], expectedIds[2L]);
+        Assert.True(depots.TryGet(1L, out _, out var firstRevision));
+        Assert.True(depots.TryGet(2L, out _, out var secondRevision));
+        var prior = Capacity(node);
+        var originalBuckets = BucketBacking(node);
+        ExpectAccounting(node, prior);
+        ExpectCapacity(node, allocator, out _, originalBuckets);
+        var data = Enumerable.Range(3, 64).Select(id => Depot(id, DistinctText(id))).ToArray();
+        var batch = SubmitData();
+
+        try
+        {
+            watching = true;
+            await RefusedAsync(batch.CommitAsync().AsTask(), LatticeLimitEnum.Memory);
+            watching = false;
+            Assert.NotNull(holder);
+            Assert.True(availableAtGrowth > 0);
+            var restored = Capacity(node);
+            var restoredBuckets = BucketBacking(node);
+            ExpectAccounting(node, restored);
+            Assert.Equal(TextBytes(prior), TextBytes(restored));
+            Assert.Equal(originalBuckets.Sum(ManagedObjectSize), restoredBuckets.Sum(ManagedObjectSize));
+            Assert.Equal(second.Position, node.Position);
+            Assert.True(depots.TryGet(1L, out var retainedFirst, out var retainedFirstRevision));
+            Assert.Equal(firstRevision, retainedFirstRevision);
+            Assert.True(depots.TryGet(2L, out var retainedSecond, out var retainedSecondRevision));
+            Assert.Equal(secondRevision, retainedSecondRevision);
+            Assert.Equal("existing", retainedFirst.Area);
+            Assert.Equal("existing", retainedSecond.Area);
+            foreach (var id in expectedIds.Keys)
+            {
+                Assert.Equal(expectedIds[id], TextIds(node, "Depot", "Area", [id])[id]);
+            }
+
+            Assert.Equal(2, References(node, "existing", "Utf8"));
+            Assert.Single(node.TextReferences());
+            Assert.Equal(0, node.Counters.Arena.PreparedBytes);
+            Assert.All(data, item => Assert.Null(depots.Get(item.Id)));
+            ExpectCapacity(node, allocator, out _, restoredBuckets);
+
+            holder!.Dispose();
+            holder = null;
+            var committed = await SubmitData().CommitAsync().AsTask().WaitAsync(Bound);
+            Assert.Equal(first.Position.Sequence + 2, committed.Position.Sequence);
+            Assert.Equal(committed.Position, node.Position);
+            Assert.All(data, item => Assert.Equal(item.Area, depots.Get(item.Id)?.Area));
+            Assert.Equal(expectedIds[1L], TextIds(node, "Depot", "Area", [1L])[1L]);
+            Assert.Equal(2, References(node, "existing", "Utf8"));
+            OwnershipAudit.Expect(node);
+        }
+        finally
+        {
+            holder?.Dispose();
+        }
+
+        ILatticeWriteBatch SubmitData()
+        {
+            var adding = node.CreateWriteBatch();
+            foreach (var depot in data)
+            {
+                adding.Insert(depot);
+            }
+
+            return adding;
+        }
+
+        static long TextBytes(TextCapacitySnapshot snapshot) =>
+            Bytes(snapshot.ActiveBuckets) + Bytes(snapshot.OldBuckets) + Bytes(snapshot.LocatorDirectory) +
+            Bytes(snapshot.LocatorLeaves) + Bytes(snapshot.WriterMetadata) + Bytes(snapshot.RetiredLocator);
     }
 
     [Fact]

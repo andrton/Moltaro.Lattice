@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Reflection;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Protection;
@@ -7,6 +9,8 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -156,6 +160,7 @@ public sealed class RetirementCapacityWithdrawalTests
         await using var master = await OpenAsync(Limit, new CountingNativeAllocator(), listen: true);
         var allocator = new CountingNativeAllocator();
         var pause = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refusedPlaces = new ConcurrentQueue<int>();
         EngineDatabase? receiving = null;
         IDisposable? holder = null;
         var armed = 0;
@@ -168,6 +173,7 @@ public sealed class RetirementCapacityWithdrawalTests
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 ObserveChildPressure = sample => pause.TrySetResult(sample),
+                ObserveRetirementBackingRefusal = refusedPlaces.Enqueue,
                 BeforeChildPreparationMember = _ =>
                 {
                     if (Volatile.Read(ref armed) == 0 || Interlocked.Exchange(ref attempted, 1) != 0)
@@ -214,6 +220,8 @@ public sealed class RetirementCapacityWithdrawalTests
             Assert.False(blocked.DuringReceive);
             Assert.Equal(written.Position.Sequence, blocked.Sequence);
             Assert.NotNull(holder);
+            Assert.NotEmpty(refusedPlaces);
+            Assert.All(refusedPlaces, places => Assert.Equal(5, places));
             var withdrawn = await ObserveAsync(child, allocator);
             Assert.True(withdrawn.Budget.PeakBytes > heldCharge);
             Assert.Equal(before.Bytes, withdrawn.Bytes);
@@ -245,7 +253,7 @@ public sealed class RetirementCapacityWithdrawalTests
     {
         var allocator = new CountingNativeAllocator();
         await using var node = await OpenAsync(Limit, allocator);
-        var queued = Enumerable.Range(0, 6).Select(_ => new object()).ToArray();
+        var queued = Enumerable.Range(0, 7).Select(_ => new object()).ToArray();
 
         await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
@@ -269,7 +277,8 @@ public sealed class RetirementCapacityWithdrawalTests
         Assert.Equal(queued[2..5], before.Items.Select(item => item.Owner));
         await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
-            parts.Retired.Reserve(8);
+            parts.Retired.Reserve(4);
+            parts.Retired.Reserve(3);
             return true;
         });
         var expanded = await ObserveAsync(node, allocator);
@@ -277,17 +286,27 @@ public sealed class RetirementCapacityWithdrawalTests
 
         var allocation = await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
-            parts.Retired.Release(8);
-            parts.Retired.Reserve();
-            var initial = GC.GetAllocatedBytesForCurrentThread();
+            Assert.Equal(1, parts.Retired.DrainStep(1));
             parts.Retired.RetireTable(queued[5], 1);
+            parts.Retired.Release(4);
+            var initial = GC.GetAllocatedBytesForCurrentThread();
+            parts.Retired.RetireTable(queued[6], 1);
             return GC.GetAllocatedBytesForCurrentThread() - initial;
         });
 
         Assert.Equal(0, allocation);
+        var surviving = await ObserveAsync(node, allocator);
+        Assert.True(surviving.Bytes > before.Bytes);
+        Assert.True(surviving.Bytes < expanded.Bytes);
+        Assert.Equal(queued[3..], surviving.Items.Select(item => item.Owner));
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            parts.Retired.Release();
+            return true;
+        });
         var restored = await ObserveAsync(node, allocator);
         Assert.Equal(before.Bytes, restored.Bytes);
-        Assert.Equal(queued[2..], restored.Items.Select(item => item.Owner));
+        Assert.Equal(queued[3..], restored.Items.Select(item => item.Owner));
         node.DrainRetired();
         Assert.Equal(0, node.Counters.RetiredIndexBytes);
     }
@@ -296,7 +315,7 @@ public sealed class RetirementCapacityWithdrawalTests
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
             var queue = Backing<Queue<RetiredItem>>(parts.Retired, "_items");
-            var actual = BudgetCollections.Items(queue);
+            var actual = RetirementBackings(parts.Retired);
             var backing = new List<object>();
             node.InspectBudget((owner, item) =>
             {
@@ -305,9 +324,60 @@ public sealed class RetirementCapacityWithdrawalTests
                     backing.Add(item);
                 }
             });
-            var budget = ExpectCapacity(node, allocator, out _, actual.Length == 0 ? [] : [actual]);
-            return new RetirementSample([.. backing], queue.ToArray(), budget);
+            var budget = ExpectCapacity(node, allocator, out _, actual);
+            Assert.Equal(actual.Sum(ManagedObjectSize), backing.Sum(ManagedObjectSize));
+            return new RetirementSample(actual, queue.ToArray(), budget);
         });
+
+    private static object[] RetirementBackings(RetiredMemory retired)
+    {
+        // The queue shell and its dependencies stand for the instance's fixed state.
+        // Walk the queue's actual array and the retained capacity owners from their
+        // fields rather than using the budget's list to discover them.
+        var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var pending = new Stack<object>();
+        PushFields(retired);
+        while (pending.TryPop(out var item))
+        {
+            if (item is ReadEpochs or Arena or RootTable or RootReclamation or Moltaro.Lattice.Budgeting.MemoryBudget or Delegate)
+            {
+                continue;
+            }
+
+            if (item is Queue<RetiredItem> queue)
+            {
+                pending.Push(BudgetCollections.Items(queue));
+                continue;
+            }
+
+            if (item is Array { Length: 0 } || !owned.Add(item))
+            {
+                continue;
+            }
+
+            if (item is not RetiredItem[])
+            {
+                PushFields(item);
+            }
+        }
+
+        return [.. owned];
+
+        void PushFields(object owner)
+        {
+            const BindingFlags fields = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            for (var type = owner.GetType(); type is not null; type = type.BaseType)
+            {
+                foreach (var field in type.GetFields(fields))
+                {
+                    if (!field.FieldType.IsValueType && field.GetValue(owner) is { } value)
+                    {
+                        pending.Push(value);
+                    }
+                }
+            }
+        }
+    }
 
     private sealed record RetirementSample(object[] Backing, RetiredItem[] Items, BudgetCapacitySample Budget)
     {
