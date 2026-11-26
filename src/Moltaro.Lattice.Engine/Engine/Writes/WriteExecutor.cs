@@ -189,7 +189,6 @@ internal sealed class WriteExecutor
         var record = write.Record;
         var changes = record.BatchChanges(members.Length, _arena.Budget);
         PreparedUpdates? updates = null;
-        record.Updates = null;
         var count = 0;
         var size = 0L;
 
@@ -216,7 +215,7 @@ internal sealed class WriteExecutor
                 if (member.Update is { } input)
                 {
                     var update = PlanUpdate(table, replaced, input, place);
-                    updates ??= new PreparedUpdates();
+                    updates ??= new PreparedUpdates(_arena.Budget);
                     if (!update.Changed)
                     {
                         continue;
@@ -272,14 +271,9 @@ internal sealed class WriteExecutor
                 size += rootSize;
             }
 
-            if (updates is not null)
+            if (updates is not null && write.Forwarded is not null)
             {
-                if (write.Forwarded is not null)
-                {
-                    updates.SetReply(UpdateReplies.Of(members));
-                }
-
-                record.Updates = updates;
+                updates.SetReply(UpdateReplies.Of(members));
             }
 
             var reservation = _changes.TryReserve(changes[..count], checksUnique: true, out taken);
@@ -287,6 +281,7 @@ internal sealed class WriteExecutor
             if (reservation == ReservationEnum.Reserved)
             {
                 prepared = record.SetBatch(count, size);
+                prepared.Updates = updates;
             }
             else if (reservation == ReservationEnum.RefusedForMemory)
             {
@@ -303,6 +298,7 @@ internal sealed class WriteExecutor
         {
             if (prepared is null)
             {
+                updates?.Dispose();
                 _changes.GiveBack(changes[..count]);
                 record.Withdraw();
             }
@@ -456,24 +452,38 @@ internal sealed class WriteExecutor
         ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
     {
         var update = PlanUpdate(write.Table, replaced, input);
-        var updates = new PreparedUpdates();
-        write.Record.Updates = updates;
-        if (write.Forwarded is not null)
+        var updates = new PreparedUpdates(_arena.Budget);
+        prepared = null;
+        try
         {
-            updates.SetReply(UpdateReplies.Of(input));
-        }
+            if (write.Forwarded is not null)
+            {
+                updates.SetReply(UpdateReplies.Of(input));
+            }
 
-        if (!update.Changed)
+            if (!update.Changed)
+            {
+                prepared = write.PrepareNoChange();
+                refusal = null;
+                taken = default;
+                return ReservationEnum.Reserved;
+            }
+
+            updates.Add(0, _roots.Entry(handle).LastMutationSequence, write.Table.Layout.Structure, update.Effects);
+            var root = RootValues.Place(_arena, write.Table.Layout, handle, values: null, out var size, out refusal, update);
+            return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
+        }
+        finally
         {
-            prepared = write.PrepareNoChange();
-            refusal = null;
-            taken = default;
-            return ReservationEnum.Reserved;
+            if (prepared is null)
+            {
+                updates.Dispose();
+            }
+            else
+            {
+                prepared.Updates = updates;
+            }
         }
-
-        updates.Add(0, _roots.Entry(handle).LastMutationSequence, write.Table.Layout.Structure, update.Effects);
-        var root = RootValues.Place(_arena, write.Table.Layout, handle, values: null, out var size, out refusal, update);
-        return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
     }
 
     private RootUpdate PlanUpdate(EntityTable table, ArenaAddress replaced, UpdateInput input, int? operation = null)

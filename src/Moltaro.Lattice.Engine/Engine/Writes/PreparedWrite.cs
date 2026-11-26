@@ -163,7 +163,7 @@ internal sealed class PreparedWrite
         _batchCount = 0;
         _claims?.Dispose();
         _claims = null;
-        Updates = null;
+        DropUpdates();
     }
 
     // No change: what the preparation of a delete of a key that is absent made. The change itself is left
@@ -190,7 +190,14 @@ internal sealed class PreparedWrite
         _batchCount = 0;
         _claims?.Dispose();
         _claims = null;
+        DropUpdates();
+    }
+
+    private void DropUpdates()
+    {
+        var updates = Updates;
         Updates = null;
+        updates?.Dispose();
     }
 
     private void DropBatch()

@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage.Roots;
@@ -7,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 
 // The delivery data of a successful preparation, owned by that attempt.
 // Only update members with effective commands have a sparse effect.
-internal sealed class PreparedUpdates
+internal sealed class PreparedUpdates(MemoryBudget? budget) : IDisposable
 {
     private Dictionary<uint, SparseChange>? _effects;
 
@@ -16,11 +17,38 @@ internal sealed class PreparedUpdates
     public void Add(uint member, ulong predecessor, StructureLayout layout, ReadOnlySpan<ResolvedCommand> commands)
     {
         var length = UpdateCommands.Length(layout, commands);
-        (_effects ??= []).Add(member, new SparseChange(predecessor, commands.ToArray(), length));
+        var effects = _effects ??= BudgetDictionaries.Create<uint, SparseChange>(budget, nameof(PreparedUpdates));
+        effects.EnsureCapacity(effects.Count + 1, budget, nameof(PreparedUpdates));
+        var saved = budget?.Allocate<ResolvedCommand>(commands.Length, nameof(PreparedUpdates)) ?? new ResolvedCommand[commands.Length];
+        try
+        {
+            commands.CopyTo(saved);
+            effects.Add(member, new SparseChange(predecessor, saved, length));
+        }
+        catch
+        {
+            budget?.Release(saved);
+            throw;
+        }
     }
 
     public SparseChange? EffectOf(uint member) =>
         _effects is { } effects && effects.TryGetValue(member, out var effect) ? effect : null;
 
     public void SetReply(UpdateReplies? replies) => Reply = replies?.Pack() ?? default;
+
+    public void Dispose()
+    {
+        var effects = _effects;
+        _effects = null;
+        if (effects is not null && budget is not null)
+        {
+            foreach (var effect in effects.Values)
+            {
+                budget.Release(effect.Commands);
+            }
+
+            budget.ReleaseDictionary(effects, includesOwner: true);
+        }
+    }
 }
