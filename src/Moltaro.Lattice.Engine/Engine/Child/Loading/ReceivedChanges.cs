@@ -130,6 +130,8 @@ internal sealed class ReceivedChanges
     // Faults the instance after the lock when a live transaction diverges or publication fails.
     private readonly Action _fault;
 
+    private readonly Action<int, uint, Arena, RootTable>? _beforeRootListGrowth;
+
     // The changes prepared and not published yet, in the order they were received: not reserved while the
     // effects of their transaction are prepared, and reserved together once every one is (TryReserve).
     private List<PreparedChange> _prepared = [];
@@ -168,7 +170,8 @@ internal sealed class ReceivedChanges
         ChangePublisher publisher,
         Lock writes,
         CloseBarrier barrier,
-        Action fault)
+        Action fault,
+        Action<int, uint, Arena, RootTable>? beforeRootListGrowth = null)
     {
         _arena = arena;
         _roots = roots;
@@ -180,6 +183,7 @@ internal sealed class ReceivedChanges
         _writes = writes;
         _barrier = barrier;
         _fault = fault;
+        _beforeRootListGrowth = beforeRootListGrowth;
         _import = new BlockImport(arena);
     }
 
@@ -544,6 +548,11 @@ internal sealed class ReceivedChanges
             ReleaseHandle(inserts, handle);
 
             return false;
+        }
+
+        if (_beforeRootListGrowth is not null && _prepared.Count == _prepared.Capacity)
+        {
+            _beforeRootListGrowth(_prepared.Count, member, _arena, _roots);
         }
 
         _prepared.Add(new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
