@@ -238,6 +238,7 @@ internal static class RootValues
     {
         using var working = snapshot is null ? null : MemoryLease.Create(snapshot.Budget);
         var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working));
+        BudgetByteWriter bytes;
 
         try
         {
@@ -254,20 +255,22 @@ internal static class RootValues
                 return pieces.Sequence;
             }
 
-            var bytes = working is null
+            bytes = working is null
                 ? new BudgetByteWriter(null, (int)length, nameof(RootValues))
                 : working.Allocate(BudgetByteWriter.OwnerBytes, nameof(RootValues),
                     () => new BudgetByteWriter(working.Budget, (int)length, nameof(RootValues)), static (_, writer) => writer.Dispose());
 
             writer.Export(bytes);
-            var written = snapshot is null ? bytes.WrittenMemory : bytes.Take(snapshot);
-            return new ReadOnlySequence<byte>(written);
         }
         catch
         {
             writer.Abandon();
             throw;
         }
+
+        // The writer has ended. A refused transfer leaves the bytes with the working lease.
+        var written = snapshot is null ? bytes.WrittenMemory : bytes.Take(snapshot);
+        return new ReadOnlySequence<byte>(written);
     }
 
     // The Lists of the value of the place at the position of the structure, the place itself and those

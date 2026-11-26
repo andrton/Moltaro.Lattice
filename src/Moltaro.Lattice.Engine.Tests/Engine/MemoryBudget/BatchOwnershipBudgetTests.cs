@@ -64,7 +64,7 @@ public sealed class BatchOwnershipBudgetTests
         GC.KeepAlive(batch);
     }
 
-    [Fact(Skip = "A completed export currently masks refusal of the ownership handoff.")]
+    [Fact]
     public async Task Refusing_the_completed_export_handoff_leaves_the_batch_unchanged_and_retryable()
     {
         const int handoffRoom = 1_008;
