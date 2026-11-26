@@ -1,3 +1,4 @@
+using System.Collections;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Replication;
@@ -53,9 +54,6 @@ public sealed class BatchSnapshotAdmissionTests
         var invalidLate = Record(node, 2L, items, null);
         var rejectedTyped = new Snapshot(2L, items, null);
         var validatedTyped = new Snapshot(2L, items, null);
-        List<byte[]> withInvalidElement = [.. items, null!];
-        var rejectedElement = new Snapshot(3L, withInvalidElement, "valid");
-        var validatedElement = new Snapshot(3L, withInvalidElement, "valid");
         var update = set.CreateUpdate(1L);
         var replacement = update.Assign("Items", items);
         var invalidText = update.Assign("Name", new string((char)0xD800, 1));
@@ -69,6 +67,32 @@ public sealed class BatchSnapshotAdmissionTests
         var operations = Backing<object>(batch, "_operations");
         var identities = Backing<object>(batch, "_identities");
         object[] retained = [Backing<Array>(operations, "_items"), .. DictionaryArrays(identities), .. earlierPieces];
+        byte[] prefix = [174, 193];
+        var largeElement = new byte[4_096];
+        byte[][] lateInvalid = [prefix, largeElement, null!];
+        Assert.True(ManagedObjectSize(largeElement) > WorkingRoom);
+        var lowReads = new List<int>();
+        var highReads = new List<int>();
+        byte[]? copiedPrefix = null;
+        var rejectedElement = new Snapshot(3L, new ObservedItems(lateInvalid, index =>
+        {
+            lowReads.Add(index);
+            if (index == 1)
+            {
+                var copies = new List<byte[]>();
+                node.InspectBudget((_, backing) =>
+                {
+                    if (backing is byte[] bytes && !ReferenceEquals(bytes, prefix) && bytes.AsSpan().SequenceEqual(prefix))
+                    {
+                        copies.Add(bytes);
+                    }
+                });
+
+                copiedPrefix = Assert.Single(copies);
+                _ = ExpectCapacity(node, allocator, out _, [.. retained, copiedPrefix]);
+            }
+        }), "valid");
+        var validatedElement = new Snapshot(3L, new ObservedItems(lateInvalid, highReads.Add), "valid");
         var before = ExpectCapacity(node, allocator, out _, retained);
         var holdLength = checked((int)(Limit - before.ChargedBytes - WorkingRoom - ManagedObjectSize(Array.Empty<byte>())));
         using (node.HoldBudgetBacking(holdLength))
@@ -82,8 +106,11 @@ public sealed class BatchSnapshotAdmissionTests
             node.ResetBudgetPeak();
             ExpectMemory(() => batch.Insert(rejectedElement));
             Assert.Equal((1, 1, 0), rejectedElement.Reads);
+            Assert.Equal([0, 1], lowReads);
+            Assert.NotNull(copiedPrefix);
+            node.InspectBudget((_, backing) => Assert.NotSame(copiedPrefix, backing));
             var afterElement = ExpectCapacity(node, allocator, out _, retained);
-            Assert.InRange(afterElement.PeakBytes - bound.ChargedBytes, ManagedObjectSize(new object?[3]), WorkingRoom);
+            Assert.InRange(afterElement.PeakBytes - bound.ChargedBytes, ManagedObjectSize(copiedPrefix), WorkingRoom);
             Assert.Equal(bound.ChargedBytes, afterElement.ChargedBytes);
             ExpectMemory(() => batch.Update(update));
             Assert.Equal(bound.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
@@ -98,6 +125,7 @@ public sealed class BatchSnapshotAdmissionTests
         ExpectValidation("Name", () => batch.Insert(validatedTyped));
         Assert.Equal((1, 1, 1), validatedTyped.Reads);
         ExpectValidation("Items", () => batch.Insert(validatedElement));
+        Assert.Equal([0, 1, 2], highReads);
         Assert.Equal((1, 1, 0), validatedElement.Reads);
         ExpectValidation("Name", () => batch.Update(update));
         Assert.Equal(2, batch.Count);
@@ -142,6 +170,20 @@ public sealed class BatchSnapshotAdmissionTests
         var refusal = Assert.Throws<LatticeException>(action);
         Assert.Equal(LatticeErrorEnum.ValidationFailed, refusal.Error);
         Assert.Contains(field, refusal.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class ObservedItems(byte[][] items, Action<int> atItem) : List<byte[]>(items), IEnumerable
+    {
+        IEnumerator IEnumerable.GetEnumerator() => Observed().GetEnumerator();
+
+        private IEnumerable<byte[]> Observed()
+        {
+            for (var index = 0; index < Count; index++)
+            {
+                atItem(index);
+                yield return this[index];
+            }
+        }
     }
 
     public sealed class Snapshot(long id, List<byte[]> items, string? name)
