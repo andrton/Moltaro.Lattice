@@ -206,7 +206,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R9 | Native segments, size classes, relative addressing, stable managed root entries, large values in bounded chunks | [Q05](../decisions/memory-and-access.md), [Q16](../decisions/physical-storage.md) | Must | Absent | S04, S05 |
 | R10 | Text: Plain and Dictionary storage, the database encoding, stable text entries, safe sharing and reclamation, well-formed Unicode only | [Q04.1–Q04.5](../decisions/strings.md) | Must | Works for String fields; text in collections and index keys with their sprints | S05, S13 |
 | R11 | Space is reused for the life of the database: size-class reuse, bounded incremental compaction, collection shrink, release of empty segments | [Q17](../decisions/allocation-and-compaction.md) | Must | Absent | S04, S23–S24 |
-| R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | Absent | S09, S23–S24, S33–S34 |
+| R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | MemoryOnly admission, rollback and ordered child pause and resume work. Delivery retention, reload and public pressure status follow in S33, S34 and S39. | S09, S23–S24, S33–S34, S39 |
 | R13 | Index structures of the engine's own — a hash table for the primary index (S08), an ordered structure for secondary indexes chosen in S14 after its study (the selection of the Arc collections is superseded, 18 November 2026) — rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
 | R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Done: the full key in S14, leading fields, ranges, both directions, Offset, Limit and the read limits in S15, part 1; the binding rules wait for S15, part 2 | S14–S15 |
@@ -1328,7 +1328,7 @@ Why this order:
 | S22C | Cancellation of a registered position wait | Full, critical | Both parts done on 25 November 2026 |
 | S23 | Compaction and shrink | Full, critical | Done on 26 November 2026 |
 | S23A | Evacuate nearly empty segments | Full, critical | Done on 26 November 2026 |
-| S24 | The memory budget | Full, critical | In progress since 26 November 2026 |
+| S24 | The memory budget | Full, critical | Done on 26 November 2026. [Implementation and measurements](#s24--the-memory-budget) |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
 | S26 | Operation identity and safe retry | Full | Not started |
 | S27 | PostgreSQL provider and Durable open | Full | Not started |
@@ -15104,7 +15104,7 @@ handles. This is charged root-table capacity with a continuing owner. Reserve
 required backing before issuing the handle. Withdrawal after issue allocates
 no history. Transfer earlier generations into a recreated page before giving
 up its history, including entries that have not yet been issued again. A
-slot at its final generation remains retired.
+slot released at its final generation remains retired.
 
 Keep the 196,664-byte return of the original empty-tail case and distinguish
 restoration of an intermediate directory from retention of a directory whose
@@ -15190,7 +15190,11 @@ and schema errors already found retain their place in the order of errors.
 Later getters and collection elements remain unread. With sufficient
 capacity, preserve the established validation order and failures for
 full values and updates, including duplicate, submitted and closed
-checks. A closed instance still reports its ordinary close error. Use
+checks. A refused allocation can precede a duplicate key or a submitted
+batch check when the established order validates the snapshot first.
+The update builder's own submitted, binding and empty checks still govern
+before its snapshot is built. A closed instance keeps its established
+failure order. Use
 the actual capacity of the next allocation and reserve it before taking
 it. As the caller's values are visited, each getter is read once.
 
@@ -15387,6 +15391,215 @@ format check, ran all 18 examples, and ran the full Windows x64 Release
 suite. It reported 4,691 passes and 169 expected skips. The corrected
 tests-first SHA is the acceptance reference for implementation.
 
+The later batch snapshot boundary was reviewed separately. Its contract
+and first tests are in `8802ad0d`. The implementer strengthened the
+retained-member and nested enumeration witnesses in `14b042cb` and
+`e5ad93ddabbbc760d3026dc4d819e1e90b0a500a`. The independent reviewer
+accepted that exact tests-first head without open P1 or P2. The
+coordinator rebuilt it in Release and verified the full suite with
+4,800 passes and 130 expected skips. The new scenario sees an actual
+charged copy before the next collection element and verifies its return
+on refusal. The same batch preserves an earlier payload through commit.
+The implementation gate uses this accepted head.
+
+##### Implementation evidence
+
+The physical accounting tests use native allocator grants and independently
+sized managed owners. One 4 MiB arena grant counts in full even if its last
+region cannot serve another slot of the active class. Root address
+exhaustion uses a reduced physical table in tests and separately checks its
+production representable range. The tests exercise bytes on either side of
+admission, a previously reusable slot at the same byte count and a generation
+that is permanently exhausted.
+
+At late cancellation, reuse the existing outcome of a prepared write.
+Each shared owner checks what the remaining writes or protected readers
+actually hold. Immediate failed preparation can restore its previous
+backing within the preparation turn. Removing a queued write can only
+restore backing that a later preparation did not need. A reader may
+continue to own a published generation through its epoch. Tests compare
+the live backing with the equivalent surviving work and exercise outcomes
+with another prepared writer and a held reader. The separate standing
+reserve stays charged.
+
+A segment address directory that grew from four to eight positions can
+return 64 B of exclusive managed backing while its original segment
+addresses remain readable. A new address already used by another
+preparation holds the directory. Withdrawing an exclusively prepared
+root page returns 196,664 B of page backing. A previously started TCP
+capture remains bounded by its published fence and can finish after the
+withdrawal. Reissuing a slot takes its exact next generation after page
+trim; a new neighbor starts at generation 1. In the independent sparse
+history probe, 272 B of continuing table metadata held the different
+generations, and the charge returned when ownership transferred into the
+page. The two distinct histories produced generations (3, 2) and (2, 3)
+on reuse. A prepared handle from either withdrawn history was already
+stale before that reuse.
+
+A 4,096-command sparse preparation held 229,400 B of command array and
+440 B of table, buckets and entries. Refusal and cancellation returned
+their capacity without publication. Success kept charge through encoding
+and released the prepared owners after publication. Separate TCP cases
+hold actual decoded operand identities and reply parts through their owned
+lifetime, and check refusal and resumption without advancing the applied
+position while blocked.
+
+The independent breaker ran 18 cases on runtime revision
+`bb793b52eeed1ea47c187ec030f78fe639c19318`. The old failures in directory,
+index, collection, and workspace withdrawal all passed. With a protected
+reader and a later prepared write, the cancellation lane and its equivalent
+control held 2,832 B of index tables before and after publication and
+1,584 B after the reader left. A real TCP child stopped first at receive
+for Memory and then at application for RootSlots on the same transaction.
+Its applied position moved only after the slot became reusable.
+
+On the same revision a separate TCP probe held 8,192 decoded text operands
+of a forwarded write, totalling 262,064 B by measured object identities.
+All appeared in the charged owner inventory, and the two nodes subsequently
+published the same transaction. A split UTF-8 operand now decodes directly
+into the reserved destination string after validation. The old runtime
+rented an array of 65,536 chars in the distinguishing test. The wire format
+uses eight bytes for DateTimeOffset. Its managed box takes 32 B, verified
+by object size and matched by the new reservation on both the receive and
+replay paths.
+
+The early debug capacity probe once found a −48 B difference (charge minus
+independent size). Strict repeated runs at the same sent boundary did
+not reproduce it. A separate −200 B effect was reproduced by the test
+sizer when a reflection cache was recreated in .NET 10.0.15. The final
+sizer reads the existing backing and checks its alignment independently.
+That correction explains the −200 B observations only. Raw probe runs
+stay outside Git.
+
+The formal tests-first review took two rounds. The later snapshot contract
+and test refinements had their own acceptance reviews. The scoped runtime
+fixes were rechecked before one consolidated independent review of the
+accepted implementation boundaries. It found no open P1 or P2 on the exact
+runtime revision above. The coordinator built the clean revision in Debug
+and Release, verified format and ran all 18 samples. Both complete test
+suites reported 4,818 passes, 129 expected skips and no failures.
+
+##### Measurement evidence
+
+Local Release measurements use the development-5 manifest on Windows x64.
+The untimed Ready inventory on the reviewed runtime was 55,423,704 B,
+against a load peak of 55,424,168 B. It fixed the tight limit at 59,618,008 B
+before timing. The fixture occupied eleven native segments.
+
+| Ready capacity | B | Share of tight budget |
+| --- | ---: | ---: |
+| Native segment grants, including reserved and free space | 46,137,344 | 77.38827% |
+| Root table | 5,899,768 | 9.89595% |
+| Primary index tables | 2,639,392 | 4.42717% |
+| Primary overflow buckets | 166,720 | 0.27965% |
+| Arena segment metadata | 559,416 | 0.93833% |
+| Arena directory and state | 984 | 0.00165% |
+| Retired memory list | 12,312 | 0.02065% |
+| Commit group | 280 | 0.00047% |
+| Text writer slots | 4,456 | 0.00747% |
+| Text locator | 1,792 | 0.00301% |
+| Text pages | 784 | 0.00132% |
+| Text bucket set | 368 | 0.00062% |
+| Text table | 88 | 0.00015% |
+
+An untimed growth witness found a real 768 B previous primary generation
+and an 896 B replacement. The independent total was 4,444,960 B before
+growth, 4,445,888 B during preparation, 4,445,856 B while a reader protected
+the prior generation, and 4,445,088 B after it left. Native stayed at
+4,194,304 B. The same initial state at a limit of 4,445,504 B refused the
+growth at its preparation peak, recovered its original 4,444,960 B and
+reused the old table. The measured peak before refusal was 4,445,112 B.
+
+The untimed S14 comparison proved equivalent branch receipts and independently
+checked all 24 paired points. Base native-only limits were 196,608 B and
+327,680 B. The S24 combined-budget limits were 438,300 B and 537,312 B,
+derived from three-segment acceptance at 406,712 B and a first blocked
+fourth-grant requirement of 469,688 B. The fourth grant included 248 B of
+directory growth. In each tight lane the unindexed call had three preparation
+attempts, including one isolated retry, and returned four reserve nodes.
+The two-text call published and the six-text call was refused. The following
+indexed call published one leaf, acquired three required nodes, topped up
+two nodes, and reused a returned reserve node without another native grant.
+The unindexed calls of both controls published on the first attempt, with
+the same net additional native grant on both revisions.
+
+###### Fixed-volume churn
+
+The same tape offered 30,180 operations in each 30,000-frame measured
+window. Each run finished by the planned end with no writer spill or late
+reader drain. The last reader operation completed 2.12 ms before the wall
+on the control and 2.15 ms before it under pressure. The wall inventory
+arrived 0.015 ms and 0.021 ms after the wall, respectively.
+
+| Run | Offered | Applied | Memory refusals | Dependent offers inapplicable | Warm B | End B | Peak B | Peak / warm | Peak / end |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Control | 30,180 | 30,180 | 0 | 0 | 64,065,296 | 64,065,024 | 64,145,936 | 1.001259 | 1.001263 |
+| Tight | 30,180 | 7 | 29,123 | 1,050 | 55,571,448 | 55,571,448 | 55,619,904 | 1.000872 | 1.000872 |
+
+Both runs retained 121,000 roots. The control matched the reference census,
+including 11,022,935 B of UTF-8 values and the expected length distribution.
+The tight run reached 10,547,842 B and matched the separate model of the
+transactions that actually committed. Each side verified the final data
+for 1,057 user keys and the affected collections. Only 29,130 offered calls
+were submitted under pressure. Prior refusals made the other 1,050
+inapplicable. Each refused call remains in the offered denominator.
+
+Native grants stayed at thirteen segments through the measured control and
+eleven in the tight run. The tight run's steady remaining budget was
+4,046,560 B, below the cost of another 4,194,304 B segment even before its
+metadata. The actual metadata for the next grant was 50,856 B. The control
+reserved its twelfth grant at 59,672,944 B, 54,936 B above the preset. The
+tight run refused 29,033 user operations and 90 collection operations.
+There were 960 inapplicable user exchange offers and 90 inapplicable
+collection offers. Its low peak reflects the pressure profile and its few completed
+writes. The control gives the peak comparison for the complete offered
+work. The independent physical ledger matched all sampled charges and
+recorded full return of every native grant at close. The process-wide
+allocation measurements, which include the driver, runtime and caller
+copies, were 24.44 and 24.79 decimal MB/s, respectively. The last-GC
+fragmentation at the end was 38,794,856 B and 27,335,040 B, respectively.
+These figures describe allocation and collection separately from instance
+ownership.
+
+###### S14 standing reserve
+
+All twenty paired rounds repeated the verified branch and completed
+equivalent work. Each row covers five 25,000-call populations on each
+revision. Latencies in microseconds are the median of the five per-round
+p50, p95 and p99 values and the largest individual observation. The final
+columns give the medians of the five paired changes.
+
+| Lane and call | Offered / accepted / refused / completed on each head | Base p50 / p95 / p99 / max | S24 p50 / p95 / p99 / max | Paired p50 | Paired p99 |
+| --- | --- | --- | --- | ---: | ---: |
+| Two tight, unindexed change | 125,000 / 125,000 / 0 / 125,000 | 17.0 / 48.8 / 66.0 / 2,638.5 | 15.4 / 48.8 / 67.0 / 3,412.6 | −3.8% | +5.6% |
+| Two tight, indexed change | 125,000 / 125,000 / 0 / 125,000 | 4.6 / 12.3 / 20.3 / 1,738.8 | 2.8 / 12.5 / 21.1 / 349.2 | −35.0% | +8.0% |
+| Six tight, unindexed refusal | 125,000 / 0 / 125,000 / 125,000 | 19.8 / 51.1 / 66.4 / 3,764.2 | 19.0 / 52.1 / 73.0 / 4,336.8 | −4.4% | +9.9% |
+| Six tight, indexed change | 125,000 / 125,000 / 0 / 125,000 | 3.6 / 14.3 / 21.7 / 3,023.0 | 2.6 / 13.8 / 22.7 / 1,017.2 | −27.8% | +5.1% |
+| Two control, unindexed change | 125,000 / 125,000 / 0 / 125,000 | 8.9 / 24.1 / 31.6 / 4,553.5 | 16.3 / 28.8 / 36.2 / 3,949.8 | +73.0% | +13.5% |
+| Two control, indexed change | 125,000 / 125,000 / 0 / 125,000 | 5.1 / 11.2 / 19.1 / 240.7 | 6.8 / 13.9 / 20.9 / 2,703.3 | +29.6% | +13.6% |
+| Six control, unindexed change | 125,000 / 125,000 / 0 / 125,000 | 8.6 / 26.0 / 35.0 / 3,701.5 | 17.1 / 29.3 / 38.7 / 4,793.1 | +96.6% | +6.6% |
+| Six control, indexed change | 125,000 / 125,000 / 0 / 125,000 | 5.0 / 12.0 / 18.9 / 320.4 | 6.6 / 14.0 / 21.0 / 3,734.5 | +32.7% | +14.8% |
+
+An independent reviewer recomputed all 2,000,000 S14 call observations,
+checked both physical boundaries and all diagnostic phases, and audited
+the churn ledger, outcomes and wall times. The inventoried S14 deltas
+reconcile to 416 B for two-text and 448 B for six-text. The root metadata
+adds 240 B, text metadata 80 B, and primary tables 96 B or 128 B.
+There was no unexplained capacity difference in these observations.
+The review closed the comparison without further acceptance findings.
+
+The control regression occurred with one preparation and no give-back.
+It therefore belongs to the ordinary successful-write comparison. Tight
+lanes continued to give back and top up the same number of nodes,
+and their p99 values increased as their median latencies fell. The
+comparison isolates the pressure path from the ordinary path. It leaves
+the cost of individual admission and ownership operations unresolved.
+Machine idle varied in the one-second samples. The comparison retains
+the five paired rounds and their raw observations for follow-up.
+There is no production latency gate for this diagnostic workload. Keep
+the standing-reserve rule and include the affected ordinary write paths
+in the three-revision follow-up below. Raw runs stay outside Git.
+
 ##### Architecture review after S24
 
 The next coordinator starts a fresh independent architect on the exact
@@ -15406,6 +15619,37 @@ Record accepted items in a separate S24R before S25, using the refactoring
 track. Keep existing test assertions and repeat paired measurements on
 each affected measured path. If the review proposes no changes to take,
 record its reasoning and close it. See [the architect's review](process.md#the-architects-review).
+
+Match the final S24 and S24R diffs to accepted workloads and the machines
+that produced their measurements. For affected paths with comparable
+inputs, run the same workload on three exact revisions on one matching
+host. Use `dd519ba40005204636ad6ff7ca08a3667ab1a3d3`, the green S24
+squash revision, and the S24R candidate. Keep the workload, environment
+and observed outcome equivalent so the comparison shows the cost of S24
+separately from the change in S24R. Check ordinary indexed writes and
+reads, mixed `Replace` with shared text, and copy, view or replication
+paths when the diff reaches their measured mechanism.
+
+Identify historical figures that require the ARM host after the affected
+paths are known. Prepare a short workload package for those cases, verify
+it locally and give the expected duration from a pilot before requesting
+the host window. Choose workloads from the accepted evidence. Keep the
+S24 local `development-5` and CI plans as specified above.
+
+###### Workloads for the final diff review
+
+| Path | Accepted workload and original environment |
+| --- | --- |
+| Primary index and local key reads | S08 `primary-index` on the Windows workstation under `development-3`, and the S21 `read-by-key` lone-reader and concurrent-writer comparison on the workstation. Verify actual table growth when selecting the growth row. |
+| Secondary index writes and searches | S16 `index-writes` and `index-search` on `rented-arm64-1`. Keep the no-index control and choose unchanged and changing indexed keys. |
+| Shared text replacement | The S23 [ARM64 acceptance](#final-arm64-acceptance-evidence) mixed `Replace`, with half existing text and half new text and synchronous retirement. Use its archived workload. The workstation `dictionary-writes` workload supplies a separate local control for its own operations. |
+| Root builds and copy or view reads | S19 `full-form-users` on `rented-arm64-1` for whole replacements and owned reads, and S21/S21I `protected-views` on the Windows workstation for held and unheld replacements and protected versus owned reads. |
+| TCP load, application and forwarding | S11 `child-under-writes` on `development-4` for Ready and steady application at 200 writes per second. The E07 `forwarding-costs` comparison uses 100-byte requests on `development-5`. The S12 32 MiB interleaving case uses `development-4` when the diff affects that framing path. |
+
+Rebuild each exact revision with the same workload driver and coherent
+assemblies. Check the actual outcomes and physical boundary before timing.
+A local dry run of an ARM workload establishes local readiness and
+duration. The historical ARM timings require its matching environment.
 
 #### S25 · Reference fixture, managed reference and the memory gate
 

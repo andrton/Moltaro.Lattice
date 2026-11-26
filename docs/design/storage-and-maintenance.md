@@ -184,13 +184,15 @@ metadata, immediately reusable free space, allocation slack, retired/pinned data
 segment capacity and temporary operation buffers. OS resident memory and virtual
 address reservations are additional observations, not synonyms for live payload.
 Categories must be defined without double-counting; thresholds remain Q14/Q17 work.
-The accepted master-admission policy requires peak preparation/publication capacity
-within an instance budget before journal submission or MemoryOnly publication. If
-reservation fails, release preparation and reject without changing stored data or
-revisions. Empty-segment reserves stay inside the budget. Initialized children also
-have an accepted controlled-pressure policy: pause application, retain intact local
-reads/status, bound buffers and resume in order. Pressure alone triggers no full reload.
-These policies do not settle every query, startup/recovery or process-memory boundary.
+MemoryOnly enforces peak preparation and publication capacity in one instance budget.
+It charges whole segment grants and their empty reserve, together with the owned
+managed backing. A refused preparation returns its exclusive capacity and leaves
+data, revisions and position unchanged. A ready child keeps local reads and its
+applied position while the next frame or transaction is blocked, and resumes in order
+on the same connection when capacity permits. A child that cannot hold its initial
+state fails before readiness. Public pressure diagnostics, retention limits for slow
+children and reconnect or reload remain separate work. The [engine contract](milestone-1-engine-contract.md#initial-bounded-settings)
+defines the accounting boundary.
 
 By the owner's decision of 15 November 2026 an entity has no size limit of its own, and the
 [configurable root-size cap](../decisions/write-admission.md#configurable-root-object-size-limit)
