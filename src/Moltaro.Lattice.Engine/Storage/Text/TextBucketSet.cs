@@ -19,7 +19,7 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
     private int PageHeads => Math.Min(Capacity, PageSize);
 
     private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 3 * sizeof(int));
-    private long PageBytes => MemoryBudget.ObjectBytes(IntPtr.Size + sizeof(int)) + MemoryBudget.ArrayBytes<uint>(PageHeads);
+    private long PageBytes => MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)) + MemoryBudget.ArrayBytes<uint>(PageHeads);
 
     public static TextBucketSet Create(int capacity, uint tag, MemoryBudget? budget)
     {
@@ -60,17 +60,7 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
         {
             Array.Clear(page.Heads);
             page.Occupied = 0;
-        }
-    }
-
-    public void ReleaseUnusedPages()
-    {
-        for (var next = 0u; _pages.TryNext(next, out var number, out var page); next = number + 1)
-        {
-            if (page.Occupied == 0)
-            {
-                DropPage(number, page);
-            }
+            page.ParkedEntries = 0;
         }
     }
 
@@ -78,8 +68,28 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
 
     public bool HasRoomFor(uint hash) => _pages.Get((uint)Bucket(hash) >> 6) is not null;
 
-    // Parked layouts need room for the surviving entries, even when their old links are stale.
-    public void KeepPageFor(uint hash) => _pages.Get((uint)Bucket(hash) >> 6)!.Occupied = 1;
+    // Parked heads are stale. Count the entries that could return to each
+    // paid page so a withdrawal can drop any page whose last owner leaves.
+    public void KeepParkedEntry(uint hash) => _pages.Get((uint)Bucket(hash) >> 6)!.ParkedEntries++;
+
+    public void ReleaseParkedEntry(uint hash)
+    {
+        var number = (uint)Bucket(hash) >> 6;
+        var page = _pages.Get(number)!;
+        if (--page.ParkedEntries == 0)
+        {
+            DropPage(number, page);
+        }
+    }
+
+    public void ReleaseParkedReservation(uint hash)
+    {
+        var number = (uint)Bucket(hash) >> 6;
+        if (_pages.Get(number) is { ParkedEntries: 0 } page)
+        {
+            DropPage(number, page);
+        }
+    }
 
     public long Bytes => OwnerBytes + _pages.Bytes + PageBytes * _pageCount;
 
@@ -195,5 +205,6 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
     {
         public readonly uint[] Heads = new uint[heads];
         public int Occupied;
+        public int ParkedEntries;
     }
 }

@@ -375,6 +375,8 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
             // write can reuse. The automatic turn can return it later.
             if (_arena.Budget is { IsPreparing: true } budget)
             {
+                // Relink a whole layout only when the preparation holds the
+                // larger population. An ordinary miss keeps bounded migration.
                 if (Count >= 4L * _active.Capacity && Count - _installedCount > _installedCount)
                 {
                     GrowPreparedBuckets(budget);
@@ -413,6 +415,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
             _locator.SetOrdinal(id, (int)reference - 1);
             _locator.SetAddress(id, ValueBlocks.AddressOf(physical));
             Link(_active, bucket, reference);
+            for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
+            {
+                earlier.Active.KeepParkedEntry(hash);
+            }
+
             added = true;
             descriptor = Resident(id, (uint)length);
             newBytes = ValueBlocks.SlotBytesOf(length);
@@ -420,13 +427,16 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         }
         finally
         {
-            if (reservedEarlier)
-            {
-                FinishEarlierPages(hash, added);
-            }
-
             if (!added)
             {
+                if (reservedEarlier)
+                {
+                    for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
+                    {
+                        earlier.Active.ReleaseParkedReservation(hash);
+                    }
+                }
+
                 _active.ReleaseReservation(bucket);
                 _slots.ReleaseReservation();
                 _locator.Return(id);
@@ -459,22 +469,23 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
             throw;
         }
 
-        if (_earlier is null)
-        {
-            for (var reference = 1u; reference <= (uint)Count; reference++)
-            {
-                ref var slot = ref _slots.At(reference);
-                slot.WasInOldBucket = _old is not null && (slot.Next & Tag) == _old.Tag;
-            }
-        }
-
+        var firstGrowth = _earlier is null;
         _earlier = previous;
         _active = replacement;
         _old = null;
         _bucketCursor = 0;
         for (var reference = 1u; reference <= (uint)Count; reference++)
         {
-            Link(replacement, replacement.Bucket(_slots.At(reference).Hash), reference);
+            ref var slot = ref _slots.At(reference);
+            var wasOld = (slot.Next & Tag) != previous.Active.Tag;
+            var table = wasOld ? previous.Old! : previous.Active;
+            table.KeepParkedEntry(slot.Hash);
+            if (firstGrowth)
+            {
+                slot.WasInOldBucket = wasOld;
+            }
+
+            Link(replacement, replacement.Bucket(slot.Hash), reference);
         }
     }
 
@@ -515,18 +526,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
                 var table = TableToRestore(restore, slot);
                 Link(table, table.Bucket(slot.Hash), reference);
             }
-
-            _active.ReleaseUnusedPages();
-            _old?.ReleaseUnusedPages();
         }
 
         if (_installedCount == Count)
         {
             ReleaseEarlierBuckets();
-        }
-        else
-        {
-            ReleaseUnusedEarlierPages();
         }
     }
 
@@ -542,39 +546,6 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
                 reserved = true;
                 table.Reserve(table.Bucket(hash));
             }
-        }
-    }
-
-    private void FinishEarlierPages(uint hash, bool added)
-    {
-        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
-        {
-            var table = earlier.Active;
-            if (added)
-            {
-                table.KeepPageFor(hash);
-            }
-            else
-            {
-                table.ReleaseReservation(table.Bucket(hash));
-            }
-        }
-    }
-
-    private void ReleaseUnusedEarlierPages()
-    {
-        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
-        {
-            earlier.Active.ResetHeads();
-            earlier.Old?.ResetHeads();
-            for (var reference = 1u; reference <= (uint)Count; reference++)
-            {
-                ref var slot = ref _slots.At(reference);
-                TableToRestore(earlier, slot).KeepPageFor(slot.Hash);
-            }
-
-            earlier.Active.ReleaseUnusedPages();
-            earlier.Old?.ReleaseUnusedPages();
         }
     }
 
@@ -681,6 +652,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
     private void Remove(uint reference)
     {
         ref var slot = ref _slots.At(reference);
+        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
+        {
+            TableToRestore(earlier, slot).ReleaseParkedEntry(slot.Hash);
+        }
+
         Unlink(TableOf(slot.Next), reference);
         _locator.SetOrdinal(slot.Id, -1);
 
