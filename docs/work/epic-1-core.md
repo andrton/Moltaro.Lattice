@@ -1327,7 +1327,7 @@ Why this order:
 | S22 | Typed protected views | Full | Done on 25 November 2026 |
 | S22C | Cancellation of a registered position wait | Full, critical | Both parts done on 25 November 2026 |
 | S23 | Compaction and shrink | Full, critical | Done on 26 November 2026 |
-| S23A | Evacuate nearly empty segments | Full, critical | Not started |
+| S23A | Evacuate nearly empty segments | Full, critical | In progress |
 | S24 | The memory budget | Full | Not started |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
 | S26 | Operation identity and safe retry | Full | Not started |
@@ -14599,6 +14599,64 @@ reservation test.
   and steady turns and both destination layouts. Keep independent
   tests for both layouts.
 
+##### Study and internal contract
+
+The allocator study examined the BSD-licensed sources of [memcached 1.6.39](https://github.com/memcached/memcached/blob/62b3447380d3fd547e432d1128d94cd12f2e6852/slabs_mover.c#L73-L169),
+[V8 12.4.254.21](https://github.com/v8/v8/blob/8ab91836885699b9ef686c3a30df4778501ef7d1/src/heap/mark-compact.cc#L476-L617),
+and [Valkey 8.1.0](https://github.com/valkey-io/valkey/blob/67c8683792fc9ab7e295f833478eca180c5e4691/src/defrag.c).
+Memcached requires an existing slot outside its victim page and holds replaced
+items while references remain. Its per-slot map, cache eviction and retry policy
+serve a different lifetime and capacity model. V8 selects by live bytes in the
+unit it can return and caps evacuation work. Its collection phase can sort pages,
+grow to-space and fix pointers in bulk. Valkey resumes owner-aware work under a
+time budget. Its slab selection and immediate free do not supply this arena's
+segment accounting or reader lifetime. The design takes these principles and uses
+the existing Lattice mover and retirement protocol.
+
+`AutomaticMaintenance` keeps the ordinary below-half region rule and searches
+for an assigned same-class vacancy in an earlier segment on that path. The new
+path selects a live 32-KiB or 64-KiB slot from a segment with at most one sixteenth
+of its capacity in published slot bytes, including headers and class slack.
+Prepared and retired slots still occupy capacity and cannot supply a free slot.
+An allocated secondary-index node prevents selection by the new rule. The cutoff
+is inclusive at 256 KiB in a 4-MiB segment, bounding the live capacity considered
+to at most one sixteenth of the native return. It is a conservative initial choice.
+
+`Arena` may offer an assigned compatible slot or an unassigned region in another
+active segment. The same Writes admission revalidates ownership, charge, order and
+space before the existing mover claims it. Claim an unassigned region only after
+retirement capacity is reserved, through the arena's ordinary free-to-class list
+transition. The original reserve stays in place and the move uses no new native
+segment. Use a destination with higher published slot charge, or with a lower
+segment number at equal charge. Apply the rank in either numerical direction.
+A vacant slot can take an individual block even when other survivors have no
+destination. Each turn retains its selection and reclamation limits and publishes
+at most one move. The old slots and the next copy together charge at most 64 KiB.
+
+At stable logical load, the sum of ordinary movable slot bytes times their
+segment numbers falls on each ordinary move. The new rule moves distinct classes
+and preserves that sum. For a new-rule move of size `p`, source charge `x` and
+destination charge `y`, the sum of squared segment charges rises by
+`2p(y - x + p)` because `y >= x`. Reclaiming a retired copy changes neither measure.
+Together these give finite progress over both rules, including partial capacity.
+
+Derive threshold checks from 256 KiB and the adjacent representable charges
+at 16-byte intervals using a mixed-class source. Verify rank ties, both numerical
+directions and an intervening write that consumes the selected capacity. Exercise
+32 + 32 KiB exactly at headroom and refusal of 32 + 64 KiB while an old copy is
+held. Time a real 64-KiB leaf and a same-class owner with many actual children,
+separately under concurrent reads. Pair the added write-side accounting against
+the parent on an identical ordinary write workload and record allocations.
+
+##### S23 boundary
+
+The independent architect reviewed the S23 merge `a17137b6` and test-only delta
+`b53fb21a`. No S23R precedes this work. The rollback comparison keeps every
+assertion while its fixture isolates the periodic worker. The verified main
+[CI run](https://github.com/andrton/Moltaro.Lattice/actions/runs/45762703750)
+passed build, Windows and ARM64. The [refactoring backlog](refactoring.md#architects-review-after-s23-26-november-2026)
+records the planner's dispositions.
+
 #### S24 · The memory budget
 
 **Rollback of a full root on a child.** In `ReceivedChanges.TryPrepareWrite`,
@@ -15069,6 +15127,13 @@ over the largest window of Windows (16 MiB). S33 gives a way to state it without
 on that buffer: the bound of the tail built here, or the option of the close.
 
 #### S34 · Reconnect, reload and a restarted master
+
+**Final cleanup after a failure.** E07 carries the review question after S23.
+An exception from the final retirement drain can skip arena disposal in
+`EngineDatabase.FreeAfterOperationsAsync`. Establish a reachable failure after
+all readers leave, then verify the `CloseAsync` result and the independent native
+allocator ledger. If S24 reproduces that failure under controlled pressure, bring
+the evidence forward.
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
 close the way to it** ([Epic 3](epic-3-after-the-first-milestone.md)). On every node there stays one place where a

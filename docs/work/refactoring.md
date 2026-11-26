@@ -1033,3 +1033,24 @@ The text of most comments against the code; many types by their signatures only;
 content of the tests (coverage is judged by folders and by which types the tests name);
 the measured figures themselves. A refactoring sprint verifies each before it relies on it.
 
+## Architect's review after S23, 26 November 2026
+
+Reviewed `a17137b6` and the test-only recovery at `b53fb21a`. The counted
+nonblocking maintenance admission, raw epoch retirement after address
+publication and separate bounded and synchronous cleanup paths preserve their
+responsibilities. No S23R is needed before S23A.
+
+- **Text detachment** (*for S24R evaluation*). Share last-reference detachment
+  inside `TextTable.Release` and `ReleaseStep`. Keep their immediate and resumable
+  native and locator return schedules explicit. This touches one product file.
+  Preserve the text lifetime and reclamation tests and compare matched ARM64
+  ordinary mixed replacement and allocations against S23, including the
+  anchored and disjoint dictionary controls.
+- **Repeated edge geometry** (*taken for S23AR*). After S23A, move the repeated
+  record-directory and lookup position arithmetic next to its layout owners.
+  Keep placement, relocation validation and reclamation walks separate. The
+  4–6 affected files must preserve their aligned physical layouts and wire bytes,
+  with matching read, write, allocation and complete-turn measurements.
+- **Protected export test setup** (*joined to S23A*). Reuse equivalent test
+  export code where the existing helper provides the same operation. Keep each
+  test's pauses, data, revision and physical placement assertions with its case.
