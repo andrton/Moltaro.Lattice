@@ -74,6 +74,9 @@ internal sealed class ChangePublisher
     // owners they free. The values and the handles grow with the changes and are let go after a publication
     // past KeptRoom (PublishPositionAndAfter); the entity types are at most those of the schema, and are kept.
     private EntityTable[] _tablesOf = [];
+    private WorkspaceCapacity<EntityTable> _tableWorkspace;
+    private bool _tracksPreparedTables;
+    private int _tableWorkspaceUsed;
 
     private (int Place, ArenaAddress Root)[] _claims = [];
 
@@ -411,6 +414,25 @@ internal sealed class ChangePublisher
     }
 
     // The entity types of several changes (TablesOf).
+    public void TrackPreparedTables() => _tracksPreparedTables = _arena.Budget is not null;
+
+    public int TakeTableWorkspace()
+    {
+        var used = _tableWorkspaceUsed;
+        _tableWorkspaceUsed = 0;
+        return used;
+    }
+
+    public void KeepTableWorkspace(int used) => _tableWorkspace.Keep(used);
+
+    public void ReleaseUnusedTableWorkspace(int used)
+    {
+        if (_tracksPreparedTables)
+        {
+            _tableWorkspace.ReleaseUnused(ref _tablesOf, used, _arena.Budget!);
+        }
+    }
+
     private ReadOnlySpan<EntityTable> TablesOfSeveral(ReadOnlySpan<PreparedChange> changes)
     {
         var count = 0;
@@ -421,11 +443,18 @@ internal sealed class ChangePublisher
             {
                 if (count + 1 > _tablesOf.Length)
                 {
-                    _tablesOf = Grow(_tablesOf, count + 1, restored => _tablesOf = restored);
+                    _tablesOf = _tracksPreparedTables
+                        ? _tableWorkspace.Grow(_tablesOf, BudgetCollections.CapacityFor(_tablesOf.Length, count + 1), _arena.Budget!, nameof(ChangePublisher))
+                        : Grow(_tablesOf, count + 1, restored => _tablesOf = restored);
                 }
 
                 _tablesOf[count++] = change.Table;
             }
+        }
+
+        if (_tracksPreparedTables && _arena.Budget!.IsPreparing)
+        {
+            _tableWorkspaceUsed = Math.Max(_tableWorkspaceUsed, count);
         }
 
         return _tablesOf.AsSpan(0, count);

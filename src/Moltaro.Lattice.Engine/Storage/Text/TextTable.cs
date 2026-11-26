@@ -27,8 +27,10 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
     private TextBucketSet? _old;
     private int _bucketCursor;
     private int _deferredWork;
+    private int _installedCount;
+    private bool _maintenanceRequested;
 
-    public static long OwnerBytes => MemoryBudget.ObjectBytes(7L * IntPtr.Size + 2 * sizeof(int));
+    public static long OwnerBytes => MemoryBudget.ObjectBytes(7L * IntPtr.Size + 3 * sizeof(int) + 1);
 
     public int Count => _slots.Count;
 
@@ -48,6 +50,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         AssertWrites();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
         deferred = false;
+        if (_arena.Budget is not null && _installedCount != Count)
+        {
+            return 0;
+        }
+
         var work = 0;
         for (; work < workLimit; work++)
         {
@@ -84,11 +91,24 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
     // existing text can resume after preparation succeeds and its entries are retained.
     public void EndPreparation(bool keeps)
     {
-        var work = _deferredWork;
+        _maintenanceRequested |= keeps && _deferredWork != 0;
         _deferredWork = 0;
-        if (keeps && work != 0)
+        if (keeps)
         {
-            Maintain(work, null, deferAllocationFailure: true, releaseWriterPage: false, out _);
+            MaintainAfterPublication();
+        }
+        else
+        {
+            _slots.ReleaseUnused();
+        }
+    }
+
+    private void MaintainAfterPublication()
+    {
+        if (_maintenanceRequested && _installedCount == Count)
+        {
+            _maintenanceRequested = false;
+            Maintain(2, null, deferAllocationFailure: true, releaseWriterPage: false, out _);
         }
     }
 
@@ -171,8 +191,13 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
             return;
         }
 
+        var prepared = _arena.Budget is not null && _arena.IsPrepared(address);
         ValueBlocks.FreeText(_arena, address, length);
         _locator.Return(number);
+        if (prepared)
+        {
+            _slots.ReleaseUnused();
+        }
     }
 
     public bool ReleaseStep(ref TextReclamation work)
@@ -221,7 +246,18 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         var address = AddressOf(id);
         if (_arena.IsPrepared(address))
         {
-            ValueBlocks.PublishText(_arena, address, _slots.At(ReferenceOf((uint)id)).Length);
+            var reference = ReferenceOf((uint)id);
+            ValueBlocks.PublishText(_arena, address, _slots.At(reference).Length);
+            if (_arena.Budget is { } budget)
+            {
+                _installedCount++;
+                _slots.Keep(reference);
+                _locator.Keep((uint)id);
+                if (!budget.IsPreparing)
+                {
+                    MaintainAfterPublication();
+                }
+            }
         }
     }
 
@@ -311,7 +347,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
             // write can reuse. The automatic turn can return it later.
             if (_arena.Budget is { IsPreparing: true })
             {
-                _deferredWork += 2;
+                _deferredWork = 2;
             }
             else
             {
@@ -427,6 +463,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
 
         length = slot.Length;
         address = AddressOf(id);
+        if (_arena.Budget is not null && !_arena.IsPrepared(address))
+        {
+            _installedCount--;
+        }
+
         Remove(reference);
         return true;
     }

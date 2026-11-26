@@ -51,13 +51,17 @@ internal sealed class BlockImport : IDisposable
     // Where the value each descriptor of the root checked last names begins among its values out of line,
     // by the index of the descriptor; as long as the most descriptors a root checked had.
     private long[] _starts = [];
+    private WorkspaceCapacity<long> _workspace;
+    private readonly bool _tracksQueuedUses;
+    private int _workspaceUsed;
 
-    public BlockImport(Arena arena)
+    public BlockImport(Arena arena, bool tracksQueuedUses = false)
     {
         ArgumentNullException.ThrowIfNull(arena);
 
         _arena = arena;
         var budget = arena.Budget;
+        _tracksQueuedUses = tracksQueuedUses && budget is not null;
         const int payload = Arena.MaxBlockSize - BlockHeader.Size;
         const int record = ValueBlocks.ChunkPayload;
         const int inline = ValueBlocks.ChunkPayload / ValueBlocks.DescriptorSize;
@@ -92,16 +96,32 @@ internal sealed class BlockImport : IDisposable
 
     public void Dispose()
     {
-        var budget = _arena.Budget;
-        budget?.Release(_payload);
-        budget?.Release(_record);
-        budget?.Release(_inline);
-        budget?.Release(_starts);
+        var payload = _payload;
+        var record = _record;
+        var inline = _inline;
+        var starts = _starts;
         _payload = [];
         _record = [];
         _inline = [];
         _starts = [];
+        var budget = _arena.Budget;
+        budget?.Release(payload);
+        budget?.Release(record);
+        budget?.Release(inline);
+        budget?.Release(starts);
     }
+
+    public int TakeWorkspace()
+    {
+        var used = _workspaceUsed;
+        _workspaceUsed = 0;
+        return used;
+    }
+
+    public void KeepWorkspace(int used) => _workspace.Keep(Math.Max(0, used - 1));
+
+    public void ReleaseUnusedWorkspace(int uses) =>
+        _workspace.ReleaseUnused(ref _starts, Math.Max(0, uses - 1), _arena.Budget!);
 
     // Checks the root of the layout that the rest of the input holds, and nothing more (see the class),
     // with the input advanced to its end. ValidationFailed when a length, a count, a kind or a bit is not
@@ -421,14 +441,26 @@ internal sealed class BlockImport : IDisposable
         var payload = _payload.AsSpan(0, payloadLength);
         var start = input.Consumed;
 
+        if (_tracksQueuedUses)
+        {
+            _workspaceUsed = Math.Max(_workspaceUsed, structure.DescriptorCount + 1);
+        }
+
         if (_starts.Length < structure.DescriptorCount)
         {
             var previous = _starts;
             var budget = _arena.Budget;
-            var replacement = budget?.Allocate<long>(structure.DescriptorCount, nameof(BlockImport)) ??
-                new long[structure.DescriptorCount];
-            budget?.Replace(previous, replacement, restore => _starts = restore);
-            _starts = replacement;
+            if (_tracksQueuedUses)
+            {
+                _starts = _workspace.Grow(previous, structure.DescriptorCount, budget!, nameof(BlockImport));
+            }
+            else
+            {
+                var replacement = budget?.Allocate<long>(structure.DescriptorCount, nameof(BlockImport)) ??
+                    new long[structure.DescriptorCount];
+                budget?.Replace(previous, replacement, restore => _starts = restore);
+                _starts = replacement;
+            }
         }
 
         var block = new ReadOnlySequence<byte>(_payload, 0, payloadLength);

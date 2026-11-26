@@ -54,6 +54,11 @@ internal sealed class PreparedWrite
 
     public PreparedUpdates? Updates { get; set; }
 
+    // Scratch capacity used during preparation that a withdrawal can still return.
+    public int ImportWorkspace;
+    public int TableWorkspace;
+    public PreparedWrite? NextWorkspaceUser;
+
     // The write this is the prepared state of.
     public PendingWrite Write { get; }
 

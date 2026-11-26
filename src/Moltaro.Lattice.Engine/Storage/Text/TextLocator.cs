@@ -78,7 +78,7 @@ internal sealed class TextLocator(MemoryBudget? budget)
         if (leaf is null || (leaf.Allocated & bit) == 0)
         {
             var expanded = Copy(leaf, next);
-            Replace(page, leaf, expanded);
+            Replace(page, leaf, expanded, keepPrevious: budget is { IsPreparing: true });
             leaf = expanded;
         }
         else
@@ -130,6 +130,7 @@ internal sealed class TextLocator(MemoryBudget? budget)
         }
 
         _pages.Set(page, leaf);
+        leaf = RestoreUnused(page, leaf);
         if (leaf.Capacity > CapacityFor(leaf.Taken))
         {
             _trimFrom = _trimming ? Math.Min(_trimFrom, page) : page;
@@ -166,9 +167,12 @@ internal sealed class TextLocator(MemoryBudget? budget)
 
         for (var cursor = 0u; _pages.TryNext(cursor, out var page, out var leaf); cursor = page + 1)
         {
-            leaves.Add(new TextAllocationShape(1, 32, 0, 0));
-            leaves.Add(new TextAllocationShape(1, 0, 8, leaf.Capacity));
-            leaves.Add(new TextAllocationShape(1, 0, 4, leaf.Capacity));
+            for (var held = leaf; held is not null; held = held.Earlier)
+            {
+                leaves.Add(new TextAllocationShape(1, Leaf.MetadataFields, 0, 0));
+                leaves.Add(new TextAllocationShape(1, 0, 8, held.Capacity));
+                leaves.Add(new TextAllocationShape(1, 0, 4, held.Capacity));
+            }
         }
     }
 
@@ -182,14 +186,14 @@ internal sealed class TextLocator(MemoryBudget? budget)
         }
 
         objects = [
-            new TextLocatorAllocation(leaf, new TextAllocationShape(1, 32, 0, 0)),
+            new TextLocatorAllocation(leaf, new TextAllocationShape(1, Leaf.MetadataFields, 0, 0)),
             new TextLocatorAllocation(leaf.Addresses, new TextAllocationShape(1, 0, 8, leaf.Capacity)),
             new TextLocatorAllocation(leaf.Ordinals, new TextAllocationShape(1, 0, 4, leaf.Capacity)),
         ];
         return true;
     }
 
-    private void Replace(uint page, Leaf? old, Leaf? current)
+    private void Replace(uint page, Leaf? old, Leaf? current, bool keepPrevious = false)
     {
         try
         {
@@ -201,30 +205,78 @@ internal sealed class TextLocator(MemoryBudget? budget)
             throw;
         }
 
-        _leafBytes += (current?.Bytes ?? 0) - (old?.Bytes ?? 0);
-        if (old is not null && current is not null && budget is { IsPreparing: true })
+        _leafBytes += current?.Bytes ?? 0;
+        if (keepPrevious && old is not null && current is not null)
         {
-            budget.WhenPreparationEnds(keeps =>
-            {
-                if (!keeps && ReferenceEquals(_pages.Get(page), current))
-                {
-                    // Owner changes were already undone. Copy the surviving IDs into the old
-                    // mapping before publishing it again, and leave new, released IDs absent.
-                    old.Taken = current.Taken & old.Allocated;
-                    CopyEntries(current, old, old.Taken);
-                    SetLeaf(page, old);
-                    _leafBytes += old.Bytes - current.Bytes;
-                    Release(current);
-                }
-                else
-                {
-                    Release(old);
-                }
-            });
+            current.Earlier = old;
         }
         else
         {
-            Release(old);
+            ReleaseEarlier(old);
+        }
+    }
+
+    public void Keep(uint id)
+    {
+        var bit = Bit(id);
+        var leaf = _pages.Get(id >> 6)!;
+        ref var link = ref leaf.Earlier;
+        while (link is { } earlier)
+        {
+            if ((earlier.Allocated & bit) != 0)
+            {
+                link = ref earlier.Earlier;
+                continue;
+            }
+
+            link = earlier.Earlier;
+            earlier.Earlier = null;
+            _leafBytes -= earlier.Bytes;
+            Release(earlier);
+        }
+    }
+
+    private Leaf RestoreUnused(uint page, Leaf current)
+    {
+        var restore = current;
+        for (var earlier = current.Earlier; earlier is not null; earlier = earlier.Earlier)
+        {
+            if ((current.Taken & ~earlier.Allocated) == 0)
+            {
+                restore = earlier;
+            }
+        }
+
+        if (ReferenceEquals(restore, current))
+        {
+            return current;
+        }
+
+        var removed = restore.Taken & ~current.Taken;
+        while (removed != 0)
+        {
+            var slot = restore.IndexOf((uint)BitOperations.TrailingZeroCount(removed));
+            Volatile.Write(ref restore.Addresses[slot], 0);
+            restore.Ordinals[slot] = -1;
+            removed &= removed - 1;
+        }
+
+        restore.Taken = current.Taken;
+        CopyEntries(current, restore, restore.Taken);
+        SetLeaf(page, restore);
+        ReleaseEarlier(current, restore);
+        return restore;
+    }
+
+    private void ReleaseEarlier(Leaf? first, Leaf? stop = null)
+    {
+        while (first is not null && !ReferenceEquals(first, stop))
+        {
+            var released = first;
+            first = released.Earlier;
+            released.Earlier = null;
+            _leafBytes -= released.Bytes;
+            Release(released);
         }
     }
 
@@ -311,12 +363,14 @@ internal sealed class TextLocator(MemoryBudget? budget)
         public readonly int[] Ordinals = new int[capacity];
         public readonly ulong Allocated = allocated;
         public ulong Taken = taken;
+        public Leaf? Earlier;
 
         public int Capacity => Addresses.Length;
 
         public long Bytes => BytesFor(Capacity);
 
-        public static long BytesFor(int capacity) => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 2 * sizeof(ulong)) +
+        public static int MetadataFields => 3 * IntPtr.Size + 2 * sizeof(ulong);
+        public static long BytesFor(int capacity) => MemoryBudget.ObjectBytes(MetadataFields) +
             MemoryBudget.ArrayBytes<long>(capacity) + MemoryBudget.ArrayBytes<int>(capacity);
 
         public int IndexOf(uint id)

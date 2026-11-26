@@ -19,11 +19,12 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     private readonly Dictionary<RootHandle, Dictionary<int, CollectionTail>> _owners = [];
     private readonly Dictionary<ArenaAddress, Dictionary<int, CollectionTailEdit>?> _preparations = [];
-    private readonly Dictionary<ArenaAddress, CollectionTail> _borrowed = [];
+    private Dictionary<ArenaAddress, CollectionTail> _borrowed = [];
+    private BackingHistory<Dictionary<ArenaAddress, CollectionTail>>? _borrowHistory;
     private readonly LinkedList<CollectionTail> _ready = new();
 
     private const string BudgetOwner = nameof(CollectionTails);
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(6L * IntPtr.Size);
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(7L * IntPtr.Size);
     private static long ReadyBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 2 * sizeof(int));
     private MemoryBudget? Budget => arena.Budget;
     private static long TailBytes => MemoryBudget.ObjectBytes(7L * sizeof(long) + IntPtr.Size + 5 * sizeof(int) + 4);
@@ -217,7 +218,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         }
 
         // Reserve rollback state before changing any native link.
-        _borrowed.EnsureCapacity(_borrowed.Count + 1, Budget, BudgetOwner);
+        ReserveBorrow();
         _borrowed.Add(slot, tail);
         Pop(tail, full);
         tail.BorrowedSlots += bytes / sizeof(ulong);
@@ -236,6 +237,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         arena.RestoreColdLookupSlot(slot);
         tail.BorrowedSlots -= slots;
         Push(tail, slot, slots);
+        ReleaseBorrowCapacity();
         return true;
     }
 
@@ -244,6 +246,63 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         if (_borrowed.Remove(slot, out var tail))
         {
             tail.BorrowedSlots -= arena.Payload(slot).Length / sizeof(ulong);
+            ReleaseBorrowCapacity();
+        }
+    }
+
+    private void ReserveBorrow()
+    {
+        var count = _borrowed.Count + 1;
+        var current = _borrowed.EnsureCapacity(0);
+        if (count <= current)
+        {
+            return;
+        }
+
+        if (Budget is not { } budget)
+        {
+            _borrowed.EnsureCapacity(count);
+            return;
+        }
+
+        var grown = BudgetDictionaries.Create<ArenaAddress, CollectionTail>(budget, BudgetOwner);
+        try
+        {
+            grown.EnsureCapacity(BudgetCollections.CapacityFor(current, count), budget, BudgetOwner);
+            foreach (var (slot, tail) in _borrowed)
+            {
+                grown.Add(slot, tail);
+            }
+
+            _borrowHistory = BackingHistory<Dictionary<ArenaAddress, CollectionTail>>.Keep(_borrowed, _borrowHistory, budget, BudgetOwner);
+        }
+        catch
+        {
+            budget.ReleaseDictionary(grown, includesOwner: true);
+            throw;
+        }
+
+        _borrowed.Clear();
+        _borrowed = grown;
+    }
+
+    // The old tables have room for the live loans but hold no stale copies of their owners.
+    // Restore from the actual surviving set under Writes, with no new allocation at withdrawal.
+    private void ReleaseBorrowCapacity()
+    {
+        while (_borrowHistory is { } history && history.Backing.EnsureCapacity(0) >= _borrowed.Count)
+        {
+            var previous = _borrowed;
+            foreach (var (slot, tail) in previous)
+            {
+                history.Backing.Add(slot, tail);
+            }
+
+            _borrowed = history.Backing;
+            _borrowHistory = history.Earlier;
+            history.Drop(Budget!);
+            previous.Clear();
+            Budget!.ReleaseDictionary(previous, includesOwner: true);
         }
     }
 

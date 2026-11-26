@@ -12,10 +12,13 @@ internal sealed class TextWriterSlots(MemoryBudget? budget)
     private const int PageSlots = 64 + 2 * Padding;
     private readonly TextPages<TextSlot[]> _pages = TextPages<TextSlot[]>.Create(budget);
     private int _pageCount;
+    private int _installedPages;
+    private int _installedFirst;
+    private BackingHistory<TextSlot[]>? _earlierFirst;
 
     public int Count { get; private set; }
 
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 2 * sizeof(int));
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(3L * IntPtr.Size + 4 * sizeof(int));
 
     public static TextWriterSlots Create(MemoryBudget? budget)
     {
@@ -33,8 +36,20 @@ internal sealed class TextWriterSlots(MemoryBudget? budget)
         }
     }
 
-    public long Bytes => OwnerBytes + _pages.Bytes + (_pageCount == 0 ? 0 :
-        24L + 32L * _pages.Get(0)!.Length + (24L + 32L * PageSlots) * (_pageCount - 1));
+    public long Bytes
+    {
+        get
+        {
+            var bytes = OwnerBytes + _pages.Bytes + (_pageCount == 0 ? 0 :
+                24L + 32L * _pages.Get(0)!.Length + (24L + 32L * PageSlots) * (_pageCount - 1));
+            for (var earlier = _earlierFirst; earlier is not null; earlier = earlier.Earlier)
+            {
+                bytes += BackingHistory<TextSlot[]>.Bytes + MemoryBudget.ArrayBytes<TextSlot>(earlier.Backing.Length);
+            }
+
+            return bytes;
+        }
+    }
 
     public object? CapturePage(uint page) => _pages.Get(page);
 
@@ -134,7 +149,63 @@ internal sealed class TextWriterSlots(MemoryBudget? budget)
         }
 
         ResizeFirst(previous, needed);
+        _installedFirst = Math.Min(_installedFirst, needed);
         return true;
+    }
+
+    public void Keep(uint reference)
+    {
+        var page = (int)(reference - 1) >> 6;
+        _installedPages = Math.Max(_installedPages, page + 1);
+        _installedFirst = Math.Max(_installedFirst, FirstCapacity((int)Math.Min(reference, 64)));
+        DropEarlierFirst(_installedFirst);
+    }
+
+    public void ReleaseUnused()
+    {
+        if (budget is null)
+        {
+            return;
+        }
+
+        var neededPages = Math.Max(_installedPages, (int)(((uint)Count + 63) >> 6));
+        while (_pageCount > neededPages)
+        {
+            ReleaseLastPage();
+        }
+
+        if (_pageCount == 0 || Count > 64)
+        {
+            return;
+        }
+
+        var needed = Math.Max(_installedFirst, FirstCapacity(Count));
+        while (_earlierFirst is { } earlier && earlier.Backing.Length >= needed)
+        {
+            var discarded = _pages.Get(0)!;
+            discarded.AsSpan(0, earlier.Backing.Length).CopyTo(earlier.Backing);
+            _pages.Set(0, earlier.Backing);
+            _earlierFirst = earlier.Earlier;
+            earlier.Drop(budget);
+            budget.Release(discarded);
+        }
+    }
+
+    private void DropEarlierFirst(int keeps)
+    {
+        ref var link = ref _earlierFirst;
+        while (link is { } earlier)
+        {
+            if (earlier.Backing.Length >= keeps)
+            {
+                link = ref earlier.Earlier;
+                continue;
+            }
+
+            link = earlier.Earlier;
+            earlier.Drop(budget!);
+            budget!.Release(earlier.Backing);
+        }
     }
 
     private void ReleaseLastPage()
@@ -142,6 +213,13 @@ internal sealed class TextWriterSlots(MemoryBudget? budget)
         var number = (uint)--_pageCount;
         var previous = _pages.Get(number)!;
         _pages.Set(number, null);
+        _installedPages = Math.Min(_installedPages, _pageCount);
+        if (_pageCount == 0)
+        {
+            _installedFirst = 0;
+            DropEarlierFirst(int.MaxValue);
+        }
+
         budget?.Release(previous);
     }
 
@@ -151,26 +229,26 @@ internal sealed class TextWriterSlots(MemoryBudget? budget)
         previous.AsSpan(0, Math.Min(previous.Length, needed)).CopyTo(replacement);
         if (budget is { IsPreparing: true })
         {
-            budget.WhenPreparationEnds(keeps =>
+            try
             {
-                if (!keeps && ReferenceEquals(_pages.Get(0), replacement))
-                {
-                    replacement.AsSpan(0, Math.Min(replacement.Length, previous.Length)).CopyTo(previous);
-                    _pages.Set(0, previous);
-                    budget.Release(replacement);
-                }
-                else
-                {
-                    budget.Release(previous);
-                }
-            });
+                _earlierFirst = BackingHistory<TextSlot[]>.Keep(previous, _earlierFirst, budget, nameof(TextWriterSlots));
+            }
+            catch
+            {
+                budget.Release(replacement);
+                throw;
+            }
         }
         else
         {
-            budget?.Release(previous);
+            DropEarlierFirst(int.MaxValue);
         }
 
         _pages.Set(0, replacement);
+        if (budget is { IsPreparing: false })
+        {
+            budget.Release(previous);
+        }
     }
 
     private static int FirstCapacity(int entries) => (int)BitOperations.RoundUpToPowerOf2((uint)entries) + 2 * Padding;
@@ -186,6 +264,12 @@ internal sealed class TextWriterSlots(MemoryBudget? budget)
             {
                 groups.Add(new TextAllocationShape(_pageCount - 1, 0, 32, PageSlots));
             }
+        }
+
+        for (var earlier = _earlierFirst; earlier is not null; earlier = earlier.Earlier)
+        {
+            groups.Add(new TextAllocationShape(1, 2 * IntPtr.Size, 0, 0));
+            groups.Add(new TextAllocationShape(1, 0, 32, earlier.Backing.Length));
         }
     }
 }

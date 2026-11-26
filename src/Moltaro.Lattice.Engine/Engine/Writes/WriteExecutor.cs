@@ -106,15 +106,94 @@ internal sealed class WriteExecutor
 
     public MemoryBudget? Budget => _arena.Budget;
 
-    public void EndPreparation(bool keeps)
+    public void EndPreparation(bool keeps, PreparedWrite? prepared)
     {
         _roots.ReleasePermanentDirectories();
         _arena.Texts.EndPreparation(keeps);
+        var import = _import?.TakeWorkspace() ?? 0;
+        var tables = _changes.TakeTableWorkspace();
+        if (keeps && (import | tables) != 0)
+        {
+            prepared!.ImportWorkspace = import;
+            prepared.TableWorkspace = tables;
+            prepared.NextWorkspaceUser = _workspaceUsers;
+            _workspaceUsers = prepared;
+        }
+        else if (!keeps)
+        {
+            ReleaseUnusedWorkspace();
+        }
     }
 
     // Places the roots that children forward; made by the first of them, since only a master with
     // children receives one, and used under the lock of the writes alone.
     private BlockImport? _import;
+    private bool _installedImport;
+    private PreparedWrite? _workspaceUsers;
+
+    public void Withdraw(PreparedWrite prepared)
+    {
+        _changes.Release(prepared.Changes);
+        FinishWorkspace(prepared, published: false);
+    }
+
+    private void FinishWorkspace(PreparedWrite prepared, bool published)
+    {
+        if ((prepared.ImportWorkspace | prepared.TableWorkspace) == 0)
+        {
+            return;
+        }
+
+        ref var user = ref _workspaceUsers;
+        while (!ReferenceEquals(user, prepared))
+        {
+            user = ref user!.NextWorkspaceUser;
+        }
+
+        user = prepared.NextWorkspaceUser;
+        prepared.NextWorkspaceUser = null;
+        if (published)
+        {
+            if (prepared.ImportWorkspace != 0)
+            {
+                _installedImport = true;
+                _import!.KeepWorkspace(prepared.ImportWorkspace);
+            }
+
+            _changes.KeepTableWorkspace(prepared.TableWorkspace);
+        }
+
+        prepared.ImportWorkspace = 0;
+        prepared.TableWorkspace = 0;
+        ReleaseUnusedWorkspace();
+    }
+
+    private void ReleaseUnusedWorkspace()
+    {
+        if (Budget is null)
+        {
+            return;
+        }
+
+        var import = 0;
+        var tables = 0;
+        for (var user = _workspaceUsers; user is not null; user = user.NextWorkspaceUser)
+        {
+            import = Math.Max(import, user.ImportWorkspace);
+            tables = Math.Max(tables, user.TableWorkspace);
+        }
+
+        _changes.ReleaseUnusedTableWorkspace(tables);
+        if (_import is { } workspace)
+        {
+            workspace.ReleaseUnusedWorkspace(import);
+            if (!_installedImport && import == 0)
+            {
+                _import = null;
+                workspace.Dispose();
+            }
+        }
+    }
 
     // The fault point a test armed, with the times it lets through first (Arm); default when none is
     // armed, which is all reaching a point loads.
@@ -133,6 +212,7 @@ internal sealed class WriteExecutor
         _retired = retired;
         _clock = clock;
         _changes = changes;
+        _changes.TrackPreparedTables();
         _delivery = delivery;
     }
 
@@ -640,21 +720,7 @@ internal sealed class WriteExecutor
     // than the root received.
     private BlockImport CreateImport()
     {
-        var import = new BlockImport(_arena);
-        if (_arena.Budget is { IsPreparing: true } budget)
-        {
-            budget.WhenPreparationEnds(keeps =>
-            {
-                if (!keeps)
-                {
-                    _import = null;
-                    import.Dispose();
-                }
-            });
-        }
-
-        _import = import;
-        return import;
+        return _import = new BlockImport(_arena, tracksQueuedUses: true);
     }
 
     private bool KeepsAnotherSpelling(EntityTable table, RootHandle handle, BlockImport import, in ReceivedRoot received)
@@ -729,6 +795,7 @@ internal sealed class WriteExecutor
         }
 
         _changes.PublishPositionAndAfter(changes, sequence, publishesPosition: true);
+        FinishWorkspace(prepared, published: true);
 
         // The reply of a write a child forwarded, before its transaction is appended, so that the child
         // takes the reply first (Delivery.RecordedReplies).

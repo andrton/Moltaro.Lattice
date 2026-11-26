@@ -515,7 +515,7 @@ internal sealed class WriteCoordinator
 
                 case PendingWriteStateEnum.Prepared:
                     _prepared.Remove(write);
-                    _changes.Release(write.Prepared!.Changes);
+                    _executor.Withdraw(write.Prepared!);
                     DecideFailure(write, cancelled, ref hold);
                     break;
 
@@ -954,7 +954,7 @@ internal sealed class WriteCoordinator
     {
         if (write.Token.IsCancellationRequested)
         {
-            _changes.Release(prepared.Changes);
+            _executor.Withdraw(prepared);
             DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
             return false;
@@ -1012,6 +1012,7 @@ internal sealed class WriteCoordinator
     {
         var budget = _executor.Budget;
         var keeps = false;
+        prepared = null;
         budget?.BeginPreparation();
         try
         {
@@ -1028,7 +1029,7 @@ internal sealed class WriteCoordinator
         finally
         {
             budget?.EndPreparation(keeps);
-            _executor.EndPreparation(keeps);
+            _executor.EndPreparation(keeps, prepared);
         }
     }
 
@@ -1126,7 +1127,7 @@ internal sealed class WriteCoordinator
             {
                 if (change.Kind != ChangeKindEnum.Delete && change.Table.HasUniqueIndex && FindClaimant(change) is { } holder)
                 {
-                    _changes.Release(prepared.Changes);
+                    _executor.Withdraw(prepared);
                     prepared.Withdraw();
                     WaitForWrite(write, holder);
 
@@ -1138,7 +1139,7 @@ internal sealed class WriteCoordinator
         }
         catch (BudgetRefusedException)
         {
-            _changes.Release(prepared.Changes);
+            _executor.Withdraw(prepared);
             prepared.Withdraw();
             throw;
         }
@@ -1559,7 +1560,7 @@ internal sealed class WriteCoordinator
             if (write.Token.IsCancellationRequested)
             {
                 _prepared.TakeFirst();
-                _changes.Release(write.Prepared!.Changes);
+                _executor.Withdraw(write.Prepared!);
                 DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
                 continue;
@@ -1722,7 +1723,7 @@ internal sealed class WriteCoordinator
 
         while (_prepared.TakeFirst() is { } prepared)
         {
-            _changes.Release(prepared.Prepared!.Changes);
+            _executor.Withdraw(prepared.Prepared!);
             DecideFailure(prepared, ReadEpochs.FaultedRefusal(), ref hold);
         }
 
