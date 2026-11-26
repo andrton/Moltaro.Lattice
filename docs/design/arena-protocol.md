@@ -76,10 +76,11 @@ uses the structure's bytes to find the descriptor and the whole containing paylo
 reach the inline value. For a root, place offsets also include the header, so subtract
 the header size when applying those offsets to the payload. The fixed part of a root,
 including the header, fits in at most 65,536 bytes. The record of an entry fits in a
-chunk with room for the inline values it can describe. Records that contain native descriptors align their descriptor locations and
-record strides. The engine acquires each location atomically, including in later
-packed records. The loader validates
-canonical transfer descriptors and writes the native layout separately.
+chunk with room for the inline values it can describe. The location word is
+aligned inside each 16-byte native descriptor, even when the record has an
+unaligned packed stride. The engine acquires each location atomically.
+The loader validates canonical transfer descriptors and writes the native
+layout separately.
 The engine compiles the layout of every declared entity type at open. A layout
 beyond either limit fails open with
 `InvalidSchema`, which names the entity type. The failed instance is Closed.
