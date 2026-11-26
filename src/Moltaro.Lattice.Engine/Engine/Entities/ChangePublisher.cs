@@ -653,7 +653,7 @@ internal sealed class ChangePublisher
             {
                 case ChangeKindEnum.Insert:
                     RootStorage.Free(_arena, change.Table.Layout, change.Root);
-                    change.Table.ReleaseReservation();
+                    change.Table.ReleaseReservation(change.Key);
                     _roots.Release(change.Handle);
                     releasedSlot = true;
                     break;
@@ -997,7 +997,7 @@ internal sealed class ChangePublisher
         {
             if (change.Kind == ChangeKindEnum.Insert)
             {
-                change.Table.ReleaseReservation();
+                change.Table.ReleaseReservation(change.Key);
             }
             else
             {

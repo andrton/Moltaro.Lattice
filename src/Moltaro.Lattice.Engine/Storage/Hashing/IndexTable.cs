@@ -247,6 +247,17 @@ internal sealed class IndexTable
         _overflow.Reserve(others + 1);
     }
 
+    public bool FitsReservations(int reserved, uint hashes) =>
+        (reserved == 0 || BucketBits == MostBucketBits || !IsFull(reserved - 1)) &&
+        _overflow.CanTake(RequiredOverflow(reserved, hashes));
+
+    public void ReleaseUnused(int reserved, uint hashes) => _overflow.ReleaseUnused(RequiredOverflow(reserved, hashes));
+
+    public void KeepCapacity() => _overflow.KeepCapacity();
+
+    private int RequiredOverflow(int reserved, uint hashes) =>
+        reserved == 1 && EmptyWordOf(hashes, out _, out _) ? 0 : reserved;
+
     // Adds the entry of a key that the index does not hold, after Reserve. The entry is written by
     // one store with release semantics, into an empty word of the bucket of the hash or of one of its
     // overflow buckets: a reader that sees it sees what was written before it, the root entry and the

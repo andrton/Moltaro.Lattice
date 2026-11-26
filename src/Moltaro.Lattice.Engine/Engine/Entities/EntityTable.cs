@@ -205,7 +205,7 @@ internal sealed class EntityTable
     public void Reserve(in EntityKey key) => _index.Reserve(Keys.HashOf(key));
 
     // Gives back the room an insert reserved, when it is withdrawn. Under the lock of the writes.
-    public void ReleaseReservation() => _index.Release();
+    public void ReleaseReservation(in EntityKey key) => _index.Release(Keys.HashOf(key));
 
     // Maps an absent key to the root entry of its new root, after Reserve.
     public void Add(in EntityKey key, RootHandle handle) => _index.Add(Keys.HashOf(key), handle.Slot);

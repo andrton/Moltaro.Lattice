@@ -53,9 +53,10 @@ internal sealed class OverflowBuckets
     // replaced by a larger copy; only the first _pageCount are pages.
     private OverflowPage[] _pages;
     private readonly MemoryBudget? _budget;
-    private bool _published;
+    private SmallerDirectory? _smaller;
 
     private int _pageCount;
+    private int _installedPages;
 
     // The buckets in a page, as a power of two.
     private readonly int _pageBits;
@@ -78,7 +79,7 @@ internal sealed class OverflowBuckets
 
     private static int WordsInPage(int bits) => (WordsPerBucket << bits) + LineBytes / sizeof(long) - 1;
 
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + sizeof(long) + 2 * sizeof(int) + 1);
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(3L * IntPtr.Size + sizeof(long) + 3 * sizeof(int));
 
     public static long FirstCapacity(int bits) => OwnerBytes + MemoryBudget.ArrayBytes<OverflowPage>(1) +
         MemoryBudget.ArrayBytes<long>(WordsInPage(bits));
@@ -93,18 +94,23 @@ internal sealed class OverflowBuckets
         }
     }
 
-    public void Published() => _published = true;
+    public void Published() => _installedPages = _pageCount;
 
     public void ReleaseBacking()
     {
         if (_budget is { } budget)
         {
+            var pages = _pages;
+            _pages = [];
+            DropSmallerDirectories();
             for (var i = 0; i < _pageCount; i++)
             {
-                budget.Release(_pages[i].Words);
+                var words = pages[i].Words;
+                pages[i] = default;
+                budget.Release(words);
             }
 
-            budget.Release(_pages);
+            budget.Release(pages);
             budget.Release(OwnerBytes, this);
         }
     }
@@ -120,6 +126,8 @@ internal sealed class OverflowBuckets
     // Whether a bucket can be taken without adding a page.
     public bool HasFree => _taken < ((long)_pageCount << _pageBits);
 
+    public bool CanTake(int buckets) => ((long)_pageCount << _pageBits) - _taken >= buckets;
+
     // Makes sure that this many buckets can be taken without adding a page, by new pages when the
     // pages have fewer free. Before the publications that take them; an OutOfMemoryException leaves the
     // buckets as they were, with the pages added before it.
@@ -128,6 +136,61 @@ internal sealed class OverflowBuckets
         while (((long)_pageCount << _pageBits) - _taken < buckets)
         {
             AddPage();
+        }
+    }
+
+    // A preparation may have grown the directory across several calls and let another write queue
+    // behind it. Clear only the pages no current or future bucket can reach before returning them.
+    public void ReleaseUnused(int buckets)
+    {
+        if (_budget is not { } budget || _installedPages == 0)
+        {
+            return;
+        }
+
+        var pageSize = 1L << _pageBits;
+        var needed = Math.Max(_installedPages, (_taken + buckets + pageSize - 1) >> _pageBits);
+        while (_pageCount > needed)
+        {
+            var index = --_pageCount;
+            var words = _pages[index].Words;
+            _pages[index] = default;
+            for (var smaller = _smaller; smaller is not null; smaller = smaller.Previous)
+            {
+                if (index < smaller.Pages.Length)
+                {
+                    smaller.Pages[index] = default;
+                }
+            }
+
+            budget.Release(words);
+        }
+
+        while (_smaller is { } smallerDirectory && _pageCount <= smallerDirectory.Pages.Length)
+        {
+            var discarded = _pages;
+            Volatile.Write(ref _pages, smallerDirectory.Pages);
+            _smaller = smallerDirectory.Previous;
+            smallerDirectory.Previous = null;
+            budget.Release(discarded);
+            budget.Release(SmallerDirectory.OwnerBytes, smallerDirectory);
+        }
+    }
+
+    public void KeepCapacity()
+    {
+        _installedPages = _pageCount;
+        DropSmallerDirectories();
+    }
+
+    private void DropSmallerDirectories()
+    {
+        while (_smaller is { } smaller)
+        {
+            _smaller = smaller.Previous;
+            smaller.Previous = null;
+            _budget!.Release(smaller.Pages);
+            _budget.Release(SmallerDirectory.OwnerBytes, smaller);
         }
     }
 
@@ -173,11 +236,14 @@ internal sealed class OverflowBuckets
         var grows = index == previous.Length;
         var length = grows ? previous.Length * 2 : previous.Length;
         var wordsLength = WordsInPage(_pageBits);
-        var bytes = MemoryBudget.ArrayBytes<long>(wordsLength) + (grows ? MemoryBudget.ArrayBytes<OverflowPage>(length) : 0);
+        var restore = grows && _installedPages != 0 && _budget is not null;
+        var bytes = MemoryBudget.ArrayBytes<long>(wordsLength) + (grows ? MemoryBudget.ArrayBytes<OverflowPage>(length) : 0) +
+            (restore ? SmallerDirectory.OwnerBytes : 0);
         _budget?.Reserve(bytes);
 
         var directory = previous;
         long[]? words = null;
+        SmallerDirectory? smaller = null;
         try
         {
             words = GC.AllocateArray<long>(wordsLength, pinned: true);
@@ -187,36 +253,11 @@ internal sealed class OverflowBuckets
                 directory = new OverflowPage[length];
                 Array.Copy(previous, directory, index);
                 _budget?.Own(directory, nameof(OverflowBuckets));
-            }
-
-            if (_published && _budget is { IsPreparing: true } budget)
-            {
-                budget.WhenPreparationEnds(keeps =>
+                if (restore)
                 {
-                    if (keeps)
-                    {
-                        if (grows)
-                        {
-                            budget.Release(previous);
-                        }
-                    }
-                    else
-                    {
-                        directory[index] = default;
-                        if (grows)
-                        {
-                            Volatile.Write(ref _pages, previous);
-                            budget.Release(directory);
-                        }
-
-                        _pageCount = index;
-                        budget.Release(words);
-                    }
-                });
-            }
-            else if (grows)
-            {
-                _budget?.Release(previous);
+                    smaller = new SmallerDirectory(previous, _smaller);
+                    _budget!.Own(smaller, nameof(OverflowBuckets));
+                }
             }
         }
         catch
@@ -231,6 +272,11 @@ internal sealed class OverflowBuckets
                 _budget?.Forget(directory);
             }
 
+            if (smaller is not null)
+            {
+                _budget!.Forget(smaller);
+            }
+
             _budget?.Release(bytes);
             throw;
         }
@@ -239,8 +285,23 @@ internal sealed class OverflowBuckets
         if (grows)
         {
             Volatile.Write(ref _pages, directory);
+            if (smaller is not null)
+            {
+                _smaller = smaller;
+            }
+            else
+            {
+                _budget?.Release(previous);
+            }
         }
 
         _pageCount++;
+    }
+
+    private sealed class SmallerDirectory(OverflowPage[] pages, SmallerDirectory? previous)
+    {
+        public static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size);
+        public readonly OverflowPage[] Pages = pages;
+        public SmallerDirectory? Previous = previous;
     }
 }
