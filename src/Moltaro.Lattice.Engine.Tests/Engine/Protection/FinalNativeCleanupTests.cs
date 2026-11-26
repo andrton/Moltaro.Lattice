@@ -12,13 +12,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // final drain even after every retirement has been reclaimed.
 public sealed class FinalNativeCleanupTests
 {
-    private const string PendingCorrection = "A failed final drain still skips arena disposal.";
-
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
-    [InlineData(false, true, Skip = PendingCorrection)]
-    [InlineData(true, true, Skip = PendingCorrection)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
     public async Task Close_releases_native_memory_after_the_reader_leaves_even_if_the_final_drain_fails(
         bool useChild,
         bool failAtTrim)

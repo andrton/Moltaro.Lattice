@@ -634,8 +634,25 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             {
                 lock (parts.Writes)
                 {
-                    parts.Retired.Drain(_testInputs?.BeforeCloseRetiredTrim);
-                    parts.Retired.Clear();
+                    // Once the reads have left, a failure in one retirement step cannot keep the arena alive.
+                    try
+                    {
+                        parts.Retired.Drain(_testInputs?.BeforeCloseRetiredTrim);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+
+                    try
+                    {
+                        parts.Retired.Clear();
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+
                     parts.Arena.Dispose();
                 }
             }
