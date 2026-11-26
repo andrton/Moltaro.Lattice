@@ -25,10 +25,10 @@ internal struct BlockHeader
     public const ushort LookupSlotsFlag = 2;
 
     // The root that owns the block. A block of kind SharedText names the text entry that owns it
-    // in this place instead (Values.ValueBlocks.TryStoreText, TextSlotOf).
+    // in this place instead (Values.ValueBlocks.TryStoreText, TextIdOf).
     public RootHandle Root;
 
-    // The block that holds the descriptor referring to this one. Null for a root.
+    // The physical holder of a root-owned descriptor. A shared text chunk uses its ID and offset instead.
     public ArenaAddress Parent;
 
     // The byte offset of that descriptor from the start of the parent block, its header included.

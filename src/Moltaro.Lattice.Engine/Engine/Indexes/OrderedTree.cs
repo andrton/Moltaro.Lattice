@@ -864,7 +864,7 @@ internal sealed class OrderedTree
 
         foreach (var descriptor in _layout.SharedKeysOf(entry))
         {
-            _arena.Texts.Publish(ValueBlocks.AddressOf(descriptor));
+            _arena.Texts.Publish(descriptor.Location);
         }
     }
 

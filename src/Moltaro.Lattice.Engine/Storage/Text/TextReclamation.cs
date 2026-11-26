@@ -1,22 +1,13 @@
 namespace Moltaro.Lattice.Storage.Text;
 
-// The last release of a text can yield while finding its bucket or returning its
-// detached blocks. It keeps neither a slot reference nor the old bucket table.
-internal struct TextReclamation(ArenaAddress address)
+// Before unlink the cursor holds an ID. After unlink it holds the native
+// placement. The ID is quarantined until all of that placement is released.
+internal struct TextReclamation(uint id)
 {
-    public ArenaAddress Address = address;
-
+    public uint Id = id;
+    public ArenaAddress Address;
     public ArenaAddress PendingChunk;
-
-    public long Bucket;
-
-    public int BucketVersion = -1;
-
-    public uint Id;
-
     public int ChunkCount;
-
     public int NextChunk;
-
     public bool Detached;
 }

@@ -47,7 +47,7 @@ internal struct NodeReclamation
         var descriptor = SharedKeys.ReadPart(layout.Parts[_part++], node.EntryAt(_entry), ref _offset);
         if (descriptor.Kind == DescriptorKindEnum.Text)
         {
-            _text = new TextReclamation(ValueBlocks.AddressOf(descriptor));
+            _text = new TextReclamation((uint)descriptor.Location);
             _hasText = true;
         }
 

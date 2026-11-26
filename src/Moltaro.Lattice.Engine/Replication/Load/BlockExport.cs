@@ -79,13 +79,19 @@ internal static class BlockExport
         {
             var descriptor = descriptors.Current;
 
-            if (ValueBlocks.LiesOutOfLine(descriptor))
+            switch (descriptor.Kind)
             {
-                WriteValue(output, arena, descriptor, payload);
-            }
-            else if (descriptor.Kind is DescriptorKindEnum.Records or DescriptorKindEnum.Lookup)
-            {
-                WriteRecordsOfRoot(output, arena, layout, root, descriptors.Index);
+                case DescriptorKindEnum.Text:
+                    WriteValue(output, arena, ValueBlocks.ResolveText(arena, descriptor), payload);
+                    break;
+
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
+                    WriteValue(output, arena, descriptor, payload);
+                    break;
+
+                case DescriptorKindEnum.Records or DescriptorKindEnum.Lookup:
+                    WriteRecordsOfRoot(output, arena, layout, root, descriptors.Index);
+                    break;
             }
         }
     }
@@ -198,10 +204,15 @@ internal static class BlockExport
 
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
-            if (ValueBlocks.LiesOutOfLine(descriptor))
+            switch (descriptor.Kind)
             {
-                // This value is reached through its own location. It needs no bytes from the record block.
-                WriteValue(output, arena, descriptor, payload: default);
+                case DescriptorKindEnum.Text:
+                    WriteValue(output, arena, ValueBlocks.ResolveText(arena, descriptor), payload: default);
+                    break;
+
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
+                    WriteValue(output, arena, descriptor, payload: default);
+                    break;
             }
         }
     }

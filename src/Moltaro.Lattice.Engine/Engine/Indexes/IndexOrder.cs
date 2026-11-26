@@ -186,7 +186,7 @@ internal sealed class IndexOrder
 
         if (key.TryTextBytes(place, out var given) && !ValueBlocks.LiesInChunks(descriptor))
         {
-            return ValueComparer.CompareUtf8Ordinal(root.ValueBytes(descriptor), given);
+            return ValueComparer.CompareUtf8Ordinal(root.TextBytes(descriptor), given);
         }
 
         return ValueComparer.CompareText(root.ReadText(part.Stored), key.TextAt(place), part.Comparison!);

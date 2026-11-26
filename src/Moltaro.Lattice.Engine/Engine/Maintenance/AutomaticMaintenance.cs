@@ -30,7 +30,15 @@ internal sealed class AutomaticMaintenance
     {
         var arena = parts.Arena;
         var segments = arena.Counters.Segments;
-        var reclaimed = parts.Retired.DrainStep(ReclamationWorkLimit);
+        // Text work gets one chance even when every raw retirement unit
+        // is needed. An idle text table leaves the entire allowance to the FIFO.
+        var textWork = arena.Texts.Maintain(1);
+        var reclaimed = parts.Retired.DrainStep(ReclamationWorkLimit - textWork);
+        var remaining = ReclamationWorkLimit - textWork - reclaimed;
+        if (remaining != 0)
+        {
+            textWork += arena.Texts.Maintain(remaining);
+        }
         arena.ReleaseCollectionTail();
         var work = 0;
         var candidates = 0;
@@ -83,8 +91,8 @@ internal sealed class AutomaticMaintenance
         // Neither a directed move nor reclamation obtains a segment. A decrease
         // here therefore counts actual native returns, separately from the reserve.
         var returned = segments - arena.Counters.Segments;
-        return new MaintenanceTurnSample(true, 0, candidates, work, reclaimed, source, destination, slotBytes,
-            returned, (long)returned * arena.SegmentSize, parts.Retired.RelocationBytes);
+        return new MaintenanceTurnSample(true, 0, candidates, work, reclaimed + textWork, source, destination, slotBytes,
+            returned, (long)returned * arena.SegmentSize, parts.Retired.RelocationBytes, TextMetadataWork: textWork);
     }
 
     private void SeekSource(Arena arena, ref int work, ref int candidates)
@@ -119,7 +127,8 @@ internal sealed class AutomaticMaintenance
         candidates++;
         ref readonly var header = ref arena.Header(address);
         if (header.Kind is BlockKindEnum.Root or BlockKindEnum.Value or BlockKindEnum.Chunk
-            or BlockKindEnum.ChunkDirectory or BlockKindEnum.Lookup)
+            or BlockKindEnum.ChunkDirectory or BlockKindEnum.Lookup or BlockKindEnum.SharedText
+            or BlockKindEnum.SharedTextDirectory or BlockKindEnum.SharedTextChunk)
         {
             _source = address;
             _owner = header.Root;
@@ -156,9 +165,13 @@ internal sealed class AutomaticMaintenance
 
         var old = _source;
         _source = default;
-        var moved = _kind == BlockKindEnum.Root
-            ? RootRelocation.TryMove(parts, _owner, old, region, out destination)
-            : CompoundRelocation.TryMove(parts, _owner, old, region, out destination);
+        var moved = _kind switch
+        {
+            BlockKindEnum.Root => RootRelocation.TryMove(parts, _owner, old, region, out destination),
+            BlockKindEnum.SharedText or BlockKindEnum.SharedTextDirectory or BlockKindEnum.SharedTextChunk =>
+                TextRelocation.TryMove(parts, _owner, old, region, out destination),
+            _ => CompoundRelocation.TryMove(parts, _owner, old, region, out destination),
+        };
         if (moved)
         {
             source = old;

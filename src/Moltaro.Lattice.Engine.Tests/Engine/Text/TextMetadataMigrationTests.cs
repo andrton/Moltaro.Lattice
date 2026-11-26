@@ -13,12 +13,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
 // Both bucket sets are writer-owned. A text remains unique while it moves,
 // and removal of a known entry needs bounded work even in a colliding chain.
+[Collection<ManagedAllocationCollection>]
 public sealed class TextMetadataMigrationTests
 {
     private const ulong Seed = 18041;
     private const int ChainSize = 24;
 
-    [Theory(Skip = StableLocatorNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public async Task Texts_stay_unique_and_allocate_nothing_per_hit_while_colliding_entries_migrate(string encoding)
     {
@@ -183,8 +184,8 @@ public sealed class TextMetadataMigrationTests
             {
                 Assert.True(table.TryAcquire(text, storage, (int)bytes.Length, out _, out _));
                 Assert.True(table.TryAcquire(bytes, out _, out _));
-                table.Release(expected.Address);
-                table.Release(expected.Address);
+                table.Release(id);
+                table.Release(id);
             }
 
             var control = GC.GetAllocatedBytesForCurrentThread();
@@ -209,7 +210,7 @@ public sealed class TextMetadataMigrationTests
 
             for (var hit = 0; hit < Hits * 2; hit++)
             {
-                table.Release(expected.Address);
+                table.Release(id);
             }
         }));
 

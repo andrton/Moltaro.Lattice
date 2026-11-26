@@ -18,4 +18,5 @@ internal readonly record struct MaintenanceTurnSample(
     int RelocationBytes,
     BlockKindEnum SourceKind = default,
     ushort SourceFlags = 0,
-    DescriptorKindEnum SourceDescriptorKind = default);
+    DescriptorKindEnum SourceDescriptorKind = default,
+    int TextMetadataWork = 0);

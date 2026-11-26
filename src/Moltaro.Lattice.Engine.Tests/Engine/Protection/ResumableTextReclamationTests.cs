@@ -9,7 +9,6 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Text;
 using Moltaro.Lattice.Storage.Values;
@@ -24,7 +23,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class ResumableTextReclamationTests
 {
     private const ulong IndexSeed = 18_041;
-    private const int Collisions = 29;
 
     private static readonly LatticeSchema Schema = ItemSchema.Compile("""
         { 'Id': 2, 'Name': 'Text', 'Type': 'String', 'StringStorage': 'Dictionary' }
@@ -33,78 +31,54 @@ public sealed class ResumableTextReclamationTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task A_paused_final_release_observes_a_new_owner_or_restarts_after_table_growth(bool addOwner)
+    public async Task Final_release_waits_for_the_old_reader_and_observes_a_new_owner(bool addOwner)
     {
-        await using var reference = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { IndexSeed = IndexSeed, DisableBackgroundMaintenance = true });
-        var expected = await StageCollisionChainAsync(reference);
-        var cost = UntilUnlinked(reference, expected);
-        Finish(reference);
-
-        // Equal one-descriptor roots and the same table shape. Only how far the
-        // release searches differs, so each additional bucket must cost a turn.
-        await using var shallow = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { IndexSeed = IndexSeed, DisableBackgroundMaintenance = true });
-        var early = await StageCollisionChainAsync(shallow, targetNumber: 1);
-        Assert.Equal(1, early.Buckets);
-        var earlyCost = UntilUnlinked(shallow, early);
-        Assert.True(cost >= earlyCost + expected.Buckets - early.Buckets);
-        Finish(shallow);
-
         await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { IndexSeed = IndexSeed, DisableBackgroundMaintenance = true });
-        var target = await StageCollisionChainAsync(database);
-        Assert.Equal((expected.Buckets, expected.Text, expected.Version), (target.Buckets, target.Text, target.Version));
-
-        for (var turn = 1; turn < cost; turn++)
-        {
-            Assert.Equal(1, Step(database, 1));
-            Assert.Equal(target.Buckets, ObserveBucket(database, target).Distance);
-            Assert.Equal(1L, References(database, target.Text));
-        }
-
         var items = database.Set("Item");
-        const long OtherOwner = 10_000;
-        var colliderTexts = Enumerable.Range(1, Collisions - 1).Select(index =>
-            (Key: (long)index, Text: items.Get((long)index)!.Get<string>("Text")!)).ToArray();
+        var text = new string('t', 128);
+        await InsertAsync(items, 1, text);
+        var original = EntryOf(database, 1);
+        using var pause = new ViewerPause();
+        var oldReader = OwnThread.Run(() =>
+        {
+            Assert.True(items.TryView(1L, view =>
+            {
+                var value = view["Text"];
+                Assert.Equal(text, value.GetString());
+                pause.Hold();
+                return value.GetString();
+            }, out var captured));
+            return captured;
+        });
+        await pause.EnteredAsync(oldReader);
 
+        await items.DeleteAsync(1L);
+        Assert.Equal(0, Step(database, 1));
+        Assert.Equal(1L, References(database, text));
+        Assert.True(IsAllocated(original.Arena, original.Address));
+
+        const long OtherOwner = 10_000;
         if (addOwner)
         {
-            await InsertAsync(items, OtherOwner, target.Text);
-            Assert.Equal(target.Entry, EntryOf(database, OtherOwner));
-            Assert.Equal(2L, References(database, target.Text));
-            Assert.Equal(target.Version, ObserveBucket(database, target).Version);
+            await InsertAsync(items, OtherOwner, text);
+            Assert.Equal(original, EntryOf(database, OtherOwner));
+            Assert.Equal(2L, References(database, text));
+        }
 
-            Finish(database);
-            Assert.Equal(target.Entry, EntryOf(database, OtherOwner));
-            Assert.Equal(1L, References(database, target.Text));
-            Assert.Equal(target.Text, items.Get(OtherOwner)!.Get<string>("Text"));
+        pause.Release();
+        Assert.Equal(text, await oldReader.WaitAsync(Bound));
+        Finish(database);
+        if (addOwner)
+        {
+            Assert.Equal(original, EntryOf(database, OtherOwner));
+            Assert.Equal(1L, References(database, text));
+            Assert.Equal(text, items.Get(OtherOwner)!.Get<string>("Text"));
         }
         else
         {
-            // Real inserts force the exact active table to change. Starting near its growth
-            // boundary keeps automatic publication cleanup from taking over the partial item.
-            var inserted = new List<(long Key, string Text)>();
-            var beforeGrowth = ObserveBucket(database, target);
-            for (var index = 0; ObserveBucket(database, target).Version == beforeGrowth.Version; index++)
-            {
-                Assert.True(index < 8, "The staged table was not near growth.");
-                var key = OtherOwner + index;
-                var text = "growth-" + index.ToString(CultureInfo.InvariantCulture);
-                await InsertAsync(items, key, text);
-                inserted.Add((key, text));
-            }
-
-            var afterGrowth = ObserveBucket(database, target);
-            Assert.True(afterGrowth.Version > beforeGrowth.Version);
-            Assert.NotEqual(beforeGrowth.Home, afterGrowth.Home);
-            Assert.NotNull(afterGrowth.Distance);
-            Assert.Equal(1L, References(database, target.Text));
-
-            Finish(database);
-            Assert.Null(ObserveBucket(database, target).Distance);
-            Assert.Equal(0L, References(database, target.Text));
-            Assert.All(inserted, entry => Assert.Equal(entry.Text, items.Get(entry.Key)!.Get<string>("Text")));
+            Assert.Equal(0L, References(database, text));
+            Assert.False(IsAllocated(original.Arena, original.Address));
         }
-
-        Assert.All(colliderTexts, entry => Assert.Equal(entry.Text, items.Get(entry.Key)!.Get<string>("Text")));
     }
 
     [Theory]
@@ -128,7 +102,6 @@ public sealed class ResumableTextReclamationTests
         var entry = EntryOf(database, 1);
         var chunks = TextBlocks(entry).ToArray();
         Assert.Equal(4, chunks.Length);
-        var old = new Target(text, entry, 0, 0);
         var originalBytes = chunks.Sum(address => SlotBytes(entry.Arena, address)) + SlotBytes(entry.Arena, oldRoot);
         Assert.Equal(originalBytes, CountedSlots(database));
 
@@ -150,12 +123,12 @@ public sealed class ResumableTextReclamationTests
         Assert.Equal(text.Length, await reading.WaitAsync(Bound));
         var returned = allocator.Returned;
 
-        UntilUnlinked(database, old);
+        UntilUnlinked(database, entry.Id);
         Assert.All(chunks, address => Assert.True(IsAllocated(entry.Arena, address)));
         Assert.True(IsAllocated(entry.Arena, oldRoot));
         Assert.Equal(originalBytes, CountedSlots(database));
         Assert.Equal(returned, allocator.Returned);
-        Assert.Equal(0u, TextFreeListHead(database));
+        Assert.True(HoldsId(database, entry.Id));
 
         await InsertAsync(items, 2, text);
         var replacement = EntryOf(database, 2);
@@ -181,9 +154,9 @@ public sealed class ResumableTextReclamationTests
             if (remaining > 0)
             {
                 Assert.Contains(entry.Address, held);
-                // All other IDs still have live owners. An empty free list
-                // directly witnesses the old ID's quarantine at this cut.
-                Assert.Equal(0u, TextFreeListHead(database));
+                // The old ID still occupies its locator cell until all
+                // physical storage is gone.
+                Assert.True(HoldsId(database, entry.Id));
             }
 
             Assert.Equal(held.Sum(address => slotSizes[address]) +
@@ -205,7 +178,7 @@ public sealed class ResumableTextReclamationTests
                 Assert.Equal(WhileHeld, items.Get(3L)!.Get<string>("Text"));
                 Assert.All(held, address => Assert.True(IsAllocated(entry.Arena, address)));
                 Assert.All(chunks.Except(held), address => Assert.False(IsAllocated(entry.Arena, address)));
-                Assert.Equal(0u, TextFreeListHead(database));
+                Assert.True(HoldsId(database, entry.Id));
                 whileHeldBytes = SlotBytes(whileHeld.Arena, whileHeld.Address) + SlotBytes(whileHeld.Arena, RootOf(database, 3));
                 if (finishWithOrdinaryDrain)
                 {
@@ -221,7 +194,7 @@ public sealed class ResumableTextReclamationTests
         Assert.NotNull(whileHeld);
         Assert.Equal(replacementBytes + whileHeldBytes, CountedSlots(database));
         Assert.True(allocator.Returned >= returned + 2);
-        Assert.Equal(entry.Id + 1, TextFreeListHead(database));
+        Assert.False(HoldsId(database, entry.Id));
 
         await InsertAsync(items, 4, "another dictionary text");
         Assert.Equal(entry.Id, EntryOf(database, 4).Id);
@@ -369,140 +342,25 @@ public sealed class ResumableTextReclamationTests
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_root")]
     private static extern ref ulong TreeRoot(OrderedTree tree);
 
-    private static async Task<Target> StageCollisionChainAsync(EngineDatabase database, int targetNumber = Collisions)
+    private static bool HoldsId(EngineDatabase database, uint id)
     {
-        var items = database.Set("Item");
-        // Pre-grow the active table, then build a chain with enough colliding live
-        // entries to put the target multiple buckets from its main bucket.
-        var seeded = 0;
-        while (TableShape(database).Bits < 5)
-        {
-            Assert.True(seeded < 256);
-            seeded++;
-            await InsertAsync(items, -seeded, "pad-" + seeded.ToString(CultureInfo.InvariantCulture));
-        }
-
-        for (var key = -1L; key >= -seeded; key--)
-        {
-            await items.DeleteAsync(key);
-        }
-
-        database.DrainRetired();
-        Assert.Equal(0, database.Counters.TextEntries);
-        var initial = TableShape(database);
-        var bucketShape = new IndexTable(initial.Bits, initial.Version);
-        var grownShape = new IndexTable(initial.Bits + 1, initial.Version + 1);
-        var selected = 0;
-        for (var index = 0; selected < Collisions; index++)
-        {
-            Assert.True(index < 32_000, "Could not stage enough same-home text hashes.");
-            var text = "collider-" + index.ToString(CultureInfo.InvariantCulture);
-            var hash = HashOf(text);
-            if (bucketShape.BucketOf(hash) == 0 &&
-                (selected != Collisions - 1 || grownShape.BucketOf(hash) == 1))
-            {
-                await InsertAsync(items, ++selected, text);
-            }
-        }
-
-        var padding = 0;
-        while (!TableShape(database).Full)
-        {
-            Assert.True(padding < 256);
-            padding++;
-            var key = -seeded - padding;
-            await InsertAsync(items, key, "fill-" + padding.ToString(CultureInfo.InvariantCulture));
-        }
-
-        database.DrainRetired();
-        Assert.Equal(initial.Version, TableShape(database).Version);
-        var value = items.Get((long)targetNumber)!.Get<string>("Text")!;
-        var entry = EntryOf(database, targetNumber);
-        var target = new Target(value, entry, initial.Version, 0);
-        var observed = ObserveBucket(database, target);
-        Assert.True(observed.Distance >= (targetNumber == 1 ? 1 : 4), "The target did not go into its expected part of the chain.");
-        await items.DeleteAsync((long)targetNumber);
-        Assert.Equal(1L, References(database, value));
-        return target with { Buckets = observed.Distance!.Value };
+        var taken = false;
+        Assert.True(database.TryRunMaintenanceStep(parts => taken = parts.Arena.Texts.TryCaptureLocatorLeaf(id, out _)));
+        return taken;
     }
 
-    private static (int Bits, int Version, bool Full) TableShape(EngineDatabase database)
-    {
-        var result = (Bits: 0, Version: 0, Full: false);
-        Assert.True(database.TryRunMaintenanceStep(parts =>
-        {
-            var index = Buckets(parts.Arena.Texts);
-            result = (index.BucketBits, index.Version, index.IsFull(0));
-        }));
-        return result;
-    }
-
-    private static (int Version, int Home, int? Distance) ObserveBucket(EngineDatabase database, Target target)
-    {
-        (int Version, int Home, int? Distance) result = default;
-        Assert.True(database.TryRunMaintenanceStep(parts =>
-        {
-            var index = Buckets(parts.Arena.Texts);
-            var hash = HashOf(target.Text);
-            var main = index.BucketOf(hash);
-            var wanted = IndexTable.EntryOf(hash, target.Entry.Id);
-            var overflow = 0L;
-            var distance = 0;
-            do
-            {
-                distance++;
-                for (var word = 0; word < IndexTable.LinkWord; word++)
-                {
-                    var entry = overflow == 0 ? index.ReadMain(main, word) : index.ReadOverflow(overflow, word);
-                    if (entry == wanted)
-                    {
-                        result = (index.Version, main, distance);
-                        return;
-                    }
-                }
-
-                overflow = overflow == 0
-                    ? index.ReadMain(main, IndexTable.LinkWord)
-                    : index.ReadOverflow(overflow, IndexTable.LinkWord);
-            } while (overflow != 0);
-
-            result = (index.Version, main, null);
-        }));
-        return result;
-    }
-
-    // The text table links returned IDs as their slot number plus one.
-    private static uint TextFreeListHead(EngineDatabase database)
-    {
-        var head = 0u;
-        Assert.True(database.TryRunMaintenanceStep(parts => head = FreeSlots(parts.Arena.Texts)));
-        return head;
-    }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_freeSlots")]
-    private static extern ref uint FreeSlots(TextTable table);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_buckets")]
-    private static extern ref IndexTable Buckets(TextTable table);
-
-    private static uint HashOf(string text)
-    {
-        var hash = new Marvin(IndexSeed);
-        hash.Append(Encoding.UTF8.GetBytes(text));
-        return hash.Finish();
-    }
-
-    private static int UntilUnlinked(EngineDatabase database, Target target)
+    private static void UntilUnlinked(EngineDatabase database, uint id)
     {
         var turns = 0;
-        while (ObserveBucket(database, target).Distance.HasValue)
+        bool linked;
+        do
         {
             Assert.True(turns++ < 512, "The final text reference did not unlink.");
             Assert.Equal(1, Step(database, 1));
+            linked = false;
+            Assert.True(database.TryRunMaintenanceStep(parts => linked = parts.Arena.Texts.TryMeasureEntry(id, out _)));
         }
-
-        Assert.True(turns > 0);
-        return turns;
+        while (linked);
     }
 
     private static void Finish(EngineDatabase database)
@@ -552,8 +410,9 @@ public sealed class ResumableTextReclamationTests
         var reader = new RootReader(arena, layout, address);
         var descriptor = reader.ReadDescriptor(layout.StoredFieldOf(layout.EntityType.GetField("Text")));
         Assert.Equal(DescriptorKindEnum.Text, descriptor.Kind);
-        var entry = ValueBlocks.AddressOf(descriptor);
-        return new TextEntry(arena, entry, ValueBlocks.TextSlotOf(arena, entry), descriptor);
+        var physical = ValueBlocks.ResolveText(arena, descriptor);
+        var entry = ValueBlocks.AddressOf(physical);
+        return new TextEntry(arena, entry, ValueBlocks.TextIdOf(arena, entry), physical);
     }
 
     private static List<ArenaAddress> TextBlocks(TextEntry entry)
@@ -581,5 +440,4 @@ public sealed class ResumableTextReclamationTests
 
     private sealed record TextEntry(Arena Arena, ArenaAddress Address, uint Id, ValueDescriptor Descriptor);
 
-    private sealed record Target(string Text, TextEntry Entry, int Version, int Buckets);
 }

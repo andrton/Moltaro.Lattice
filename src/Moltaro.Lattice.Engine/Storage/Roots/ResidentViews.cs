@@ -68,6 +68,7 @@ internal sealed class ResidentViews(Arena arena, LatticeStringEncodingEnum encod
     public ReadOnlySpan<byte> GetPart(ViewRecord row, int position, int part)
     {
         var descriptor = ResidentDescriptor.Read(row.Bytes[DescriptorOffset(row, position)..]);
+        descriptor = ValueBlocks.ResolveText(arena, descriptor);
         var chunked = ValueBlocks.LiesInChunks(descriptor);
         ArgumentOutOfRangeException.ThrowIfNegative(part);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(part, PartCount((int)descriptor.Length, chunked));

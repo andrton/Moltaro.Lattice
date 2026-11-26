@@ -41,10 +41,11 @@ internal ref struct StoredTextReader
 
     // The text of the String value the descriptor names, of a root whose payload is given, stored in
     // the encoding.
-    public StoredTextReader(Arena arena, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, LatticeStringEncodingEnum encoding)
+    public StoredTextReader(Arena arena, scoped in ValueDescriptor resident, ReadOnlySpan<byte> rootPayload, LatticeStringEncodingEnum encoding)
     {
         _arena = arena;
         _encoding = encoding;
+        var descriptor = ValueBlocks.ResolveText(arena, resident);
 
         if (ValueBlocks.LiesInChunks(descriptor))
         {

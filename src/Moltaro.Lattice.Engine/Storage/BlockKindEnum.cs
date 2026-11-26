@@ -30,4 +30,11 @@ internal enum BlockKindEnum : ushort
 
     // The inactive link of a reusable lookup slot after its last reader leaves.
     ColdLookupSlots = 8,
+
+    // The directory of a shared text. Its stable ID owns it.
+    SharedTextDirectory = 9,
+
+    // A chunk of a shared text. The ID and descriptor offset find the edge
+    // in the current directory without a physical parent backlink.
+    SharedTextChunk = 10,
 }

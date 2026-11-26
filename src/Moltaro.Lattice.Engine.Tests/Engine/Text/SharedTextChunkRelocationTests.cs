@@ -29,17 +29,17 @@ public sealed class SharedTextChunkRelocationTests
     private const int TailBytes = TailSlot - 32;
     private const int DirectoryTextBytes = 4_500;
 
-    [Theory(Skip = StableLocatorNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public Task A_shared_directory_moves_without_changing_its_chunk_or_transfer(string encoding) =>
         ExpectMoveAsync(encoding, movingTail: false);
 
-    [Theory(Skip = StableLocatorNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public Task A_sparse_shared_short_tail_moves_while_the_full_chunk_and_wire_stay_valid(string encoding) =>
         ExpectMoveAsync(encoding, movingTail: true);
 
-    [Theory(Skip = StableLocatorNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public async Task A_half_full_shared_chunk_region_cannot_supply_a_move_even_with_an_earlier_vacancy(string encoding)
     {

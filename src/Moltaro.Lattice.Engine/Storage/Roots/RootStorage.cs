@@ -143,7 +143,7 @@ internal static class RootStorage
             switch (descriptor.Kind)
             {
                 case DescriptorKindEnum.Text:
-                    arena.Texts.Release(ValueBlocks.AddressOf(descriptor));
+                    arena.Texts.Release(descriptor.Location);
                     break;
 
                 case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
@@ -217,7 +217,7 @@ internal static class RootStorage
             switch (descriptor.Kind)
             {
                 case DescriptorKindEnum.Text:
-                    arena.Texts.Publish(ValueBlocks.AddressOf(descriptor));
+                    arena.Texts.Publish(descriptor.Location);
                     break;
 
                 case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:

@@ -14,13 +14,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // See docs/decisions/strings.md, Q04.4; docs/design/arena-protocol.md, "Deferred reclamation".
 public sealed class TextMetadataCapacityTests
 {
-    private const string ShrinkNotImplemented = "Managed text metadata shrink is not implemented.";
     private const int Count = 200;
     private const int SegmentSize = 256 * 1024;
     private const long AnchorId = 1;
     private static readonly string AnchorText = new('a', 96);
 
-    [Theory(Skip = ShrinkNotImplemented)]
+    [Theory]
     [InlineData("Utf8", false)]
     [InlineData("Utf8", true)]
     [InlineData("Utf16", false)]
@@ -86,7 +85,7 @@ public sealed class TextMetadataCapacityTests
         }
     }
 
-    [Theory(Skip = ShrinkNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public async Task Both_nodes_release_excess_metadata_after_the_last_reader_of_deleted_texts_leaves(string encoding)
     {

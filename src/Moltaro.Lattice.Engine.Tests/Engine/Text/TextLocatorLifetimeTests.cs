@@ -21,7 +21,7 @@ public sealed class TextLocatorLifetimeTests
     private const int LastId = 600;
     private const int SegmentSize = 256 * 1024;
 
-    [Theory(Skip = StableLocatorNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public async Task A_view_and_separator_keep_one_text_through_repacking_relocation_and_final_reclamation(string encoding)
     {

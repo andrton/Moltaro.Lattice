@@ -1,189 +1,165 @@
 using System.Buffers;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
+using System.Numerics;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Text;
 
-// The text entries of one database (docs/decisions/strings.md). Equal text of every field with
-// Dictionary storage, of every entity type, is stored once: as one entry, immutable memory of the arena
-// that holds the exact stored bytes and nothing else, one block up to 4 KiB and a directory with chunks
-// above, by the placement of a Plain value out of line, every block of kind SharedText and its header
-// naming the slot of the entry (Values.ValueBlocks.TryStoreText). A block refers to an entry by a
-// descriptor of kind Text with the length of the text and the relative address of the entry. An empty
-// text stays inline with length 0 and has no entry.
-//
-// Who uses it. Writes only: a write of a Dictionary text finds or adds its entry here (TryAcquire), and
-// the free of a block releases the references it holds (Release), on a master and on a child, which
-// builds its own entries from the bytes it receives with its own seed. A read reaches a text through the
-// address its root holds, inside the protection of reads, and never touches this table: no lock and no
-// gate of its own, nothing of it on a line a read reads.
-//
-// One count for each entry, by one rule: a block holds one reference for each Text descriptor it
-// contains, from the moment it is written (RootWriter, Replication.Load.BlockImport, through
-// TryAcquire) until it is freed (Storage.Roots.RootStorage.FreeValue, through Release). A node of a secondary
-// index holds one for each key among its entries and separators that shares the entry of its root, from
-// the moment the node is written (AddReference) until it is freed (Storage.Ordered.NodeStorage, through
-// Release); an owned value and a collection will follow the same rule once they are stored. A
-// prepared block holds its references as a live one does, so the descriptors of a prepared root are the
-// tally of what its write took, and a write that is withdrawn, cancelled, refused or ended by a fault
-// drops them where its blocks are freed. A retired block holds them until the drain frees it, which is
-// after the last read that could reach it has left.
-//
-// No retirement of an entry on its own, and no generation. An entry whose count reaches zero leaves
-// the bucket table and is freed in the same call: no block refers to it any more, and a read reaches
-// an entry only through a block it reached inside the protection, which is not freed while the
-// read is inside. So an entry is freed only after its last reference and the last protected reader that
-// could reach it are gone, and a reference never resolves to other text. A later write of the same text
-// makes a new entry; an entry that left the table is never found again.
-//
-// Where counts change. Every member that changes a count runs on the thread that holds the lock of
-// the writes (Engine.Writes.WriteCoordinator), on a master and on a child: the preparation of a write,
-// the placement of a received root, the free of what a write prepared and does not publish, and the
-// drain of retired memory — under that lock also when the close frees what is retired last
-// (Engine.EngineDatabase). The table takes no lock; in a Debug build every change of a count asserts
-// that the thread holds the lock the database gave the arena, which is how a test shows it.
-//
-// The parts. Slots in a managed array that grows by doubling up to the longest array of .NET, and refuses
-// an entry beyond it (TryGrowSlots; TextSlot: the address, the references, the hash, and the length or
-// the link of the free list), and the bucket table of the primary index from the hash to the
-// slot (Hashing.IndexTable), the same type and not a second one. The hash is the engine's
-// (Hashing.Marvin) over the stored bytes, with the seed of the instance. An entry is keyed by its
-// exact bytes always: North and north are two entries, and the comparison a field declares applies only
-// where text is compared. No read touches the slots or the buckets, so a full bucket table is replaced by
-// a grown one at once, without retirement, and the old one is let go of.
-internal sealed class TextTable
+// Text bytes live in native blocks. Protected readers use the stable ID to
+// acquire its current address. Writes owns the locator changes, dense counts
+// and hash links, and both table generations during bounded migration.
+// A root or index node holds a reference until its native retirement. After
+// final unlink the ID remains reserved until all its detached blocks go.
+internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
 {
-    // The first bucket table: two main buckets.
-    private const int FirstBucketBits = 1;
-
-    // The bytes of the scratch on the stack in which a write encodes its text: every text of an
-    // ordinary field fits it, and a longer one is encoded in pieces of it.
     private const int ScratchBytes = 512;
+    private const uint Tag = 0x8000_0000;
+    private const uint LinkMask = Tag - 1;
+    private readonly Arena _arena = arena;
+    private readonly ulong _seed = seed;
+    private readonly Lock? _writes = writes;
+    private readonly TextLocator _locator = new();
+    private readonly TextWriterSlots _slots = new();
+    private TextBucketSet _active = new(2, 0);
+    private TextBucketSet? _old;
+    private int _bucketCursor;
 
-    private readonly Arena _arena;
+    public int Count => _slots.Count;
 
-    private readonly ulong _seed;
+    public long Bytes => 80 + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
 
-    // The lock of the writes of the database, for the assertion of Debug builds; null for an arena of a
-    // test of the engine that has no database around it.
-    private readonly Lock? _writes;
+    public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
-    private IndexTable _buckets = new(FirstBucketBits, version: 0);
-
-    private TextSlot[] _slots = [];
-
-    // The slots below this were given out at least once.
-    private int _nextUnusedSlot;
-
-    // The first free slot plus one; 0 when none is free.
-    private uint _freeSlots;
-
-    // The table of the arena given, with the seed of its hashes and the lock its database changes it
-    // under.
-    public TextTable(Arena arena, ulong seed, Lock? writes)
+    public int Maintain(int workLimit)
     {
-        _arena = arena;
-        _seed = seed;
-        _writes = writes;
+        AssertWrites();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
+        var work = 0;
+        while (work < workLimit)
+        {
+            if (_old is { } old)
+            {
+                Migrate(old);
+            }
+            else if (NeededHeads() is var needed && needed != _active.Capacity)
+            {
+                var replacement = new TextBucketSet(needed, _active.Tag ^ Tag);
+                _old = _active;
+                _active = replacement;
+                _bucketCursor = 0;
+            }
+            else if (!_locator.TrimOne() && !_slots.TrimFirst())
+            {
+                break;
+            }
+
+            work++;
+        }
+
+        return work;
     }
 
-    // The entries the table holds: the texts some block that is not freed refers to.
-    public int Count { get; private set; }
+    public TextCapacitySnapshot MeasureCapacity()
+    {
+        AssertWrites();
+        var directory = new List<TextAllocationShape>();
+        var leaves = new List<TextAllocationShape>();
+        _locator.Measure(directory, leaves);
+        var slots = new List<TextAllocationShape> { new(1, 64, 0, 0) };
+        _slots.Measure(slots);
+        var active = new List<TextAllocationShape>();
+        var old = new List<TextAllocationShape>();
+        _active.Measure(active);
+        _old?.Measure(old);
+        return new TextCapacitySnapshot(directory, leaves, slots, active, old, []);
+    }
 
-    // The managed bytes of the table: the array of its slots and the bucket table.
-    public long Bytes => ((long)_slots.Length * Unsafe.SizeOf<TextSlot>()) + _buckets.Bytes;
+    public bool TryMeasureEntry(uint id, out TextEntrySnapshot entry)
+    {
+        AssertWrites();
+        var ordinal = _locator.Ordinal(id);
+        if (ordinal < 0)
+        {
+            entry = default;
+            return false;
+        }
 
-    // Under Writes, performs at most workLimit units of text maintenance and returns the units used.
-    public int Maintain(int workLimit) => throw new NotSupportedException();
+        ref var slot = ref _slots.At((uint)ordinal + 1);
+        var table = TableOf(slot.Next);
+        var depth = 0;
+        for (var previous = slot.Previous; previous != 0; previous = _slots.At(previous).Previous)
+        {
+            depth++;
+        }
 
-    // Under Writes, measures actual managed capacities without running work.
-    public TextCapacitySnapshot MeasureCapacity() => throw new NotSupportedException();
+        entry = new TextEntrySnapshot(id, AddressOf(id), ordinal, ReferenceEquals(table, _active) ? TextBucketSetEnum.Active : TextBucketSetEnum.Old,
+            table.Bucket(slot.Hash), depth, slot.References);
+        return true;
+    }
 
-    // Under Writes, describes the live entry if it exists. For tests and measurements.
-    public bool TryMeasureEntry(uint id, out TextEntrySnapshot entry) => throw new NotSupportedException();
+    public bool TryCaptureLocatorLeaf(uint id, out IReadOnlyList<TextLocatorAllocation> actual)
+    {
+        AssertWrites();
+        return _locator.TryCapture(id, out actual);
+    }
 
-    // Under Writes, captures the allocations currently referenced by the leaf of a live ID.
-    // For the test of CLR-local retention. A capture never protects a native address.
-    public bool TryCaptureLocatorLeaf(uint id, out IReadOnlyList<TextLocatorAllocation> actual) => throw new NotSupportedException();
-
-    // Finds or adds the entry for the text of a write and takes one reference to it under
-    // the lock of the writes. On success it returns a Text descriptor that ValueHolder installs
-    // to record the reference. The text is well-formed and takes length stored bytes, at least
-    // one, in the encoding of the database. newBytes gives the bytes of the slots of a new entry
-    // and is zero for an existing entry. When the arena cannot hold a new entry, the method
-    // returns false without taking a reference. A new entry remains prepared until the first
-    // block that refers to it is published (Publish). An OutOfMemoryException of the native
-    // allocator or the managed heap passes with nothing taken.
     public bool TryAcquire(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding, int length, out ValueDescriptor descriptor, out long newBytes)
     {
         Span<byte> scratch = stackalloc byte[ScratchBytes];
         var pieces = TextPieces.OfText(text, encoding, length, scratch);
-
         return TryAcquire(ref pieces, length, out descriptor, out newBytes);
     }
 
-    // The same, for the bytes of a Dictionary text a node received, as its sender stored them, length
-    // of them, at least one; for Replication.Load.BlockImport, under the lock of the writes.
     public bool TryAcquire(ReadOnlySequence<byte> bytes, out ValueDescriptor descriptor, out long newBytes)
     {
         var pieces = TextPieces.OfReceived(bytes);
-
         return TryAcquire(ref pieces, (int)bytes.Length, out descriptor, out newBytes);
     }
 
-    // One more reference to the entry at the address, which a block that is written refers to and which
-    // some block that is not freed refers to already: for a node of a secondary index written with a key
-    // that shares the entry of its root (see the class), under the lock of the writes. It allocates
-    // nothing and cannot fail.
-    public void AddReference(ArenaAddress address)
+    public void AddReference(ulong id)
     {
-        AssertTheLockIsHeld();
-
-        ref var slot = ref _slots[ValueBlocks.TextSlotOf(_arena, address)];
-
-        Debug.Assert(slot.Address == address && slot.References > 0, "A reference is added to an entry that is referenced.");
-
-        slot.References++;
+        AssertWrites();
+        _slots.At(ReferenceOf((uint)id)).References++;
     }
 
-    // Releases one reference to the entry at the address, for the free of a block that holds it: a root
-    // through its Text descriptor (Storage.Roots.RootStorage.FreeValue) or a node of an index through a
-    // shared key, under the lock of the writes. An entry whose count reaches zero leaves the bucket
-    // table and its blocks are freed, prepared or live, in this call (see the class).
-    public void Release(ArenaAddress address)
+    public void Release(ulong id)
     {
-        AssertTheLockIsHeld();
-
-        var number = ValueBlocks.TextSlotOf(_arena, address);
-        ref var slot = ref _slots[number];
-
-        Debug.Assert(slot.Address == address && slot.References > 0, "A reference names the entry of its slot.");
-
-        if (--slot.References > 0)
+        AssertWrites();
+        var number = (uint)id;
+        var reference = ReferenceOf(number);
+        ref var slot = ref _slots.At(reference);
+        if (--slot.References != 0)
         {
             return;
         }
 
-        _buckets.Remove(slot.Hash, number);
-        ValueBlocks.FreeText(_arena, address, slot.Length);
-
-        ReturnSlot(number);
-        Count--;
+        var length = slot.Length;
+        var address = AddressOf(id);
+        Remove(reference);
+        ValueBlocks.FreeText(_arena, address, length);
+        _locator.Return(number);
     }
 
-    // One unit under the writes lock. A later writer may have added a reference
-    // or grown the bucket table since the last probe. After unlink the cursor
-    // owns only the native slots and the ID stays outside the free list.
-    // The arena still counts each detached slot until its physical release.
     public bool ReleaseStep(ref TextReclamation work)
     {
-        AssertTheLockIsHeld();
+        AssertWrites();
         if (!work.Detached)
         {
-            return ProbeRelease(ref work);
+            var reference = ReferenceOf(work.Id);
+            ref var slot = ref _slots.At(reference);
+            if (--slot.References != 0)
+            {
+                work = default;
+                return true;
+            }
+
+            work.Address = AddressOf(work.Id);
+            work.ChunkCount = slot.Length > ValueBlocks.SingleBlockLimit ? ValueBlocks.ChunkCount((int)slot.Length) : 0;
+            Remove(reference);
+            work.Detached = true;
+            return false;
         }
 
         if (!work.PendingChunk.IsNull)
@@ -206,75 +182,28 @@ internal sealed class TextTable
             return false;
         }
 
-        ReturnSlot(work.Id);
+        _locator.Return(work.Id);
         work = default;
         return true;
     }
 
-    private bool ProbeRelease(ref TextReclamation work)
+    public void Publish(ulong id)
     {
-        var number = ValueBlocks.TextSlotOf(_arena, work.Address);
-        ref var slot = ref _slots[number];
-        Debug.Assert(slot.Address == work.Address && slot.References > 0, "A reference names the entry of its slot.");
-
-        if (slot.References > 1)
-        {
-            slot.References--;
-            work = default;
-            return true;
-        }
-
-        if (work.BucketVersion != _buckets.Version)
-        {
-            work.BucketVersion = _buckets.Version;
-            work.Bucket = -_buckets.BucketOf(slot.Hash);
-        }
-
-        if (!_buckets.TryRemoveFromBucket(IndexTable.EntryOf(slot.Hash, number), work.Bucket, out var next))
-        {
-            work.Bucket = next;
-            return false;
-        }
-
-        work.Id = number;
-        work.ChunkCount = slot.Length > ValueBlocks.SingleBlockLimit ? ValueBlocks.ChunkCount((int)slot.Length) : 0;
-        work.Detached = true;
-        slot = default;
-        Count--;
-        return false;
-    }
-
-    // Publishes the entry at the address when it is still prepared, which the arena knows of its first
-    // block (Arena.IsPrepared), for the publication of a block that refers to it: a root
-    // (Storage.Roots.RootStorage.Publish), or a node of an index whose new key shares it, which is published
-    // before the root (Engine.Indexes.OrderedTree), under the lock of the writes. Its slot holds the length
-    // of the entry, by which its blocks are placed. It allocates nothing and changes no count.
-    public void Publish(ArenaAddress address)
-    {
+        var address = AddressOf(id);
         if (_arena.IsPrepared(address))
         {
-            ValueBlocks.PublishText(_arena, address, _slots[ValueBlocks.TextSlotOf(_arena, address)].Length);
+            ValueBlocks.PublishText(_arena, address, _slots.At(ReferenceOf((uint)id)).Length);
         }
     }
 
-    // For the tests of the engine (EngineDatabase.TextReferences): each entry with its exact stored bytes
-    // and its references, under the lock of the writes.
     public List<(byte[] Text, long References)> References()
     {
         var references = new List<(byte[] Text, long References)>(Count);
-
-        for (var number = 0; number < _nextUnusedSlot; number++)
+        for (var reference = 1u; reference <= (uint)Count; reference++)
         {
-            ref var slot = ref _slots[number];
-
-            if (slot.Address.IsNull)
-            {
-                continue;
-            }
-
-            var descriptor = DescriptorOf(slot);
+            ref var slot = ref _slots.At(reference);
+            var descriptor = Physical(slot);
             var bytes = new byte[slot.Length];
-
             ValueBlocks.CopyTo(_arena, descriptor, default, bytes);
             references.Add((bytes, slot.References));
         }
@@ -282,119 +211,232 @@ internal sealed class TextTable
         return references;
     }
 
-    private static ValueDescriptor DescriptorOf(in TextSlot slot) =>
-        new() { Kind = DescriptorKindEnum.Text, Length = slot.Length, Location = slot.Address.Value };
+    public bool TryLocation(uint id, out ArenaAddress address, out uint length)
+    {
+        AssertWrites();
+        var ordinal = _locator.Ordinal(id);
+        if (ordinal < 0)
+        {
+            address = default;
+            length = 0;
+            return false;
+        }
 
-    // The search and the addition of TryAcquire (see there).
+        address = AddressOf(id);
+        length = _slots.At((uint)ordinal + 1).Length;
+        return true;
+    }
+
+    public void MoveAddress(uint id, ArenaAddress to)
+    {
+        AssertWrites();
+        _locator.SetAddress(id, to);
+    }
+
     private bool TryAcquire(ref TextPieces pieces, int length, out ValueDescriptor descriptor, out long newBytes)
     {
-        AssertTheLockIsHeld();
-
+        AssertWrites();
         var hash = HashOf(ref pieces);
-        var probe = new IndexProbe(_buckets, hash);
-
-        while (probe.Next(out var number))
+        var found = Find(_active, hash, length, ref pieces);
+        if (found == 0 && _old is { } old)
         {
-            ref var slot = ref _slots[number];
+            found = Find(old, hash, length, ref pieces);
+        }
 
-            if (slot.Length == (uint)length && HoldsTheBytes(slot, ref pieces))
-            {
-                slot.References++;
-                descriptor = DescriptorOf(slot);
-                newBytes = 0;
-
-                return true;
-            }
+        if (found != 0)
+        {
+            ref var slot = ref _slots.At(found);
+            slot.References++;
+            descriptor = Resident(slot.Id, slot.Length);
+            newBytes = 0;
+            return true;
         }
 
         return TryAdd(ref pieces, hash, length, out descriptor, out newBytes);
     }
 
-    // A new entry of the text: room in the bucket table and a slot first, then the blocks, so that a
-    // refusal of the arena or a failure gives back only the slot. An array of slots that cannot grow any
-    // more refuses the entry as the arena refuses one it cannot hold: no slot is taken, no block is
-    // stored and no count changes; the bucket table may have grown and room in it is reserved, which
-    // the next entry uses.
+    private uint Find(TextBucketSet table, uint hash, int length, ref TextPieces pieces)
+    {
+        for (var reference = table.Head(table.Bucket(hash)); reference != 0; reference = _slots.At(reference).Next & LinkMask)
+        {
+            ref var slot = ref _slots.At(reference);
+            if (slot.Hash == hash && slot.Length == (uint)length && HoldsBytes(slot, ref pieces))
+            {
+                return reference;
+            }
+        }
+
+        return 0;
+    }
+
     private bool TryAdd(ref TextPieces pieces, uint hash, int length, out ValueDescriptor descriptor, out long newBytes)
     {
-        if (_buckets.IsFull(reserved: 0) && _buckets.BucketBits < IndexTable.MostBucketBits)
+        descriptor = default;
+        newBytes = 0;
+
+        // A miss can do bounded work when growth cannot keep pace. An
+        // existing text never enters this path or advances a migration.
+        if (_old is not null || Count >= 4L * _active.Capacity)
         {
-            Grow();
+            Maintain(2);
         }
 
-        _buckets.Reserve(hash, others: 0);
-
-        if (!TryTakeSlot(out var number))
+        if (!_locator.TryTake(out var id))
         {
-            descriptor = default;
-            newBytes = 0;
-
             return false;
         }
 
-        var source = pieces.Source();
-        bool stored;
-
+        var bucket = _active.Bucket(hash);
+        var added = false;
         try
         {
-            stored = ValueBlocks.TryStoreText(_arena, number, length, ref source, out descriptor);
+            _slots.Reserve();
+            _active.Reserve(bucket);
+            var source = pieces.Source();
+            if (!ValueBlocks.TryStoreText(_arena, id, length, ref source, out var physical))
+            {
+                return false;
+            }
+
+            var reference = _slots.Add(new TextSlot { Id = id, Hash = hash, Length = (uint)length, References = 1 });
+            _locator.SetOrdinal(id, (int)reference - 1);
+            _locator.SetAddress(id, ValueBlocks.AddressOf(physical));
+            Link(_active, bucket, reference);
+            added = true;
+            descriptor = Resident(id, (uint)length);
+            newBytes = ValueBlocks.SlotBytesOf(length);
+            return true;
         }
-        catch
+        finally
         {
-            ReturnSlot(number);
-            throw;
+            if (!added)
+            {
+                _active.ReleaseReservation(bucket);
+                _slots.ReleaseReservation();
+                _locator.Return(id);
+            }
         }
-
-        if (!stored)
-        {
-            ReturnSlot(number);
-            newBytes = 0;
-
-            return false;
-        }
-
-        _slots[number] = new TextSlot
-        {
-            Address = ValueBlocks.AddressOf(descriptor),
-            References = 1,
-            Hash = hash,
-            Length = (uint)length,
-        };
-
-        _buckets.Add(hash, number);
-        Count++;
-        newBytes = ValueBlocks.SlotBytesOf(length);
-
-        return true;
     }
 
-    // The seeded hash of the stored bytes, in their order whatever the pieces.
+    private void Migrate(TextBucketSet old)
+    {
+        if (!old.TryPage(_bucketCursor, out var bucket))
+        {
+            _old = null;
+            return;
+        }
+
+        _bucketCursor = bucket;
+        var reference = old.Head(bucket);
+        if (reference == 0)
+        {
+            _bucketCursor++;
+            return;
+        }
+
+        var destination = _active.Bucket(_slots.At(reference).Hash);
+        _active.Reserve(destination);
+        Unlink(old, reference);
+        Link(_active, destination, reference);
+    }
+
+    private void Link(TextBucketSet table, int bucket, uint reference)
+    {
+        var first = table.Head(bucket);
+        ref var slot = ref _slots.At(reference);
+        slot.Previous = 0;
+        slot.Next = table.Tag | first;
+        if (first != 0)
+        {
+            _slots.At(first).Previous = reference;
+        }
+
+        table.SetHead(bucket, reference);
+    }
+
+    private void Unlink(TextBucketSet table, uint reference)
+    {
+        ref var slot = ref _slots.At(reference);
+        var next = slot.Next & LinkMask;
+        if (slot.Previous == 0)
+        {
+            table.SetHead(table.Bucket(slot.Hash), next);
+        }
+        else
+        {
+            ref var previous = ref _slots.At(slot.Previous);
+            previous.Next = table.Tag | next;
+        }
+
+        if (next != 0)
+        {
+            _slots.At(next).Previous = slot.Previous;
+        }
+    }
+
+    private void Remove(uint reference)
+    {
+        ref var slot = ref _slots.At(reference);
+        Unlink(TableOf(slot.Next), reference);
+        _locator.SetOrdinal(slot.Id, -1);
+
+        var last = (uint)Count;
+        if (reference != last)
+        {
+            slot = _slots.At(last);
+            var table = TableOf(slot.Next);
+            if (slot.Previous == 0)
+            {
+                table.SetHead(table.Bucket(slot.Hash), reference);
+            }
+            else
+            {
+                _slots.At(slot.Previous).Next = table.Tag | reference;
+            }
+
+            var next = slot.Next & LinkMask;
+            if (next != 0)
+            {
+                _slots.At(next).Previous = reference;
+            }
+
+            _locator.SetOrdinal(slot.Id, (int)reference - 1);
+        }
+
+        _slots.Pop();
+    }
+
+    private int NeededHeads() => (int)BitOperations.RoundUpToPowerOf2(Math.Max(2u, ((uint)Count + 3) / 4));
+
+    private uint ReferenceOf(uint id) => (uint)(_locator.Ordinal(id) + 1);
+
+    private TextBucketSet TableOf(uint next) => (next & Tag) == _active.Tag ? _active : _old!;
+
+    private static ValueDescriptor Resident(uint id, uint length) => new() { Kind = DescriptorKindEnum.Text, Length = length, Location = id };
+
+    private ValueDescriptor Physical(in TextSlot slot) =>
+        new() { Kind = DescriptorKindEnum.Text, Length = slot.Length, Location = AddressOf(slot.Id).Value };
+
     private uint HashOf(ref TextPieces pieces)
     {
-        var marvin = new Marvin(_seed);
-
+        var hash = new Marvin(_seed);
         pieces.Restart();
-
         for (var piece = pieces.Next(); !piece.IsEmpty; piece = pieces.Next())
         {
-            marvin.Append(piece);
+            hash.Append(piece);
         }
 
-        return marvin.Finish();
+        return hash.Finish();
     }
 
-    // Whether the entry of the slot holds exactly the bytes, which have its length: compared a piece at a
-    // time with its one block, or with its chunks one after the other.
-    private bool HoldsTheBytes(in TextSlot slot, ref TextPieces pieces)
+    private bool HoldsBytes(in TextSlot slot, ref TextPieces pieces)
     {
-        var descriptor = DescriptorOf(slot);
+        var descriptor = Physical(slot);
         var chunked = ValueBlocks.LiesInChunks(descriptor);
         var entries = chunked ? ValueBlocks.Directory(_arena, descriptor) : default;
         var stored = chunked ? ValueBlocks.Chunk(_arena, entries, 0) : ValueBlocks.Contiguous(_arena, descriptor, default);
         var nextChunk = 1;
-
         pieces.Restart();
-
         for (var piece = pieces.Next(); !piece.IsEmpty; piece = pieces.Next())
         {
             while (!piece.IsEmpty)
@@ -405,7 +447,6 @@ internal sealed class TextTable
                 }
 
                 var count = Math.Min(piece.Length, stored.Length);
-
                 if (!piece[..count].SequenceEqual(stored[..count]))
                 {
                     return false;
@@ -419,67 +460,5 @@ internal sealed class TextTable
         return true;
     }
 
-    // The length an array of slots of the length given grows to once every slot of it was given out:
-    // twice the length, 4 for an empty array, and at most the longest array of .NET (Array.MaxLength).
-    // False when no longer array can be had. A doubling past 2^30 slots does not fit an int, and the
-    // array is never cut short for it: a table that cannot grow refuses the entry (TryAdd). A limit of
-    // the structure, not an option (docs/design/milestone-1-engine-contract.md, "Collections and
-    // strings").
-    public static bool TryGrowSlots(int length, out int grown)
-    {
-        grown = (int)Math.Min(Math.Max(4L, 2L * length), Array.MaxLength);
-
-        return grown > length;
-    }
-
-    // A free slot, the last freed first, or one never given out, after the array grew when every slot
-    // was (TryGrowSlots); false, with nothing changed, when it cannot grow. The new array is allocated
-    // before anything changes.
-    private bool TryTakeSlot(out uint number)
-    {
-        if (_freeSlots != 0)
-        {
-            number = _freeSlots - 1;
-            _freeSlots = _slots[number].Length;
-            _slots[number].Length = 0;
-
-            return true;
-        }
-
-        if (_nextUnusedSlot == _slots.Length)
-        {
-            if (!TryGrowSlots(_slots.Length, out var grown))
-            {
-                number = 0;
-
-                return false;
-            }
-
-            Array.Resize(ref _slots, grown);
-        }
-
-        number = (uint)_nextUnusedSlot++;
-
-        return true;
-    }
-
-    // Gives back a slot TakeSlot gave and no entry took.
-    private void ReturnSlot(uint number)
-    {
-        _slots[number] = new TextSlot { Length = _freeSlots };
-        _freeSlots = number + 1;
-    }
-
-    // Replaces the bucket table by one of twice its main buckets, built from the words of the current
-    // one; no read can hold the old one, so it is let go of at once.
-    private void Grow()
-    {
-        var grown = new IndexTable(_buckets.BucketBits + 1, _buckets.Version + 1);
-
-        _buckets.CopyInto(grown);
-        _buckets = grown;
-    }
-
-    private void AssertTheLockIsHeld() =>
-        Debug.Assert(_writes is null || _writes.IsHeldByCurrentThread, "A count of the text table changes only on the thread that holds the lock of the writes.");
+    private void AssertWrites() => Debug.Assert(_writes is null || _writes.IsHeldByCurrentThread);
 }

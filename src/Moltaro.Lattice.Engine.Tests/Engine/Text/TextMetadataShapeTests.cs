@@ -17,7 +17,7 @@ public sealed class TextMetadataShapeTests
     private const int Leaves = 4;
     private const int Entries = Leaves * IdsPerLeaf;
 
-    [Theory(Skip = StableLocatorNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public async Task Sparse_ids_keep_one_small_locator_leaf_each_and_the_same_writer_room_as_dense_ids(string encoding)
     {
@@ -57,7 +57,7 @@ public sealed class TextMetadataShapeTests
         ExpectSparse(child, initialChild, expected, expandedChild, freshChild, one, encoding);
     }
 
-    [Theory(Skip = StableLocatorNotImplemented)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public async Task A_reader_local_keeps_one_old_leaf_after_its_smaller_replacement_is_published(string encoding)
     {

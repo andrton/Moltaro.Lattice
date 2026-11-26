@@ -226,7 +226,11 @@ internal readonly ref struct RootReader
 
     // The bytes of a value of this root that does not lie in chunks, which the descriptor given, one of
     // its own, names: inline in the root block, in a block of its own, or in the block of its text entry.
-    public ReadOnlySpan<byte> ValueBytes(in ValueDescriptor descriptor) => ValueBlocks.Contiguous(ArenaOfValues(), descriptor, _payload);
+    public ReadOnlySpan<byte> TextBytes(in ValueDescriptor descriptor)
+    {
+        var arena = ArenaOfValues();
+        return ValueBlocks.Contiguous(arena, ValueBlocks.ResolveText(arena, descriptor), _payload);
+    }
 
     // The number of encoded bytes of the value of a String or Binary field, as stored: for a String,
     // its bytes in the database encoding, UTF-8 or UTF-16.

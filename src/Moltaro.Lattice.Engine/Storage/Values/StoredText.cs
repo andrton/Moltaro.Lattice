@@ -29,8 +29,9 @@ internal static class StoredText
         encoding == LatticeStringEncodingEnum.Utf16 ? 2 * text.Length : Encoding.UTF8.GetByteCount(text);
 
     // The text of a String value as a new string: the one allocation of a read of text.
-    public static string Read(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, LatticeStringEncodingEnum encoding)
+    public static string Read(Arena arena, in ValueDescriptor resident, ReadOnlySpan<byte> rootPayload, LatticeStringEncodingEnum encoding)
     {
+        var descriptor = ValueBlocks.ResolveText(arena, resident);
         if (descriptor.Length == 0)
         {
             return string.Empty;

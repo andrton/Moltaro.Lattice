@@ -213,7 +213,7 @@ internal ref struct ValueHolder
 
         if (descriptor.Kind == DescriptorKindEnum.Text)
         {
-            Arena.Texts.AddReference(ValueBlocks.AddressOf(descriptor));
+            Arena.Texts.AddReference(descriptor.Location);
         }
         else if (RootStorage.OwnedAddress(descriptor) is { IsNull: false } block)
         {

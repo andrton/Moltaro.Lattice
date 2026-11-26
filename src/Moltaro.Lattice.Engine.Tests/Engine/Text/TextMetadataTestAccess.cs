@@ -10,8 +10,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // These observations run at phase boundaries under Writes, outside ordinary hits.
 internal static class TextMetadataTestAccess
 {
-    public const string StableLocatorNotImplemented = "Stable text locator and bounded metadata maintenance are not implemented.";
-
     public static TextCapacitySnapshot Capacity(EngineDatabase node) =>
         UnderWrites(node, static parts => parts.Arena.Texts.MeasureCapacity());
 

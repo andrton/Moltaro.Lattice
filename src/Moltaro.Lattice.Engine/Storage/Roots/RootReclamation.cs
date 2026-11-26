@@ -170,7 +170,7 @@ internal sealed class RootReclamation(Arena arena)
                 break;
 
             case DescriptorKindEnum.Text:
-                _text = new TextReclamation(address);
+                _text = new TextReclamation((uint)descriptor.Location);
                 _hasText = true;
                 break;
         }

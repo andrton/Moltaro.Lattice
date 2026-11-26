@@ -108,6 +108,11 @@ public sealed class ViewStorageTests
             var offset = layout.StoredFieldOf(layout.EntityType.GetField(field)).Offset - BlockHeader.Size;
             var descriptor = ResidentDescriptor.Read(arena.Payload(root)[offset..]);
             Assert.Equal(kind, descriptor.Kind);
+            if (kind == DescriptorKindEnum.Text)
+            {
+                descriptor.Location = arena.Texts.AddressOf(descriptor.Location).Value;
+            }
+
             expected = (arena, root, descriptor);
         });
 
