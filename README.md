@@ -324,12 +324,12 @@ read that begins once its node has reached that position, as a read with the ses
 commit does, sees all of it; a search or an enumeration that runs while the batch is
 published is no snapshot and may return some of its entities as they were before and
 others as after. A batch takes one operation per entity. Building the batch takes local
-memory for its snapshots. If the local instance cannot hold an addition, the adding
-method throws `WriteRejected` with `Limit` set to `Memory`. The adding method stops
-at the first snapshot allocation it cannot fund. Later properties may still need
-validation. The previous operations stay in the batch and the addition can be tried again. `CommitAsync` checks separately whether
-execution can fit. A batch cannot read and takes no place in the write queue while it is
-being built.
+memory for its owned snapshots and the structures that hold them. If the local instance
+cannot hold an addition, the adding method throws `WriteRejected` with `Limit` set to
+`Memory`. It stops at the first reservation it cannot fund, before reading later values.
+The previous operations stay in the batch and the addition can be tried again.
+`CommitAsync` checks capacity for execution separately. A batch cannot read and takes
+no place in the write queue while it is being built.
 
 **Editing part of an entity.** Create an update for an existing key, give it commands in
 execution order and commit it once. Both the class set and the set by name take schema

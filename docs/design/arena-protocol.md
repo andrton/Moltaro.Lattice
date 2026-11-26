@@ -343,6 +343,14 @@ no snapshot.
 
 ### Ownership across partial updates
 
+Ordinary preparation reserves the exact managed image and field bitmap before
+placement. Under the writes lock, an arena can reuse the last returned array
+of the same length through a weak reference. Borrowing removes that target
+from the slot. A second active writer pays for a separate array. The returned
+array is eligible for collection while the arena is live. The fixed weak owner
+remains charged until the arena closes. Forwarded and batch exports keep their
+separate working lease.
+
 Under the writes lock, a partial update prepares a fresh root from the published
 predecessor. Only one prepared version may target that key. In the new holder, inline
 bytes are packed again and their offsets are calculated there. A value the available
@@ -619,6 +627,14 @@ until they publish or abort, so slot reuse cannot change their target.
 
 ## Reclamation and relocation
 
+Shared text introduced by a preparation can grow the writer's bucket table before
+publication. Lookup continues to find existing mappings as the writer relinks entries.
+Preparation pays for any table, pages and rollback state it keeps. If a competing
+prepared write retains a reference when a write is withdrawn, that mapping keeps its
+identifier and the needed page. The writer can return exclusive growth without
+allocating during withdrawal. Readers continue to resolve the stable text identifier
+through the locator.
+
 On a Ready master or child, a periodic worker offers a turn every 16 ms. Ticks
 can coalesce while work is in progress. A turn enters the counted operation barrier,
 tries the local write lock without waiting, and rechecks admission under it. It
@@ -638,6 +654,13 @@ its last allocated slot is freed.
 At most one move publishes in a turn. Retained relocation copies plus the proposed
 destination charge at most one 64 KiB slot. A prepared master write prevents
 relocation. Close joins the worker before its final cleanup.
+
+A preparation reserves retirement capacity before changing publication state. Queue
+growth pays for its actual arrays and the previous capacities that a surviving smaller
+reservation could need. Withdrawing a reservation gives back any growth that none of
+the surviving entries or reservations needs, without a new allocation. The surviving
+backing receives the current FIFO order, including any entries dequeued or added
+after the growth. A backing needed by published reader-protected entries still counts.
 
 An empty retirement queue can drop its backing array when no reservation
 remains and its capacity exceeds 64 times the number of reader slots. The trim costs one work unit and copies no entries.
