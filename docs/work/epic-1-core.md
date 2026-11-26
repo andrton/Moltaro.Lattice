@@ -1328,7 +1328,7 @@ Why this order:
 | S22C | Cancellation of a registered position wait | Full, critical | Both parts done on 25 November 2026 |
 | S23 | Compaction and shrink | Full, critical | Done on 26 November 2026 |
 | S23A | Evacuate nearly empty segments | Full, critical | Done on 26 November 2026 |
-| S24 | The memory budget | Full | Not started |
+| S24 | The memory budget | Full, critical | In progress since 26 November 2026 |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
 | S26 | Operation identity and safe retry | Full | Not started |
 | S27 | PostgreSQL provider and Durable open | Full | Not started |
@@ -14967,6 +14967,16 @@ Raw results stay outside Git.
 
 #### S24 · The memory budget
 
+**Started on 26 November 2026.** The S24 coordinator opened branch
+`epic-1/sprint-24-memory-budget` from `dd519ba40005204636ad6ff7ca08a3667ab1a3d3`.
+GitHub Actions run 45793044487 passed all three jobs on that push. The
+independent source study and the review of the existing capacity contracts
+started before the internal contract and tests.
+
+On the base, the local Windows x64 Debug and Release builds and format check
+passed. The Release suite passed 4,695 cases with 129 skips.
+All 18 Release samples ran through their expected outcomes.
+
 **Rollback of a full root on a child (S23D).** The verified `b53fb21a`
 reproduction reached the first list growth in a real load and the fifth
 effect of normal replay batches that inserted or replaced a full root.
@@ -15047,6 +15057,205 @@ and rollback on refusal. The connection buffer's retention policy belongs to S33
 (about 145 KB an instance) and its starts, and the pieces `ExportedValues` keeps for a
 member of a batch from its `Add` to its commit; the brief names each before the sprint
 starts.
+
+##### Contract boundaries
+
+The planner settled [Q31](open-questions.md#q31-native-bytes-that-no-counter-of-the-arena-shows)
+and [Q33](open-questions.md#q33-what-an-application-sees-when-the-table-of-root-entries-is-full)
+on 26 November 2026. Budget admission uses the actual allocated capacity of
+each arena segment, including the empty reserve. Reserve the entire native
+grant and its managed backing before allocating them. Unwind the reservation
+if the allocator fails. Retagging a region, moving a slot among prepared, live
+and retired states, and activating the reserve keep the same native charge.
+Secondary nodes and native text blocks are parts of that charge. With the
+standard 64 KiB region, a 3,328-byte class fits 19 slots and leaves 2,304 bytes.
+Test 18, 19 and 20 slots. A separate allocator ledger must observe nonzero
+grants, reserve reuse and physical returns and reconcile them with live,
+prepared and retired slots, class slack, idle capacity and tails. Test the
+next 4 MiB grant at one byte below, exactly at, and one byte above the
+required budget after including the managed baseline and allocation peak.
+
+Add `LatticeLimitEnum.RootSlots = 4`. A master write that needs another
+lifetime and cannot address one reports `WriteRejected` with `RootSlots`.
+If a slot can be addressed but its new page or directory cannot fit, the
+result is `WriteRejected` with `Memory`. An existing free slot is used
+without requiring new page capacity. Use a distinct internal result for
+address exhaustion. A reusable slot held by an earlier write or reader is
+subject to the bounded resolution in Q14 and O20. Permanent exhaustion
+without a source of reusable slots gives no reason to wait for compaction.
+Both resource refusals leave a batch's `OperationIndex` unset and preserve
+all earlier data, revisions and position. Test both through a TCP-forwarded
+write. Exercise 4,095 slots, 4,096 slots and the next insertion with one
+real page in the reduced-address test. Independently confirm the production
+limit of 524,287 pages and 2,147,479,552 slots. Hold a deleted slot with a
+reader, cover reuse with unchanged byte charge, and prove that a slot freed
+after generation `uint.MaxValue` stays out of the free list. Check the
+stamped handle independently before and after ordinary reuse. Test the
+separate page-byte reservation boundary while a new address is available.
+
+Before Ready, controlled failure to hold the state ends open with
+`Unavailable`. Check the announced primary-index capacity with the least
+root bytes before installing data, and check actual grants during the load.
+After Ready, keep the installed data readable at the same position and pause
+at the first blocked change. Record the internal reason separately from
+position and distinguish byte and slot pressure. The first blocked change is
+unacknowledged and retries before any later change. Retry with bounded,
+cancellable waits that allow close, local reads and maintenance to proceed.
+A reusable native or root slot can restore progress without a lower byte
+charge. Arbitrary allocation or publication failures retain their existing
+failure handling. The public pressure reason and known master progress
+belong to [S39](#s39--diagnostics).
+
+Test replication pressure both while receiving a transaction and while
+preparing an assembled transaction. A single-frame body borrows the current
+receive buffer. An assembled multi-frame body borrows its charged pieces.
+Keep either body valid until the transaction finishes. During assembly,
+validate the frame and reserve its new backing capacity before irrevocably
+consuming its bytes. A refused first, intermediate or last frame can be
+retried once capacity permits without consuming its bytes twice. Keep only
+the current bounded receive buffer and the already charged pieces while
+paused. Distinguish a valid announcement beyond available capacity from a
+malformed frame. Compare a new allocation with reuse of pieces retained from
+a preceding message. Use a real TCP child to test the received-byte boundary
+and the applied-position boundary, including cancellation and close in both,
+unchanged reads and indexes, and once-only ordered completion. A write reply
+interleaved with transaction frames keeps its actual outcome. Processing
+cannot advance past the blocked frame to manufacture or acknowledge a result.
+The master does not wait for the child to commit a write.
+
+A Ready child pauses on the same live connection and retries in order when
+capacity permits. A persistent shortage can keep it paused at that frame or
+transaction. An observed end of the connection or close uses the existing
+cursor cleanup. A quiet peer can become unreachable while the child holds a
+frame. S33 adds the retention limit and slow peer policy. S34 adds reconnect
+and reload. Until then a stalled cursor can retain a growing delivery tail
+on the master. The finite TCP scenarios verify ownership and progress.
+
+Account independently for the instance budget charge, logical
+`PendingDeliveryBytes` and physical delivery tail capacity. The transaction
+encoder writes directly into the tail. Its physical capacity is a separate
+reported figure outside S24 admission from allocation until release. Include
+blocks from Begin before commit, blocks retained for a reader, and the spare.
+Count each physical block once. Commit changes the logical pending bytes.
+Charge actual preparation, publication, independent batch payload pieces,
+network buffer and child assembly capacities to the instance budget.
+Test that finite later master writes complete during a real pause, that
+physical delivery grows separately from budget admission, and that the
+live connection resumes from the first blocked sequence. Also verify that a
+connection end releases its cursor while other cursors may still hold blocks.
+Test an interleaved reply before and after the blocked frame. A known
+committed outcome and its local position wait keep their existing semantics.
+See X6 in the [exceptions register](exceptions.md) for the wait on an unknown
+fully sent outcome.
+
+Undo all unused reservations and all capacity owned solely by a failed or
+cancelled preparation, including new managed backing and newly granted native
+segments. Drop abandoned managed references as part of rollback. The GC
+decides when unreachable memory is collected. Previously owned and still
+reusable capacity remains charged. Reconcile the actual owners independently
+when earlier retirement or other work changes the total. Exercise real
+allocation failure and deterministic budget refusal, a failure after earlier
+members in a large batch, and cancellation before dispatch and while
+resolving pressure. On a TCP child, check a pre-Ready failure and a Ready
+pause with nonzero ledgers for native grants, root handles and prepared
+blocks. Reach the full-root and oversized workspace paths corrected by S23D
+and S23F. Confirm unchanged local results and position at the pause, success
+of compatible local reads, no acknowledgement past the pause, and ordered,
+once-only resume after memory or a usable slot returns.
+
+##### Source study
+
+The independent study checked each licence at the source commit before
+reading the implementation. Lattice uses the following ideas without
+adapting source code.
+
+- Apache DataFusion's greedy pool uses a single atomic check and update for
+  reserve. An unsuccessful reservation leaves the balance unchanged. Its
+  reservations can transfer existing charges and return them at the end of
+  ownership. Shared updates cost synchronization and require an owner for
+  every charge. Use one synchronized admission balance and charge each
+  backing store for its owned lifetime.
+  [Source](https://github.com/apache/datafusion/blob/273d37a5968571900bfe9efa1ee89f97914da118/datafusion/execution/src/memory_pool/pool.rs#L81-L103) ·
+  [Reservation transfer](https://github.com/apache/datafusion/blob/273d37a5968571900bfe9efa1ee89f97914da118/datafusion/execution/src/memory_pool/mod.rs#L430-L475) ·
+  [Apache-2.0 licence](https://github.com/apache/datafusion/blob/273d37a5968571900bfe9efa1ee89f97914da118/LICENSE.txt)
+- DuckDB reserves the aligned buffer allocation before acquiring it, can
+  reuse an equal-size buffer, and excludes reader-pinned blocks from
+  unloading. Eviction costs walks, synchronization and possible spill.
+  Reuse already charged capacity and retain its charge until safe release.
+  Exact admission and replacement peaks require Lattice to track both owned
+  allocations. DuckDB's cached adjustments and spill policy do not carry
+  those guarantees.
+  [Reservation and reuse](https://github.com/duckdb/duckdb/blob/7c039464e452ddc3330e2691d3fa6d305521d09b/src/storage/standard_buffer_manager.cpp#L158-L171) ·
+  [Pinned blocks](https://github.com/duckdb/duckdb/blob/7c039464e452ddc3330e2691d3fa6d305521d09b/src/storage/buffer/block_handle.cpp#L160-L197) ·
+  [Cached adjustments](https://github.com/duckdb/duckdb/blob/7c039464e452ddc3330e2691d3fa6d305521d09b/src/include/duckdb/storage/buffer/buffer_pool.hpp#L121-L139) ·
+  [MIT licence](https://github.com/duckdb/duckdb/blob/7c039464e452ddc3330e2691d3fa6d305521d09b/LICENSE)
+- etcd Raft limits outstanding bytes of accepted entries and separately
+  advances applied progress on completion. This costs separate cursors,
+  capacity bookkeeping and a shorter pipeline under pressure. Keep the
+  ordered apply boundary and separate completion fence. Raft's encoded-byte
+  limit covers outstanding log work. Lattice also needs its own physical
+  resident and preparation reservations and safe rollback over TCP.
+  [Ordered acceptance](https://github.com/etcd-io/raft/blob/f35a02212416d045c574e30aa59d4b07c4b8d732/log.go#L218-L241) ·
+  [Completion](https://github.com/etcd-io/raft/blob/f35a02212416d045c574e30aa59d4b07c4b8d732/log.go#L330-L363) ·
+  [Apache-2.0 licence](https://github.com/etcd-io/raft/blob/f35a02212416d045c574e30aa59d4b07c4b8d732/LICENSE)
+
+##### Measurement plan
+
+Use the fixed-volume reference churn from S23 (seed 6035, tape SHA-256
+`cccb5b144ccfa3400f35e02bc06a410eb6c106d637f8484dd893aa9ad0e0f456`),
+including its 30-second warm-up and five-minute measured window. The S24
+capacity run replays the same workload on one MemoryOnly master with standard
+maintenance and no child. The tape controls the offered operations and their
+order. A separate non-binding budget control must reach the reference live
+volume at matched cycle boundaries. Under pressure, reconcile values, revisions
+and volume against an independent model of successful transactions and report
+refusals by reason. A refused write stays in the denominator. If an unexpected
+outcome makes a later frame inapplicable, report that dependency.
+
+Set the tight run's limit before collecting results. Derive it from an
+independent inventory at Ready, including the actual managed capacities, and
+add one 4 MiB segment of headroom. Use a separate, untimed preflight of the same
+fixture if the inventory needs to be established. If the measured run never
+encounters pressure, keep its result and report the uncovered condition. An
+adjacent deterministic boundary trace must show refusal and reuse independently
+of the timed profile. Sample steady charge after warm-up and at the same cycle
+boundary after the last measured frame, with the same reader schedule. Record
+the reservation high-water mark at capacity transitions and confirm it against
+native allocator grants and an independently sized managed inventory, including
+overlapping old and new containers and an old generation held by a reader.
+Report peak divided by each steady sample, with absolute bytes. Report per-holder
+bytes and budget share at fixture Ready and separate collection lag, caller
+copies and allocation rate from the engine-owned charge.
+
+For the S14 standing-reserve comparison, first run the unchanged rule at the
+base and the candidate in Release in alternating rounds, with the same schema,
+payloads and offered indexed and unindexed operations. Hold the starting
+capacity equivalent by independent inventory and reproduce the reserve
+give-back branch on both. Count how often the rule retries each write and
+whether the next indexed operation takes the reserve back. Report admitted,
+refused and completed calls separately with p50, p95, p99 and maximum. Use a
+reserve-unconstrained run as a control. Draw a comparative conclusion only from
+equivalent completed work with the same branch reached, and have an independent
+reviewer reproduce the comparison from the pinned inputs.
+
+Use a one-region test segment for the reserve comparison so the fitting
+class can be saturated independently of other allocations. In one lane
+alternate a successful two-text unindexed change with a one-leaf indexed
+rewrite. In another lane offer a six-text change that still fails after
+give-back, followed by the same indexed rewrite. A case-only rewrite of
+the short indexed value needs one node and leaves the optional top-up
+observable. An untimed check on each head must see the original capacity
+refusals, give-back, isolated retry and reuse of at least one returned node
+by the next top-up without another native grant. Drain retired entries at
+equal points outside both timed calls. In each lane and its unconstrained
+control use five alternating paired Release rounds, each with 5,000 warm
+pairs and 25,000 measured pairs. Keep different outcomes in separate
+latency distributions.
+
+Use the local `development-5` manifest when its machine and affinity checks
+match. CI remains a correctness lane. Use the actual TCP child in separate
+deterministic load and resume tests. The churn tape serves as a capacity and
+composition workload here. The performance gates keep their own manifests.
 
 #### S25 · Reference fixture, managed reference and the memory gate
 
@@ -15744,7 +15953,9 @@ before S33, and a child does not notice a vanished master before S34.
   lifecycle, history and schema, published, applied and base positions, known progress
   of the master with the age of the observation, pending delivery, retained journal and
   receipts, queue reservations, the breakdown of native and managed storage, compaction,
-  longest open view, the last failure. Registration in the dependency injection package.
+  longest open view, the last failure, and the current reason a Ready child has
+  paused application (see [S24](#s24--the-memory-budget)). Registration in the
+  dependency injection package.
   A new thin assembly for ASP.NET Core that maps the route group under a path the
   application gives. The wait for the master's status is an option.
 - **To read.** [Control and maintenance tools](../design/storage-and-maintenance.md#control-and-maintenance-tools-q18);
