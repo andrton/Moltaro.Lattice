@@ -23,8 +23,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 //
 // Who calls it, and when. Only the thread that holds the lock of the writes (Writes.WriteExecutor),
 // because the arena, the table of root entries and the indexes take no lock and only that thread
-// changes them. A read never frees. Freeing happens on the path of the operations of the database, and
-// no thread or timer is started for it:
+// changes them. A read never frees. The periodic maintenance worker drains a bounded safe prefix
+// even when there are no further writes. Synchronous drains still happen in these operations:
 // - after every publication of a position, a write on a master or a transaction on a child, and of a
 //   root of a load, the writer looks once enough was counted since its last look (AfterWrite):
 //   as many things as ReadEpochs has slots, or as many bytes as one segment of the arena. Each look
@@ -70,7 +70,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
-// place. Its actions run on whichever thread drains; here only the writer frees.
+// place. Its actions run on whichever thread drains; here the thread must hold the writes lock.
 internal sealed class RetiredMemory
 {
     // A bounded first allocation for maintenance. A nonempty queue is never copied by a step.
@@ -269,9 +269,24 @@ internal sealed class RetiredMemory
                 {
                     break;
                 }
+
+                if (_rootWork is null && item.Kind is RetiredKindEnum.Root or RetiredKindEnum.DeletedRoot)
+                {
+                    try
+                    {
+                        beforeRootReclamationAllocation?.Invoke();
+                        _rootWork = new RootReclamation(_arena);
+                    }
+                    catch (OutOfMemoryException)
+                    {
+                        // No cursor or root has changed. Charge this attempt and
+                        // leave the same FIFO head for a later turn.
+                        return spent + 1;
+                    }
+                }
             }
 
-            if (StepHead(item, beforeRootReclamationAllocation))
+            if (StepHead(item))
             {
                 FinishHead();
             }
@@ -282,6 +297,21 @@ internal sealed class RetiredMemory
         if (_items.Count == 0)
         {
             ForgetLook();
+
+            if (spent < workLimit && CanTrimEmptyQueue())
+            {
+                try
+                {
+                    TrimEmptyQueue();
+                }
+                catch (OutOfMemoryException)
+                {
+                    // The empty-array allocation was refused. Keep the current
+                    // backing and try again in a later turn.
+                }
+
+                spent++;
+            }
         }
 
         return spent;
@@ -289,7 +319,7 @@ internal sealed class RetiredMemory
 
     // One unit belongs to the head: open its cursor, inspect one part, release
     // one slot or handle, or drop one managed table. No later item can bypass it.
-    private bool StepHead(in RetiredItem item, Action? beforeRootReclamationAllocation = null)
+    private bool StepHead(in RetiredItem item)
     {
         if (!_headActive)
         {
@@ -297,13 +327,7 @@ internal sealed class RetiredMemory
             {
                 case RetiredKindEnum.Root:
                 case RetiredKindEnum.DeletedRoot:
-                    if (_rootWork is null)
-                    {
-                        beforeRootReclamationAllocation?.Invoke();
-                        _rootWork = new RootReclamation(_arena);
-                    }
-
-                    _rootWork.Start((RootLayout)item.Owner!, item.Address);
+                    _rootWork!.Start((RootLayout)item.Owner!, item.Address);
                     _headActive = true;
                     return false;
 
@@ -391,15 +415,23 @@ internal sealed class RetiredMemory
         // large: a read held for a second beside a million writes a second leaves a million places.
         // Once it is empty and its capacity is more than 64 looks' worth (8,192 places, 384 KiB with
         // 128 slots), it lets the places go, unless places are reserved for writes not published yet;
-        // emptied, the list allocates nothing for that, and it grows again by doubling, before a
-        // publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
+        // emptied, the trim replaces its backing without copying any items. It grows again by doubling
+        // before a publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
         // one or two looks' worth, from trimming and growing again: only a peak of 64 looks' worth
         // does, and its growth costs about as much as it retired.
-        if (_items.Count == 0 && _reserved == 0 && _capacity > 64 * _itemsPerLook)
+        if (CanTrimEmptyQueue())
         {
-            _items.TrimExcess();
-            _capacity = 0;
+            TrimEmptyQueue();
         }
+    }
+
+    private bool CanTrimEmptyQueue() =>
+        _items.Count == 0 && _reserved == 0 && _capacity > 64 * _itemsPerLook;
+
+    private void TrimEmptyQueue()
+    {
+        _items.TrimExcess();
+        _capacity = 0;
     }
 
     // For a write the arena refused, under the lock of the writes: the epoch below which the reads

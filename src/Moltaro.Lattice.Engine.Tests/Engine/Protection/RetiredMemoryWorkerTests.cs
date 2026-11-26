@@ -14,13 +14,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // work and without another publication (docs/design/arena-protocol.md).
 public sealed class RetiredMemoryWorkerTests
 {
-    private const string Pending = "The automatic retirement storage and allocation-refusal fixes are pending.";
-
     private static readonly LatticeSchema Schema = ItemSchema.Compile("""
         { 'Id': 2, 'Name': 'Stamp', 'Type': 'Int64' }
         """);
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task An_idle_worker_releases_a_large_reader_backlog_and_keeps_a_small_queue(bool largeBacklog)
@@ -84,7 +82,7 @@ public sealed class RetiredMemoryWorkerTests
         Assert.Equal(position, node.Position);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task An_idle_worker_keeps_backing_for_an_outstanding_reservation_and_releases_it_after_withdrawal()
     {
         var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -140,7 +138,7 @@ public sealed class RetiredMemoryWorkerTests
         Assert.Equal(originalPosition, node.Position);
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task A_refused_cursor_allocation_spends_one_unit_and_the_worker_retries_the_same_fifo_without_writes(LatticeRoleEnum role)

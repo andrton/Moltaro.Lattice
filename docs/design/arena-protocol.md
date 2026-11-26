@@ -620,6 +620,12 @@ one move publishes in a turn. Retained relocation copies together charge at most
 one 64 KiB slot. A prepared master write prevents relocation. Close joins the
 worker before its final cleanup.
 
+An empty retirement queue can drop its backing array when no reservation
+remains and its capacity exceeds 64 times the number of reader slots. The trim costs one work unit and copies no entries.
+If allocating the empty backing or the first root cursor is refused, the
+worker charges one unit and leaves that work for a later turn. Cursor
+allocation precedes any change to the FIFO head or its storage.
+
 The mover checks the live owner and each backlink it follows before publication.
 A release operation changes one root address, owning descriptor location, lookup
 chunk word or stable text locator address. The reader or exporter acquires the
