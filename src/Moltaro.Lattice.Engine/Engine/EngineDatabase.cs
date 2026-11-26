@@ -616,6 +616,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         {
             if (_epochs.HasReadsBefore(mark))
             {
+                _testInputs?.BeforeCloseReadWait?.Invoke();
                 await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
             }
 

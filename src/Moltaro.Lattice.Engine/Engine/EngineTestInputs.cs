@@ -47,6 +47,10 @@ internal sealed class EngineTestInputs
     // position waiters. Tests can hold the notification to observe operations at that boundary.
     public Action? AfterCloseStatePublication { get; init; }
 
+    // Invoked once close finds a protected reader that is still present after the
+    // admitted operations and network have ended, immediately before waiting for that reader.
+    public Action? BeforeCloseReadWait { get; init; }
+
     // Invoked before the retirement queue allocates to trim itself in the final drain,
     // after the close has joined operations and reads. It can stand in for allocation failure.
     public Action? BeforeCloseRetiredTrim { get; init; }

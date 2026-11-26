@@ -1,5 +1,6 @@
 using System.Numerics;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -25,10 +26,12 @@ public sealed class FinalNativeCleanupTests
         var allocator = new CountingNativeAllocator();
         var failure = new OutOfMemoryException("The test failed the final retirement queue trim.");
         var trims = 0;
+        var closeWaitingForTheReader = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var inputs = new EngineTestInputs
         {
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
+            BeforeCloseReadWait = () => closeWaitingForTheReader.TrySetResult(),
             BeforeCloseRetiredTrim = () =>
             {
                 Interlocked.Increment(ref trims);
@@ -49,12 +52,23 @@ public sealed class FinalNativeCleanupTests
         var database = useChild
             ? await ReplicationNodes.OpenChildAsync(master.ListenUri!, inputs)
             : master;
-        var pieces = database.Set<PieceSchema.Piece>();
+        var pieces = database.Set("Piece");
         Task? closing = null;
 
         try
         {
-            using var held = await HeldRead.StartAsync(database, () => pieces.Get(1L)?.Count);
+            using var pause = new ViewerPause();
+            var reading = OwnThread.Run(() =>
+            {
+                Assert.True(pieces.TryView(1L, pause, static (view, reader) =>
+                {
+                    reader.Hold();
+                    return view["Count"].Get<int>();
+                }, out var count));
+                return count;
+            });
+            await pause.EnteredAsync(reading);
+
             // One replacement retires one root. Cross the documented 64 epoch
             // windows threshold without letting the retired roots be reclaimed.
             var epochSlots = (int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(128, 2 * Environment.ProcessorCount));
@@ -71,17 +85,20 @@ public sealed class FinalNativeCleanupTests
                 await database.WaitForPositionAsync(master.Position, Bound);
             }
 
-            Assert.Equal(replacements + 2, pieces.Get(2L)?.Count);
+            Assert.Equal(replacements + 2, pieces.Get(2L)?.Get<int>("Count"));
             Assert.True(allocator.Outstanding > 0);
             var returned = allocator.Returned;
 
             closing = database.CloseAsync().AsTask();
             Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
+            Assert.Same(closeWaitingForTheReader.Task,
+                await Task.WhenAny(closeWaitingForTheReader.Task, closing).WaitAsync(Bound));
             Assert.False(closing.IsCompleted);
             Assert.Equal(0, Volatile.Read(ref trims));
             Assert.Equal(returned, allocator.Returned);
 
-            Assert.Equal(1, await held.ReleaseAsync());
+            pause.Release();
+            Assert.Equal(1, await reading.WaitAsync(Bound));
 
             if (failAtTrim)
             {
