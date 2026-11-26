@@ -237,20 +237,30 @@ internal sealed class RetiredMemory
         }
 
         var previous = BudgetCollections.Items(_items);
-        var capacity = BudgetCollections.CapacityFor(_capacity, needed);
-        RetiredItem[] replacement;
+        var replacement = previous;
         try
         {
-            replacement = _backing.AllocateGrowth(previous, capacity, budget, nameof(RetiredMemory));
+            // A bulk reservation can later be released in part. Prepay the
+            // same doubling steps that a smaller surviving demand would use.
+            while (replacement.Length < needed)
+            {
+                var capacity = BudgetCollections.CapacityFor(replacement.Length, replacement.Length + 1);
+                replacement = _backing.AllocateGrowth(replacement, capacity, budget, nameof(RetiredMemory));
+            }
         }
-        catch (BudgetRefusedException)
+        catch (Exception exception)
         {
-            _observeBackingRefusal?.Invoke(needed);
+            _backing.DiscardGrowth(replacement, previous, budget);
+            if (exception is BudgetRefusedException)
+            {
+                _observeBackingRefusal?.Invoke(needed);
+            }
+
             throw;
         }
 
         _items.UseBacking(replacement);
-        _capacity = capacity;
+        _capacity = replacement.Length;
         Array.Clear(previous);
     }
 
@@ -608,7 +618,7 @@ internal sealed class RetiredMemory
         _reserved--;
         if (_arena.Budget is { } budget)
         {
-            _backing.Keep(_items.Count, budget);
+            _backing.Keep(_items.Count, _capacity, budget);
             if (_backing.HasEarlier && _reserved == 0)
             {
                 ReturnUnusedBacking();

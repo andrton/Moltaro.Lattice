@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Xunit.Sdk;
@@ -110,6 +111,41 @@ public sealed class ManagedLedgerObservationTests
         Assert.Equal(ManagedObjectSize(surviving), settled.Charged);
         Assert.Equal(prepared.Charged, settled.Peak);
         budget.Release(surviving);
+    }
+
+    [Fact]
+    public void A_throwing_factory_returns_its_charge_and_its_nested_backing_is_released_with_the_lease()
+    {
+        var budget = new OwnedMemoryBudget(observesBackings: true);
+        budget.Open(Segment);
+        var owned = CaptureThrowingFactory(budget);
+        Assert.Equal(0, budget.Inspect((_, _) => Assert.Fail("A dissolved lease still owns a backing.")).Charged);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Assert.All(owned, backing => Assert.False(backing.IsAlive));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference[] CaptureThrowingFactory(OwnedMemoryBudget budget)
+    {
+        using var lease = MemoryLease.Create(budget);
+        _ = lease.Allocate<byte>(1, nameof(ManagedLedgerObservationTests));
+        _ = lease.Allocate<byte>(1, nameof(ManagedLedgerObservationTests));
+        byte[]? nested = null;
+        Assert.Throws<InvalidOperationException>(() => lease.Allocate<object>(ManagedObjectSize(new object()), nameof(ManagedLedgerObservationTests), () =>
+        {
+            nested = lease.Allocate<byte>(40, nameof(ManagedLedgerObservationTests));
+            throw new InvalidOperationException("The fixture refused its enclosing object.");
+        }));
+
+        var owned = OwnedBackingGraph.Find(lease, item => ReferenceEquals(item, budget));
+        Assert.Contains(nested!, owned);
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var during = budget.Inspect((_, backing) => visited.Add(backing));
+        Assert.True(owned.SetEquals(visited));
+        Assert.Equal(owned.Sum(ManagedObjectSize), during.Charged);
+        return owned.Select(backing => new WeakReference(backing)).ToArray();
     }
 
     private sealed record Probe(byte[] Current, EmbeddedBacking Older);

@@ -4,6 +4,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.TestSupport.PartialUpdates;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 using InstanceMemoryBudget = Moltaro.Lattice.Budgeting.MemoryBudget;
@@ -164,6 +165,43 @@ public sealed class BatchOwnershipBudgetTests
             Assert.Equal(0, batch.Count);
             Assert.Equal(full.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
         }
+    }
+
+    [Fact]
+    public async Task Repeated_refused_nested_snapshots_do_not_add_capacity_to_the_live_builder()
+    {
+        const long limit = 8L * Segment;
+        const int room = 400;
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(limit, allocator, schema: UpdateSchema.Schema);
+        var batch = node.CreateWriteBatch();
+        batch.Insert(UpdateSchema.Item("kept"));
+        var owned = OwnedObjects(batch);
+        var baseline = ExpectCapacity(node, allocator);
+        var position = node.Position;
+        var items = node.Set<UpdateItem>();
+        var update = items.CreateUpdate("some key");
+        update.MapSet("Options", "new", new UpdateHome { City = "Paris", Data = new byte[4_096] });
+        using var holder = node.HoldBudgetBacking(checked((int)(limit - baseline.ChargedBytes - room -
+            ManagedObjectSize(Array.Empty<byte>()))));
+        var held = ExpectCapacity(node, allocator);
+        Assert.Equal(room, limit - held.ChargedBytes);
+
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            ExpectMemory(Assert.Throws<LatticeException>(() => batch.Update(update)));
+            Assert.Equal(held.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
+            Assert.True(owned.SetEquals(OwnedObjects(batch)));
+            Assert.Equal(1, batch.Count);
+            Assert.Equal(1, update.Count);
+        }
+
+        Assert.Equal(position, node.Position);
+        holder.Dispose();
+        var written = await batch.CommitAsync().AsTask().WaitAsync(Bound);
+        Assert.Equal(written.Position, node.Position);
+        Assert.NotNull(items.Get("kept"));
+        ExpectCapacity(node, allocator);
     }
 
     private static HashSet<object> OwnedObjects(ILatticeWriteBatch batch) =>

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -309,6 +310,113 @@ public sealed class RetirementCapacityWithdrawalTests
         Assert.Equal(queued[3..], restored.Items.Select(item => item.Owner));
         node.DrainRetired();
         Assert.Equal(0, node.Counters.RetiredIndexBytes);
+    }
+
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(false, 13)]
+    [InlineData(true, 13)]
+    public async Task A_small_survivor_keeps_the_same_paid_queue_as_admission_without_the_bulk_reservation(bool occupied, int survivor)
+    {
+        var control = await ObserveSurvivorAsync(occupied, survivor, withdrawBulk: false);
+        var withdrawal = await ObserveSurvivorAsync(occupied, survivor, withdrawBulk: true);
+        Assert.Equal(control.Capacities, withdrawal.Capacities);
+        Assert.Equal(control.Bytes, withdrawal.Bytes);
+    }
+
+    private static async Task<(int[] Capacities, long Bytes)> ObserveSurvivorAsync(bool occupied, int survivor, bool withdrawBulk)
+    {
+        const int bulkPlaces = 31;
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(Limit, allocator);
+        if (occupied)
+        {
+            await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            {
+                parts.Retired.Reserve();
+                parts.Retired.RetireTable(new object(), 1);
+                return true;
+            });
+        }
+
+        var original = await ObserveAsync(node, allocator);
+        node.ResetBudgetPeak();
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            if (withdrawBulk)
+            {
+                parts.Retired.Reserve(bulkPlaces);
+            }
+
+            if (occupied)
+            {
+                parts.Retired.Reserve(survivor - 1);
+                parts.Retired.Reserve();
+            }
+            else
+            {
+                parts.Retired.Reserve(survivor);
+            }
+
+            return true;
+        });
+
+        var reserved = await ObserveAsync(node, allocator);
+        Assert.Equal(reserved.Bytes - original.Bytes, reserved.Budget.ChargedBytes - original.Budget.ChargedBytes);
+        Assert.Equal(reserved.Budget.ChargedBytes, reserved.Budget.PeakBytes);
+        if (withdrawBulk)
+        {
+            var allocated = await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            {
+                var before = GC.GetAllocatedBytesForCurrentThread();
+                parts.Retired.Release(bulkPlaces);
+                return GC.GetAllocatedBytesForCurrentThread() - before;
+            });
+            Assert.Equal(0, allocated);
+        }
+
+        var surviving = await ObserveAsync(node, allocator);
+        Assert.Equal(original.Items, surviving.Items);
+        Assert.Equal(surviving.Bytes - original.Bytes, surviving.Budget.ChargedBytes - original.Budget.ChargedBytes);
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            parts.Retired.Release(survivor);
+            return true;
+        });
+        Assert.Equal(original.Bytes, (await ObserveAsync(node, allocator)).Bytes);
+        return (surviving.Backing.OfType<RetiredItem[]>().Select(backing => backing.Length).Order().ToArray(), surviving.Bytes);
+    }
+
+    [Fact]
+    public async Task A_refused_bulk_reservation_returns_every_intermediate_backing_it_prepaid()
+    {
+        const int room = 360;
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(Limit, allocator);
+        var original = await ObserveAsync(node, allocator);
+        using var holder = node.HoldBudgetBacking(checked((int)(Limit - original.Budget.ChargedBytes - room -
+            ManagedObjectSize(Array.Empty<byte>()))));
+        var held = await ObserveAsync(node, allocator);
+        Assert.Equal(room, Limit - held.Budget.ChargedBytes);
+        node.ResetBudgetPeak();
+
+        var refusal = await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            Assert.Throws<BudgetRefusedException>(() => parts.Retired.Reserve(31)));
+        Assert.Equal(LatticeLimitEnum.Memory, refusal.Limit);
+        var withdrawn = await ObserveAsync(node, allocator);
+        Assert.Equal(held.Budget.ChargedBytes, withdrawn.Budget.ChargedBytes);
+        Assert.True(withdrawn.Budget.PeakBytes > held.Budget.ChargedBytes);
+        Assert.Equal(original.Bytes, withdrawn.Bytes);
+        Assert.Equal(original.Items, withdrawn.Items);
+
+        holder.Dispose();
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            parts.Retired.Reserve(31);
+            parts.Retired.Release(31);
+            return true;
+        });
+        Assert.Equal(original.Budget.ChargedBytes, (await ObserveAsync(node, allocator)).Budget.ChargedBytes);
     }
 
     private static Task<RetirementSample> ObserveAsync(EngineDatabase node, CountingNativeAllocator allocator, Action<int>? observeRefusal = null) =>

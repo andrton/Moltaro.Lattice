@@ -38,15 +38,40 @@ internal struct WorkspaceCapacity<T>
         }
     }
 
+    // A caller can prepay several generations without installing any of them.
+    public void DiscardGrowth(T[] current, T[] original, MemoryBudget budget)
+    {
+        while (!ReferenceEquals(current, original))
+        {
+            budget.Release(current);
+            if (_earlier is not { } previous)
+            {
+                break;
+            }
+
+            current = previous.Backing;
+            _earlier = previous.Drop(budget);
+        }
+    }
+
     public void Keep(int used) => _installed = Math.Max(_installed, used);
 
-    public void Keep(int used, MemoryBudget budget)
+    public void Keep(int used, int currentCapacity, MemoryBudget budget)
     {
-        if (used > _installed)
+        if (used <= _installed)
         {
-            _installed = used;
-            ReleaseSuperseded(budget);
+            return;
         }
+
+        _installed = currentCapacity;
+        ref var obsolete = ref _earlier;
+        while (obsolete is { } retained && retained.Backing.Length >= used)
+        {
+            _installed = retained.Backing.Length;
+            obsolete = ref retained.Earlier;
+        }
+
+        ReleaseEarlier(ref obsolete, budget);
     }
 
     public void Reset() => _installed = 0;

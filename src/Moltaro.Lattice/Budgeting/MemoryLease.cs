@@ -66,34 +66,47 @@ internal sealed class MemoryLease : IDisposable
         Cleanup<T>? cleanup = null;
         try
         {
+            // A factory for an owned value can record its fields in this same lease.
+            ref var entry = ref entries.Reserve();
             backing = create();
             budget.Own(backing, owner);
             if (release is null)
             {
-                entries.Add(new Entry(backing, bytes));
+                entry = new Entry(backing, bytes);
             }
             else
             {
                 cleanup = new Cleanup<T>(backing, bytes, release);
                 budget.Own(cleanup, nameof(MemoryLease));
-                entries.Add(new Entry(cleanup, Cleanup<T>.Bytes));
+                entry = new Entry(cleanup, Cleanup<T>.Bytes);
             }
 
             return backing;
         }
         catch
         {
-            if (backing is not null)
+            try
             {
-                budget.Forget(backing);
+                if (backing is not null)
+                {
+                    release?.Invoke(budget, backing);
+                }
+            }
+            finally
+            {
+                if (backing is not null)
+                {
+                    budget.Forget(backing);
+                }
+
+                if (cleanup is not null)
+                {
+                    budget.Forget(cleanup);
+                }
+
+                budget.Release(total);
             }
 
-            if (cleanup is not null)
-            {
-                budget.Forget(cleanup);
-            }
-
-            budget.Release(total);
             throw;
         }
     }
@@ -282,7 +295,9 @@ internal sealed class MemoryLease : IDisposable
 
         public int Count { get; private set; }
 
-        public void Add(Entry entry) => At(Count++) = entry;
+        public void Add(Entry entry) => Reserve() = entry;
+
+        public ref Entry Reserve() => ref At(Count++);
 
         public ref Entry At(int index)
         {
