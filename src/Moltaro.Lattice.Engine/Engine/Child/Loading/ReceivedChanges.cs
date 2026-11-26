@@ -131,6 +131,7 @@ internal sealed class ReceivedChanges
     private readonly Action _fault;
 
     private readonly Action<int, uint, Arena, RootTable>? _beforeRootListGrowth;
+    private readonly Action? _beforeScratchAllocation;
 
     // The changes prepared and not published yet, in the order they were received: not reserved while the
     // effects of their transaction are prepared, and reserved together once every one is (TryReserve).
@@ -171,7 +172,8 @@ internal sealed class ReceivedChanges
         Lock writes,
         CloseBarrier barrier,
         Action fault,
-        Action<int, uint, Arena, RootTable>? beforeRootListGrowth = null)
+        Action<int, uint, Arena, RootTable>? beforeRootListGrowth = null,
+        Action? beforeScratchAllocation = null)
     {
         _arena = arena;
         _roots = roots;
@@ -184,6 +186,7 @@ internal sealed class ReceivedChanges
         _barrier = barrier;
         _fault = fault;
         _beforeRootListGrowth = beforeRootListGrowth;
+        _beforeScratchAllocation = beforeScratchAllocation;
         _import = new BlockImport(arena);
     }
 
@@ -725,6 +728,7 @@ internal sealed class ReceivedChanges
     {
         if (_keys.Count > ChangePublisher.KeptRoom)
         {
+            _beforeScratchAllocation?.Invoke();
             _prepared = [];
             _keys = new PublicationKeys(0);
         }
