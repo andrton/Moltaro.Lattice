@@ -15219,7 +15219,11 @@ those already expose the required distinction.
 `Action<RequestReceiver>` on the master's receiving task. It runs once
 after accepting a forwarded request frame and before giving a completed
 body to the write path. It exposes the actual request pieces, import
-workspace and recorded reply owner for independent inventory.
+workspace and recorded reply owner for independent inventory. The master
+sender calls the test-only `EngineTestInputs.BeforeMasterReplyDrain` of
+type `Func<CancellationToken, ValueTask>` once per nonempty drain, before
+taking the first reply. It runs outside the writes and reply queue locks
+and receives the connection cancellation token.
 
 ##### Source study
 
