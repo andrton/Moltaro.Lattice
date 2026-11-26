@@ -177,7 +177,7 @@ public sealed class TextMetadataMigrationTests
         var bytes = new ReadOnlySequence<byte>(codec.GetBytes(text));
         var storage = encoding == "Utf8" ? LatticeStringEncodingEnum.Utf8 : LatticeStringEncodingEnum.Utf16;
         var requests = allocator.Requests;
-        Assert.True(node.TryRunMaintenanceStep(parts =>
+        UnderWrites(node, parts =>
         {
             var table = parts.Arena.Texts;
             for (var warm = 0; warm < Hits; warm++)
@@ -212,7 +212,9 @@ public sealed class TextMetadataMigrationTests
             {
                 table.Release(id);
             }
-        }));
+
+            return true;
+        });
 
         Assert.Equal(requests, allocator.Requests);
         Assert.Equal(expected, Entry(node, id)!.Value);
