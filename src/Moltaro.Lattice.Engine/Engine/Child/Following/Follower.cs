@@ -358,10 +358,10 @@ internal sealed class Follower
 
     private async ValueTask WaitForCapacityAsync(ChildPressureSample pressure, TimeSpan pace, CancellationToken cancellationToken)
     {
-        // Observe the generation after rollback so returning this attempt's own backing does not
+        // Register after rollback so returning this attempt's own backing does not
         // cause an immediate retry. A paced attempt also lets the writer drain newly eligible
         // read epochs whose capacity has not been returned yet.
-        var changed = _budget.WhenChanged(_budget.Change);
+        var changed = _budget.WhenChanged();
         if (_pressure != pressure)
         {
             _pressure = pressure;

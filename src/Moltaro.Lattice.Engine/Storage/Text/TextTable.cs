@@ -125,7 +125,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
             return;
         }
 
-        ReleaseEarlierBuckets();
+        ReleaseEarlierBuckets(stop: null);
         if (_maintenanceRequested)
         {
             _maintenanceRequested = false;
@@ -505,10 +505,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         {
             _active.ReleaseAll();
             _old?.ReleaseAll();
-            while (!ReferenceEquals(_earlier, restore))
-            {
-                DropEarlierBuckets();
-            }
+            ReleaseEarlierBuckets(restore);
 
             _active = restore.Active;
             _old = restore.Old;
@@ -527,7 +524,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
 
         if (_installedCount == Count)
         {
-            ReleaseEarlierBuckets();
+            ReleaseEarlierBuckets(stop: null);
         }
     }
 
@@ -562,21 +559,16 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
     private static TextBucketSet TableToRestore(EarlierBuckets earlier, in TextSlot slot) =>
         slot.WasInOldBucket && earlier.Old is { } old ? old : earlier.Active;
 
-    private void ReleaseEarlierBuckets()
+    private void ReleaseEarlierBuckets(EarlierBuckets? stop)
     {
-        while (_earlier is not null)
+        while (!ReferenceEquals(_earlier, stop))
         {
-            DropEarlierBuckets();
+            var earlier = _earlier!;
+            _earlier = earlier.Previous;
+            earlier.Active.ReleaseAll();
+            earlier.Old?.ReleaseAll();
+            _arena.Budget!.Release(EarlierBuckets.Bytes, earlier);
         }
-    }
-
-    private void DropEarlierBuckets()
-    {
-        var earlier = _earlier!;
-        _earlier = earlier.Previous;
-        earlier.Active.ReleaseAll();
-        earlier.Old?.ReleaseAll();
-        _arena.Budget!.Release(EarlierBuckets.Bytes, earlier);
     }
 
     private void Migrate(TextBucketSet old, Action? beforePageAllocation)
