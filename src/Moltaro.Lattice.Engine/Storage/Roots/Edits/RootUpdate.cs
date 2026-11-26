@@ -153,7 +153,9 @@ internal sealed class RootUpdate
             }
             else if (value is EditedCollection collection)
             {
-                collection.Place(ref holder, structure, target);
+                var reuse = IsAssociation(place.Type) && collection.Stored.HasValue &&
+                    _arena.CollectionTails?.HasSlots(holder.Root, place.Offset) == true;
+                collection.Place(ref holder, structure, target, reuse);
             }
             else
             {
@@ -161,6 +163,70 @@ internal sealed class RootUpdate
             }
         }
     }
+
+    // The placed root belongs to the publication or rollback that follows.
+    // Only exact flat sparse targets can borrow or contribute a former lookup.
+    public void PrepareCollectionTails(RootHandle handle, ArenaAddress root)
+    {
+        var structure = _layout.Structure;
+        var tails = _arena.CollectionTails;
+        var hasOwner = tails?.HasOwner(handle) == true;
+        if (hasOwner)
+        {
+            // An update of an unrelated field preserves a lease. A full
+            // replacement has no sparse preparation and ends the lease.
+            tails!.PrepareSparse(root);
+        }
+
+        foreach (var (target, value) in _changes)
+        {
+            ref readonly var place = ref structure.Place(target);
+            if (!IsAssociation(place.Type))
+            {
+                continue;
+            }
+
+            if (value is not EditedCollection { Stored: { } previous } edit)
+            {
+                if (hasOwner)
+                {
+                    tails!.PrepareEnd(root, handle, place.Offset);
+                }
+
+                continue;
+            }
+
+            if (!edit.Changed)
+            {
+                continue;
+            }
+
+            var count = edit.Count;
+            var old = previous.Descriptor;
+            var canContribute = count < previous.Count && old.Kind == DescriptorKindEnum.Lookup && CollectionLookup.IsChunked(old);
+            if (!hasOwner && !canContribute)
+            {
+                continue;
+            }
+
+            var need = CollectionLookup.SlotsNeeded(count);
+            var placed = ResidentDescriptor.Read(_arena.Payload(root)[(place.Offset - BlockHeader.Size)..]);
+            var active = placed.Kind == DescriptorKindEnum.Lookup ? new CollectionLookup(_arena, placed).Capacity : 0;
+            // Do not reserve a former table for ordinary oscillation. At exact
+            // equality a real spare remains useful without starting the timer.
+            var former = canContribute && active + new CollectionLookup(_arena, old).Capacity >= 4 * need
+                ? ValueBlocks.AddressOf(old) : default;
+            if (!hasOwner && former.IsNull)
+            {
+                continue;
+            }
+
+            tails ??= _arena.TrackCollectionTails();
+            tails.PrepareChange(root, handle, place.Offset, former, active, need);
+        }
+    }
+
+    private static bool IsAssociation(StoredTypeEnum type) => type is StoredTypeEnum.Map or StoredTypeEnum.Set;
 
     private static void PlaceAssignment(ref ValueHolder holder, StructureLayout structure, int target, in StoredField place, object? value)
     {

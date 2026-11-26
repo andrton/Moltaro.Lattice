@@ -486,11 +486,11 @@ internal sealed class RetiredMemory
         switch (item.Kind)
         {
             case RetiredKindEnum.Root:
-                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address);
+                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address, reclaimingRetired: true);
                 break;
 
             case RetiredKindEnum.DeletedRoot:
-                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address);
+                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address, reclaimingRetired: true);
                 _roots.Release(item.Handle);
                 break;
 

@@ -32,6 +32,8 @@ internal readonly struct StoredCollection
 
     public bool Hashed => _collection.Kind == DescriptorKindEnum.Lookup;
 
+    public ValueDescriptor Descriptor => _collection;
+
     public int Find(object? key) =>
         CollectionLookup.Find(_arena, _element, _collection, _arena.Payload(_holder), _encoding, IndexValue.Of(key));
 

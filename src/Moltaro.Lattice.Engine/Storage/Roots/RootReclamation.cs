@@ -129,12 +129,13 @@ internal sealed class RootReclamation(Arena arena)
 
         if (frame.Next == frame.Count)
         {
+            arena.CollectionTails?.Finish(frame.Address);
             FreeTop(frame.Address);
             return;
         }
 
         var chunk = CollectionLookup.ReadChunk(CollectionLookup.Chunks(arena, frame.Address), frame.Next++);
-        if (!chunk.IsNull)
+        if (!chunk.IsNull && arena.CollectionTails?.Accept(frame.Address, chunk) != true)
         {
             Push(new Frame(KindEnum.Block, chunk));
         }

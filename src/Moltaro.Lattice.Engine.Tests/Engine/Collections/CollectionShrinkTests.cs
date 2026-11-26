@@ -9,10 +9,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
 // within the maintenance budget. A native grant proves reuse independently of its address.
 public sealed class CollectionShrinkTests
 {
-    private const string ShrinkPending = "Collection shrink is pending.";
     private const int ValueDescriptorBytes = 16;
 
-    [Theory(Skip = ShrinkPending)]
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]
@@ -151,7 +150,7 @@ public sealed class CollectionShrinkTests
         Assert.Equal(originalRevision, await readingChild.WaitAsync(Bound));
     }
 
-    [Theory(Skip = ShrinkPending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Exactly_four_times_need_clears_the_window_and_one_more_deletion_starts_it_again(bool firstAbove)
@@ -233,7 +232,7 @@ public sealed class CollectionShrinkTests
         }
     }
 
-    [Fact(Skip = ShrinkPending)]
+    [Fact]
     public async Task An_eligible_shrink_finishes_after_an_ordinary_map_value_edit_below_four_times_need()
     {
         const int count = 4_200;
@@ -313,7 +312,7 @@ public sealed class CollectionShrinkTests
         }
     }
 
-    [Theory(Skip = ShrinkPending)]
+    [Theory]
     [InlineData(355, 8_192, 1_016)]
     [InlineData(713, 16_384, 2_038)]
     public async Task Rounded_native_classes_are_fully_charged_when_shrink_caps_usable_capacity(int count, int nativeBytes, int maxSlots)
@@ -345,7 +344,7 @@ public sealed class CollectionShrinkTests
         }
     }
 
-    [Theory(Skip = ShrinkPending)]
+    [Theory]
     [InlineData(355, 8_192, 1_016)]
     [InlineData(713, 16_384, 2_038)]
     public async Task Clipped_lookup_payload_moves_and_preserves_public_map_hits_and_misses(int count, int nativeBytes, int maxSlots)
@@ -406,7 +405,7 @@ public sealed class CollectionShrinkTests
         }
     }
 
-    [Theory(Skip = ShrinkPending)]
+    [Theory]
     [InlineData("assign")]
     [InlineData("null")]
     [InlineData("delete")]
@@ -465,7 +464,7 @@ public sealed class CollectionShrinkTests
         }
     }
 
-    [Theory(Skip = ShrinkPending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_refused_forwarded_batch_keeps_the_cold_grants_available_for_the_next_growth(bool set)

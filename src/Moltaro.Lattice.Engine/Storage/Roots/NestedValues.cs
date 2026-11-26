@@ -384,7 +384,7 @@ internal static class NestedValues
         where TSource : struct, ICollectionEntrySource
         => PlaceCollection(ref holder, place, element, offset, count, CollectionLookup.IsCompact(count), ref source);
 
-    public static void PlaceCollection<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, bool compact, ref TSource source)
+    public static void PlaceCollection<TSource>(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, int count, bool compact, ref TSource source, bool reuseTail = false)
         where TSource : struct, ICollectionEntrySource
     {
         if (holder.Refused)
@@ -411,7 +411,7 @@ internal static class NestedValues
                     return;
                 }
             }
-            else if (CollectionLookup.TryPrepare(ref holder, offset, count, out var entries))
+            else if (CollectionLookup.TryPrepare(ref holder, offset, count, out var entries, reuseTail))
             {
                 source.Place(ref entries, place, element, CollectionLookup.EntriesOffset, count, allowInline: false);
                 if (!entries.Refused)

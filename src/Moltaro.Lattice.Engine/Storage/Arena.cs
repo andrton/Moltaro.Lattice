@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Text;
 
@@ -61,6 +62,8 @@ internal sealed unsafe class Arena : IDisposable
     private readonly int _reserveLimit;
 
     private readonly NativeAllocator _allocator;
+    private readonly TimeProvider? _collectionTime;
+    private CollectionTails? _collectionTails;
 
     // The segments by their slot, which is the segment of an ArenaAddress; null where no segment
     // is held. Slot 0 is never used, so that no block has the address zero, which is null.
@@ -106,7 +109,8 @@ internal sealed unsafe class Arena : IDisposable
 
     // The arena of a database: its text table hashes with the seed of the instance and, in a Debug
     // build, asserts at every change of a count that the thread holds the lock of the writes given.
-    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes)
+    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes,
+        TimeProvider? collectionTime = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.SegmentSize, MaxBlockSize);
@@ -125,6 +129,7 @@ internal sealed unsafe class Arena : IDisposable
         _memoryLimit = options.MemoryLimit;
         _reserveLimit = options.ReservedSegments;
         _allocator = allocator;
+        _collectionTime = collectionTime;
         HashSeed = textSeed;
         Texts = new TextTable(this, textSeed, writes);
     }
@@ -556,9 +561,61 @@ internal sealed unsafe class Arena : IDisposable
         return new Span<byte>(block + BlockHeader.Size, (int)payloadLength);
     }
 
-    // Tests take this snapshot under Writes. Before cold leases exist, every detached
-    // slot remains reader-retired or is already returned to the allocator.
-    internal CollectionSlotOwnership[] CollectionSlotOwnershipForTest() => [];
+    internal CollectionTails? CollectionTails => _collectionTails;
+
+    internal CollectionTails TrackCollectionTails() =>
+        _collectionTails ??= new CollectionTails(this, _collectionTime ?? TimeProvider.System);
+
+    internal void ReleaseCollectionTail() => _collectionTails?.ReleaseOne();
+
+    // Under Writes and after the old reader epoch. The cold block keeps its
+    // allocation and class but is neither reachable from a live lookup nor
+    // available to ordinary allocation or relocation.
+    internal int CoolRetiredLookupSlot(ArenaAddress lookup, ArenaAddress address)
+    {
+        var segment = Locate(address, out var region, out var slot) ?? throw NotABlock(address);
+        ref readonly var header = ref Header(address);
+        var bytes = SizeClasses.SizeOf(segment.Regions[region].SizeClass);
+        if (!segment.IsRetired(region, slot) || header.Parent != lookup ||
+            header.Kind != BlockKindEnum.Chunk || header.Flags != BlockHeader.LookupSlotsFlag ||
+            header.PayloadLength != bytes - BlockHeader.Size)
+        {
+            throw new InvalidOperationException("Only the epoch-safe slot of its exact lookup can become reusable.");
+        }
+
+        segment.SetRetired(region, slot, retired: false);
+        segment.SetPrepared(region, slot, prepared: true);
+        _tally.RetiredBytes -= bytes;
+        _tally.PreparedBytes += bytes;
+        RestoreColdLookupSlot(address);
+        return bytes - BlockHeader.Size;
+    }
+
+    internal void RewriteColdLookupSlot(ArenaAddress address, ArenaAddress parent, uint offset, uint layoutVersion)
+    {
+        ref var header = ref Header(address);
+        header.Parent = parent;
+        header.DescriptorOffset = offset;
+        header.LayoutVersion = layoutVersion;
+        header.Kind = BlockKindEnum.Chunk;
+        header.Flags = BlockHeader.LookupSlotsFlag;
+    }
+
+    internal void RestoreColdLookupSlot(ArenaAddress address)
+    {
+        ref var header = ref Header(address);
+        header.Parent = default;
+        header.DescriptorOffset = 0;
+        header.Kind = BlockKindEnum.ColdLookupSlots;
+        header.Flags = 0;
+    }
+
+    internal ArenaAddress ColdLookupLink(ArenaAddress address) => MemoryMarshal.Read<ArenaAddress>(Payload(address));
+
+    internal void SetColdLookupLink(ArenaAddress address, ArenaAddress next) => MemoryMarshal.Write(Payload(address), in next);
+
+    // Tests take this snapshot under Writes; ordinary engine paths read no audit rows.
+    internal CollectionSlotOwnership[] CollectionSlotOwnershipForTest() => _collectionTails?.Snapshot() ?? [];
 
     // The counters as they stand at the moment of the call.
     public ArenaCounters Counters
@@ -595,6 +652,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         Array.Clear(_segments);
+        _collectionTails = null;
     }
 
     // A region number names a region of any segment: the slot of the segment in the high 32 bits,

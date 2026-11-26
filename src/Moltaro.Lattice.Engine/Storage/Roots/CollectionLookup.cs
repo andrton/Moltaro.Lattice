@@ -112,15 +112,25 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     public static int ChunkCountForSlots(int slots) =>
         slots > ContiguousSlots ? (slots + SlotsPerChunk - 1) / SlotsPerChunk : 0;
 
-    public static int PayloadForSlots(int slots, int chunks) =>
-        chunks != 0 ? ValueBlocks.DescriptorSize + chunks * SlotBytes : SlotPayload(ValueBlocks.DescriptorSize + slots * SlotBytes);
+    public static int PayloadForSlots(int slots, int chunks)
+    {
+        if (chunks != 0)
+        {
+            return ValueBlocks.DescriptorSize + chunks * SlotBytes;
+        }
+
+        // The last class step can hold more than twice the required probing
+        // range. Keep the class, with the excess charged as class slack.
+        var wanted = ValueBlocks.DescriptorSize + slots * SlotBytes;
+        return Math.Min(SlotPayload(wanted), wanted + slots * SlotBytes);
+    }
 
     public static int ChunkPayloadForSlots(int slots, int ordinal) =>
         SlotPayload(Math.Min(slots - ordinal * SlotsPerChunk, SlotsPerChunk) * SlotBytes);
 
     // Installs the descriptor only after its lookup payload is zeroed. Each initialized chunk
     // then becomes reachable from that descriptor. The caller owns cleanup on a false return.
-    public static bool TryPrepare(ref ValueHolder holder, int offset, int count, out ValueHolder entries)
+    public static bool TryPrepare(ref ValueHolder holder, int offset, int count, out ValueHolder entries, bool reuseTail)
     {
         entries = default;
         var wanted = SlotsNeeded(count);
@@ -147,7 +157,14 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
             for (var chunk = 0; chunk < chunks; chunk++)
             {
                 var bytes = ChunkPayloadForSlots(wanted, chunk);
-                if (!holder.TryAllocate(bytes, BlockKindEnum.Chunk, address, FirstChunkOffset + chunk * sizeof(ulong), out var block))
+                var link = FirstChunkOffset + chunk * sizeof(ulong);
+                ArenaAddress block;
+                if (reuseTail && holder.Arena.CollectionTails!.Borrow(holder.Root, offset, address, (uint)link,
+                    holder.Layout.LayoutVersion, bytes, out block))
+                {
+                    holder.SlotBytes += Arena.BlockSizeFor(bytes);
+                }
+                else if (!holder.TryAllocate(bytes, BlockKindEnum.Chunk, address, link, out block))
                 {
                     return false;
                 }

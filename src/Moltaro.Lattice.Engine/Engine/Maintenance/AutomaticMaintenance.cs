@@ -31,6 +31,7 @@ internal sealed class AutomaticMaintenance
         var arena = parts.Arena;
         var segments = arena.Counters.Segments;
         var reclaimed = parts.Retired.DrainStep(ReclamationWorkLimit);
+        arena.ReleaseCollectionTail();
         var work = 0;
         var candidates = 0;
         ArenaAddress source = default;

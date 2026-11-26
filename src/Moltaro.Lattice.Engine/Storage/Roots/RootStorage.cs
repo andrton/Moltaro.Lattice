@@ -29,11 +29,16 @@ internal static class RootStorage
     // way: its blocks are still allocated and its descriptors as they were. A root with a Text
     // descriptor is freed by the thread that holds the lock of the writes, as every change of a count
     // is (Text.TextTable).
-    public static void Free(Arena arena, RootLayout layout, ArenaAddress root)
+    public static void Free(Arena arena, RootLayout layout, ArenaAddress root, bool reclaimingRetired = false)
     {
-        var freeing = new Freeing();
+        var freeing = new Freeing(reclaimingRetired);
 
         StructureWalk.Walk(arena, layout, root, ref freeing);
+        if (!reclaimingRetired)
+        {
+            arena.CollectionTails?.Abandon(root);
+        }
+
         arena.Free(root);
     }
 
@@ -126,7 +131,7 @@ internal static class RootStorage
     }
 
     // Frees what each descriptor holds outside its block (FreeValue).
-    private struct Freeing : IStructureVisitor
+    private struct Freeing(bool reclaimingRetired) : IStructureVisitor
     {
         public readonly bool EnterValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset) =>
             Owns(arena, descriptor, holder, offset);
@@ -150,8 +155,22 @@ internal static class RootStorage
                     break;
 
                 case DescriptorKindEnum.Lookup:
+                    var address = ValueBlocks.AddressOf(descriptor);
+                    var tails = arena.CollectionTails;
                     foreach (var block in new LookupBlocks(arena, descriptor))
                     {
+                        if (block == address)
+                        {
+                            if (reclaimingRetired)
+                            {
+                                tails?.Finish(address);
+                            }
+                        }
+                        else if (tails is not null && (reclaimingRetired ? tails.Accept(address, block) : tails.ReturnBorrowed(block)))
+                        {
+                            continue;
+                        }
+
                         arena.Free(block);
                     }
 
@@ -210,9 +229,15 @@ internal static class RootStorage
                     break;
 
                 case DescriptorKindEnum.Lookup:
+                    var lookup = ValueBlocks.AddressOf(descriptor);
+                    var tails = arena.CollectionTails;
                     foreach (var block in new LookupBlocks(arena, descriptor))
                     {
                         arena.Publish(block);
+                        if (block != lookup)
+                        {
+                            tails?.PublishBorrowed(block);
+                        }
                     }
 
                     break;

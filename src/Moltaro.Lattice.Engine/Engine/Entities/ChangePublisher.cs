@@ -895,6 +895,7 @@ internal sealed class ChangePublisher
             RemoveOld(change);
         }
 
+        _arena.CollectionTails?.Apply(change.Handle, change.Root);
         _retired.RetireRoot(change.Table.Layout, change.Replaced);
     }
 
@@ -927,6 +928,7 @@ internal sealed class ChangePublisher
             RemoveOld(change);
         }
 
+        _arena.CollectionTails?.Apply(change.Handle, default);
         _retired.RetireDeleted(change.Table.Layout, change.Handle, change.Replaced);
     }
 

@@ -913,7 +913,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         var seed = _testInputs?.IndexSeed ?? DrawSeed();
         var writes = new Lock();
         var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = MemoryLimitInForce() };
-        var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator(), seed, writes);
+        var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator(), seed, writes,
+            _testInputs?.MaintenanceTimeProvider);
 
         try
         {

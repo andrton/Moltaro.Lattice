@@ -27,4 +27,7 @@ internal enum BlockKindEnum : ushort
 
     // A collection's entries descriptor followed by its lookup slots or the addresses of their chunks.
     Lookup = 7,
+
+    // The inactive link of a reusable lookup slot after its last reader leaves.
+    ColdLookupSlots = 8,
 }
