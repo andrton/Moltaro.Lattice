@@ -377,10 +377,11 @@ public sealed class RootPageWithdrawalTests
             roots.Release(second);
             var inline = ExpectCapacity(node, allocator);
 
-            using (node.HoldBudgetBacking(checked((int)(limit - inline.ChargedBytes - 64))))
+            var ownerBytes = ManagedObjectSize(new Dictionary<uint, uint>());
+            using (node.HoldBudgetBacking(checked((int)(limit - inline.ChargedBytes - ownerBytes - 64))))
             {
                 var binding = ExpectCapacity(node, allocator);
-                Assert.InRange(limit - binding.ChargedBytes, 1, 63);
+                Assert.InRange(limit - binding.ChargedBytes, ownerBytes, ownerBytes + 63);
                 budget.BeginPreparation();
                 var refusal = Assert.Throws<BudgetRefusedException>(() => roots.Add(1));
                 budget.EndPreparation(keepsCapacity: false);
@@ -408,7 +409,7 @@ public sealed class RootPageWithdrawalTests
             roots.Entry(published).State = RootStateEnum.Live;
             roots.NotePublished(published);
             budget.EndPreparation(keepsCapacity: true);
-            roots.ReleasePublishedDirectories();
+            roots.ReleasePermanentDirectories();
             Assert.Equal(new RootHandle(reusedFirst.Generation + 1, first.Slot), published);
             _ = node.InspectBudget((_, backing) => Assert.DoesNotContain(all, item => ReferenceEquals(item, backing)));
             var suffix = roots.Add(1);

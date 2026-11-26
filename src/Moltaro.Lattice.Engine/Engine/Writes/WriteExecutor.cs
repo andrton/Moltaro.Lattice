@@ -106,7 +106,11 @@ internal sealed class WriteExecutor
 
     public MemoryBudget? Budget => _arena.Budget;
 
-    public void EndPreparation(bool keeps) => _arena.Texts.EndPreparation(keeps);
+    public void EndPreparation(bool keeps)
+    {
+        _roots.ReleasePermanentDirectories();
+        _arena.Texts.EndPreparation(keeps);
+    }
 
     // Places the roots that children forward; made by the first of them, since only a master with
     // children receives one, and used under the lock of the writes alone.

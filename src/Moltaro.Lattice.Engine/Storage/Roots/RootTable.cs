@@ -52,6 +52,7 @@ internal sealed class RootTable
     private readonly RootEntry[][][] _smallerDirectories;
     private int _smallerDirectoryCount;
     private int _publishedExtent;
+    private int _retiredPages;
 
     // The slots below this were given out at least once. The slots from here to the end of the last
     // page never were; their entries are as the page was allocated, Free at generation 0.
@@ -88,7 +89,7 @@ internal sealed class RootTable
 
     public static RootTable Create(MemoryBudget budget, int? pageLimit)
     {
-        var bytes = MemoryBudget.ObjectBytes(4L * IntPtr.Size + 8 * sizeof(int) + Unsafe.SizeOf<RootTableCounts>());
+        var bytes = MemoryBudget.ObjectBytes(4L * IntPtr.Size + 9 * sizeof(int) + Unsafe.SizeOf<RootTableCounts>());
         budget.Reserve(bytes);
         try
         {
@@ -110,6 +111,29 @@ internal sealed class RootTable
     // it yet. A new page can be refused for slot address space or for its backing.
     public RootHandle Add(uint typeId)
     {
+        if (_budget is not { IsPreparing: false } budget)
+        {
+            return TakeSlot(typeId);
+        }
+
+        // Standalone budgeted callers still need the same page rollback as a master or replay
+        // preparation if the history cannot be extended after taking room for a page.
+        budget.BeginPreparation();
+        var keeps = false;
+        try
+        {
+            var handle = TakeSlot(typeId);
+            keeps = true;
+            return handle;
+        }
+        finally
+        {
+            budget.EndPreparation(keeps);
+        }
+    }
+
+    private RootHandle TakeSlot(uint typeId)
+    {
         var usesFreeSlot = _counts.FreeSlots != 0;
         var slot = usesFreeSlot ? _counts.FreeSlots - 1 : NextUnusedSlot();
         ref var entry = ref EntryAt(slot);
@@ -120,7 +144,7 @@ internal sealed class RootTable
         var generation = entry.Generation + 1;
         if (_budget is { } budget)
         {
-            if (generation > 1 && slot / EntriesPerPage >= PublishedPages)
+            if (generation > 1 && slot / EntriesPerPage >= PermanentPages)
             {
                 RememberGeneration(slot, generation, budget);
             }
@@ -213,6 +237,17 @@ internal sealed class RootTable
         if (entry.Generation == uint.MaxValue)
         {
             entry.State = RootStateEnum.Retired;
+            var pages = (int)(handle.Slot / EntriesPerPage) + 1;
+            if (pages > _retiredPages)
+            {
+                var previous = PermanentPages;
+                _retiredPages = pages;
+                if (pages > previous && _budget is { } budget)
+                {
+                    ForgetPermanentGenerations((uint)(pages * EntriesPerPage), budget);
+                    ReleasePermanentDirectories();
+                }
+            }
         }
         else
         {
@@ -229,10 +264,8 @@ internal sealed class RootTable
     // not counted.
     public int Count => _counts.Count;
 
-    // The slots below this one were given out at least once; every slot that holds a lifetime is
-    // below it. For the capture of a load on a master, which walks the slots below it, taken under the
-    // lock of the writes as the fence of the capture: every root live at the start of the capture lies
-    // below it.
+    // The current addressed extent, including prepared lifetimes. Every slot that holds a
+    // lifetime is below it. Capture has its own monotonic published fence.
     public int SlotExtent => _nextUnusedSlot;
 
     // A capture can only have reached a lifetime that published. A root publishing after
@@ -241,12 +274,12 @@ internal sealed class RootTable
 
     public void NotePublished(RootHandle handle)
     {
-        var oldPages = PublishedPages;
+        var oldPages = PermanentPages;
         _publishedExtent = Math.Max(_publishedExtent, checked((int)handle.Slot + 1));
-        var pages = PublishedPages;
+        var pages = PermanentPages;
         if (pages > oldPages && _budget is { } budget)
         {
-            ForgetPublishedGenerations((uint)(pages * EntriesPerPage), budget);
+            ForgetPermanentGenerations((uint)(pages * EntriesPerPage), budget);
         }
     }
 
@@ -287,7 +320,7 @@ internal sealed class RootTable
 
     // A permanent page already contains every issued generation, even in its unissued suffix
     // since reconstruction. Its slots can no longer need the separate history.
-    private void ForgetPublishedGenerations(uint extent, MemoryBudget budget)
+    private void ForgetPermanentGenerations(uint extent, MemoryBudget budget)
     {
         if (_generations is { } generations)
         {
@@ -317,15 +350,14 @@ internal sealed class RootTable
         }
     }
 
-    public void ReleasePublishedDirectories()
+    public void ReleasePermanentDirectories()
     {
         if (_smallerDirectoryCount == 0 || _budget is not { IsPreparing: false } budget)
         {
             return;
         }
 
-        var publishedPages = PublishedPages;
-        var obsolete = FirstDirectoryFor(publishedPages);
+        var obsolete = FirstDirectoryFor(PermanentPages);
         for (var index = 0; index < obsolete; index++)
         {
             var previous = _smallerDirectories[index];
@@ -344,7 +376,7 @@ internal sealed class RootTable
         _smallerDirectoryCount = remain;
     }
 
-    private int PublishedPages => (_publishedExtent + EntriesPerPage - 1) / EntriesPerPage;
+    private int PermanentPages => Math.Max(_retiredPages, (_publishedExtent + EntriesPerPage - 1) / EntriesPerPage);
 
     private int FirstDirectoryFor(int pages)
     {
@@ -368,8 +400,8 @@ internal sealed class RootTable
         }
 
         var keep = Pages;
-        var publishedPages = PublishedPages;
-        while (keep > publishedPages && IsWhollyFree(_pages[keep - 1]))
+        var permanent = PermanentPages;
+        while (keep > permanent && IsWhollyFree(_pages[keep - 1]))
         {
             keep--;
         }
