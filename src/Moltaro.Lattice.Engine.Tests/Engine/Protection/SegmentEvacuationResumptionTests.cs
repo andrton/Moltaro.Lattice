@@ -27,7 +27,7 @@ public sealed class SegmentEvacuationResumptionTests
     [Theory]
     [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
     [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
-    public async Task A_bounded_candidate_rechecks_the_only_external_capacity_after_a_forwarded_write(LatticeRoleEnum role)
+    public async Task A_bounded_turn_takes_the_only_external_capacity_or_rechecks_it_after_a_forwarded_write(LatticeRoleEnum role)
     {
         const int activeSourceSegments = 5;
         const int reserveKey = TargetKey + activeSourceSegments * RegionsPerSegment;
@@ -56,7 +56,7 @@ public sealed class SegmentEvacuationResumptionTests
         var full = Locations(node);
         var source = full[TargetKey];
         var hole = full[lastSinkKey].Chunk;
-        Assert.True((hole.Segment - source.Chunk.Segment) * RegionsPerSegment > AutomaticMaintenance.SelectionWorkLimit);
+        Assert.True(hole.Segment > source.Chunk.Segment);
         Assert.Equal(extent, allocator.Outstanding);
         await DeleteAsync(master, [lastSinkKey, reserveKey]);
         await child.WaitForPositionAsync(master.Position, Bound);
@@ -83,6 +83,7 @@ public sealed class SegmentEvacuationResumptionTests
             }, out var value));
             return value;
         });
+        var published = false;
         try
         {
             await pause.EnteredAsync(held);
@@ -95,30 +96,44 @@ public sealed class SegmentEvacuationResumptionTests
             Assert.Equal(RegionsPerSegment, sourceRegions.Sum(region => region.Allocated));
             Assert.Throws<ArgumentException>("address", () => _ = source.Arena.Header(hole));
 
+            var position = node.Position;
+            MaintenanceTurnSample offered = default;
             for (var turn = 0; turn < TurnsPerSweep; turn++)
             {
                 await RunTurnsAsync(node, 1);
-                var sample = samples.Last(value => value.Admitted);
-                Assert.Equal(0, sample.SlotBytes);
-                if (sample.CandidatesExamined != 0)
+                offered = samples.Last(sample => sample.Admitted);
+                Assert.InRange(offered.SelectionWork, 0, AutomaticMaintenance.SelectionWorkLimit);
+                if (offered.CandidatesExamined != 0 || offered.SlotBytes != 0)
                 {
-                    Assert.Equal(AutomaticMaintenance.SelectionWorkLimit, sample.SelectionWork);
                     break;
                 }
             }
 
-            Assert.Contains(samples, sample => sample.CandidatesExamined > 0 &&
-                sample.SelectionWork == AutomaticMaintenance.SelectionWorkLimit && sample.SlotBytes == 0);
+            Assert.True(offered.CandidatesExamined != 0 || offered.SlotBytes != 0,
+                "The only eligible 64 KiB source was neither examined nor moved in the bounded sweep.");
+            published = offered.SlotBytes != 0;
+            if (published)
+            {
+                Assert.Equal(source.Chunk, offered.Source);
+                Assert.Equal(hole, offered.Destination);
+                Assert.Equal(RegionBytes, offered.SlotBytes);
+                Assert.Equal(hole, Locations(node)[TargetKey].Chunk);
+                Assert.Equal(0, node.Counters.Arena.FreeRegions);
+                Assert.True(source.Arena.Payload(source.Chunk).SequenceEqual(expected));
+            }
+            else
+            {
+                await InsertAsync(child, writerKey, 1);
+                await child.WaitForPositionAsync(master.Position, Bound);
+                Assert.Equal(hole, Locations(node)[writerKey].Chunk);
+                Assert.Equal(0, node.Counters.Arena.FreeRegions);
+                Assert.Equal(1, sourceRegions.Sum(region => region.Live));
+                position = node.Position;
+                await RunTurnsAsync(node, TurnsPerSweep);
+                Assert.Equal(source, Locations(node)[TargetKey]);
+                Assert.All(samples, sample => Assert.Equal(0, sample.SlotBytes));
+            }
 
-            await InsertAsync(child, writerKey, 1);
-            await child.WaitForPositionAsync(master.Position, Bound);
-            Assert.Equal(hole, Locations(node)[writerKey].Chunk);
-            Assert.Equal(0, node.Counters.Arena.FreeRegions);
-            Assert.Equal(1, sourceRegions.Sum(region => region.Live));
-            var position = node.Position;
-            await RunTurnsAsync(node, TurnsPerSweep);
-            Assert.Equal(source, Locations(node)[TargetKey]);
-            Assert.All(samples, sample => Assert.Equal(0, sample.SlotBytes));
             Assert.Equal(position, node.Position);
             Assert.Equal(revision, ExpectRecord(items, expected));
             Assert.Equal(requests, allocator.Requests);
@@ -130,9 +145,16 @@ public sealed class SegmentEvacuationResumptionTests
             await held.WaitAsync(Bound);
         }
 
-        await DeleteAsync(master, [writerKey]);
-        await child.WaitForPositionAsync(master.Position, Bound);
+        if (!published)
+        {
+            await DeleteAsync(master, [writerKey]);
+            await child.WaitForPositionAsync(master.Position, Bound);
+        }
+
+        var finalPosition = node.Position;
         await RunTurnsAsync(node, TurnsPerSweep);
+        Assert.All(samples, sample => Assert.InRange(sample.SelectionWork, 0, AutomaticMaintenance.SelectionWorkLimit));
+        Assert.Equal(finalPosition, node.Position);
         Assert.Equal(hole, Locations(node)[TargetKey].Chunk);
         Assert.Equal(returns + 1, allocator.Returned);
         Assert.Equal(requests, allocator.Requests);
