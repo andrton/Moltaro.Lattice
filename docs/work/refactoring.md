@@ -1130,6 +1130,20 @@ The ARM64 archive SHA-256 values, in order, are
 `0ba044f40eabebbee8f2879fc11a40b7ab97a0664f6567fb8a3440799b6261a2`.
 Raw measurements stay outside Git.
 
+### Child preparation rollback exits
+
+The review of `ReceivedChanges.TryPlace` and `TryApply` considered merging
+the early refusal and exception cleanup paths. The explicit exits are kept.
+A shared finally would track success across each preparation to choose the
+rollback, including attempts that go straight on to index top-up and
+publication. The two supported exits each return prepared resources once.
+After [S23F](epic-1-core.md#s23f-child-scratch-after-publishing-or-returning-a-batch),
+returning scratch does not allocate. Root handle release uses the free
+chain, arena release uses the already allocated segment tables and text
+release queues later capacity work. The real three-attempt native refusal
+and the matched mixed-batch original-error checks verify these paths.
+Review the exits again when a reservation change changes this flow.
+
 ### F9 index-read-by-key driver comparison
 
 The old driver at `f3d767f0` and the B2 driver at `19d3f6b5` use byte-identical
