@@ -14,7 +14,6 @@ internal sealed class MemoryBudget(bool observesBackings)
     private long _charged;
     private long _peak;
     private long _native;
-    private long _change;
     private TaskCompletionSource? _changed;
     private bool _closed;
 
@@ -277,27 +276,15 @@ internal sealed class MemoryBudget(bool observesBackings)
 
     private void Changed()
     {
-        _change++;
         _changed?.TrySetResult();
         _changed = null;
     }
 
-    public long Change
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _change;
-            }
-        }
-    }
-
-    public Task WhenChanged(long change)
+    public Task WhenChanged()
     {
         lock (_gate)
         {
-            if (_closed || _change != change)
+            if (_closed)
             {
                 return Task.CompletedTask;
             }
