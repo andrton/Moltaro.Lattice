@@ -14517,8 +14517,8 @@ local checks, canonical transfer review, ARM64 acceptance and
 the accepted measurement dispositions are recorded above.
 S24 takes the [retained-capacity inventory](#retained-memory-inventory-for-s24)
 and owns actual budget enforcement and rollback. S33 owns the
-connection assembler's retention policy. S34 owns the recorded
-fresh session read issue during close. S23A runs next in a separate
+connection assembler's retention policy. [S23B](#fresh-session-reads-at-close) corrects
+fresh session read admission during close. S23A runs next in a separate
 full-track PR before S24 starts product work.
 
 ###### Post-merge ARM64 verification
@@ -15115,13 +15115,25 @@ that result later. Preserve the allocation-free immediate position check.
 
 ##### Fresh session reads at close
 
-S34 owns the admission of a fresh uncancelled `GetAsync` on a previously
-obtained set once the node exposes `Closed`. The method returns a faulted
-task with `ObjectDisposedException` for both a reached and an unreached
-session position. A wait registered in `Ready` and still below its target
-ends with `Unavailable` when close decides it. Preserve the outcome of a
-confirmed reply for a write already sent by a child. Keep that control and
-measure the immediate reached-session path if it changes.
+S23B corrects fresh uncancelled session read admission once the node exposes
+`Closed`. Class and by-name reads by key, protected views, index searches and
+first asynchronous enumeration steps report `ObjectDisposedException` through
+the returned task, including when the position is unreached. An undecided wait
+registered in `Ready` reports `Unavailable` when close decides it. A confirmed
+reply for a write already sent by a child keeps its outcome.
+
+The independent tests-first review accepted `afdf0763347179b5f830d94b1ad0d6b40be67e84`.
+All five new cases failed with the original engine and passed in Debug and Release
+with `a00196bb806de447ef4f291a4614207c835ac31e`. The latter also passed 59
+related Release tests, including the confirmed forwarded write. The Windows x64
+Release control found unchanged calling-thread allocation on a reached read.
+The class hit measured 96 B, the by-name hit 184 B and both misses 0 B. The call
+completed inline without sampling the wait clock. Local timing variation leaves
+throughput unresolved. The coordinator's full Windows x64 Release run
+passed 4,616 tests with 129 expected skips. Format and all 18 samples passed.
+An independent probe also checked the cached index, both enumeration states,
+an earlier registered search and a confirmed two-member forwarded write.
+See the [active close protocol](../design/write-path.md#waiting-for-a-published-position).
 
 An independent study on `da71dbe9` held `AfterCloseStatePublication` before
 `PositionClock.Close`. A child applied sequence 1, held application, and
