@@ -15093,6 +15093,28 @@ after generation `uint.MaxValue` stays out of the free list. Check the
 stamped handle independently before and after ordinary reuse. Test the
 separate page-byte reservation boundary while a new address is available.
 
+Every address-bearing handle issued by the root table advances that slot's
+generation, including a prepared handle whose write subsequently fails or is
+cancelled. The first issued generation is 1. Withdrawing a never-published
+tail page returns the page and any directory no remaining owner needs. The
+table keeps only the exact generation information it needs to issue future
+handles. This is charged root-table capacity with a continuing owner. Reserve
+required backing before issuing the handle. Withdrawal after issue allocates
+no history. Transfer earlier generations into a recreated page before giving
+up its history, including entries that have not yet been issued again. A
+slot at its final generation remains retired.
+
+Keep the 196,664-byte return of the original empty-tail case and distinguish
+restoration of an intermediate directory from retention of a directory whose
+new position is in use. Check a synchronous preparation failure and queued
+cancellation, the two separate histories with generations (2, 1) and (1, 2),
+repeated withdrawal and recreation, and a new neighboring slot at
+generation 1. A previously issued handle must fail both current-handle and
+entry lookup checks after the same slot is issued again. Check byte refusal
+before a history backing grows and local exhaustion at the final generation.
+Measure the fixed contribution on an empty instance and the actual acquired
+and released backing for a nontrivial sparse history.
+
 Before Ready, controlled failure to hold the state ends open with
 `Unavailable`. Check the announced primary-index capacity with the least
 root bytes before installing data, and check actual grants during the load.
