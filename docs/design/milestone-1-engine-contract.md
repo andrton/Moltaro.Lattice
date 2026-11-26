@@ -560,8 +560,9 @@ rule. A deleted entity cannot come back, because its delete is in the tail and t
 is applied after every copy; a recreated entity has a later sequence than anything of its
 earlier lifetime; roots inserted outside the fence arrive through the tail. A transaction
 is applied whole: one of its effects can be skipped while another is applied, and a
-transaction is never skipped whole by the sequence of one effect. The clock of a loading
-child starts at S; no reads are enabled until the complete state and local indexes cover
+transaction is never skipped whole by the sequence of one effect. Before placing
+a full root, the child makes room to record it for rollback. A failed list growth
+therefore leaves no unrecorded root or handle. The clock of a loading child starts at S; no reads are enabled until the complete state and local indexes cover
 R, and the child is Ready when it has applied R. Live changes after R continue through
 the same ordered application path. A Write of the stream whose root does not carry the
 sequence of its transaction is refused with its whole transaction. The bootstrap

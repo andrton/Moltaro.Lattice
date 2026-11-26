@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine;
 
@@ -64,6 +65,10 @@ internal sealed class EngineTestInputs
 
     // Under Writes, just before allocating the first automatic root reclamation cursor.
     public Action? BeforeRootReclamationAllocation { get; init; }
+
+    // Under Writes, before a full root from a load or transaction would grow the list of prepared
+    // changes. A test can fail this allocation and inspect the resources the rollback must return.
+    public Action<int, uint, Arena, RootTable>? BeforeReceivedRootListGrowth { get; init; }
 
     // Lets a test drive the ordinary bounded turn without the background cadence.
     public bool DisableBackgroundMaintenance { get; init; }

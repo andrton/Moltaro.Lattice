@@ -14833,13 +14833,26 @@ Raw results stay outside Git.
 
 #### S24 · The memory budget
 
-**Rollback of a full root on a child.** In `ReceivedChanges.TryPrepareWrite`,
-the import can acquire an insert handle and place the root before the managed
-list recording the change grows. If that growth fails, `GiveBack` cannot see
-the new root. The sparse-update path reserves the list slot before placement.
-This finding on `4ee9d4a2` is from source inspection. Exercise the first
-growth that would lose a prepared change and the same preparation with room
-available. Correct the ordering if the refusal can strand a handle or root.
+**Rollback of a full root on a child (S23D).** The verified `b53fb21a`
+reproduction reached the first list growth in a real load and the fifth
+effect of normal replay batches that inserted or replaced a full root.
+Refusing the growth left 880 B in three prepared blocks in each case. The
+load and replay inserts also left a prepared handle. Replay returned the
+resources of the first four effects and preserved the earlier position
+and values. A four-member transaction fitting the list applied, as did
+the exact five-member inputs on a healthy child.
+
+The independent tests-first gate accepted `5aaa6c6f246ab76baa098fcfaeabe1e87449735b`.
+The fix at `f3c5dd7d4ecd96512772129203ba3142b5fbbcfe` ensures room in the
+rollback list before acquiring a new handle or importing the full root.
+The same three refusal cases now leave no prepared resource behind and
+pass in Debug and Release. All 260 related Windows x64 Release tests
+passed, including the three new cases. An independent replay probe refused
+the full list at member nine after earlier mixed changes. Its parent
+retained 352 B, one handle and one dictionary text entry. The fixed child
+kept its position, indexed values and reference counts. Its healthy replay
+and a fresh load matched the committed data. This corrects existing rollback
+before the memory budget sprint. Raw evidence stays outside Git.
 
 **Carried from the outside review, 18 November 2026:** a child sizes its primary index
 from the count its master announces after checking only that this many entities, each at
