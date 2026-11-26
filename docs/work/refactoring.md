@@ -288,7 +288,7 @@ Taken by the planner and the coordinator on the same day.
 | F6 | `src/Moltaro.Lattice.Engine/Storage/Ordered/IndexLayout.cs` (`SameEntry`), with `RootLayout.StoredFieldOf` | The decision whether a write changes an index looks up the stored field of each part four times on every write, through a call that is not inlined: two for whether it is null and two for its bytes. On the head of S14, part 2 this is about 15 ns an index on the workstation of the breakdown, the most of the 30 ns an index that a replace keeping every key costs on the rented machine, where the owner accepted 0.94 and 0.86 of the rate without indexes with three and six indexes | The stored fields of an index resolved once when its layout is compiled, so that the decision reads each part from a known offset, width and null bit, with the same rule as today and no second path beside it; then the line of index-writes measured again | done (S16, e79a710): `EntryPart.Stored` holds the stored field, resolved once with the layout of the index. In the start of S16 the head over 57be01b runs at 1.02, 1.06 and 1.10 on a replace that keeps every key with 1, 3 and 6 indexes, one caller, the gauge 0.995 to 1.01: 0.94, 0.98 and 0.93 of the rate without indexes, where the owner had accepted 0.94 and 0.86. G2 and the implementation are measured with it, in one build |
 | F7 | `src/Moltaro.Lattice.Measurements/Scenarios/WriteCallersScenario.cs` and `ReadByKeyThreadsScenario.cs` | Both work on the users of the reference fixture, a type with three indexes, so neither measures a type without indexes, though the plan of the machine for S14, part 2 named them for it; that statement rested on the lines of `index-writes` with no index, one caller | A line of `write-callers` over a type without indexes, with its callers and its readers beside them, so that a start can state on many callers and readers that a type without indexes loses nothing | done (S15, part 1): the line of `write-callers` over users without indexes, compared on the first start of S15, part 1 with the line added to the older builds as a patch; a type without indexes loses nothing, neither to S14R nor to S15, part 1 |
 | F8 | `src/Moltaro.Lattice.Engine/Storage/Ordered/NodeStorage.cs` (the references of a shared text) | Each node that holds an entry of a shared key takes a reference to its text entry, so every copy of a leaf takes one for each such entry and every free releases them. A variant that leaves the reference to the root of the entry, for each entry, measured on the rented machine with keys of 100 and 200 bytes: a replace that changes the key 1.45 to 1.51 times the head, an insert and a delete 1.9 to 2.1 with distinct heads, a search and a replace that keeps the key unchanged; its patch is kept with the outputs of the start of S14, part 2, outside the repository | The references of a shared text held for each entry. It changes who holds a reference to a shared text, a rule of the [decision on strings](../decisions/strings.md), and its safety rests on the order of retirement: the owner's question, which the planner brings | S23 kept per-node ownership as required by Q04.4. A physical text move preserves the stored reference count. The root-only variant remains an experiment. Reconsidering ownership requires a separate accepted decision. See the [index lifetime rule](../design/ordered-index.md#text-references) and the [S23 indexed-text probe](epic-1-core.md#final-arm64-acceptance-evidence). |
-| F9 | `src/Moltaro.Lattice.Measurements/Scenarios/IndexReadByKeyScenario.cs`, the line of 0 indexes, 1 thread, alone, before and after B2 | On the same engine the harness of B2 reads that line at 0.888 of the old one, in rounds of 0.94, 0.87 and 0.89, where its gauge is a single pair at 1.066; every other judged line agrees. Until the difference has a cause, the figures of that line recorded before B2 are not compared with figures after it | The cause found by reading what the old and the new harness do for that line: the window, the warm-up and what lies inside the timed region; if reading does not show it, that start carries a series of three builds for this line | open, place: the next start of the machine that measures `index-read-by-key`: read in both harnesses, the window, the warm-up and the timed region are the same; a variant that marks the step of the window `NoInlining`, which would give the old shape of the call, does not recover the line on ARM64 (0.99 against a gauge of 0.99, second start of S15, part 1) and a try on the workstation was too disturbed to say anything; so the difference is not how a step is called, its cause is unknown, and figures of that line from before B2 stay incomparable with later ones |
+| F9 | `src/Moltaro.Lattice.Measurements/Scenarios/IndexReadByKeyScenario.cs`, the line of 0 indexes, 1 thread, alone, before and after B2 | On the same engine the harness of B2 reads that line at 0.888 of the old one, in rounds of 0.94, 0.87 and 0.89, where its gauge is a single pair at 1.066; every other judged line agrees. Until the difference has a cause, the figures of that line recorded before B2 are not compared with figures after it | The cause found by reading what the old and the new harness do for that line: the window, the warm-up and what lies inside the timed region; if reading does not show it, that start carries a series of three builds for this line | investigation complete. The [matched ARM64 comparison](#f9-index-read-by-key-driver-comparison) did not reproduce the fall. The historical cause remains unresolved and the pre-B2 line remains incomparable with later figures |
 | F10 | `src/Moltaro.Lattice.Samples/Limits/ReadLimitsSample.cs` and `MemoryLimitSample.cs` | Both samples show their limit held and never reached, so the block that catches the refusal never runs: a sample of a limit teaches half of it | The sample of the read limits shows a limit reached and the error an application sees, in S15, part 1, whose tests and sample extend those limits to a search; the sample of the memory limit shows a write refused for memory and what the application does next, in S24. Each still runs to the end: its catch block reports and the program goes on | done in part (S15, part 1): the read limits of a search, `ReadMemoryLimit` counting what the search remembers from the moment it is remembered and every entity of an answer by everything stored for it, `ReadTimeLimit` the engine time of its steps, the token looked at before a limit at every place; taken (S24), the memory limit |
 | F11 | `src/Moltaro.Lattice.TestSupport/Replication/ClosedPort.cs` and `ListeningPort.cs`, with the tests that free a port for a master to open at, `OpenTimeoutTests.Child_started_before_its_master_becomes_ready_when_the_master_opens_within_its_OpenTimeout` among them | Between freeing the port and the master binding it, any socket can take the port. The test then fails loudly, never with a false pass: it did once, AddressAlreadyInUse, in a Release run of S14R while another agent ran the suite on the same workstation | A master that takes a listener the test already holds, so that no port is ever free between the two | taken (the first sprint that touches the opening of the listener of a master; earlier if it fails once more on a machine that is not loaded) |
 | F12 | `src/Moltaro.Lattice.Engine/Engine/Writes/WriteExecutor.cs` (`SlotBytes`), with `Replication/Load/BlockImport.cs` (`Place`) | For a root a forwarded write places on the master, the encoded size counts no new text entry: `Place` discards the new bytes `TextTable.TryAcquire` reports, where a local write counts them (`RootWriter.PlaceText`). That size is `PreparedWrite.EncodedSize`, which bounds a commit group and feeds `LargestCommitGroupBytes`, so the same write may count less because a child sent it | Test first, by a test author: the same write, with a new text long enough to be a text entry, made on a master and forwarded by a child, counts the same in the size of its commit group, stated through `LargestCommitGroupBytes` and by the bound of a group where that can be shown deterministically. Before it is written, the decision on write limits is read for what the encoded size is defined to count; if it defines a forwarded root otherwise, the planner hears it first. If the test passes on `main`, the entry closes with the reason the sizes are equal; if it fails, the implementer fixes it, one reviewer | done (a light change of its own, 21 November 2026): the test failed as the entry said, the forwarded write counting 112 bytes, its root alone, where the same write made on the master counted 1,392 in UTF-8 and 2,160 in UTF-16, and two writes of 5 MiB sharing one group. `BlockImport.Place` now counts the slot bytes of what it places as `RootWriter` does, the new bytes of a text entry included, and `WriteExecutor.SlotBytes`, the walk that counted afterwards, is gone |
@@ -1052,7 +1052,7 @@ their disposition.
 - **Repeated edge geometry** (*done in S23AR, E01/E03*). Lookup offset arithmetic was repeated
   in [CollectionLookup](../../src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs#L160),
   [RelocationBlock](../../src/Moltaro.Lattice.Engine/Engine/Maintenance/RelocationBlock.cs#L48)
-  and [CompoundRelocation](../../src/Moltaro.Lattice.Engine/Engine/Maintenance/CompoundRelocation.cs#L52).
+  and [CompoundRelocation](../../src/Moltaro.Lattice.Engine/Engine/Maintenance/CompoundRelocation.cs).
   Move repeated record-directory and lookup geometry to the layout owners. Keep
   placement, relocation validation and reclamation walks separate. Preserve
   aligned layouts, wire bytes and matched read, write, allocation and turn
@@ -1060,11 +1060,13 @@ their disposition.
 - **Protected export test setup** (*done in S23AR, E03*). S23A reused
   [PausedExportBuffer](../../src/Moltaro.Lattice.Engine.Tests/Engine/Views/PausedExportBuffer.cs#L18)
   and added a pause after the old chunk is acquired. The normal protected export
-  sequence is still repeated in
+  sequence was repeated in
   [AutomaticCompoundRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/AutomaticCompoundRelocationTests.cs#L564),
   [CompoundCollectionRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/CompoundCollectionRelocationTests.cs#L992),
   [FixedRootRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/FixedRootRelocationTests.cs#L652)
-  and [OwnedValueRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/OwnedValueRelocationTests.cs#L767).
+  [OwnedValueRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/OwnedValueRelocationTests.cs),
+  [CompoundRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/CompoundRelocationTests.cs)
+  and [RelocatedCollectionMatrixTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/RelocatedCollectionMatrixTests.cs).
   Share only the equivalent capture setup. Keep each case's timing cuts, data,
   revision and physical placement assertions local.
 
@@ -1113,10 +1115,41 @@ A separate FullOpts control used the same binaries and matched the wide move
 and return on both roles. The warmed repeat's median elapsed time was
 0.281 to 0.283 ms on master and 0.374 to 0.292 ms on child. The paired
 candidate-to-parent ratios were 1.015 and 0.990, within the gauge.
-Cold wide turns had wider variation and do not establish equivalence. An independent replay recomputed all 70 timing rows from the two geometry archives.
+Cold wide turns had wider variation and do not establish equivalence.
+An independent replay recomputed all 70 timing rows from the two geometry
+archives. A Windows x64 FullOpts listing of the ordinary disjoint replacement
+path shows calls to the shared helpers from both arena live-slot transitions
+and from the immediate text release path. The paired ARM64 measurements record
+the cost observed under their respective workloads.
 
 The ARM64 archive SHA-256 values, in order, are
 `2cbc4a622b8de556c0458196cdee33872a17d030b8ce2ebc374183de06fcfd6e`,
 `ba99524206a52935128aadbd82d46fda84fe586c00a9fb67a2046ad84e55e17a` and
 `0ba044f40eabebbee8f2879fc11a40b7ab97a0664f6567fb8a3440799b6261a2`.
 Raw measurements stay outside Git.
+
+### F9 index-read-by-key driver comparison
+
+The old driver at `f3d767f0` and the B2 driver at `19d3f6b5` use byte-identical
+engine and contract builds. Both target windows warmed for 0.5 s and then
+counted reads for 2 s. The earlier `NoInlining` control did not recover the
+historical 0.888 ratio.
+
+On ARM64 with .NET 10.0.15, the historical driver runs retained the earlier
+six-index windows. The solo controls used the same three fixed index seeds
+for both drivers and skipped the earlier windows. Each stage used six
+alternating ABBA and BAAB blocks, with one process per sample. The ratio is
+the mean of the two B2 rates divided by the mean of the two old rates in
+each block. All 48 target windows reported 88 B per read.
+
+| Stage | Median B2 / old | Paired range | Within-driver bounds |
+| --- | ---: | ---: | ---: |
+| Historical sequence | 1.00115 | 0.94827–1.08361 | 0.87008–1.14932 |
+| Fixed-seed solo | 1.00379 | 0.97584–1.07641 | 0.90761–1.10180 |
+
+An independent review recomputed the raw rows. Both sets of pairs were
+inside their repeat bounds and had effects in both directions. The
+historical fall did not reproduce. The earlier absolute rates for this
+row stay incomparable and the cause of that result remains unresolved.
+The raw archive SHA-256 is
+`b2d72b0dac61e38826a5e5d11c2f385383178551b529358ba55dbdd1c1f8bbc9`.
