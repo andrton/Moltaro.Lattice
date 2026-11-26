@@ -193,6 +193,19 @@ internal sealed partial class EngineDatabase
         return null;
     });
 
+    // Holds one audit snapshot across its synchronous test accessors. The same
+    // thread reenters Writes when an accessor reads or drains the database.
+    public void WithOwnershipAudit(Action audit)
+    {
+        ArgumentNullException.ThrowIfNull(audit);
+
+        InTestWriteLock<object?>(_ =>
+        {
+            audit();
+            return null;
+        });
+    }
+
     // A declaration check, when needed, follows the state check and precedes taking the barrier.
     private T InTestWriteLock<T>(Func<DatabaseParts, T> action, Action? checkDeclaration = null)
     {

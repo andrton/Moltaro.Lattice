@@ -30,7 +30,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // reads IsNull and every Get… member of a fixed-width type from it, with no arena and so with no
 // protection: a read copies under the protection of the root and builds its result after releasing
 // it. The values of String and Binary fields lie outside the fixed part; a reader of a copy refuses
-// GetString, GetBinary and ReadText with InvalidOperationException.
+// GetString, GetBinary and ReadText with InvalidOperationException. GetLength interprets the
+// immutable resident metadata at its original block offset.
 internal readonly ref struct RootReader
 {
     // Null for a reader of a copy.
@@ -106,7 +107,7 @@ internal readonly ref struct RootReader
         }
 
         var arena = ArenaOfValues();
-        var descriptor = ValueBlocks.Read(_payload[(stored.Offset - BlockHeader.Size)..]);
+        var descriptor = ResidentDescriptor.Read(_payload[(stored.Offset - BlockHeader.Size)..]);
         return CollectionLookup.Find(arena, _layout.Structure.ElementOf(field.Ordinal), descriptor, _payload, _layout.StringEncoding, key);
     }
 
@@ -122,8 +123,8 @@ internal readonly ref struct RootReader
     // copies.
     public static int FixedPartLength(RootLayout layout) => layout.FixedSize - BlockHeader.Size;
 
-    // Copies the fixed part of the root block into the destination, which has FixedPartLength bytes
-    // at least, for a reader of a copy.
+    // Copies the fixed part into a destination with at least FixedPartLength bytes. The reader
+    // of the copy uses only scalars and immutable metadata, so it never follows a copied location.
     public void CopyFixedPart(Span<byte> destination) => _payload[..FixedPartLength(_layout)].CopyTo(destination);
 
     // Whether the value of the field is null.
@@ -193,7 +194,7 @@ internal readonly ref struct RootReader
     // The same reader for a caller that holds where the layout of this reader stores a String field, as
     // IsNull takes it.
     public StoredTextReader ReadText(in StoredField stored) =>
-        new(ArenaOfValues(), ValueBlocks.Read(NotNull(stored)), _payload, _layout.StringEncoding);
+        new(ArenaOfValues(), ReadDescriptor(stored), _payload, _layout.StringEncoding);
 
     // The value of a Binary field, as a new array that belongs to the caller. An empty value is the
     // empty array, which every caller shares and none can change.
@@ -214,16 +215,22 @@ internal readonly ref struct RootReader
         return bytes;
     }
 
-    // The bytes the fixed part stores for a field that is not null, as they lie: the value of a
-    // fixed-width field as Values.StoredScalars wrote it, or the descriptor of a String or Binary value.
+    // The bytes of a fixed-width field that is not null, as Values.StoredScalars wrote them.
     // What an entry of an index copies of its root, and what the order of an index compares a key with
     // (Ordered.IndexLayout, Engine.Indexes.IndexOrder), for a caller that holds where the layout of this
     // reader stores the field, as IsNull takes it. InvalidOperationException for a field whose value is null.
     public ReadOnlySpan<byte> StoredBytes(in StoredField stored) => NotNull(stored);
 
+    // The descriptor of a non-null field in a protected native root, for a caller holding its place.
+    public ValueDescriptor ReadDescriptor(in StoredField stored) => ResidentDescriptor.Read(NotNull(stored));
+
     // The bytes of a value of this root that does not lie in chunks, which the descriptor given, one of
     // its own, names: inline in the root block, in a block of its own, or in the block of its text entry.
-    public ReadOnlySpan<byte> ValueBytes(in ValueDescriptor descriptor) => ValueBlocks.Contiguous(ArenaOfValues(), descriptor, _payload);
+    public ReadOnlySpan<byte> TextBytes(in ValueDescriptor descriptor)
+    {
+        var arena = ArenaOfValues();
+        return ValueBlocks.Contiguous(arena, ValueBlocks.ResolveText(arena, descriptor), _payload);
+    }
 
     // The number of encoded bytes of the value of a String or Binary field, as stored: for a String,
     // its bytes in the database encoding, UTF-8 or UTF-16.
@@ -236,11 +243,12 @@ internal readonly ref struct RootReader
             throw new ArgumentException($"GetLength does not serve the field {Name(field)}, which is {field.Declaration.Type}.", nameof(field));
         }
 
-        return (int)ValueBlocks.Read(NotNull(stored)).Length;
+        var place = NotNull(stored);
+        return (int)ResidentDescriptor.ReadLength(place, stored.Offset);
     }
 
     // The arena needed to read a String, Binary, owned value or List. A reader of a fixed-part
-    // copy can inspect a descriptor but has no arena from which to read the value.
+    // copy can read a descriptor's length and has no arena from which to read the value.
     private Arena ArenaOfValues() =>
         _arena ?? throw new InvalidOperationException($"A reader of a copy of the fixed part of a root of {_layout.EntityType.Name} holds no String or Binary value.");
 
@@ -263,7 +271,7 @@ internal readonly ref struct RootReader
 
     // The descriptor of a String or a Binary field.
     private ValueDescriptor Descriptor(LatticeField field, StoredTypeEnum type, string member) =>
-        ValueBlocks.Read(Value(field, type, member));
+        ResidentDescriptor.Read(Value(field, type, member));
 
     // The bytes of the field at its fixed place, after checking its null bit.
     private ReadOnlySpan<byte> NotNull(in StoredField stored)

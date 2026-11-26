@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
@@ -71,6 +72,66 @@ public sealed class CollectionCountBoundTests
         }
 
         Assert.Equal(0, item.Arena.Counters.PreparedBytes);
+    }
+
+    [Theory]
+    [InlineData(3_230_165, true)]
+    [InlineData(3_230_166, true)]
+    [InlineData(3_230_167, false)]
+    public void A_List_of_19_byte_records_is_received_up_to_its_directory_count_bound(int count, bool fits)
+    {
+        const int DescriptorSize = 16;
+        const int RecordStride = 19;
+        const int RecordsPerChunk = 789;
+        using var item = new RootArena(ResidentRecordLayoutTests.NarrowSchema);
+        var inputHeader = new byte[sizeof(uint) + sizeof(long) + DescriptorSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(inputHeader, item.Layout.LayoutVersion);
+        MemoryMarshal.Write(inputHeader.AsSpan(sizeof(uint) + sizeof(long)), 5U);
+        MemoryMarshal.Write(inputHeader.AsSpan(2 * sizeof(uint) + sizeof(long)), (uint)count);
+        var first = new RepeatedPiece(inputHeader, 0);
+        var end = first;
+        var fullChunk = EmptyTextRecords(RecordsPerChunk);
+
+        // Repeat the complete body even for the oversized count so insufficient input
+        // cannot account for the refusal. Zero-length texts have a valid inline offset.
+        for (var remaining = count; remaining > 0; remaining -= RecordsPerChunk)
+        {
+            end = end.Append(remaining >= RecordsPerChunk ? fullChunk : EmptyTextRecords(remaining));
+        }
+
+        var importer = new BlockImport(item.Arena);
+        var input = new ReadOnlySequence<byte>(first, 0, end, end.Memory.Length);
+        Assert.Equal(inputHeader.Length + (long)count * RecordStride, input.Length);
+        var exception = Record.Exception(() =>
+        {
+            var reader = new SequenceReader<byte>(input);
+            importer.Check(ref reader, item.Layout);
+            Assert.True(reader.End);
+        });
+
+        if (fits)
+        {
+            Assert.Null(exception);
+        }
+        else
+        {
+            Assert.Equal(LatticeErrorEnum.ValidationFailed, Assert.IsType<LatticeException>(exception).Error);
+        }
+
+        Assert.Equal(0, item.Arena.Counters.PreparedBytes);
+
+        static byte[] EmptyTextRecords(int records)
+        {
+            var chunk = new byte[records * RecordStride];
+            for (var record = 0; record < records; record++)
+            {
+                var canonical = chunk.AsSpan(record * RecordStride + 3, DescriptorSize);
+                MemoryMarshal.Write(canonical, 1U);
+                MemoryMarshal.Write(canonical[8..], (ulong)(32 + chunk.Length));
+            }
+
+            return chunk;
+        }
     }
 
     private sealed class RepeatedPiece : ReadOnlySequenceSegment<byte>

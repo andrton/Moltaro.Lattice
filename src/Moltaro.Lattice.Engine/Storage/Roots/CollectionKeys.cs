@@ -21,14 +21,20 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
     private readonly LatticeStringEncodingEnum _encoding;
 
     public CollectionKeys(Arena arena, StructureLayout entry, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> payload, LatticeStringEncodingEnum encoding)
+        : this(arena, entry, descriptor, payload, encoding, CollectionLookup.OpenPayload(arena, descriptor))
+    {
+    }
+
+    public CollectionKeys(Arena arena, StructureLayout entry, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> payload,
+        LatticeStringEncodingEnum encoding, ReadOnlySpan<byte> lookupPayload)
     {
         _arena = arena;
         _entry = entry;
         _encoding = encoding;
         if (descriptor.Kind == DescriptorKindEnum.Lookup)
         {
-            _payload = arena.Payload(ValueBlocks.AddressOf(descriptor));
-            _entries = ValueBlocks.Read(_payload);
+            _payload = lookupPayload;
+            _entries = ResidentDescriptor.ReadAligned(lookupPayload);
         }
         else
         {
@@ -120,7 +126,7 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
     public string Spelling(int ordinal)
     {
         var payload = RecordPayload(ordinal, out var start);
-        var text = ValueBlocks.Read(payload[(start + Key.Offset)..]);
+        var text = ResidentDescriptor.Read(payload[(start + Key.Offset)..]);
         return StoredText.Read(_arena, text, payload, _encoding);
     }
 
@@ -153,7 +159,7 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
     private StoredTextReader Text(int ordinal)
     {
         var payload = RecordPayload(ordinal, out var start);
-        var text = ValueBlocks.Read(payload[(start + Key.Offset)..]);
+        var text = ResidentDescriptor.Read(payload[(start + Key.Offset)..]);
         return new StoredTextReader(_arena, text, payload, _encoding);
     }
 

@@ -628,7 +628,7 @@ internal sealed class WriteExecutor
         }
 
         var stored = new RootReader(_arena, table.Layout, _roots.Entry(handle).Root);
-        var given = import.Text(received, key);
+        var given = import.TextKey(received);
 
         return !ValueComparer.SameText(stored.ReadText(key), given);
     }

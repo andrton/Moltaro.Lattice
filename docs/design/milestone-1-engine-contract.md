@@ -154,21 +154,19 @@ because it is indexed. A field that is part of an index therefore stores a value
 than 64 bytes as a text entry, whatever its storage mode — for a Plain field a rule of
 the layout compiled from the schema — and such an entry is found by its bytes, so equal
 long values of an indexed Plain field are stored once
-([index structures](../decisions/index-structures.md), the note of 19 November 2026). A
-text entry has one
-count: a block holds one reference for each Text descriptor it contains, from the moment
-it is written until it is freed, and the count changes only under the lock of the writes. An entry is freed only when the last block that refers
-to it is freed, which is after the last protected reader that could reach it has left;
-so a reference never resolves to other text. No generation is kept. The slots of the
-entries lie in one managed array that grows by doubling up to the longest array of .NET,
-`Array.MaxLength` slots: a write that needs a new entry beyond it is refused as one the
-memory budget cannot hold, `WriteRejected` with `Memory`, before it takes a slot or stores
-a block, so no count changes. It is a limit of the structure, not an option, and the
-array is never cut short.
+([index structures](../decisions/index-structures.md), the note of 19 November 2026). Each Text
+descriptor contributes one reference from preparation through retirement. The
+local writes lock protects the count. A retired owner releases a reference after
+protected readers can no longer follow it. The table returns the stable ID after
+freeing the current text blocks. Earlier relocation copies are retired separately
+under their own epochs. The text table keeps paged writer slots, buckets and a
+sparse address locator. Pages can be returned as their retained entries disappear.
 
-Shared text is not moved in this milestone unless S23 decides how; published text is
-immutable. Root-owned movement repairs its parent descriptor and child owner backlinks under the lock of the writes (amended on 24 November 2026, the owner's word: reads take no exclusion since 16 November, and a view does not delay a write). Scalar/location movement
-does not change logical revisions or write a durable relocation record.
+Published text bytes stay immutable. Relocation publishes the current address of a
+shared text through its locator. Root-owned movement repairs the owning descriptor
+and child backlinks under the local lock of the writes. Readers acquire one whole
+address under their existing epoch. Relocation preserves logical revisions and
+canonical transfer bytes and writes no durable relocation record.
 
 ## Reader protection, publication and compaction
 
@@ -180,16 +178,13 @@ protected by epochs and retired memory is freed later, as
 the [arena protocol](arena-protocol.md#deferred-reclamation-16-november-2026) says (the
 owner's decision of 16 November 2026): a read by key writes to no memory another reader
 writes to on its ordinary path, a write being published does not wait for readers, and a lookup
-runs while the writer changes the index. The writer side keeps its order of
-acquisition; which gates remain beside the epoch — the allocator, the dictionary — is
-stated by the sprint that builds each. One logical root
-protection still covers all its owned blocks. No separate heap lock per object.
+runs while the writer changes the index. The local writes lock protects publication
+and changes to the allocator and text table, including maintenance. The reader's epoch
+protects the storage it can reach through a root.
 
-A read takes no gate. An owned read enters the epoch, looks up, copies and leaves. A write is published under the lock of the writes, and takes nothing after
-it; the dictionary and the allocator state their
-place in the order when they are built. There are no root stripes, no catalog gate and
-no claims. A deleted entry becomes reusable only after the reads that could see it have
-left, and a read never follows an old entry to a recreated key.
+An owned read enters the epoch, looks up, copies and leaves. A deleted entry becomes
+reusable only after the reads that could see it have left, so a read that took the
+entry cannot follow it to a recreated key.
 
 Ordinary reads protect a root while the engine evaluates or copies it. Both the
 set by name and the class set lend a read-only view of one stamped root to a
@@ -223,13 +218,20 @@ only installs reserved values/nodes/descriptors and advances the applied positio
 it does no I/O, validation, pool growth or user callbacks. Unexpected failure marks
 the instance Faulted before reopening access. No partially published state is served.
 
-The compactor first selects a sparse region from counters, releases allocator
-protection, then tries to claim its owner and rechecks it. Skip roots reserved for
-logical writes. Shared text is not moved in this milestone unless S23 decides how. Move
-at most one bounded block per step, repair descriptors/backlinks, then free the old
-slot. Start at <50% live occupancy with destination headroom; stop after a region
-is empty or its estimated recoverable capacity is insufficient. Budget approximately
-1 ms per turn and yield; a single bounded move is not preempted midway. No second arena.
+While a master or child is Ready, a periodic worker offers a turn every 16 ms.
+It enters the operation barrier, tries the local writes lock and rechecks admission
+before changing storage. Reclamation and text maintenance share 64 work units.
+A search of at most 128 units selects storage from a nonempty region strictly below
+half live occupancy with compatible vacancy in an earlier segment. A prepared
+master write prevents relocation. The worker can publish one move per turn and
+retires the old slot under its epoch. Secondary index nodes stay in place. Lookups
+continue through their root handles and shared text IDs.
+
+The total charge of retained relocation copies and the proposed destination fits
+one 64 KiB slot. The target for local work is approximately 1 ms per turn, and the
+measured full elapsed time includes runtime and scheduling pauses. Work proceeds
+within one arena. [Reclamation and relocation](arena-protocol.md#reclamation-and-relocation)
+describes the publication and lifetime rules.
 
 Begin collection shrink after capacity remains >4 times live need for 5 seconds;
 target <=2 times need. Reuse eligible holes first. Counters distinguish live bytes,
@@ -730,7 +732,7 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Child open | 30 s to reach the master and between two parts of the load, configurable; then the open fails with Unavailable |
 | Master leadership | Taken at open; a second master on the same store is refused at once. The leadership number is checked in every transaction that changes the store; the leadership session every 5 s, configurable |
 | Retained operation outcomes of a MemoryOnly master | No limit of its own, by the owner's decision of 15 November 2026: counted in the instance budget; an unexpired outcome is never dropped, and a write is refused only when the budget cannot hold it |
-| Empty native reserve / compaction headroom | One 4-MiB segment / one 64-KiB move plus metadata |
+| Empty native reserve / compaction headroom | One 4-MiB segment / at most 64 KiB for retained relocation copies and the next destination, plus metadata |
 | Base application | Up to 256 transactions / 8 MiB effects per batch, 32 MiB working set; <=100 ms idle cadence, immediate continuation when behind |
 | Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; no hard limit by default, by the owner's decision of 15 November 2026. An application may set one, and appends beyond it are then refused. Without one the time of a recovery grows with the unapplied tail |
 | Durable receipt budget | No limit by default, by the owner's decision of 15 November 2026; an application may set one, with conservative admission reservation and periodic actual-size reconciliation as before |
@@ -747,10 +749,11 @@ for its own size. What a transaction needs is reserved in the instance budget be
 committed, the copy for delivery to children included (from S24/S33; until then that copy
 is counted and reported only, outside the budget and without a limit); a transaction the budget cannot
 hold is refused before it has any effect: it leaves no entry, no reference and no native byte
-behind. Only managed capacity kept for later writes may stay; of what the counters report, that is
-the managed capacity of the text table — its slot array as well as its bucket table — which a new
-text entry may have grown before the arena refused the entry, and which keeps that room for the
-next one and is not given back. It is reported, and not charged to the budget.
+behind. Reusable managed capacity, including text table pages and bucket storage,
+may remain after a refusal. The text table reuses this capacity and returns unused
+pages in bounded maintenance turns. Managed retained capacity is reported separately
+from the native arena. Its admission reservation, refusal and rollback accounting
+belong to S24.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.
 Count old/new primary tables and managed arrays awaiting collection in peak evidence.
@@ -866,7 +869,7 @@ network topology with results; those are execution inputs, not hidden design cho
 | Q13 / E06,E08 | Complete/partial commands, duplicate rules, bound revisions, terminal receipts/no-op accounting | Typed/dynamic facade and wire agree; cancellation/unknown/retry never duplicates effects |
 | Q14 | Explicit reservations and settings above; failure before commit or stopped instance after publication failure | Exhaust each budget, drain protected readers, no post-cancel queued execution or unbounded wait |
 | Q16 / E01,E02,E05 | Concrete headers/descriptors, chunk/hash layouts, schema/version metadata, independent base | Binary round trips for every type; malformed input rejection; ownership/reference-count audits |
-| Q17 / E01,E03 | Class free lists, striped protection, claims/generations, bounded compaction/shrink | Constant-live-set churn, delete/reinsert, dictionary/index moves and no uncontrolled retained growth |
+| Q17 / E01,E03 | Class free lists, protected root lifetimes and bounded compaction and shrink | Constant-live-set churn, delete and reinsert, relocation of root-owned data and shared text, unchanged index results and no uncontrolled retained growth |
 
 **These nine areas have an implementation baseline, and Unique indexes are accepted
 for the core milestone. No unresolved architecture selection currently blocks

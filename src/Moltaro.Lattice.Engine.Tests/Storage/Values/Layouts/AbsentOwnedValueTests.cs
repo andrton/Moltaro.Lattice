@@ -39,7 +39,7 @@ public sealed class AbsentOwnedValueTests
         // Home absent; Work with a City of two bytes, inline after the fixed part, and its Geo.
         await items.InsertAsync(RecordOf(items.EntityType, 1, home: null, work: ("NY", 10001, 40.7)));
 
-        var payload = PayloadOf(database);
+        var (payload, workCity) = PayloadOf(database);
 
         Assert.Equal(FixedSize - BlockHeader.Size + 2, payload.Length);
 
@@ -53,7 +53,7 @@ public sealed class AbsentOwnedValueTests
 
         // Work.Zip at 62 and the descriptor of Work.City at 98 hold the values.
         Assert.Equal(10001, BitConverter.ToInt32(payload, 62 - 32));
-        Assert.Equal(DescriptorKindEnum.Inline, ValueBlocks.Read(payload.AsSpan(98 - 32)).Kind);
+        Assert.Equal(DescriptorKindEnum.Inline, workCity);
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public sealed class AbsentOwnedValueTests
         // Home present without its Geo, Work without its Geo.
         await items.InsertAsync(RecordOf(items.EntityType, 1, home: ("Oslo", 150, null), work: ("NY", 10001, null)));
 
-        var payload = PayloadOf(database);
+        var (payload, _) = PayloadOf(database);
 
         // The fixed part of the same size as with Home absent, and the two Cities inline.
         Assert.Equal(FixedSize - BlockHeader.Size + 4 + 2, payload.Length);
@@ -80,19 +80,22 @@ public sealed class AbsentOwnedValueTests
     }
 
     // The payload of the one live root of the database, copied while it lies in the arena.
-    private static byte[] PayloadOf(EngineDatabase database)
+    private static (byte[] Payload, DescriptorKindEnum WorkCity) PayloadOf(EngineDatabase database)
     {
         byte[]? payload = null;
+        var kind = default(DescriptorKindEnum);
 
         database.ForEachLiveRoot((arena, layout, _, root) =>
         {
             Assert.Null(payload);
             Assert.Equal(FixedSize, layout.FixedSize);
 
-            payload = arena.Payload(root).ToArray();
+            var native = arena.Payload(root);
+            kind = ResidentDescriptor.Read(native[(98 - BlockHeader.Size)..]).Kind;
+            payload = native.ToArray();
         });
 
-        return Assert.IsType<byte[]>(payload);
+        return (Assert.IsType<byte[]>(payload), kind);
     }
 
     private static LatticeRecord RecordOf(LatticeEntityType item, long id, (string City, int Zip, double? Lat)? home, (string City, int Zip, double? Lat) work)

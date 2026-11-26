@@ -30,7 +30,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // entity (Writes.PendingWrite), the conversion of a key a caller gives (Sets.KeyArgument), the loader of a
 // child and the encoding of a Delete. An index whose entries name entities, such as one unique by its
 // index key and the identity of the entity, takes the hash and the equality of that identity here:
-// HashOf, KeysEqual and StoredKey.
+// HashOf, KeysEqual and StoredWords.
 internal readonly struct PrimaryKeys
 {
     // The most bytes of UTF-8 one character takes: a supplementary character, written from a pair of
@@ -64,26 +64,18 @@ internal readonly struct PrimaryKeys
     // The key field of the entity type.
     public LatticeField Field => _entityType.Key;
 
-    // The key a root stores, in the form the index takes it, hashed under the seed of this instance: for
-    // the loader of a child, which builds its index from the keys it receives. The root is one the caller
-    // placed and holds under the lock of the writes.
-    public EntityKey StoredKey(in RootReader stored)
+    // A fixed-width key read from the canonical bytes of a checked root, for child application
+    // or for checking the root of a forwarded write against the request key.
+    public EntityKey ReadFixedKey(ReadOnlySpan<byte> bytes)
     {
-        var field = _entityType.Key;
-
-        switch (KeyKind)
+        if (KeyKind == KeyKindEnum.Guid)
         {
-            case KeyKindEnum.Integer:
-                return EntityKey.OfInteger(field.Declaration.Type, StoredInteger(stored));
-
-            case KeyKindEnum.Guid:
-                return EntityKey.OfGuid(stored.GetGuid(field));
-
-            default:
-                var text = stored.GetString(field);
-
-                return EntityKey.OfText(text, TextHash(text));
+            return EntityKey.OfGuid(StoredScalars.ReadGuid(bytes));
         }
+
+        Debug.Assert(KeyKind == KeyKindEnum.Integer);
+        var integer = _unsignedKey ? unchecked((long)StoredScalars.ReadUnsigned(bytes)) : StoredScalars.ReadInteger(bytes);
+        return EntityKey.OfInteger(_entityType.Key.Declaration.Type, integer);
     }
 
     // A key of the String key type from its text, hashed under the seed of this instance: for the loader

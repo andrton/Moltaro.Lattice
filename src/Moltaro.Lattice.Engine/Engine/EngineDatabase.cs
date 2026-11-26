@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
@@ -14,6 +15,7 @@ using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Sets;
@@ -55,16 +57,17 @@ namespace Moltaro.Lattice.Engine;
 // what it protects), under which writes are admitted, prepared, handed to the persistence step and
 // published, under which a drain or a count of the counters runs, under which the capture of a child
 // starts and ends and its acknowledgments release the tail on a master, and under which a root is
-// placed and a transaction applied on a child, held for synchronous work in memory only. The lock of
-// the state is taken alone; no thread that holds a lock takes the other one. The listener of a master
+// placed and a transaction applied on a child, and under which a maintenance step runs. It is held
+// for synchronous work in memory only. The lock of the state is taken alone. No thread that holds a
+// lock takes the other one. The listener of a master
 // has a lock of its own for its connections; the follower of a child has one for its suspensions, its
 // sender one for its queue and the table of its pending requests one; each is taken alone as well. No
 // lock is held while bytes are sent or received.
 // A read takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
 // nothing is taken inside it. What a read can reach lives at least as long as the read: a write unlinks it
 // and retires it, and the writer frees it only once the reads that entered before have left (RetiredMemory);
-// the close frees the arena only after the reads and the writes in progress have ended. No code of the
-// application runs, and nothing waits, while a read is inside.
+// the close frees the arena only after the reads and the operations counted by CloseBarrier have
+// ended. No code of the application runs, and nothing waits, while a read is inside.
 //
 internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExecutor
 {
@@ -118,7 +121,15 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     private Task? _following;
 
-    // Cancelled when the close begins: it ends the open of a child that is in progress.
+    // Registered at Ready under the state lock. Only admitted turns touch the parts; close
+    // joins the cadence outside that lock before returning the arena.
+    private readonly AutomaticMaintenance _maintenance;
+
+    private readonly Action<DatabaseParts> _runMaintenance;
+
+    private Task? _maintaining;
+
+    // Cancelled when close begins: ends the open of a child and the maintenance wait.
     private readonly CancellationTokenSource _closing = new();
 
     // An instance for the options, which Check has accepted, without opening it: LatticeDatabase.Create, and
@@ -129,6 +140,9 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         _testInputs = testInputs;
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
+        _maintenance = new AutomaticMaintenance(
+            testInputs?.BeforeTextMigrationPageAllocation, testInputs?.BeforeRootReclamationAllocation);
+        _runMaintenance = _maintenance.Run;
     }
 
     // The refusals of LatticeDatabase.Create, in their order, and of the Create of the tests:
@@ -458,6 +472,70 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
 
+    internal bool TryRunMaintenanceTurn()
+    {
+        if (_testInputs?.ObserveMaintenanceTurn is not { } observe)
+        {
+            return TryRunMaintenanceStep(_runMaintenance);
+        }
+
+        var started = Stopwatch.GetTimestamp();
+        MaintenanceTurnSample sample = default;
+        var admitted = TryRunMaintenanceStep(parts => sample = _maintenance.Step(parts));
+        observe(sample with { Admitted = admitted, ElapsedTicks = Stopwatch.GetTimestamp() - started });
+        return admitted;
+    }
+
+    // Counts the attempt before reaching the parts so that close cannot free them while it runs.
+    // Runs the bounded action under the lock of the writes, without waiting for that lock.
+    // Returns true once the action completes, false if it was skipped, and propagates its failure.
+    internal bool TryRunMaintenanceStep(Action<DatabaseParts> step)
+    {
+        if (!_barrier.TryEnter())
+        {
+            return false;
+        }
+
+        try
+        {
+            if (State != LatticeDatabaseStateEnum.Ready)
+            {
+                return false;
+            }
+
+            _testInputs?.BeforeMaintenanceWrites?.Invoke();
+
+            var parts = Part(_parts);
+            if (!parts.Writes.TryEnter())
+            {
+                return false;
+            }
+
+            try
+            {
+                // State includes the child's fault mark. The master coordinator can mark its
+                // own fault before the state observes it.
+                if (State != LatticeDatabaseStateEnum.Ready ||
+                    (_options.Role == LatticeRoleEnum.Master && parts.Coordinator.IsFaulted))
+                {
+                    return false;
+                }
+
+                step(parts);
+
+                return true;
+            }
+            finally
+            {
+                parts.Writes.Exit();
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+    }
+
     // Steps 6 to 11 of the close (CloseAsync), once the operations in progress have ended. When nothing
     // is in progress it runs to its end before it returns. The wait for the reads runs on a thread of the
     // pool, because a read may be held by a test while its caller goes on; it ends as
@@ -474,11 +552,25 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         MasterLink? master;
         Task? loaded;
         Task? following;
+        Task? maintaining;
 
         lock (_stateLock)
         {
             listener = _listener;
             loaded = _loaded?.Task;
+            maintaining = _maintaining;
+        }
+
+        try
+        {
+            if (maintaining is not null)
+            {
+                await maintaining.ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
         }
 
         try
@@ -490,7 +582,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         }
         catch (Exception exception)
         {
-            failure = exception;
+            failure ??= exception;
         }
 
         try
@@ -534,10 +626,9 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             // The last drain frees what is retired, and with the roots it frees go their references to
             // text entries (Storage.Text.TextTable): a change of a count, which runs only on the thread
             // that holds the lock of the writes (Storage.Text.TextTable).
-            // Nothing can contend for the lock here — the barrier has let every write, drain, count and
-            // placement end and admits none, the network has stopped, and the reads have left — so the
-            // close takes it all the same, to keep that rule without an exception, and frees the arena
-            // under it.
+            // The barrier has drained every counted operation, the network has stopped, and the
+            // reads have left. Nothing can contend for the writes lock here. Close takes the lock
+            // anyway so that the rule for changing the arena still holds.
             if (_parts is { } parts)
             {
                 lock (parts.Writes)
@@ -563,6 +654,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             _master = null;
             _follower = null;
             _following = null;
+            _maintaining = null;
         }
 
         if (failure is null)
@@ -630,7 +722,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 throw new ObjectDisposedException(GetType().FullName);
             }
 
-            _state = LatticeDatabaseStateEnum.Ready;
+            BecomeReady();
         }
     }
 
@@ -745,12 +837,46 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 CatchUp = catchUp;
                 _follower = follower;
                 _following = Task.Run(() => follower.FollowAsync(_closing.Token));
-                _state = LatticeDatabaseStateEnum.Ready;
+                BecomeReady();
             }
         }
         finally
         {
             _loaded!.SetResult();
+        }
+    }
+
+    // Under the state lock: publish Ready and register its asynchronous worker before close can
+    // take the lock. The worker captures neither the arena nor the writes lock while it waits.
+    private void BecomeReady()
+    {
+        _state = LatticeDatabaseStateEnum.Ready;
+        if (_testInputs?.DisableBackgroundMaintenance != true)
+        {
+            _maintaining = Task.Run(() => MaintainAsync(_closing.Token));
+        }
+    }
+
+    private async Task MaintainAsync(CancellationToken cancellationToken)
+    {
+        // A missed tick can coalesce while a turn runs. Disposing wakes a parked wait on close.
+        using var cadence = new PeriodicTimer(TimeSpan.FromMilliseconds(16));
+        using var wakeOnClose = cancellationToken.UnsafeRegister(static timer => ((PeriodicTimer)timer!).Dispose(), cadence);
+        try
+        {
+            while (State == LatticeDatabaseStateEnum.Ready)
+            {
+                _testInputs?.BeforeMaintenanceWait?.Invoke(cancellationToken);
+                if (!await cadence.WaitForNextTickAsync().ConfigureAwait(false))
+                {
+                    break;
+                }
+
+                TryRunMaintenanceTurn();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
@@ -789,7 +915,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         var seed = _testInputs?.IndexSeed ?? DrawSeed();
         var writes = new Lock();
         var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = MemoryLimitInForce() };
-        var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator(), seed, writes);
+        var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator(), seed, writes,
+            _testInputs?.MaintenanceTimeProvider);
 
         try
         {
@@ -874,6 +1001,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // faulted has lost its data.
     private void Fault()
     {
+        _testInputs?.BeforeFaultNotification?.Invoke();
+
         if (_epochs.Fault())
         {
             Part(_parts).Publisher.OfferFaultSwitch();

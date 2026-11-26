@@ -18,11 +18,17 @@ internal struct BlockHeader
     // which a test asserts, as a constant for the arithmetic of slots.
     public const int Size = 32;
 
+    // A packed Records block can be a single Value or one Chunk of a directory.
+    public const ushort RecordBlockFlag = 1;
+
+    // A Chunk of derived lookup slots has an address word instead of a descriptor.
+    public const ushort LookupSlotsFlag = 2;
+
     // The root that owns the block. A block of kind SharedText names the text entry that owns it
-    // in this place instead (Values.ValueBlocks.TryStoreText, TextSlotOf).
+    // in this place instead (Values.ValueBlocks.TryStoreText, TextIdOf).
     public RootHandle Root;
 
-    // The block that holds the descriptor referring to this one. Null for a root.
+    // The physical holder of a root-owned descriptor. A shared text chunk uses its ID and offset instead.
     public ArenaAddress Parent;
 
     // The byte offset of that descriptor from the start of the parent block, its header included.
@@ -37,7 +43,7 @@ internal struct BlockHeader
     // What the block holds.
     public BlockKindEnum Kind;
 
-    // Flags of the block. The milestone contract gives them two bytes and defines none yet.
+    // Flags identifying the shape of a native block for relocation. The wire carries no native header.
     public ushort Flags;
 
     // The version of the layout the payload was written in.

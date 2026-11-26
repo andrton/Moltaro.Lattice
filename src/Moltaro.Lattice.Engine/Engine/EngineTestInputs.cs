@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
@@ -6,7 +7,7 @@ namespace Moltaro.Lattice.Engine;
 
 // What a test of the engine gives an instance besides its options (exception X3,
 // docs/work/exceptions.md), through EngineDatabase.Create(options, inputs). A test sets only what it
-// needs; each member left null is what an instance made by Create(options) uses, so an instance made
+// needs; each member left at its default is what an instance made by Create(options) uses, so an instance made
 // without inputs pays nothing for them.
 internal sealed class EngineTestInputs
 {
@@ -39,7 +40,33 @@ internal sealed class EngineTestInputs
     // timer delivery, independently of the publishing thread. Null: TimeProvider.System.
     public TimeProvider? PositionWaitTime { get; init; }
 
+    // The monotonic clock for collection capacity eligibility. Null: TimeProvider.System.
+    public TimeProvider? MaintenanceTimeProvider { get; init; }
+
     // Invoked outside the state lock after Closed becomes visible and before close notifies the
     // position waiters. Tests can hold the notification to observe operations at that boundary.
     public Action? AfterCloseStatePublication { get; init; }
+
+    // Invoked with a maintenance attempt counted by the close barrier, after observing Ready
+    // and before trying the lock of the writes. Tests can hold an attempt that close may overtake.
+    public Action? BeforeMaintenanceWrites { get; init; }
+
+    // Under Writes, immediately before a missing destination page is allocated during text migration.
+    public Action? BeforeTextMigrationPageAllocation { get; init; }
+
+    // Under Writes, just before allocating the first automatic root reclamation cursor.
+    public Action? BeforeRootReclamationAllocation { get; init; }
+
+    // Lets a test drive the ordinary bounded turn without the background cadence.
+    public bool DisableBackgroundMaintenance { get; init; }
+
+    // Invoked after Ready, outside the writes lock and close barrier, before the cadence waits.
+    public Action<CancellationToken>? BeforeMaintenanceWait { get; init; }
+
+    // Invoked with the completed sample outside the writes lock and close barrier.
+    public Action<MaintenanceTurnSample>? ObserveMaintenanceTurn { get; init; }
+
+    // Invoked after the fault is marked under the lock of the writes and that lock is released,
+    // before the database finishes marking the fault and notifying position waiters.
+    public Action? BeforeFaultNotification { get; init; }
 }

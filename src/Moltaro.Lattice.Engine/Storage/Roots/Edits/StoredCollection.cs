@@ -32,11 +32,10 @@ internal readonly struct StoredCollection
 
     public bool Hashed => _collection.Kind == DescriptorKindEnum.Lookup;
 
-    public int Find(object? key)
-    {
-        var keys = new CollectionKeys(_arena, _element, _collection, _arena.Payload(_holder), _encoding);
-        return new CollectionLookup(_arena, _collection).Find(keys, IndexValue.Of(key));
-    }
+    public ValueDescriptor Descriptor => _collection;
+
+    public int Find(object? key) =>
+        CollectionLookup.Find(_arena, _element, _collection, _arena.Payload(_holder), _encoding, IndexValue.Of(key));
 
     public string Spelling(int ordinal)
     {
@@ -54,7 +53,7 @@ internal readonly struct StoredCollection
         var chunk = ordinal / _element.RecordsPerChunk;
         var within = ordinal % _element.RecordsPerChunk;
         var directory = ValueBlocks.Directory(_arena, _entries);
-        var entry = ValueBlocks.Read(directory[(chunk * ValueBlocks.DescriptorSize)..]);
+        var entry = ResidentDescriptor.Read(directory[(chunk * ValueBlocks.DescriptorSize)..]);
         return (ValueBlocks.AddressOf(entry), BlockHeader.Size + within * _element.Size);
     }
 

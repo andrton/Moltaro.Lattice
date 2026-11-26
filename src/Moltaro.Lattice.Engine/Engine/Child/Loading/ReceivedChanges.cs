@@ -731,12 +731,10 @@ internal sealed class ReceivedChanges
     {
         if (table.Keys.KeyKind == KeyKindEnum.Text)
         {
-            return table.Keys.KeyOfText(_import.Text(received, table.EntityType.Key));
+            return table.Keys.KeyOfText(_import.TextKey(received));
         }
 
-        var fixedPart = _import.FixedPart(received);
-
-        return table.Keys.StoredKey(fixedPart);
+        return table.Keys.ReadFixedKey(_import.FixedKeyBytes(received));
     }
 
     // The effect names its key (see the class, "Each key once"), whether the rule then prepares or skips its

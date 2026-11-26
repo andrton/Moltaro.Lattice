@@ -10,14 +10,13 @@ namespace Moltaro.Lattice.Storage.Values;
 // reading, adopting and freeing a value all start from its descriptor.
 //
 // The entry of a Dictionary text (Storage.Text.TextTable) is placed by the same rule, one block up to
-// SingleBlockLimit bytes and a directory with chunks above, every block of it of kind
-// SharedText, and a root names it by a descriptor of kind Text. A Text descriptor is read as a value
+// SingleBlockLimit bytes and a directory with chunks above, each block marked with its shared text kind, and a root names it by a descriptor of kind Text. A Text descriptor is read as a value
 // in blocks is read, by its length, but its blocks belong to the entry and not to the root: Free,
 // Publish, Retire and Adopt take a Block or a Chunked descriptor, as Storage.Roots.RootStorage decides by the
 // kind, and the text table frees and publishes the blocks of an entry (FreeText, PublishText).
 //
-// A descriptor lies in a root block, or in a directory, at an offset the packed layout gives, which
-// need not be aligned: it is always read and written as 16 bytes, never through a reference.
+// Descriptors in a native block use ResidentDescriptor, even in a directory where the slots
+// are already aligned. Read and Write below serve canonical scratch and transfer descriptors.
 //
 // A directory holds one descriptor for each chunk, in the order of the value: kind Block, the bytes
 // of the chunk, the relative address of the chunk. Its payload is 16 bytes for each chunk and nothing
@@ -62,12 +61,23 @@ internal static class ValueBlocks
     public static bool IsPending(in ValueDescriptor descriptor) =>
         descriptor.Kind == DescriptorKindEnum.Null && descriptor.Length != 0;
 
-    // The address a descriptor of kind Block, Chunked or Text holds in its Location. Inlined, so that the
-    // walks over the shared keys of the nodes of an index make no call for each key (JIT listing at full
-    // optimization).
+    // Gets the physical address carried by a placed block or a resolved text descriptor.
+    // A resident Text descriptor needs ResolveText before its location is an address.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ArenaAddress AddressOf(in ValueDescriptor descriptor) =>
         new((uint)(descriptor.Location >> 32), (uint)descriptor.Location);
+
+    // Resolve a resident Text ID once before a text traversal. Native and
+    // canonical descriptors remain distinct from the caller's resolved copy.
+    public static ValueDescriptor ResolveText(Arena arena, ValueDescriptor descriptor)
+    {
+        if (descriptor.Kind == DescriptorKindEnum.Text)
+        {
+            descriptor.Location = arena.Texts.AddressOf(descriptor.Location).Value;
+        }
+
+        return descriptor;
+    }
 
     // Whether the value a descriptor of a root or of a text entry names lies in chunks. A value is
     // placed by its length alone: inline or in one block up to SingleBlockLimit bytes, in chunks above,
@@ -96,30 +106,26 @@ internal static class ValueBlocks
     // which does not exist yet: RootWriter.Complete names it with Adopt. The caller has checked that
     // the value is within MostValueBytes, so that it needs no more chunks than MostChunks.
     //
-    // A value is stored whole or not at all. When it is stored, the descriptor in place names it and
-    // the method returns true. When the arena refuses a block for its budget, the method returns
-    // false, and when the native allocator fails, its OutOfMemoryException passes through; either way
-    // the blocks already allocated for the value are freed first and place is left as it was. The
-    // writer therefore never holds a half-stored value: a descriptor in its image names a whole value
-    // or nothing.
+    // A value is stored whole or not at all. On success the method returns the descriptor
+    // for the prepared blocks. ValueHolder installs it to record their ownership. When the
+    // arena refuses a block for its budget, the method returns false. An OutOfMemoryException
+    // from the native allocator passes through. Both failures first free the blocks already
+    // allocated for the value.
     //
     // The blocks are prepared (Arena.TryAllocatePrepared).
-    public static bool TryStore<TSource>(Arena arena, RootHandle root, uint layoutVersion, ArenaAddress parent, uint offset, int length, ref TSource source, scoped Span<byte> place)
+    public static bool TryStore<TSource>(Arena arena, RootHandle root, uint layoutVersion, ArenaAddress parent, uint offset, int length, ref TSource source, out ValueDescriptor descriptor)
         where TSource : IValueSource, allows ref struct =>
-        TryStore(arena, root, layoutVersion, parent, offset, sharedText: false, length, ref source, place);
+        TryStore(arena, root, layoutVersion, parent, offset, sharedText: false, length, ref source, out descriptor);
 
-    // Allocates the blocks of the entry of a Dictionary text of length bytes, at least one, and fills
-    // them from the source, by the placement of TryStore: every block of kind SharedText, its parent
-    // none, a chunk's parent its directory, and its header naming the slot of the entry in the text table
-    // where the block of a root names its root, as a handle of generation 0, which no lifetime of a root
-    // has (RootTable); TextSlotOf reads it. The descriptor in place becomes a Text descriptor with the
-    // length and the address of the block or the directory. Stored whole or not at all, as TryStore.
-    public static bool TryStoreText(Arena arena, uint slot, int length, ref ValueSource source, scoped Span<byte> place) =>
-        TryStore(arena, new RootHandle(0, slot), NoLayout, default, 0, sharedText: true, length, ref source, place);
+    // Allocates the standalone block or the directory and chunks of a Dictionary text. Shared
+    // headers name its stable ID as a generation-zero handle, distinct from a root (RootTable).
+    // A chunk uses the descriptor offset to find its edge in the current shared directory.
+    // The returned descriptor has the physical address for the text table to publish with the ID.
+    public static bool TryStoreText(Arena arena, uint id, int length, ref ValueSource source, out ValueDescriptor descriptor) =>
+        TryStore(arena, new RootHandle(0, id), NoLayout, default, 0, sharedText: true, length, ref source, out descriptor);
 
-    // The slot of the text entry whose first block is at the address, as TryStoreText wrote it into the
-    // header of the block.
-    public static uint TextSlotOf(Arena arena, ArenaAddress address) => arena.Header(address).Root.Slot;
+    // The stable ID written into the header of a shared text block.
+    public static uint TextIdOf(Arena arena, ArenaAddress address) => arena.Header(address).Root.Slot;
 
     // Frees every block of a value a root owns, a Block or a Chunked descriptor: its value block, or its
     // chunks and then their directory. A directory entry that is still zero names no chunk: TryStore
@@ -181,7 +187,7 @@ internal static class ValueBlocks
 
         for (var entryOffset = 0; entryOffset < entries.Length; entryOffset += DescriptorSize)
         {
-            arena.Retire(AddressOf(Read(entries[entryOffset..])));
+            arena.Retire(AddressOf(ResidentDescriptor.Read(entries[entryOffset..])));
         }
 
         arena.Retire(address);
@@ -198,10 +204,14 @@ internal static class ValueBlocks
     public static ReadOnlySpan<byte> Directory(Arena arena, scoped in ValueDescriptor descriptor) =>
         arena.Payload(AddressOf(descriptor));
 
+    // Reads one directory entry, including an unallocated slot in an unfinished value.
+    public static ArenaAddress ChunkAddressAt(Arena arena, ArenaAddress directory, int chunk) =>
+        AddressOf(ResidentDescriptor.Read(arena.Payload(directory)[(chunk * DescriptorSize)..]));
+
     // The bytes of one chunk, by its entry in the directory.
     public static ReadOnlySpan<byte> Chunk(Arena arena, ReadOnlySpan<byte> entries, int chunk)
     {
-        var entry = Read(entries[(chunk * DescriptorSize)..]);
+        var entry = ResidentDescriptor.Read(entries[(chunk * DescriptorSize)..]);
 
         return arena.Payload(AddressOf(entry))[..(int)entry.Length];
     }
@@ -228,12 +238,13 @@ internal static class ValueBlocks
         }
     }
 
-    private static bool TryStore<TSource>(Arena arena, RootHandle owner, uint layoutVersion, ArenaAddress parent, uint offset, bool sharedText, int length, ref TSource source, scoped Span<byte> place)
+    private static bool TryStore<TSource>(Arena arena, RootHandle owner, uint layoutVersion, ArenaAddress parent, uint offset, bool sharedText, int length, ref TSource source, out ValueDescriptor descriptor)
         where TSource : IValueSource, allows ref struct
     {
+        descriptor = default;
         var valueKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.Value;
-        var directoryKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.ChunkDirectory;
-        var chunkKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.Chunk;
+        var directoryKind = sharedText ? BlockKindEnum.SharedTextDirectory : BlockKindEnum.ChunkDirectory;
+        var chunkKind = sharedText ? BlockKindEnum.SharedTextChunk : BlockKindEnum.Chunk;
 
         if (length <= SingleBlockLimit)
         {
@@ -244,7 +255,7 @@ internal static class ValueBlocks
             }
 
             source.Fill(arena.Payload(block));
-            Write(place, new ValueDescriptor { Kind = sharedText ? DescriptorKindEnum.Text : DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
+            descriptor = new ValueDescriptor { Kind = sharedText ? DescriptorKindEnum.Text : DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value };
 
             return true;
         }
@@ -272,14 +283,14 @@ internal static class ValueBlocks
                 var chunkLength = Math.Min(ChunkPayload, length - chunk * ChunkPayload);
                 var entryOffset = chunk * DescriptorSize;
 
-                if (!TryAllocate(arena, chunkLength, chunkKind, owner, layoutVersion, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
+                if (!TryAllocate(arena, chunkLength, chunkKind, owner, layoutVersion, sharedText ? default : directory, (uint)(BlockHeader.Size + entryOffset), out var block))
                 {
                     FreeBlocks(arena, directory, chunks: true);
 
                     return false;
                 }
 
-                Write(entries[entryOffset..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)chunkLength, Location = block.Value });
+                ResidentDescriptor.Write(entries[entryOffset..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)chunkLength, Location = block.Value });
                 source.Fill(arena.Payload(block));
             }
         }
@@ -291,7 +302,7 @@ internal static class ValueBlocks
             throw;
         }
 
-        Write(place, stored);
+        descriptor = stored;
 
         return true;
     }
@@ -312,7 +323,7 @@ internal static class ValueBlocks
 
         for (var entryOffset = 0; entryOffset < entries.Length; entryOffset += DescriptorSize)
         {
-            var chunk = Read(entries[entryOffset..]);
+            var chunk = ResidentDescriptor.Read(entries[entryOffset..]);
 
             if (chunk.Location != 0)
             {
@@ -333,7 +344,7 @@ internal static class ValueBlocks
 
             for (var entryOffset = 0; entryOffset < entries.Length; entryOffset += DescriptorSize)
             {
-                arena.Publish(AddressOf(Read(entries[entryOffset..])));
+                arena.Publish(AddressOf(ResidentDescriptor.Read(entries[entryOffset..])));
             }
         }
 

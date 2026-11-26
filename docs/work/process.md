@@ -304,6 +304,11 @@ refactoring sprint, which changes no behavior, and the light track have no break
   the representations the brief names. A case counts when it reaches the mechanism it is
   meant to hold. Keep the smallest set of cases that distinguishes the outcomes on a
   shared path.
+  For changes to storage or transfer, check the contract for supported combinations of
+  key type, value type, physical representation and affected operation. Equivalent values
+  within one case may share a test. Cover distinct supported combinations of key type and
+  representation. For a finite set, the tests compare the covered cases with the supported
+  set so a new supported kind without a case fails the check.
   When a wait can end in cancellation or publication, the breaker controls the request,
   its notification and publication separately if the outcome depends on their order.
 - **Measurements used for a decision.** Check the pinned base and head, equivalent

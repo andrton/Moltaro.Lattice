@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
@@ -37,6 +38,11 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     private readonly ReadOnlySpan<ArenaAddress> _chunks;
 
     public CollectionLookup(Arena arena, scoped in ValueDescriptor descriptor)
+        : this(arena, descriptor, OpenPayload(arena, descriptor))
+    {
+    }
+
+    private CollectionLookup(Arena arena, scoped in ValueDescriptor descriptor, Span<byte> lookupPayload)
     {
         _arena = arena;
         if (descriptor.Kind != DescriptorKindEnum.Lookup)
@@ -44,15 +50,14 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
             return;
         }
 
-        var address = ValueBlocks.AddressOf(descriptor);
         if (IsChunked(descriptor))
         {
-            _chunks = Chunks(arena, address);
-            Capacity = (_chunks.Length - 1) * SlotsPerChunk + arena.Payload(_chunks[^1]).Length / SlotBytes;
+            _chunks = ChunkAddresses(lookupPayload);
+            Capacity = (_chunks.Length - 1) * SlotsPerChunk + arena.Payload(ReadChunk(_chunks, _chunks.Length - 1)).Length / SlotBytes;
         }
         else
         {
-            _slots = MemoryMarshal.Cast<byte, ulong>(arena.Payload(address)[ValueBlocks.DescriptorSize..]);
+            _slots = MemoryMarshal.Cast<byte, ulong>(lookupPayload[ValueBlocks.DescriptorSize..]);
             Capacity = _slots.Length;
         }
     }
@@ -67,31 +72,70 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
     public static bool IsChunked(in ValueDescriptor descriptor) => descriptor.Length > ContiguousEntries;
 
     public static ValueDescriptor Entries(Arena arena, in ValueDescriptor descriptor) =>
-        ValueBlocks.Read(arena.Payload(ValueBlocks.AddressOf(descriptor)));
+        ResidentDescriptor.ReadAligned(arena.Payload(ValueBlocks.AddressOf(descriptor)));
 
     // A probe is bound to the declaration of the key. The holder is the payload
     // that contains the original descriptor, including when the collection is inline.
+    // Under root protection, the slots and entry keys use the same lookup payload.
     public static int Find(Arena arena, StructureLayout entry, in ValueDescriptor descriptor, ReadOnlySpan<byte> holder,
         LatticeStringEncodingEnum encoding, in IndexValue key)
     {
-        var keys = new CollectionKeys(arena, entry, descriptor, holder, encoding);
-        return new CollectionLookup(arena, descriptor).Find(keys, key);
+        var lookupPayload = OpenPayload(arena, descriptor);
+        var keys = new CollectionKeys(arena, entry, descriptor, holder, encoding, lookupPayload);
+        return new CollectionLookup(arena, descriptor, lookupPayload).Find(keys, key);
     }
 
+    public static Span<byte> OpenPayload(Arena arena, scoped in ValueDescriptor descriptor) =>
+        descriptor.Kind == DescriptorKindEnum.Lookup ? arena.Payload(ValueBlocks.AddressOf(descriptor)) : default;
+
     public static Span<ArenaAddress> Chunks(Arena arena, ArenaAddress address) =>
-        MemoryMarshal.Cast<byte, ArenaAddress>(arena.Payload(address)[ValueBlocks.DescriptorSize..]);
+        ChunkAddresses(arena.Payload(address));
+
+    public static Span<ArenaAddress> ChunkAddresses(Span<byte> lookupPayload) =>
+        MemoryMarshal.Cast<byte, ArenaAddress>(lookupPayload[ValueBlocks.DescriptorSize..]);
+
+    // These words begin at aligned block offset 48. Protection of the lookup
+    // keeps a slot block alive after this acquisition, even if its address changes.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ArenaAddress ReadChunk(ReadOnlySpan<ArenaAddress> chunks, int index)
+    {
+        ref var word = ref Unsafe.As<ArenaAddress, ulong>(ref Unsafe.AsRef(in chunks[index]));
+        return Unsafe.BitCast<ulong, ArenaAddress>(Volatile.Read(ref word));
+    }
+
+    public static void PublishChunk(Span<ArenaAddress> chunks, int index, ArenaAddress replacement)
+    {
+        ref var word = ref Unsafe.As<ArenaAddress, ulong>(ref chunks[index]);
+        Volatile.Write(ref word, replacement.Value);
+    }
+
+    public static int ChunkCountForSlots(int slots) =>
+        slots > ContiguousSlots ? (slots + SlotsPerChunk - 1) / SlotsPerChunk : 0;
+
+    public static int PayloadForSlots(int slots, int chunks)
+    {
+        if (chunks != 0)
+        {
+            return ValueBlocks.DescriptorSize + chunks * SlotBytes;
+        }
+
+        // The last class step can hold more than twice the required probing
+        // range. Keep the class, with the excess charged as class slack.
+        var wanted = ValueBlocks.DescriptorSize + slots * SlotBytes;
+        return Math.Min(SlotPayload(wanted), wanted + slots * SlotBytes);
+    }
+
+    public static int ChunkPayloadForSlots(int slots, int ordinal) =>
+        SlotPayload(Math.Min(slots - ordinal * SlotsPerChunk, SlotsPerChunk) * SlotBytes);
 
     // Installs the descriptor only after its lookup payload is zeroed. Each initialized chunk
     // then becomes reachable from that descriptor. The caller owns cleanup on a false return.
-    public static bool TryPrepare(ref ValueHolder holder, int offset, int count, out ValueHolder entries)
+    public static bool TryPrepare(ref ValueHolder holder, int offset, int count, out ValueHolder entries, bool reuseTail)
     {
         entries = default;
         var wanted = SlotsNeeded(count);
-        var chunked = wanted > ContiguousSlots;
-        var chunks = chunked ? (wanted + SlotsPerChunk - 1) / SlotsPerChunk : 0;
-        var length = chunked
-            ? ValueBlocks.DescriptorSize + chunks * sizeof(ulong)
-            : SlotPayload(ValueBlocks.DescriptorSize + wanted * SlotBytes);
+        var chunks = ChunkCountForSlots(wanted);
+        var length = PayloadForSlots(wanted, chunks);
 
         if (!holder.TryAllocate(length, BlockKindEnum.Lookup, holder.Address, offset, out var address))
         {
@@ -100,25 +144,32 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
 
         var payload = holder.Arena.Payload(address);
         payload.Clear();
-        ValueBlocks.Write(holder.At(offset, ValueBlocks.DescriptorSize), new ValueDescriptor
+        holder.SetDescriptor(offset, new ValueDescriptor
         {
             Kind = DescriptorKindEnum.Lookup,
             Length = (uint)count,
             Location = address.Value,
         });
 
-        if (chunked)
+        if (chunks != 0)
         {
             var addresses = Chunks(holder.Arena, address);
             for (var chunk = 0; chunk < chunks; chunk++)
             {
-                var slots = Math.Min(wanted - chunk * SlotsPerChunk, SlotsPerChunk);
-                var bytes = SlotPayload(slots * SlotBytes);
-                if (!holder.TryAllocate(bytes, BlockKindEnum.Chunk, address, FirstChunkOffset + chunk * sizeof(ulong), out var block))
+                var bytes = ChunkPayloadForSlots(wanted, chunk);
+                var link = FirstChunkOffset + chunk * sizeof(ulong);
+                ArenaAddress block;
+                if (reuseTail && holder.Arena.CollectionTails!.Borrow(holder.Root, offset, address, (uint)link,
+                    holder.Layout.LayoutVersion, bytes, out block))
+                {
+                    holder.SlotBytes += Arena.BlockSizeFor(bytes);
+                }
+                else if (!holder.TryAllocate(bytes, BlockKindEnum.Chunk, address, link, out block))
                 {
                     return false;
                 }
 
+                holder.Arena.Header(block).Flags = BlockHeader.LookupSlotsFlag;
                 holder.Arena.Payload(block).Clear();
                 addresses[chunk] = block;
             }
@@ -140,7 +191,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
         }
 
         var chunk = index / SlotsPerChunk;
-        var slots = MemoryMarshal.Cast<byte, ulong>(_arena.Payload(_chunks[chunk]));
+        var slots = MemoryMarshal.Cast<byte, ulong>(_arena.Payload(ReadChunk(_chunks, chunk)));
         return ref slots[index - chunk * SlotsPerChunk];
     }
 
@@ -189,7 +240,7 @@ internal readonly ref struct CollectionLookup : ICollectionSlots
         return -1;
     }
 
-    public int Find(CollectionKeys keys, in IndexValue probe)
+    private int Find(CollectionKeys keys, in IndexValue probe)
     {
         Span<byte> bytes = stackalloc byte[16];
         var fixedProbe = bytes[..keys.Width];

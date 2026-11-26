@@ -112,6 +112,16 @@ in the meantime.
 
 ## Answered
 
+### Q66. May segment evacuation start without a sparse occupied region?
+
+| | |
+| --- | --- |
+| **Found** | 25 November 2026, the study of Epic 1, sprint S23 |
+| **Question** | The S23 acceptance starts a compaction pass on an occupied region below half live occupancy. A 64 KiB region has one slot for the 64 KiB class and two for the 32 KiB class. A live block can therefore keep an otherwise empty segment from being released even when another segment has a compatible destination. May a separate segment evacuation start in this case, with the same bounded steps, headroom and reserve? |
+| **Answer** | The owner, 26 November 2026. Close S23 with the strict region trigger: a nonempty region qualifies only below half live occupancy. Develop the separate segment trigger in S23A, using existing compatible space outside the source and preserving bounded work, reader protection, relocation headroom and the standing reserve. |
+| **Evidence** | In the isolated allocator probe, the strict trigger selected neither source. With an outside destination, one physical move returned 4,194,304 bytes to the native allocator and left the original 4,194,304-byte reserve in place. Without a destination the probe attempted no allocation and returned no bytes. See the [probe recipe](epic-1-core.md#q66-segment-evacuation-probe). |
+| **Where the rule lives** | [S23 closure](epic-1-core.md#s23-closure) and the separate [S23A brief](epic-1-core.md#s23a--evacuate-nearly-empty-segments). |
+
 ### Q64. When does an update validate its copied content?
 
 | | |

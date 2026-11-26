@@ -2,15 +2,12 @@ using System.Runtime.InteropServices;
 
 namespace Moltaro.Lattice.Storage;
 
-// The 16 bytes that stand in the fixed part of a root for one String or Binary value. The fields,
-// their widths and their order are those of the milestone contract ("Native layout and
-// allocation"): kind and flags (4), length or count (4), relative address (8), for a Dictionary field
-// the address of the shared entry; a test asserts the size. What Length and Location mean depends on
-// the kind; DescriptorKindEnum says it for each.
+// The decoded descriptor of a root or record value. What Length and Location mean depends
+// on Kind. See DescriptorKindEnum and docs/design/arena-protocol.md.
 //
-// Sequential layout, because the declared order is the order of the bytes in the root block. No
-// Pack: in this order every field already sits on its natural boundary, so natural alignment adds
-// no padding.
+// The sequential layout is also the canonical scratch and transfer representation, used by
+// ValueBlocks: kind (4), length or count (4), location (8). In a native slot ResidentDescriptor
+// places the location at its aligned word instead.
 [StructLayout(LayoutKind.Sequential)]
 internal struct ValueDescriptor
 {

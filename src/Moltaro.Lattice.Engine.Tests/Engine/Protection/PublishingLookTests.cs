@@ -33,12 +33,14 @@ public sealed class PublishingLookTests
     // One segment of the arena, as the database opens it.
     private static readonly int Segment = new ArenaOptions().SegmentSize;
 
+    private static readonly EngineTestInputs WithoutBackgroundMaintenance = new() { DisableBackgroundMaintenance = true };
+
     [Fact]
     public async Task Replaces_that_retire_as_many_roots_as_the_epoch_table_has_slots_free_them_without_a_drain()
     {
         var slots = new ReadEpochs(new object()).SlotCount;
 
-        await using var database = await StampSchema.OpenAsync();
+        await using var database = await EngineMaster.OpenAsync(StampSchema.Schema, WithoutBackgroundMaintenance);
         var stamps = database.Set<StampSchema.Stamp>();
         await stamps.InsertAsync(StampSchema.StampOf(1, Numbers));
         database.DrainRetired();
@@ -64,7 +66,7 @@ public sealed class PublishingLookTests
     [Fact]
     public async Task Replaces_that_retire_one_segment_of_bytes_free_them_without_a_drain()
     {
-        await using var database = await PieceSchema.OpenAsync();
+        await using var database = await EngineMaster.OpenAsync(PieceSchema.Schema, WithoutBackgroundMaintenance);
         var pieces = database.Set<PieceSchema.Piece>();
         await pieces.InsertAsync(PieceSchema.Of(1, name: LargeName));
         database.DrainRetired();
@@ -107,7 +109,7 @@ public sealed class PublishingLookTests
 
         Assert.True(slots > 1, $"The epoch table has {slots} slot, so a window of writes is one write.");
 
-        await using var database = await PieceSchema.OpenAsync();
+        await using var database = await EngineMaster.OpenAsync(PieceSchema.Schema, WithoutBackgroundMaintenance);
         var pieces = database.Set<PieceSchema.Piece>();
         await pieces.InsertAsync(PieceSchema.Of(1, name: Segment));
         await pieces.InsertAsync(PieceSchema.Of(2, name: 8));
@@ -150,7 +152,7 @@ public sealed class PublishingLookTests
     {
         var slots = new ReadEpochs(new object()).SlotCount;
 
-        await using var database = await StampSchema.OpenAsync();
+        await using var database = await EngineMaster.OpenAsync(StampSchema.Schema, WithoutBackgroundMaintenance);
         var stamps = database.Set<StampSchema.Stamp>();
         await stamps.InsertAsync(StampSchema.StampOf(1, Numbers));
         database.DrainRetired();
@@ -189,7 +191,7 @@ public sealed class PublishingLookTests
     {
         var slots = new ReadEpochs(new object()).SlotCount;
 
-        await using var database = await StampSchema.OpenAsync();
+        await using var database = await EngineMaster.OpenAsync(StampSchema.Schema, WithoutBackgroundMaintenance);
         var stamps = database.Set<StampSchema.Stamp>();
         await stamps.InsertAsync(StampSchema.StampOf(1, Numbers));
         database.DrainRetired();

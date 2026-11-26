@@ -61,12 +61,7 @@ internal struct ReceivedRecords : IRecordSource
 
         for (var record = 0; record < count; record++)
         {
-            for (var index = 0; index < element.DescriptorCount; index++)
-            {
-                var place = block.Slice((record * element.Size) + element.DescriptorField(index).Offset, ValueBlocks.DescriptorSize);
-
-                BlockImport.LeavePending(place, ValueBlocks.Read(place));
-            }
+            BlockImport.PrepareDescriptors(element, block[(record * element.Size)..]);
         }
 
         for (var record = 0; record < count && !records.Refused; record++)

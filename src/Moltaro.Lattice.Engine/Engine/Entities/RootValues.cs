@@ -82,6 +82,7 @@ internal static class RootValues
         var writer = new RootWriter(arena, layout, handle);
 
         refusal = null;
+        ArenaAddress root;
 
         try
         {
@@ -94,11 +95,8 @@ internal static class RootValues
                 writer.PlaceUpdate(update);
             }
 
-            var root = writer.Complete();
-
+            root = writer.Complete();
             size = writer.SlotBytes;
-
-            return root;
         }
         catch (LatticeException refused) when (refused.Error == LatticeErrorEnum.WriteRejected)
         {
@@ -121,6 +119,18 @@ internal static class RootValues
             writer.Abandon();
             throw;
         }
+
+        try
+        {
+            update?.PrepareCollectionTails(handle, root);
+        }
+        catch
+        {
+            RootStorage.Free(arena, layout, root);
+            throw;
+        }
+
+        return root;
     }
 
     // The writer is passed by reference: it is never copied (RootWriter).

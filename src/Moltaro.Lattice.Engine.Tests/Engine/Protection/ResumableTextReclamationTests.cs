@@ -1,0 +1,443 @@
+using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Text;
+using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Indexes;
+using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
+using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Engine.Tests.Storage.Values;
+using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Text;
+using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.ResumableReclamationTests;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
+namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
+
+// Text entries belong to every physical descriptor and secondary index key that names them.
+// A bounded release can yield before unlink, or with unlinked storage still counted in the
+// arena (docs/design/arena-protocol.md, "Deferred reclamation", and ordered-index.md).
+public sealed class ResumableTextReclamationTests
+{
+    private const ulong IndexSeed = 18_041;
+
+    private static readonly LatticeSchema Schema = ItemSchema.Compile("""
+        { 'Id': 2, 'Name': 'Text', 'Type': 'String', 'StringStorage': 'Dictionary' }
+        """);
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Final_release_waits_for_the_old_reader_and_observes_a_new_owner(bool addOwner)
+    {
+        await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { IndexSeed = IndexSeed, DisableBackgroundMaintenance = true });
+        var items = database.Set("Item");
+        var text = new string('t', 128);
+        await InsertAsync(items, 1, text);
+        var original = EntryOf(database, 1);
+        using var pause = new ViewerPause();
+        var oldReader = OwnThread.Run(() =>
+        {
+            Assert.True(items.TryView(1L, view =>
+            {
+                var value = view["Text"];
+                Assert.Equal(text, value.GetString());
+                pause.Hold();
+                return value.GetString();
+            }, out var captured));
+            return captured;
+        });
+        await pause.EnteredAsync(oldReader);
+
+        await items.DeleteAsync(1L);
+        Assert.Equal(0, Step(database, 1));
+        Assert.Equal(1L, References(database, text));
+        Assert.True(IsAllocated(original.Arena, original.Address));
+
+        const long OtherOwner = 10_000;
+        if (addOwner)
+        {
+            await InsertAsync(items, OtherOwner, text);
+            Assert.Equal(original, EntryOf(database, OtherOwner));
+            Assert.Equal(2L, References(database, text));
+        }
+
+        pause.Release();
+        Assert.Equal(text, await oldReader.WaitAsync(Bound));
+        Finish(database);
+        if (addOwner)
+        {
+            Assert.Equal(original, EntryOf(database, OtherOwner));
+            Assert.Equal(1L, References(database, text));
+            Assert.Equal(text, items.Get(OtherOwner)!.Get<string>("Text"));
+        }
+        else
+        {
+            Assert.Equal(0L, References(database, text));
+            Assert.False(IsAllocated(original.Arena, original.Address));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unlinked_text_keeps_its_id_and_native_storage_until_its_last_chunk_is_returned(bool finishWithOrdinaryDrain)
+    {
+        var allocator = new CountingNativeAllocator();
+        var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 32L * Arena.MaxBlockSize, ReservedSegments = 0 };
+        await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs
+        {
+            DisableBackgroundMaintenance = true,
+            Arena = options,
+            Allocator = allocator,
+            IndexSeed = IndexSeed,
+        });
+        var items = database.Set("Item");
+        var text = new string('t', ValueBlocks.ChunkPayload * 2 + 137);
+        await InsertAsync(items, 1, text);
+        var oldRoot = RootOf(database, 1);
+        var entry = EntryOf(database, 1);
+        var chunks = TextBlocks(entry).ToArray();
+        Assert.Equal(4, chunks.Length);
+        var originalBytes = chunks.Sum(address => SlotBytes(entry.Arena, address)) + SlotBytes(entry.Arena, oldRoot);
+        Assert.Equal(originalBytes, CountedSlots(database));
+
+        using var pause = new ViewerPause();
+        var reading = OwnThread.Run(() =>
+        {
+            Assert.True(items.TryView(1L, view =>
+            {
+                pause.Hold();
+                return view["Text"].ByteLength;
+            }, out var length));
+            return length;
+        });
+        await pause.EnteredAsync(reading);
+
+        await items.DeleteAsync(1L);
+        Assert.Equal(0, Step(database, 1));
+        pause.Release();
+        Assert.Equal(text.Length, await reading.WaitAsync(Bound));
+        var returned = allocator.Returned;
+
+        UntilUnlinked(database, entry.Id);
+        Assert.All(chunks, address => Assert.True(IsAllocated(entry.Arena, address)));
+        Assert.True(IsAllocated(entry.Arena, oldRoot));
+        Assert.Equal(originalBytes, CountedSlots(database));
+        Assert.Equal(returned, allocator.Returned);
+        Assert.True(HoldsId(database, entry.Id));
+
+        await InsertAsync(items, 2, text);
+        var replacement = EntryOf(database, 2);
+        Assert.NotEqual(entry.Id, replacement.Id);
+        Assert.NotEqual(entry.Address, replacement.Address);
+        Assert.Equal(text, items.Get(2L)!.Get<string>("Text"));
+
+        var replacementBytes = TextBlocks(replacement).Sum(address => SlotBytes(replacement.Arena, address)) +
+            SlotBytes(replacement.Arena, RootOf(database, 2));
+        var remaining = chunks.Length;
+        var turns = 0;
+        var slotSizes = chunks.ToDictionary(address => address, address => SlotBytes(entry.Arena, address));
+        var oldRootBytes = SlotBytes(entry.Arena, oldRoot);
+        TextEntry? whileHeld = null;
+        var whileHeldBytes = 0;
+        while (remaining != 0)
+        {
+            Assert.True(turns++ < 128, "An unlinked text did not release its chunks.");
+            Assert.Equal(1, Step(database, 1));
+            var held = chunks.Where(address => IsAllocated(entry.Arena, address)).ToArray();
+            Assert.InRange(remaining - held.Length, 0, 1);
+            remaining = held.Length;
+            if (remaining > 0)
+            {
+                Assert.Contains(entry.Address, held);
+                // The old ID still occupies its locator cell until all
+                // physical storage is gone.
+                Assert.True(HoldsId(database, entry.Id));
+            }
+
+            Assert.Equal(held.Sum(address => slotSizes[address]) +
+                (IsAllocated(entry.Arena, oldRoot) ? oldRootBytes : 0) + replacementBytes + whileHeldBytes,
+                CountedSlots(database));
+            Assert.Equal(allocator.Outstanding, database.Counters.Arena.Segments);
+            if (remaining == chunks.Length - 1 && whileHeld is null)
+            {
+                // Use room in the live directory's class, so the new write cannot
+                // reuse a just-freed old chunk's address.
+                const string WhileHeld = "a distinct text while old chunks remain";
+                Assert.Equal(SlotBytes(replacement.Arena, replacement.Address), Arena.BlockSizeFor(WhileHeld.Length));
+                var requests = allocator.Requests;
+                await InsertAsync(items, 3, WhileHeld);
+                Assert.Equal(requests, allocator.Requests);
+                whileHeld = EntryOf(database, 3);
+                Assert.NotEqual(entry.Id, whileHeld.Id);
+                Assert.NotEqual(replacement.Id, whileHeld.Id);
+                Assert.Equal(WhileHeld, items.Get(3L)!.Get<string>("Text"));
+                Assert.All(held, address => Assert.True(IsAllocated(entry.Arena, address)));
+                Assert.All(chunks.Except(held), address => Assert.False(IsAllocated(entry.Arena, address)));
+                Assert.True(HoldsId(database, entry.Id));
+                whileHeldBytes = SlotBytes(whileHeld.Arena, whileHeld.Address) + SlotBytes(whileHeld.Arena, RootOf(database, 3));
+                if (finishWithOrdinaryDrain)
+                {
+                    database.DrainRetired();
+                    break;
+                }
+            }
+        }
+
+        Finish(database);
+        Assert.All(chunks, address => Assert.False(IsAllocated(entry.Arena, address)));
+        Assert.False(IsAllocated(entry.Arena, oldRoot));
+        Assert.NotNull(whileHeld);
+        Assert.Equal(replacementBytes + whileHeldBytes, CountedSlots(database));
+        Assert.True(allocator.Returned >= returned + 2);
+        Assert.False(HoldsId(database, entry.Id));
+
+        await InsertAsync(items, 4, "another dictionary text");
+        Assert.Equal(entry.Id, EntryOf(database, 4).Id);
+        Assert.Equal(whileHeld, EntryOf(database, 3));
+        Assert.Equal(replacement, EntryOf(database, 2));
+        Assert.Equal(1L, References(database, text));
+    }
+
+    [Fact]
+    public async Task A_retired_leaf_releases_each_shared_key_before_returning_its_own_slot()
+    {
+        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { DisableBackgroundMaintenance = true });
+        var ranked = database.Set<IndexSchema.Ranked>();
+        var keys = Enumerable.Range(1, 6).Select(id => (Id: (long)id,
+            Text: new string('p', 80) + id.ToString("D6", CultureInfo.InvariantCulture))).ToArray();
+        foreach (var key in keys)
+        {
+            await ranked.InsertAsync(new IndexSchema.Ranked { Id = key.Id, Number = key.Id, Login = key.Text, Region = "" });
+        }
+
+        database.DrainRetired();
+        var old = LoginLeafOf(database);
+        Assert.Equal(keys.Select(key => key.Text),
+            IndexContents.Of(database, "Ranked", "ByLogin").Entries.Select(entry => (string)entry.Key[0]!));
+        Assert.All(keys, key => Assert.Equal(2L, References(database, key.Text)));
+
+        using var held = await HeldRead.StartAsync(database, () => ranked.Get(2L)?.Number);
+        await ranked.DeleteAsync(1L);
+        Assert.Equal(BlockKindEnum.IndexNode, old.Arena.Header(old.Address).Kind);
+        Assert.Equal(IndexSchema.NodeBytes, SlotBytes(old.Arena, old.Address));
+        Assert.NotEqual(old.Address, LoginLeafOf(database).Address);
+        Assert.True(database.Counters.Arena.RetiredBytes >= IndexSchema.NodeBytes);
+        var survivors = keys.Skip(1).ToArray();
+        var previous = keys.Select(key => key.Id == 1 ? 2L : 3L).ToArray();
+        Assert.Equal(previous, keys.Select(key => References(database, key.Text)));
+        Assert.Equal(0, Step(database, 1));
+        Assert.Equal(previous, keys.Select(key => References(database, key.Text)));
+        Assert.Equal<long?>(2, await held.ReleaseAsync());
+
+        var turns = 0;
+        while (IsAllocated(old.Arena, old.Address))
+        {
+            Assert.True(turns++ < 512, "The observed retired leaf was not returned.");
+            Assert.Equal(1, Step(database, 1));
+            var remaining = keys.Select(key => References(database, key.Text)).ToArray();
+
+            Assert.InRange(previous.Sum() - remaining.Sum(), 0, 1);
+            Assert.InRange(remaining[0], 0, 2);
+            Assert.All(remaining.Skip(1), count => Assert.InRange(count, 2, 3));
+            if (!IsAllocated(old.Arena, old.Address))
+            {
+                Assert.Equal(previous, remaining);
+                Assert.All(remaining.Skip(1), count => Assert.Equal(2L, count));
+            }
+
+            previous = remaining;
+        }
+
+        Finish(database);
+        Assert.Equal(0L, References(database, keys[0].Text));
+        var range = IndexKey.All.Range(IndexBound.Inclusive(survivors[0].Text), IndexBound.Inclusive(survivors[^1].Text));
+        Assert.Equal(survivors.Select(key => key.Id),
+            ranked.Index("ByLogin").Find(range).Select(item => item.Id));
+    }
+
+    [Fact]
+    public async Task A_remaining_index_separator_owns_its_text_after_the_last_entity_is_reclaimed()
+    {
+        await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { DisableBackgroundMaintenance = true });
+        var ranked = database.Set<IndexSchema.Ranked>();
+        for (var id = 1L; id <= 600; id++)
+        {
+            await ranked.InsertAsync(new IndexSchema.Ranked
+            {
+                Id = id,
+                Number = id,
+                Login = new string('x', 80) + id.ToString("D6", CultureInfo.InvariantCulture),
+                Region = "",
+            });
+        }
+
+        database.DrainRetired();
+        var index = ranked.Index("ByLogin");
+        string? separator = null;
+        var tree = IndexContents.Of(database, "Ranked", "ByLogin");
+        Assert.True(tree.Height >= 2);
+        // If a candidate merges its leaf, try the next actual separator. Require a
+        // survivor rather than inferring one from a count of input keys.
+        foreach (var candidate in tree.RootSeparators.Select(key => (string)key[0]!).Reverse())
+        {
+            var root = Assert.Single(index.Find(IndexKey.Equal(candidate)));
+            await ranked.DeleteAsync(root.Id);
+            Assert.True(database.Counters.Arena.RetiredBytes > 0);
+            Finish(database);
+            var after = IndexContents.Of(database, "Ranked", "ByLogin");
+            if (after.NodeKeys.Any(node => node.Level > 0 && node.Keys.Any(key => Equals(key[0], candidate))))
+            {
+                separator = candidate;
+                break;
+            }
+        }
+
+        Assert.NotNull(separator);
+        Assert.Empty(index.Find(IndexKey.Equal(separator)));
+        var kept = IndexContents.Of(database, "Ranked", "ByLogin");
+        var owners = kept.NodeKeys.Where(node => node.Level > 0)
+            .Sum(node => node.Keys.Count(key => Equals(key[0], separator)));
+        Assert.True(owners > 0);
+        Assert.Equal(owners, References(database, separator));
+
+        var before = kept.Entries.Last(entry => string.CompareOrdinal((string)entry.Key[0]!, separator) < 0);
+        var afterSeparator = kept.Entries.First(entry => string.CompareOrdinal((string)entry.Key[0]!, separator) > 0);
+        Assert.Equal(new[] { before.Entity, afterSeparator.Entity }, index.Find(IndexKey.All.Range(
+            IndexBound.Inclusive((string)before.Key[0]!), IndexBound.Inclusive((string)afterSeparator.Key[0]!))).Select(item => item.Id));
+
+        foreach (var entry in kept.Entries)
+        {
+            await ranked.DeleteAsync(entry.Entity);
+        }
+
+        Finish(database);
+        Assert.Equal(0L, References(database, separator));
+    }
+
+    private static (Arena Arena, ArenaAddress Address) LoginLeafOf(EngineDatabase database)
+    {
+        Arena? arena = null;
+        ArenaAddress address = default;
+        Assert.True(database.TryRunMaintenanceStep(parts =>
+        {
+            Assert.True(parts.Schema.TryGetEntityType("Ranked", out var entityType));
+            Assert.True(entityType.TryGetIndex("ByLogin", out var definition));
+            var index = parts.Tables.Stored((uint)entityType.Id).IndexOf(definition);
+            Assert.Equal(1, index.Tree.Height);
+            var packed = TreeRoot(index.Tree);
+            address = new ArenaAddress((uint)(packed >> 32), unchecked((uint)packed));
+            arena = parts.Arena;
+        }));
+
+        Assert.NotNull(arena);
+        Assert.False(address.IsNull);
+        return (arena, address);
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_root")]
+    private static extern ref ulong TreeRoot(OrderedTree tree);
+
+    private static bool HoldsId(EngineDatabase database, uint id)
+    {
+        var taken = false;
+        Assert.True(database.TryRunMaintenanceStep(parts => taken = parts.Arena.Texts.TryCaptureLocatorLeaf(id, out _)));
+        return taken;
+    }
+
+    private static void UntilUnlinked(EngineDatabase database, uint id)
+    {
+        var turns = 0;
+        bool linked;
+        do
+        {
+            Assert.True(turns++ < 512, "The final text reference did not unlink.");
+            Assert.Equal(1, Step(database, 1));
+            linked = false;
+            Assert.True(database.TryRunMaintenanceStep(parts => linked = parts.Arena.Texts.TryMeasureEntry(id, out _)));
+        }
+        while (linked);
+    }
+
+    private static void Finish(EngineDatabase database)
+    {
+        for (var turn = 0; turn < 1024; turn++)
+        {
+            var work = Step(database, 64);
+            Assert.InRange(work, 0, 64);
+            if (work == 0)
+            {
+                Assert.Equal(0, database.Counters.Arena.RetiredBytes);
+                return;
+            }
+        }
+
+        Assert.Fail("Eligible retirement work did not finish.");
+    }
+
+    private static Task InsertAsync(ILatticeSet items, long key, string value) =>
+        items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = key, ["Text"] = value }).AsTask();
+
+    private static long References(EngineDatabase database, string value)
+    {
+        var matches = database.TextReferences().Where(entry => Encoding.UTF8.GetString(entry.Text) == value).ToArray();
+        return matches.Length == 0 ? 0 : Assert.Single(matches).References;
+    }
+
+    private static (Arena Arena, RootLayout Layout, ArenaAddress Address) LocationOf(EngineDatabase database, long key)
+    {
+        (Arena Arena, RootLayout Layout, ArenaAddress Address) result = default;
+        database.ForEachLiveRoot((arena, layout, _, address) =>
+        {
+            if (new RootReader(arena, layout, address).GetInteger(layout.EntityType.Key) == key)
+            {
+                result = (arena, layout, address);
+            }
+        });
+        Assert.False(result.Address.IsNull);
+        return result;
+    }
+
+    private static ArenaAddress RootOf(EngineDatabase database, long key) => LocationOf(database, key).Address;
+
+    private static TextEntry EntryOf(EngineDatabase database, long key)
+    {
+        var (arena, layout, address) = LocationOf(database, key);
+        var reader = new RootReader(arena, layout, address);
+        var descriptor = reader.ReadDescriptor(layout.StoredFieldOf(layout.EntityType.GetField("Text")));
+        Assert.Equal(DescriptorKindEnum.Text, descriptor.Kind);
+        var physical = ValueBlocks.ResolveText(arena, descriptor);
+        var entry = ValueBlocks.AddressOf(physical);
+        return new TextEntry(arena, entry, ValueBlocks.TextIdOf(arena, entry), physical);
+    }
+
+    private static List<ArenaAddress> TextBlocks(TextEntry entry)
+    {
+        var addresses = new List<ArenaAddress> { entry.Address };
+        if (ValueBlocks.LiesInChunks(entry.Descriptor))
+        {
+            var directory = ValueBlocks.Directory(entry.Arena, entry.Descriptor);
+            for (var offset = 0; offset < directory.Length; offset += ValueBlocks.DescriptorSize)
+            {
+                addresses.Add(ValueBlocks.AddressOf(ResidentDescriptor.Read(directory[offset..])));
+            }
+        }
+
+        return addresses;
+    }
+
+    private static int SlotBytes(Arena arena, ArenaAddress address) => Arena.BlockSizeFor((int)arena.Header(address).PayloadLength);
+
+    private static long CountedSlots(EngineDatabase database)
+    {
+        var tally = database.Counters.Arena;
+        return tally.LiveBytes + tally.ClassSlackBytes + tally.PreparedBytes + tally.RetiredBytes;
+    }
+
+    private sealed record TextEntry(Arena Arena, ArenaAddress Address, uint Id, ValueDescriptor Descriptor);
+
+}

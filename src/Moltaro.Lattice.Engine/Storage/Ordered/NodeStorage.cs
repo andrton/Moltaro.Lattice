@@ -33,7 +33,7 @@ internal static class NodeStorage
         {
             foreach (var descriptor in layout.SharedKeysOf(reading.EntryAt(place)))
             {
-                arena.Texts.AddReference(ValueBlocks.AddressOf(descriptor));
+                arena.Texts.AddReference(descriptor.Location);
             }
         }
     }
@@ -82,7 +82,7 @@ internal static class NodeStorage
             {
                 foreach (var descriptor in layout.SharedKeysOf(reading.EntryAt(place)))
                 {
-                    arena.Texts.Release(ValueBlocks.AddressOf(descriptor));
+                    arena.Texts.Release(descriptor.Location);
                 }
             }
         }

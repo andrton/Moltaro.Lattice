@@ -86,6 +86,26 @@ internal ref struct ValueHolder
     // The bytes of the block at the offset given, header counted, for the length given.
     public readonly Span<byte> At(int offset, int length) => Bytes.Slice(offset - Origin, length);
 
+    // A managed image holds canonical descriptors. A native holder has its arena address.
+    public readonly ValueDescriptor DescriptorAt(int offset)
+    {
+        var place = At(offset, ValueBlocks.DescriptorSize);
+        return Address.IsNull ? ValueBlocks.Read(place) : ResidentDescriptor.Read(place);
+    }
+
+    public readonly void SetDescriptor(int offset, in ValueDescriptor descriptor)
+    {
+        var place = At(offset, ValueBlocks.DescriptorSize);
+        if (Address.IsNull)
+        {
+            ValueBlocks.Write(place, descriptor);
+        }
+        else
+        {
+            ResidentDescriptor.Write(place, descriptor);
+        }
+    }
+
     // Takes a prepared block for this root and accounts for its whole slot. The caller makes
     // the initialized block reachable through its parent descriptor or chunk address.
     public bool TryAllocate(int length, BlockKindEnum kind, ArenaAddress parent, int offset, out ArenaAddress address)
@@ -149,27 +169,26 @@ internal ref struct ValueHolder
             return;
         }
 
-        var descriptor = At(offset, ValueBlocks.DescriptorSize);
-
         if (allowInline && length <= ValueBlocks.InlineLimit && InlineEnd + length <= End)
         {
             source.Fill(At(InlineEnd, length));
-            ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)InlineEnd });
+            SetDescriptor(offset, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)InlineEnd });
             InlineEnd += length;
         }
         else if (Exported is not null)
         {
             // Kept apart in the order of its descriptor, and described as the blocks that would hold it.
             Exported.Store(offset, length, ref source);
-            ValueBlocks.Write(descriptor, new ValueDescriptor
+            SetDescriptor(offset, new ValueDescriptor
             {
                 Kind = length <= ValueBlocks.SingleBlockLimit ? DescriptorKindEnum.Block : DescriptorKindEnum.Chunked,
                 Length = (uint)length,
                 Location = 0,
             });
         }
-        else if (ValueBlocks.TryStore(Arena, Root, Layout.LayoutVersion, Address, (uint)offset, length, ref source, descriptor))
+        else if (ValueBlocks.TryStore(Arena, Root, Layout.LayoutVersion, Address, (uint)offset, length, ref source, out var descriptor))
         {
+            SetDescriptor(offset, descriptor);
             SlotBytes += ValueBlocks.SlotBytesOf(length);
         }
         else
@@ -184,7 +203,7 @@ internal ref struct ValueHolder
     public void Retain(in StoredField place, int offset, ArenaAddress source, int sourceOffset)
     {
         var payload = Arena.Payload(source);
-        var descriptor = ValueBlocks.Read(payload[(sourceOffset - BlockHeader.Size)..]);
+        var descriptor = ResidentDescriptor.Read(payload[(sourceOffset - BlockHeader.Size)..]);
         if (descriptor.Kind == DescriptorKindEnum.Inline)
         {
             var bytes = ValueSource.Bytes(ValueBlocks.Contiguous(Arena, descriptor, payload));
@@ -194,7 +213,7 @@ internal ref struct ValueHolder
 
         if (descriptor.Kind == DescriptorKindEnum.Text)
         {
-            Arena.Texts.AddReference(ValueBlocks.AddressOf(descriptor));
+            Arena.Texts.AddReference(descriptor.Location);
         }
         else if (RootStorage.OwnedAddress(descriptor) is { IsNull: false } block)
         {
@@ -205,7 +224,7 @@ internal ref struct ValueHolder
             }
         }
 
-        ValueBlocks.Write(At(offset, ValueBlocks.DescriptorSize), descriptor);
+        SetDescriptor(offset, descriptor);
     }
 
     // Places a text that lies in an entry of the text table, length bytes in the encoding of the database, at
@@ -225,17 +244,16 @@ internal ref struct ValueHolder
             return;
         }
 
-        var descriptor = At(offset, ValueBlocks.DescriptorSize);
-
         if (Exported is not null)
         {
             var source = ValueSource.Text(text, Encoding);
 
             Exported.Store(offset, length, ref source);
-            ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Text, Length = (uint)length, Location = 0 });
+            SetDescriptor(offset, new ValueDescriptor { Kind = DescriptorKindEnum.Text, Length = (uint)length, Location = 0 });
         }
-        else if (Arena.Texts.TryAcquire(text, Encoding, length, descriptor, out var newBytes))
+        else if (Arena.Texts.TryAcquire(text, Encoding, length, out var descriptor, out var newBytes))
         {
+            SetDescriptor(offset, descriptor);
             SlotBytes += newBytes;
         }
         else
@@ -255,8 +273,9 @@ internal ref struct ValueHolder
             return;
         }
 
-        if (Arena.Texts.TryAcquire(bytes, At(offset, ValueBlocks.DescriptorSize), out var newBytes))
+        if (Arena.Texts.TryAcquire(bytes, out var descriptor, out var newBytes))
         {
+            SetDescriptor(offset, descriptor);
             SlotBytes += newBytes;
         }
         else

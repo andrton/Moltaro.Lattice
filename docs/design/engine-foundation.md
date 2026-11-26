@@ -398,7 +398,7 @@ open-mechanism notes in this overview must be read against that subsequent speci
 | --- | --- |
 | Scope | One database, no partitions; PostgreSQL master, full MemoryOnly children; first workload and deferred features explicitly listed |
 | Arena | Relative blocks, concrete header/descriptors, paged root entries, class regions, chunked values and bounded Map/Set layouts; implement and validate every type |
-| Lifetime | Database/root-stripe/catalog/text/allocator ordering, claimed generations, bounded compaction; validate concurrent readers and retained references |
+| Lifetime | Epoch-protected root lifetimes, local writes ordering and bounded compaction. Validate concurrent readers and retained references |
 | Indexes | Selected Arc containers, reserved growth/nodes, shared text, typed comparison and bounded traversal; verify complete integration and memory targets |
 | Writes | Root reservations, preparation of one write at a time, ordered commit/publication, full WriteBatch boundaries and concrete operation-result protocol; verify all failure transitions |
 | Persistence | Independent binary roots in 256-byte units, transactional base/cursor/journal, receipt retirement and offline recovery; integrated crash tests remain required |

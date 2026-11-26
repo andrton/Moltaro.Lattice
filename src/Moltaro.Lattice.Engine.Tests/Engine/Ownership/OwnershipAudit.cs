@@ -9,7 +9,8 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 
 // The audit of the ownership of blocks (docs/design/arena-protocol.md, "Required bounded checks and
-// measurements": complete native ownership and reference-count audits): every block of the arena is owned by
+// measurements": complete native ownership and reference-count audits). In fixtures with no standing
+// collection spare grants, every block of the arena is owned by
 // exactly one live entity, is a node of a secondary index or held by its pool, or belongs to an entry of the
 // text table. It walks every live root (EngineDatabase.ForEachLiveRoot, StructureWalk) and checks what it
 // reaches against things the walk does not decide:
@@ -31,7 +32,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 // for the entries the roots name and which the encoding of the database gives for the keys of the nodes.
 internal static class OwnershipAudit
 {
-    public static void Expect(EngineDatabase database)
+    public static void Expect(EngineDatabase database) =>
+        database.WithOwnershipAudit(() => ExpectUnderWrites(database));
+
+    private static void ExpectUnderWrites(EngineDatabase database)
     {
         database.DrainRetired();
 

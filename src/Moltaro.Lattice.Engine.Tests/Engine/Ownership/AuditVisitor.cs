@@ -83,6 +83,12 @@ internal struct AuditVisitor : IStructureVisitor
                 break;
 
             case DescriptorKindEnum.Text:
+                address = arena.Texts.AddressOf(descriptor.Location);
+                if (!_texts.ContainsKey(address.Value))
+                {
+                    ExpectSharedBlocks(arena, address, (uint)descriptor.Location, descriptor.Length);
+                }
+
                 var text = _texts.GetValueOrDefault(address.Value, (descriptor.Length, 0));
 
                 Assert.Equal(text.Length, descriptor.Length);
@@ -93,6 +99,35 @@ internal struct AuditVisitor : IStructureVisitor
             default:
                 Assert.Fail($"A descriptor at {offset} of the block {holder} has the kind {descriptor.Kind}.");
                 break;
+        }
+    }
+
+    private static void ExpectSharedBlocks(Arena arena, ArenaAddress address, uint id, uint length)
+    {
+        ref readonly var header = ref arena.Header(address);
+        var owner = new RootHandle(0, id);
+        Assert.Equal(owner, header.Root);
+        Assert.True(header.Parent.IsNull);
+        Assert.Equal(0u, header.DescriptorOffset);
+        if (length <= ValueBlocks.SingleBlockLimit)
+        {
+            Assert.Equal(BlockKindEnum.SharedText, header.Kind);
+            Assert.Equal(length, header.PayloadLength);
+            return;
+        }
+
+        Assert.Equal(BlockKindEnum.SharedTextDirectory, header.Kind);
+        var chunks = ValueBlocks.ChunkCount((int)length);
+        Assert.Equal((uint)(chunks * ValueBlocks.DescriptorSize), header.PayloadLength);
+        for (var chunk = 0; chunk < chunks; chunk++)
+        {
+            var child = ValueBlocks.ChunkAddressAt(arena, address, chunk);
+            ref readonly var part = ref arena.Header(child);
+            Assert.Equal(BlockKindEnum.SharedTextChunk, part.Kind);
+            Assert.Equal(owner, part.Root);
+            Assert.True(part.Parent.IsNull);
+            Assert.Equal((uint)(BlockHeader.Size + chunk * ValueBlocks.DescriptorSize), part.DescriptorOffset);
+            Assert.Equal((uint)Math.Min(ValueBlocks.ChunkPayload, (int)length - chunk * ValueBlocks.ChunkPayload), part.PayloadLength);
         }
     }
 
@@ -128,7 +163,7 @@ internal struct AuditVisitor : IStructureVisitor
         for (var chunk = 0; chunk < chunks; chunk++)
         {
             var records = Math.Min(element.RecordsPerChunk, count - ((long)chunk * element.RecordsPerChunk));
-            var length = arena.Header(ValueBlocks.AddressOf(ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]))).PayloadLength;
+            var length = arena.Header(ValueBlocks.AddressOf(ResidentDescriptor.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]))).PayloadLength;
 
             Assert.True(length >= records * element.Size, $"Chunk {chunk} of {records} records of {element.Size} bytes holds {length}.");
         }
@@ -143,7 +178,7 @@ internal struct AuditVisitor : IStructureVisitor
 
         for (var chunk = 0; chunk < chunks; chunk++)
         {
-            var entry = ValueBlocks.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]);
+            var entry = ResidentDescriptor.Read(entries[(chunk * ValueBlocks.DescriptorSize)..]);
 
             Assert.Equal(DescriptorKindEnum.Block, entry.Kind);
             Own(arena, ValueBlocks.AddressOf(entry), directory, BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize), BlockKindEnum.Chunk, entry.Length);

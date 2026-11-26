@@ -55,7 +55,7 @@ public sealed class RetiredTextBoundTests
     // The most bytes the arena holds after any write of the sequence: live and retired, with their slack.
     private static async Task<long> MostHeldAsync(string entityType)
     {
-        await using var database = await EngineMaster.OpenAsync(Schema);
+        await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var set = database.Set(entityType);
         var most = 0L;
 

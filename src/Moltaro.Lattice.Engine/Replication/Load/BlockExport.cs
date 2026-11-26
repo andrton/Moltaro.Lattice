@@ -9,9 +9,9 @@ namespace Moltaro.Lattice.Replication.Load;
 
 // Writes one root to the wire and computes the exact length of what it writes. The capture adds
 // the type id and last mutation sequence. This type writes the layout version, root payload and
-// out-of-line values. The stored bytes are copied directly. Local addresses in the copied
-// descriptors are zeroed, while inline offsets stay valid. A Map or Set sends its entries;
-// the receiving node builds its own lookup.
+// out-of-line values. Each descriptor is decoded from the protected native source and written
+// in canonical form to the copy. Local addresses are zeroed and inline offsets stay valid.
+// A Map or Set sends its entries. The receiving node builds its own lookup.
 //
 // The root's descriptors are handled at the root level. For a List of records, the structure walk
 // enters each block before visiting its descriptors, which gives the preorder wire format. The
@@ -64,30 +64,34 @@ internal static class BlockExport
 
         payload.CopyTo(copy);
 
-        var copied = new RootDescriptors(layout, copy);
+        var descriptors = new RootDescriptors(layout, payload);
 
-        while (copied.MoveNext())
+        while (descriptors.MoveNext())
         {
-            var descriptor = copied.Current;
-
-            WriteDescriptor(arena, copied.Place, descriptor);
+            WriteDescriptor(arena, copy[(descriptors.Offset - BlockHeader.Size)..], descriptors.Current);
         }
 
         output.Advance(payload.Length);
 
-        var descriptors = new RootDescriptors(layout, payload);
+        descriptors = new RootDescriptors(layout, payload);
 
         while (descriptors.MoveNext())
         {
             var descriptor = descriptors.Current;
 
-            if (ValueBlocks.LiesOutOfLine(descriptor))
+            switch (descriptor.Kind)
             {
-                WriteValue(output, arena, descriptor, payload);
-            }
-            else if (descriptor.Kind is DescriptorKindEnum.Records or DescriptorKindEnum.Lookup)
-            {
-                WriteRecordsOfRoot(output, arena, layout, root, descriptors.Index);
+                case DescriptorKindEnum.Text:
+                    WriteValue(output, arena, ValueBlocks.ResolveText(arena, descriptor), payload);
+                    break;
+
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
+                    WriteValue(output, arena, descriptor, payload);
+                    break;
+
+                case DescriptorKindEnum.Records or DescriptorKindEnum.Lookup:
+                    WriteRecordsOfRoot(output, arena, layout, root, descriptors.Index);
+                    break;
             }
         }
     }
@@ -118,7 +122,7 @@ internal static class BlockExport
         where TVisitor : struct, IStructureVisitor
     {
         var offset = layout.DescriptorField(index).Offset;
-        var descriptor = ValueBlocks.Read(layout.RootPayload(arena, root)[(offset - BlockHeader.Size)..]);
+        var descriptor = ResidentDescriptor.Read(layout.RootPayload(arena, root)[(offset - BlockHeader.Size)..]);
 
         StructureWalk.WalkValue(arena, descriptor, layout.Structure.DescriptorElement(index), root, offset, ref visitor);
     }
@@ -129,12 +133,12 @@ internal static class BlockExport
         {
             descriptor = CollectionLookup.Entries(arena, descriptor);
         }
-        else if (!ValueBlocks.LiesOutOfLine(descriptor) && descriptor.Kind != DescriptorKindEnum.Records)
+        if (descriptor.Kind != DescriptorKindEnum.Inline)
         {
-            return;
+            descriptor.Location = 0;
         }
 
-        ValueBlocks.Write(place, descriptor with { Location = 0 });
+        ValueBlocks.Write(place, descriptor);
     }
 
     // The bytes of one value out of line, from its block or its chunks; the payload is that of the block that
@@ -187,12 +191,11 @@ internal static class BlockExport
 
             for (var record = 0; record < count; record++)
             {
-                var descriptors = copy[((record * element.Size) + element.DescriptorOffset)..];
-
+                var start = record * element.Size + element.DescriptorOffset;
                 for (var index = 0; index < element.DescriptorCount; index++)
                 {
-                    var place = descriptors[(index * ValueBlocks.DescriptorSize)..];
-                    WriteDescriptor(arena, place, ValueBlocks.Read(place));
+                    var offset = start + index * ValueBlocks.DescriptorSize;
+                    WriteDescriptor(arena, copy[offset..], ResidentDescriptor.Read(payload[offset..]));
                 }
             }
 
@@ -201,10 +204,15 @@ internal static class BlockExport
 
         public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
         {
-            if (ValueBlocks.LiesOutOfLine(descriptor))
+            switch (descriptor.Kind)
             {
-                // This value is reached through its own location. It needs no bytes from the record block.
-                WriteValue(output, arena, descriptor, payload: default);
+                case DescriptorKindEnum.Text:
+                    WriteValue(output, arena, ValueBlocks.ResolveText(arena, descriptor), payload: default);
+                    break;
+
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
+                    WriteValue(output, arena, descriptor, payload: default);
+                    break;
             }
         }
     }

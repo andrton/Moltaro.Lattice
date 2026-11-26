@@ -106,8 +106,13 @@ public sealed class ViewStorageTests
         database.ForEachLiveRoot((arena, layout, _, root) =>
         {
             var offset = layout.StoredFieldOf(layout.EntityType.GetField(field)).Offset - BlockHeader.Size;
-            var descriptor = ValueBlocks.Read(arena.Payload(root)[offset..]);
+            var descriptor = ResidentDescriptor.Read(arena.Payload(root)[offset..]);
             Assert.Equal(kind, descriptor.Kind);
+            if (kind == DescriptorKindEnum.Text)
+            {
+                descriptor.Location = arena.Texts.AddressOf(descriptor.Location).Value;
+            }
+
             expected = (arena, root, descriptor);
         });
 

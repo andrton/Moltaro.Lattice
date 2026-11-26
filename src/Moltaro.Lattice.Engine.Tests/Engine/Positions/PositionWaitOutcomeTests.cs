@@ -115,7 +115,7 @@ public sealed class PositionWaitOutcomeTests
         var deadline = TimeSpan.FromSeconds(1);
         var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
-        using var notification = new HeldCloseNotification();
+        using var notification = new HeldEngineCallback();
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
         await master.Set<Item>().InsertAsync(Of(2, "already applied", group: 1)).AsTask().WaitAsync(Bound);
 

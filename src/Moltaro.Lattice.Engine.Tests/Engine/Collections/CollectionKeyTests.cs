@@ -1,8 +1,10 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
 
@@ -62,6 +64,89 @@ public sealed class CollectionKeyTests
     [Fact]
     public Task A_lookup_finds_a_key_of_a_packed_Map_entry_that_spans_two_chunks() =>
         AgreementAsync("UInt16", number => (ushort)number, [10_919]);
+
+    [Theory]
+    [InlineData(8, 9)]
+    [InlineData(9, 8)]
+    public async Task Numeric_Map_views_on_both_nodes_keep_the_original_entries_when_a_forwarded_write_replaces_the_Map(int count, int replacementCount)
+    {
+        const long id = 1;
+        await using var master = await ReplicationNodes.OpenMasterAsync(SchemaOf<long>("Int64"), new EngineTestInputs { IndexSeed = 111 });
+        var original = Enumerable.Range(0, count).ToDictionary(number => (long)number, number => 100 + number);
+        await master.Set<CollectionKeyItem<long>>().InsertAsync(new CollectionKeyItem<long> { Id = id, Map = original });
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { IndexSeed = 222 });
+        var masterItems = master.Set("Item");
+        var childItems = child.Set("Item");
+        Assert.True(masterItems.TryGet(id, out _, out var originalRevision));
+
+        using var masterPause = new ViewerPause();
+        using var childPause = new ViewerPause();
+        var masterRead = OwnThread.Run(() => ReadOriginal(masterItems, masterPause));
+        var childRead = OwnThread.Run(() => ReadOriginal(childItems, childPause));
+        await masterPause.EnteredAsync(masterRead);
+        await childPause.EnteredAsync(childRead);
+
+        var replacement = Enumerable.Range(1, replacementCount).ToDictionary(number => (long)number, number => 200 + number);
+        var written = await child.Set<CollectionKeyItem<long>>().ReplaceAsync(new CollectionKeyItem<long> { Id = id, Map = replacement });
+        Assert.True(written.Changed);
+        await child.WaitForPositionAsync(written.Position, Bound);
+
+        foreach (var items in new[] { masterItems, childItems })
+        {
+            Assert.True(items.TryView(id, replacement, static (view, expected) =>
+            {
+                var map = view["Map"].Map;
+                Assert.Equal(expected.Count, map.Count);
+                Assert.False(map.TryGetValue(0L, out _));
+                foreach (var (key, value) in expected)
+                {
+                    Assert.True(map.TryGetValue(key, out var found));
+                    Assert.Equal(value, found.Get<int>());
+                }
+
+                return view.Revision;
+            }, out var revision));
+            Assert.NotEqual(originalRevision, revision);
+        }
+
+        masterPause.Release();
+        childPause.Release();
+        await masterRead.WaitAsync(Bound);
+        await childRead.WaitAsync(Bound);
+
+        void ReadOriginal(ILatticeSet items, ViewerPause pause)
+        {
+            Assert.True(items.TryView(id, (Pause: pause, Count: count, Revision: originalRevision), static (view, state) =>
+            {
+                var map = view["Map"].Map;
+                Assert.True(map.TryGetValue(1L, out var held));
+                var cursor = map.GetEnumerator();
+                Assert.True(cursor.MoveNext());
+                var firstKey = cursor.Current.Key.Get<long>();
+                var copy = cursor;
+                state.Pause.Hold();
+
+                Assert.Equal(state.Revision, view.Revision);
+                Assert.Equal(state.Count, map.Count);
+                Assert.Equal(101, held.Get<int>());
+                Assert.True(map.TryGetValue(0L, out var first));
+                Assert.Equal(100, first.Get<int>());
+                Assert.True(map.TryGetValue((long)state.Count - 1, out var last));
+                Assert.Equal(100 + state.Count - 1, last.Get<int>());
+                Assert.False(map.TryGetValue((long)state.Count, out _));
+
+                Assert.True(cursor.MoveNext());
+                var nextKey = cursor.Current.Key.Get<long>();
+                Assert.NotEqual(firstKey, nextKey);
+                Assert.Equal(firstKey, copy.Current.Key.Get<long>());
+                Assert.Equal(100 + (int)firstKey, copy.Current.Value.Get<int>());
+                Assert.True(copy.MoveNext());
+                Assert.Equal(nextKey, copy.Current.Key.Get<long>());
+                Assert.Equal(100 + (int)nextKey, copy.Current.Value.Get<int>());
+                return true;
+            }, out _));
+        }
+    }
 
     private static float OtherFloat32(float value)
     {

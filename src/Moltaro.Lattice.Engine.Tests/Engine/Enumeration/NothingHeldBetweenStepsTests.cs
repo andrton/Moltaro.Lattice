@@ -80,7 +80,12 @@ public sealed class NothingHeldBetweenStepsTests
     [MemberData(nameof(Forms))]
     public async Task Write_that_needs_memory_retired_while_an_enumeration_stands_between_two_steps_does_not_wait_for_it(string form)
     {
-        await using var database = await EngineMaster.OpenAsync(PieceSchema.Schema, TwoSegments, new NativeAllocator());
+        await using var database = await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs
+        {
+            Arena = TwoSegments,
+            Allocator = new NativeAllocator(),
+            DisableBackgroundMaintenance = true,
+        });
         var pieces = database.Set<PieceSchema.Piece>();
         var records = database.Set("Piece");
 

@@ -38,7 +38,7 @@ internal readonly struct EditedRecords(
                 ref readonly var key = ref element.Place(0);
                 if (key.Type == StoredTypeEnum.String)
                 {
-                    length += Inline(ValueBlocks.Read(old[key.Offset..]));
+                    length += Inline(ResidentDescriptor.Read(old[key.Offset..]));
                 }
 
                 length += NewInline(element, 1, entry.Second);
@@ -47,7 +47,7 @@ internal readonly struct EditedRecords(
 
             for (var descriptor = 0; descriptor < element.DescriptorCount; descriptor++)
             {
-                length += Inline(ValueBlocks.Read(old[element.DescriptorField(descriptor).Offset..]));
+                length += Inline(ResidentDescriptor.Read(old[element.DescriptorField(descriptor).Offset..]));
             }
         }
 

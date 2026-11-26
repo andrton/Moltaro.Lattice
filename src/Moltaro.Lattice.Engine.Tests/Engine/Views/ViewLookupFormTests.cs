@@ -63,8 +63,8 @@ public sealed class ViewLookupFormTests
             var bytes = arena.Payload(root);
             var map = layout.StoredFieldOf(layout.EntityType.GetField("Options")).Offset - BlockHeader.Size;
             var set = layout.StoredFieldOf(layout.EntityType.GetField("Tags")).Offset - BlockHeader.Size;
-            forms = (ValueBlocks.Read(bytes[map..]).Kind == DescriptorKindEnum.Lookup,
-                ValueBlocks.Read(bytes[set..]).Kind == DescriptorKindEnum.Lookup);
+            forms = (ResidentDescriptor.Read(bytes[map..]).Kind == DescriptorKindEnum.Lookup,
+                ResidentDescriptor.Read(bytes[set..]).Kind == DescriptorKindEnum.Lookup);
         });
 
         Assert.True(forms.HasValue);

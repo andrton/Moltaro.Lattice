@@ -1,9 +1,10 @@
 # Physical storage and maintenance
 
-**Current implementation baseline:** the [milestone 1 contract](milestone-1-engine-contract.md)
-now specifies the allocation, compaction, reconnect and backup mechanisms listed as open
-choices below. This document still owns the diagnostics and maintenance scope (Q18);
-its other open-choice notes are kept as history and do not reopen what was specified.
+**Current implementation baseline.** The [milestone 1 contract](milestone-1-engine-contract.md)
+specifies allocation, compaction, reconnect and backup. The
+[arena protocol](arena-protocol.md) describes automatic maintenance on the
+MemoryOnly engine. This document owns the diagnostics and maintenance scope (Q18)
+and records earlier design considerations.
 
 **Requirements recorded on 12 November 2026.** The design requires an explicit
 physical-storage design, bounded memory growth over a long process lifetime,
@@ -17,17 +18,15 @@ architecture; exact algorithms and remaining operation scope are separate work.
 
 ## Accepted foundation and open choices
 
-The accepted main arena uses explicitly allocated native segments with managed
-.NET control structures and separately defined persistence. This is a design
-contract; no complete storage engine is implemented yet.
-Root-document gates, short protected views, owned result copies, key references
-and string reference counts with delayed safe reclamation are accepted. They are
-constraints on the physical design, not a completed allocator or compaction policy.
+The MemoryOnly engine uses explicitly allocated native segments with managed
+.NET control structures. It supports protected views, owned result copies, key
+references and shared text references with delayed safe reclamation. Durable
+persistence remains a separate implementation.
 
 | Owner | Decision scope | Existing engineering owner |
 | --- | --- | --- |
 | Q16 | Native backing, record-oriented fixed fields with separate variable payloads, relative segment/offset addressing, chunked large values and database-owned active segments with a common bounded empty reserve and stable root control entries in managed arrays of structs, targeted partial preparation/post-commit publication and full Save replacement without diff accepted; compact entry layout, sizes/thresholds, exact encoding, collection internals and detailed copy boundaries remain open | E01; E04/E05 for indexes/schema layout |
-| Q17 | Size-class reuse, bounded compaction, bounded empty-segment reserve/release and automatic collection shrink accepted; numerical sizes/reserve/work/headroom budgets, concrete algorithms and remaining pressure details stay open | E01/E02/E03; Q14 supplies broader pressure rules |
+| Q17 | Size-class reuse, bounded compaction, empty-segment reserve and release, and automatic collection shrink are implemented in MemoryOnly | E01/E02/E03. Q14 covers instance memory pressure. |
 | Q09.4 | PostgreSQL-native Durable backup and infrastructure-owned execution, without Lattice API launch commands; isolated replacement restore with former storage preserved until verification and one arena, plus new history/full child reload accepted. Same-history Durable restart preserves identity. Deployment procedure/objectives and activation/validation details remain work | E06/E07; Q09.1/Q09.2 supply durability and journal contracts |
 | Q09.5 | Accepted v1 selection at instance open time: Durable default or explicit MemoryOnly | E06/E07; Q08.1.3 supplies resume/reload rules and Q15 the configured endpoint/lifecycle contract |
 | Q09.6 | PostgreSQL accepted as the first Durable backend; production format/provider implementation remains engineering work | E06; Q09.1/Q09.2 commit/recovery rules and Q09.4 restore validation |
@@ -51,7 +50,9 @@ are also accepted. [Q15](../decisions/replication-and-hosting.md#q15-configured-
 accepts a configured master URL and environment-owned lifecycle, without fault-tolerance orchestration.
 [Size classes and reusable slots](../decisions/allocation-and-compaction.md#q17-allocation-and-fragmentation-lifecycle)
 are accepted for small/medium allocations, with a separate large-allocation path.
-Numerical block sizes, compaction/reserve budgets, release timing and broader pressure rules remain open.
+The [arena protocol](arena-protocol.md#reclamation-and-relocation) records current
+selection and reclamation bounds. Broader instance memory accounting and admission
+follow Q14.
 MemoryCopy is a copy operation, not a competing allocator or persistence model.
 Both allocated and mapped arenas may need copying, handles, allocation metadata,
 index maintenance and reclamation. Native storage does not mean one allocation
@@ -125,15 +126,19 @@ second full arena. Region/class counters track live, retained-retired, reserved 
 reusable slots; expected useful reclamation, compatible destinations and workspace
 trigger work with separate start/stop conditions. Relocation preserves readers,
 physical locators and enumeration. CLR GC does not compact native database records.
-Numerical thresholds/work budgets and implementation details remain unresolved.
-Large strings/collections now use bounded chunks, with small payloads contiguous.
-A bounded empty-segment reserve and background release of excess are accepted.
-Only safely detached empty segments without retained users or reservations qualify.
-Availability metadata avoids scanning all segments on each allocation. Automatic
-bounded shrink of substantial persistent unused collection capacity is now accepted;
-this changes capacity within live allocations, unlike relocating them unchanged.
-Preserve logical data, List order and revisions, and avoid repeated resizing under
-small size oscillations. Remaining Q17 questions:
+[The arena protocol](arena-protocol.md#reclamation-and-relocation) describes the
+implemented work limits, the start threshold, the relocation workspace and
+publication. Large strings and collections use bounded chunks, with small payloads
+contiguous. The default arena keeps one completely empty segment for reuse. Excess
+segments with no retained users or reservations return to the native allocator.
+Availability metadata avoids a scan of all segments on ordinary allocation.
+Automatic collection shrink returns writer-only lookup spares outside the active
+probe range while preserving values, List order and revisions. Foreground memory
+admission, additional sparse-segment triggers and persistent storage retain their
+separate design decisions.
+
+The following questions recorded the original allocation study. Implementation
+bounds and mechanisms are in the arena protocol:
 
 - Which numerical class sizes, region/segment sizes and large-allocation threshold
   meet the workload? Which chunk/directory sizes and structures fit large payloads?
@@ -159,12 +164,20 @@ small size oscillations. Remaining Q17 questions:
 
 A candidate lifecycle to investigate is allocate → publish → retire → reclaim →
 reuse, with relocation/empty-segment release when fragmentation justifies it.
-Size-class reuse, automatic incremental maintenance, chunked large-payload layout
-and bounded empty-segment retention/release are accepted, as is automatic collection
-shrink. These state boundaries do not select concrete free lists, chunk directories,
-epoch/shrink algorithms or numerical scheduling budgets.
+The current engine uses size-class reuse, bounded incremental maintenance, chunked
+payloads, a limited empty-segment reserve and automatic collection shrink.
 
 ## Memory accounting and evidence
+
+The measurement program runs the same fixed-volume workload on a master and a
+TCP child with either maintenance setting. From `src` use `storage-churn
+development` or `storage-churn-off development` with the Release
+`Moltaro.Lattice.Measurements` project. The output under `.local/measurements`
+includes the authored trace and complete turn records. It reports public read
+latency, native capacity and admitted step time alongside all-attempt timing.
+Initial, peak and final native grants come from the allocator. The logical
+volume is checked using the public values, separately from native allocation
+classes and managed metadata.
 
 The eventual control surface should distinguish live payload, index/dictionary
 metadata, immediately reusable free space, allocation slack, retired/pinned data,

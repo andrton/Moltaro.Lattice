@@ -126,12 +126,12 @@ public sealed class MalformedTextTests
         writer.SetMap(field, new Dictionary<string, int> { [prefix] = 1, [prefix + (crossesChunks ? "az" : "z")] = 2 });
         var root = writer.Complete();
         var mapOffset = item.Layout.StoredFieldOf(field).Offset - BlockHeader.Size;
-        var map = ValueBlocks.Read(item.Layout.RootPayload(item.Arena, root)[mapOffset..]);
+        var map = ResidentDescriptor.Read(item.Layout.RootPayload(item.Arena, root)[mapOffset..]);
         var entries = item.Arena.Payload(ValueBlocks.AddressOf(map));
         var element = item.Layout.Structure.ElementOf(field.Ordinal);
-        var key = ValueBlocks.Read(entries[(element.Size + element.Place(0).Offset)..]);
+        var key = ResidentDescriptor.Read(entries[(element.Size + element.Place(0).Offset)..]);
         var directory = ValueBlocks.Directory(item.Arena, key);
-        var chunk = ValueBlocks.Read(directory[(crossesChunks ? 0 : ValueBlocks.DescriptorSize)..]);
+        var chunk = ResidentDescriptor.Read(directory[(crossesChunks ? 0 : ValueBlocks.DescriptorSize)..]);
 
         // A trusted peer can leave malformed text in otherwise checked storage. Recreate
         // the two byte shapes here by damaging a key in a prepared root.

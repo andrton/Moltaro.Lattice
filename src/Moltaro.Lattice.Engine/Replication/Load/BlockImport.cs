@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -79,10 +80,16 @@ internal sealed class BlockImport
         return new ReceivedRoot(layout, payloadLength, values);
     }
 
-    // A reader of the fixed part of the root checked last, which reads its fixed fields and descriptors
-    // (Storage.Roots.RootReader, a reader of a copy).
-    public RootReader FixedPart(in ReceivedRoot root) =>
-        new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)));
+    // Only the fixed-width key bytes from the canonical scratch of the root checked last.
+    // The caller reads them before the scratch is reused.
+    public ReadOnlySpan<byte> FixedKeyBytes(in ReceivedRoot root)
+    {
+        var layout = root.Layout;
+        ref readonly var key = ref layout.StoredFieldOf(layout.EntityType.Key);
+        Debug.Assert(key.Type is StoredTypeEnum.SignedInteger or StoredTypeEnum.UnsignedInteger or StoredTypeEnum.Guid);
+
+        return _payload.AsSpan(key.Offset - BlockHeader.Size, key.Width);
+    }
 
     // A newer local root makes placement unnecessary. Every supplied entry still has to
     // be unique before any effect of its transaction can publish. The checked root and
@@ -115,18 +122,19 @@ internal sealed class BlockImport
         }
     }
 
-    // The text of a String field of the root checked last, which is not null, as a new string decoded
-    // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
-    // for the key of the root (Engine.Child.Loading.ReceivedChanges). ValidationFailed when it is
+    // The text key of the root checked last, as a new string decoded from the encoding of the
+    // database, where the root holds it: inline in its payload, or out of line. ValidationFailed when it is
     // not well-formed in that encoding, as a key
     // received in a Delete is not (Engine.Entities.PrimaryKeys.ReadKey): a key that a master stores is
     // well-formed, since every write checks its text (docs/decisions/strings.md, "Input validity and
     // preservation"), so such a root did not come from one. The text bytes of other fields are placed as
     // received.
-    public string Text(in ReceivedRoot root, LatticeField field)
+    public string TextKey(in ReceivedRoot root)
     {
         var layout = root.Layout;
+        var field = layout.EntityType.Key;
         ref readonly var stored = ref layout.StoredFieldOf(field);
+        Debug.Assert(stored.Type == StoredTypeEnum.String);
         var descriptor = ValueBlocks.Read(_payload.AsSpan(stored.Offset - BlockHeader.Size));
         var bytes = descriptor.Kind == DescriptorKindEnum.Inline
             ? new ReadOnlySequence<byte>(_payload, (int)descriptor.Location - BlockHeader.Size, (int)descriptor.Length)
@@ -178,6 +186,7 @@ internal sealed class BlockImport
         var target = _arena.Payload(block);
 
         _payload.AsSpan(0, root.PayloadLength).CopyTo(target);
+        PrepareDescriptors(layout.Structure, target);
 
         // The root block holds what it received: every value placed into it lies out of line, as it came.
         var holder = new ValueHolder(_arena, layout, handle, target, BlockHeader.Size, block, BlockHeader.Size + root.PayloadLength);
@@ -216,7 +225,7 @@ internal sealed class BlockImport
         {
             ref readonly var place = ref structure.DescriptorField(index);
             var offset = at + place.Offset;
-            var pending = ValueBlocks.Read(holder.At(offset, ValueBlocks.DescriptorSize));
+            var pending = ResidentDescriptor.Read(holder.At(offset, ValueBlocks.DescriptorSize));
 
             if (place.Type is StoredTypeEnum.Map or StoredTypeEnum.Set)
             {
@@ -279,15 +288,28 @@ internal sealed class BlockImport
         values = records.Values;
     }
 
-    // Leaves the descriptor at the place, received as given, pending (see the class) when it names a value that
-    // follows its structure on the wire: a value out of line, or a nonempty collection of records.
-    public static void LeavePending(Span<byte> place, in ValueDescriptor received)
+    // The canonical structure has already been checked. Encode every slot before any placement:
+    // on refusal the ownership walk reads the entire prepared structure as native storage,
+    // including the inline, empty and pending slots that placement has yet to visit.
+    public static void PrepareDescriptors(StructureLayout structure, Span<byte> bytes)
     {
-        if (ValueBlocks.LiesOutOfLine(received) || (received.Kind == DescriptorKindEnum.Records && received.Length != 0))
+        for (var index = 0; index < structure.DescriptorCount; index++)
         {
-            ValueBlocks.WritePending(place, received.Length);
+            var offset = structure.DescriptorField(index).Offset - structure.Start;
+            var place = bytes[offset..];
+            var descriptor = ValueBlocks.Read(place);
+            if (NeedsPlacement(descriptor))
+            {
+                descriptor = new ValueDescriptor { Length = descriptor.Length };
+            }
+
+            ResidentDescriptor.Write(place, descriptor);
         }
     }
+
+    // On the wire this descriptor names the value that follows its containing structure.
+    private static bool NeedsPlacement(in ValueDescriptor descriptor) =>
+        ValueBlocks.LiesOutOfLine(descriptor) || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Length != 0);
 
     private static LatticeException Invalid(RootLayout layout, string message) =>
         new(LatticeErrorEnum.ValidationFailed, $"A root of {layout.EntityType.Name} received from the master is not valid: {message}");
@@ -346,7 +368,7 @@ internal sealed class BlockImport
     }
 
     // The values out of line of the root in _payload, in the order of its descriptors, each checked and passed
-    // over (CheckValue), and where each begins kept for Text; each descriptor that names one is then left
+    // over (CheckValue), and where each begins kept for TextKey; each descriptor that names one is then left
     // pending (see the class).
     private void CheckValuesOfRoot(RootLayout layout, int payloadLength, ref SequenceReader<byte> input)
     {
@@ -392,7 +414,10 @@ internal sealed class BlockImport
                 checkedBytes = input.Consumed - start;
             }
 
-            LeavePending(at, received);
+            if (NeedsPlacement(received))
+            {
+                ValueBlocks.WritePending(at, received.Length);
+            }
         }
 
         Pass(layout, passed, ref input);

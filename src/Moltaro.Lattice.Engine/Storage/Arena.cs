@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Text;
 
@@ -61,6 +62,8 @@ internal sealed unsafe class Arena : IDisposable
     private readonly int _reserveLimit;
 
     private readonly NativeAllocator _allocator;
+    private readonly TimeProvider? _collectionTime;
+    private CollectionTails? _collectionTails;
 
     // The segments by their slot, which is the segment of an ArenaAddress; null where no segment
     // is held. Slot 0 is never used, so that no block has the address zero, which is null.
@@ -106,7 +109,8 @@ internal sealed unsafe class Arena : IDisposable
 
     // The arena of a database: its text table hashes with the seed of the instance and, in a Debug
     // build, asserts at every change of a count that the thread holds the lock of the writes given.
-    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes)
+    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes,
+        TimeProvider? collectionTime = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.SegmentSize, MaxBlockSize);
@@ -125,6 +129,7 @@ internal sealed unsafe class Arena : IDisposable
         _memoryLimit = options.MemoryLimit;
         _reserveLimit = options.ReservedSegments;
         _allocator = allocator;
+        _collectionTime = collectionTime;
         HashSeed = textSeed;
         Texts = new TextTable(this, textSeed, writes);
     }
@@ -157,7 +162,8 @@ internal sealed unsafe class Arena : IDisposable
 
     // Allocates a block for payloadLength bytes of payload, in the size class BlockSizeFor gives.
     // It takes a free slot of that class, then a free region, then a reserved segment, and only
-    // then a new segment.
+    // then a new segment. At the hard limit it may reclaim ready collection capacity for a
+    // required allocation. A best-effort allocation can leave that capacity alone.
     //
     // It writes the whole header, also in a reused slot: the root, the kind and the payload length
     // as given, every other field zero. It does not check the kind or the root. The payload is not
@@ -165,26 +171,154 @@ internal sealed unsafe class Arena : IDisposable
     //
     // Returns false, with the counters unchanged, when the allocation would take Segments times
     // SegmentSize beyond ArenaOptions.MemoryLimit; that is the only case of false. A length that
-    // BlockSizeFor refuses is refused in the same way, with ArgumentOutOfRangeException. When the
-    // native allocator cannot supply a new segment, its OutOfMemoryException leaves the arena as
-    // it was.
+    // BlockSizeFor refuses is refused in the same way, with ArgumentOutOfRangeException. An
+    // OutOfMemoryException from the native allocator leaves no new prepared block. Any safe
+    // collection capacity already returned to make room stays returned.
     //
     // The block is prepared: no reader can reach it, its whole slot counts in PreparedBytes, and nothing of it
     // in LiveBytes or ClassSlackBytes, until Publish makes it live.
-    public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address)
+    public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address,
+        bool reclaimCollectionSlots = true)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var sizeClass = SizeClasses.IndexFor(payloadLength);
 
-        if (_regionsWithFreeSlot[sizeClass] == NoRegion && !TryTakeRegion(sizeClass))
+        if (_regionsWithFreeSlot[sizeClass] == NoRegion && !TryTakeRegion(sizeClass, reclaimCollectionSlots))
         {
             address = default;
 
             return false;
         }
 
-        var regionNumber = _regionsWithFreeSlot[sizeClass];
+        address = TakePreparedSlot(sizeClass, new BlockHeader
+        {
+            Root = root,
+            PayloadLength = (uint)payloadLength,
+            Kind = kind,
+        }, _regionsWithFreeSlot[sizeClass]);
+        return true;
+    }
+
+    // Under the writes lock: recheck source occupancy and the selected earlier vacancy.
+    public bool TryFindRelocationDestination(ArenaAddress source, ref long destination, out int sizeClass)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        sizeClass = 0;
+        var segment = Locate(source, out var regionIndex, out var slot);
+        if (segment is null || segment.IsPrepared(regionIndex, slot) || segment.IsRetired(regionIndex, slot))
+        {
+            return false;
+        }
+
+        ref var region = ref segment.Regions[regionIndex];
+        sizeClass = region.SizeClass;
+        var slotCount = ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
+        return destination != NoRegion && region.Live * 2 < slotCount && (uint)SegmentSlotOf(destination) < source.Segment &&
+            HasRelocationVacancy(SegmentSlotOf(destination), RegionIndexOf(destination), sizeClass);
+    }
+
+    // Under the writes lock: numeric coordinates give a bounded view of the current arena.
+    // Their extent includes gaps where native segments were returned.
+    public long RelocationRegionExtent => (long)(_tally.NextUnusedSegmentSlot - 1) * _regionsPerSegment;
+
+    public int RelocationSlotsAt(long coordinate)
+    {
+        var (segment, region) = RelocationCoordinates(coordinate);
+        return _segments[segment] is { } entry ? SparseSlots(entry.Regions[region]) : 0;
+    }
+
+    public ArenaAddress RelocationSlotAt(long coordinate, int slot, out int slots, out int sizeClass)
+    {
+        var (segment, region) = RelocationCoordinates(coordinate);
+        slots = 0;
+        sizeClass = 0;
+        if (_segments[segment] is not { } entry)
+        {
+            return default;
+        }
+
+        ref var metadata = ref entry.Regions[region];
+        slots = SparseSlots(metadata);
+        sizeClass = metadata.SizeClass;
+        if (slot >= slots || !entry.IsAllocated(region, slot) ||
+            entry.IsPrepared(region, slot) || entry.IsRetired(region, slot))
+        {
+            return default;
+        }
+
+        var offset = region * ArenaSegment.RegionSize + slot * SizeClasses.SizeOf(sizeClass);
+        return new ArenaAddress((uint)segment, (uint)offset);
+    }
+
+    // Reopen a pending source under the writes lock after an intervening turn or write.
+    public bool IsRelocationSource(ArenaAddress source, int sizeClass, RootHandle owner, BlockKindEnum kind)
+    {
+        var segment = Locate(source, out var region, out var slot);
+        if (segment is null || segment.Regions[region].SizeClass != sizeClass ||
+            SparseSlots(segment.Regions[region]) == 0 || segment.IsPrepared(region, slot) || segment.IsRetired(region, slot))
+        {
+            return false;
+        }
+
+        ref readonly var header = ref *(BlockHeader*)(segment.Memory + source.Offset);
+        return header.Root == owner && header.Kind == kind;
+    }
+
+    public long EarlierRelocationExtent(ArenaAddress source) => (long)(source.Segment - 1) * _regionsPerSegment;
+
+    public long RelocationHead(int sizeClass, uint before)
+    {
+        var head = _regionsWithFreeSlot[sizeClass];
+        return (uint)SegmentSlotOf(head) < before ? head : NoRegion;
+    }
+
+    public long RelocationVacancyAt(long coordinate, int sizeClass)
+    {
+        var (segment, region) = RelocationCoordinates(coordinate);
+        return HasRelocationVacancy(segment, region, sizeClass) ? RegionNumber(segment, region) : NoRegion;
+    }
+
+    private (int Segment, int Region) RelocationCoordinates(long coordinate) =>
+        ((int)(coordinate / _regionsPerSegment) + 1, (int)(coordinate % _regionsPerSegment));
+
+    private bool HasRelocationVacancy(int segment, int region, int sizeClass)
+    {
+        if (_segments[segment] is not { } entry)
+        {
+            return false;
+        }
+
+        ref readonly var metadata = ref entry.Regions[region];
+        return metadata.SizeClass == sizeClass && metadata.Allocated > 0 &&
+            metadata.Allocated < ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
+    }
+
+    private static int SparseSlots(in ArenaRegion region)
+    {
+        if (region.Live == 0)
+        {
+            return 0;
+        }
+
+        var slots = ArenaSegment.RegionSize / SizeClasses.SizeOf(region.SizeClass);
+        return region.Live * 2 < slots ? slots : 0;
+    }
+
+    // Under the same uninterrupted writes lock as the destination check. Copy only the bytes in use.
+    public ArenaAddress PrepareRelocatedCopy(ArenaAddress source, int sizeClass, long region)
+    {
+        var header = Header(source);
+        var payload = Payload(source);
+        var destination = TakePreparedSlot(sizeClass, header, region);
+
+        payload.CopyTo(Payload(destination));
+        return destination;
+    }
+
+    private ArenaAddress TakePreparedSlot(int sizeClass, in BlockHeader header, long regionNumber)
+    {
         var segmentSlot = SegmentSlotOf(regionNumber);
         var regionIndex = RegionIndexOf(regionNumber);
         var segment = _segments[segmentSlot]!;
@@ -200,18 +334,11 @@ internal sealed unsafe class Arena : IDisposable
 
         var offset = regionIndex * ArenaSegment.RegionSize + slot * blockSize;
 
-        *(BlockHeader*)(segment.Memory + offset) = new BlockHeader
-        {
-            Root = root,
-            PayloadLength = (uint)payloadLength,
-            Kind = kind,
-        };
+        *(BlockHeader*)(segment.Memory + offset) = header;
 
         segment.SetPrepared(regionIndex, slot, prepared: true);
         _tally.PreparedBytes += blockSize;
-        address = new ArenaAddress((uint)segmentSlot, (uint)offset);
-
-        return true;
+        return new ArenaAddress((uint)segmentSlot, (uint)offset);
     }
 
     // Makes a prepared block live, when a write publishes it: its slot leaves
@@ -240,6 +367,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         segment.SetPrepared(regionIndex, slot, prepared: false);
+        segment.Regions[regionIndex].Live++;
 
         _tally.PreparedBytes -= blockSize;
         _tally.LiveBytes += BlockHeader.Size + payloadLength;
@@ -250,11 +378,11 @@ internal sealed unsafe class Arena : IDisposable
     // stays allocated and valid, and its bytes stay as they are, so a read that reached it before
     // goes on reading it, but it belongs to no owner any more. Its header and payload length leave
     // LiveBytes and the rest of its slot ClassSlackBytes, and its whole slot joins RetiredBytes, until
-    // Free. It changes no byte of the block and allocates nothing, so it cannot fail for a live block.
-    // An invalid address, or that of a block already freed, is refused with ArgumentException; a block
-    // that is prepared or already retired with InvalidOperationException, as is a header whose length
-    // exceeds the slot; then nothing changes.
-    public void Retire(ArenaAddress address)
+    // Free. Returns the size of the retired slot. It changes no byte of the block and allocates nothing,
+    // so it cannot fail for a live block. An invalid address, or that of a block already freed, is refused
+    // with ArgumentException; a block that is prepared or already retired with InvalidOperationException,
+    // as is a header whose length exceeds the slot; then nothing changes.
+    public int Retire(ArenaAddress address)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -274,10 +402,12 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         segment.SetRetired(regionIndex, slot, retired: true);
+        segment.Regions[regionIndex].Live--;
 
         _tally.LiveBytes -= BlockHeader.Size + payloadLength;
         _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
         _tally.RetiredBytes += blockSize;
+        return blockSize;
     }
 
     // Whether the address is that of a prepared block: valid, and not published since its
@@ -293,8 +423,8 @@ internal sealed unsafe class Arena : IDisposable
 
     // Returns the block's slot to its region, where the next allocation of its class can reuse it.
     // A region left without blocks returns to its segment. A segment left empty enters the reserve
-    // when the reserve has room, and is otherwise freed at once, inside this call; the background
-    // release of Q17 comes with S23. An invalid address, or that of a block already freed, is
+    // when the reserve has room, and is otherwise returned to the allocator inside this call.
+    // An invalid address, or that of a block already freed, is
     // refused with ArgumentException before anything is read through it.
     //
     // A live block makes LiveBytes and ClassSlackBytes lose what its header says, because the arena
@@ -339,6 +469,7 @@ internal sealed unsafe class Arena : IDisposable
         }
         else
         {
+            region.Live--;
             _tally.LiveBytes -= BlockHeader.Size + payloadLength;
             _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
         }
@@ -362,6 +493,22 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         ReturnRegion((int)address.Segment, segment, regionIndex);
+    }
+
+    // Under the writes lock: reads a header only while its slot is live.
+    // A retired physical copy is readable under an epoch but cannot own a move.
+    public bool TryReadLiveHeader(ArenaAddress address, out BlockHeader header)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var segment = Locate(address, out var region, out var slot);
+        if (segment is null || segment.IsPrepared(region, slot) || segment.IsRetired(region, slot))
+        {
+            header = default;
+            return false;
+        }
+
+        header = *(BlockHeader*)(segment.Memory + address.Offset);
+        return true;
     }
 
     // A reference to the header of a valid block, in native memory. It refers to the block only
@@ -402,6 +549,100 @@ internal sealed unsafe class Arena : IDisposable
         return new Span<byte>(block + BlockHeader.Size, (int)payloadLength);
     }
 
+    internal CollectionTails? CollectionTails => _collectionTails;
+
+    internal CollectionTails TrackCollectionTails() =>
+        _collectionTails ??= new CollectionTails(this, _collectionTime ?? TimeProvider.System);
+
+    internal void ReleaseCollectionTail() => _collectionTails?.ReleaseOne();
+
+    internal bool HasReadyCollectionBytes(long bytes) => _collectionTails?.HasReadyBytes(bytes) == true;
+
+    // Under Writes and after the old reader epoch. The cold block keeps its
+    // allocation and class but is neither reachable from a live lookup nor
+    // available to ordinary allocation or relocation.
+    internal int CoolRetiredLookupSlot(ArenaAddress lookup, ArenaAddress address)
+    {
+        var segment = Locate(address, out var region, out var slot) ?? throw NotABlock(address);
+        ref readonly var header = ref Header(address);
+        var bytes = SizeClasses.SizeOf(segment.Regions[region].SizeClass);
+        if (!segment.IsRetired(region, slot) || header.Parent != lookup ||
+            header.Kind != BlockKindEnum.Chunk || header.Flags != BlockHeader.LookupSlotsFlag ||
+            header.PayloadLength != bytes - BlockHeader.Size)
+        {
+            throw new InvalidOperationException("Only the epoch-safe slot of its exact lookup can become reusable.");
+        }
+
+        segment.SetRetired(region, slot, retired: false);
+        segment.SetPrepared(region, slot, prepared: true);
+        _tally.RetiredBytes -= bytes;
+        _tally.PreparedBytes += bytes;
+        RestoreColdLookupSlot(address);
+        return bytes - BlockHeader.Size;
+    }
+
+    internal void RewriteColdLookupSlot(ArenaAddress address, ArenaAddress parent, uint offset, uint layoutVersion)
+    {
+        ref var header = ref Header(address);
+        header.Parent = parent;
+        header.DescriptorOffset = offset;
+        header.LayoutVersion = layoutVersion;
+        header.Kind = BlockKindEnum.Chunk;
+        header.Flags = BlockHeader.LookupSlotsFlag;
+    }
+
+    internal void RestoreColdLookupSlot(ArenaAddress address)
+    {
+        ref var header = ref Header(address);
+        header.Parent = default;
+        header.DescriptorOffset = 0;
+        header.Kind = BlockKindEnum.ColdLookupSlots;
+        header.Flags = 0;
+    }
+
+    internal ArenaAddress ColdLookupLink(ArenaAddress address) => MemoryMarshal.Read<ArenaAddress>(Payload(address));
+
+    internal void SetColdLookupLink(ArenaAddress address, ArenaAddress next) => MemoryMarshal.Write(Payload(address), in next);
+
+    // At the hard limit: a same-class slot is immediately useful. For a
+    // different class, the whole region must be returnable. Only its first
+    // occupied slot may nominate it, so a region is inspected at most once.
+    internal bool CanReleaseColdLookupForPressure(ArenaAddress address, int neededClass, out bool clearRegion)
+    {
+        var segment = Locate(address, out var region, out var slot) ?? throw NotABlock(address);
+        var sizeClass = segment.Regions[region].SizeClass;
+        clearRegion = sizeClass != neededClass;
+        if (!clearRegion)
+        {
+            return true;
+        }
+
+        if (!segment.IsFirstAllocated(region, slot))
+        {
+            return false;
+        }
+
+        var size = SizeClasses.SizeOf(sizeClass);
+        var regionStart = segment.Memory + region * ArenaSegment.RegionSize;
+        for (var index = 0; index < ArenaSegment.RegionSize / size; index++)
+        {
+            if (segment.IsAllocated(region, index) &&
+                (!segment.IsPrepared(region, index) || segment.IsRetired(region, index) ||
+                 ((BlockHeader*)(regionStart + index * size))->Kind != BlockKindEnum.ColdLookupSlots))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    internal static long RegionOf(ArenaAddress address) =>
+        RegionNumber((int)address.Segment, (int)(address.Offset / ArenaSegment.RegionSize));
+
+    // Tests take this snapshot under Writes; ordinary engine paths read no audit rows.
+    internal CollectionSlotOwnership[] CollectionSlotOwnershipForTest() => _collectionTails?.Snapshot() ?? [];
+
     // The counters as they stand at the moment of the call.
     public ArenaCounters Counters
     {
@@ -437,6 +678,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         Array.Clear(_segments);
+        _collectionTails = null;
     }
 
     // A region number names a region of any segment: the slot of the segment in the high 32 bits,
@@ -500,9 +742,9 @@ internal sealed unsafe class Arena : IDisposable
 
     // Gives the class a region, so that it has one with a free slot: a free region, else the first
     // region of a reserved segment, else the first region of a new segment. False when none of them
-    // is there and a new segment would take the arena beyond its memory limit; then nothing has
-    // changed.
-    private bool TryTakeRegion(int sizeClass)
+    // is there, a new segment would exceed the memory limit, and no ready collection capacity
+    // can make the allocation fit. Only the hard limit can reclaim such capacity.
+    private bool TryTakeRegion(int sizeClass, bool reclaimCollectionSlots)
     {
         long regionNumber;
 
@@ -521,7 +763,10 @@ internal sealed unsafe class Arena : IDisposable
         }
         else
         {
-            return false;
+            // A returned region is now either free, in reserve, or has
+            // reduced SegmentCount. A same-class return already made a slot.
+            return reclaimCollectionSlots && _collectionTails?.ReleaseForPressure(sizeClass) == true &&
+                (_regionsWithFreeSlot[sizeClass] != NoRegion || TryTakeRegion(sizeClass, reclaimCollectionSlots: false));
         }
 
         var segment = _segments[SegmentSlotOf(regionNumber)]!;

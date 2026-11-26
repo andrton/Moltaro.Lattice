@@ -254,7 +254,7 @@ internal sealed class IndexLayout
             return false;
         }
 
-        bytes = ValueBlocks.Contiguous(arena, descriptor, default);
+        bytes = ValueBlocks.Contiguous(arena, ValueBlocks.ResolveText(arena, descriptor), default);
 
         return true;
     }
@@ -324,7 +324,7 @@ internal sealed class IndexLayout
 
                 destination[length] = DetachedTextHead;
                 MemoryMarshal.Write(destination[(length + 1)..], in textLength);
-                ValueBlocks.CopyTo(arena, descriptor, default, destination.Slice(length + DetachedTextStart, (int)descriptor.Length));
+                ValueBlocks.CopyTo(arena, ValueBlocks.ResolveText(arena, descriptor), default, destination.Slice(length + DetachedTextStart, (int)descriptor.Length));
                 length += DetachedTextStart + (int)descriptor.Length;
             }
             else
@@ -491,12 +491,12 @@ internal sealed class IndexLayout
     // which the layout of the root places in an entry (StoredField.LiesInTextEntry).
     private static int WriteText(in RootReader root, in StoredField stored, Span<byte> destination)
     {
-        var descriptor = ValueBlocks.Read(root.StoredBytes(stored));
+        var descriptor = root.ReadDescriptor(stored);
 
         if (descriptor.Length <= TextCopyLimit)
         {
             destination[0] = (byte)descriptor.Length;
-            root.ValueBytes(descriptor).CopyTo(destination[1..]);
+            root.TextBytes(descriptor).CopyTo(destination[1..]);
 
             return 1 + (int)descriptor.Length;
         }
@@ -514,8 +514,8 @@ internal sealed class IndexLayout
     // (WriteText): the same copy, or the same reference to a text entry.
     private static bool SameText(in RootReader left, in RootReader right, in StoredField stored)
     {
-        var leftText = ValueBlocks.Read(left.StoredBytes(stored));
-        var rightText = ValueBlocks.Read(right.StoredBytes(stored));
+        var leftText = left.ReadDescriptor(stored);
+        var rightText = right.ReadDescriptor(stored);
 
         if (leftText.Length != rightText.Length)
         {
@@ -523,7 +523,7 @@ internal sealed class IndexLayout
         }
 
         return leftText.Length <= TextCopyLimit
-            ? left.ValueBytes(leftText).SequenceEqual(right.ValueBytes(rightText))
+            ? left.TextBytes(leftText).SequenceEqual(right.TextBytes(rightText))
             : leftText.Location == rightText.Location;
     }
 

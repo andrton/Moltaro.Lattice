@@ -74,7 +74,7 @@ internal sealed class EditedCollection
 
     public IEnumerator<EditedEntry> OpenEntries() => (_list?.Entries() ?? _association!.Entries()).GetEnumerator();
 
-    public void Place(ref ValueHolder holder, StructureLayout structure, int target)
+    public void Place(ref ValueHolder holder, StructureLayout structure, int target, bool reuseTail)
     {
         ref readonly var place = ref structure.Place(target);
         var element = structure.ElementOf(target);
@@ -85,7 +85,7 @@ internal sealed class EditedCollection
         }
         else
         {
-            NestedValues.PlaceCollection(ref holder, place, element, place.Offset, Count, compact: !_hashed, ref source);
+            NestedValues.PlaceCollection(ref holder, place, element, place.Offset, Count, compact: !_hashed, ref source, reuseTail);
         }
 
         if (!holder.Refused)

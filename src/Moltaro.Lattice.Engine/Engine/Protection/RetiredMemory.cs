@@ -23,8 +23,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 //
 // Who calls it, and when. Only the thread that holds the lock of the writes (Writes.WriteExecutor),
 // because the arena, the table of root entries and the indexes take no lock and only that thread
-// changes them. A read never frees. Freeing happens on the path of the operations of the database, and
-// no thread or timer is started for it:
+// changes them. A read never frees. The periodic maintenance worker drains a bounded safe prefix
+// even when there are no further writes. Synchronous drains still happen in these operations:
 // - after every publication of a position, a write on a master or a transaction on a child, and of a
 //   root of a load, the writer looks once enough was counted since its last look (AfterWrite):
 //   as many things as ReadEpochs has slots, or as many bytes as one segment of the arena. Each look
@@ -70,9 +70,12 @@ namespace Moltaro.Lattice.Engine.Protection;
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
-// place. Its actions run on whichever thread drains; here only the writer frees.
+// place. Its actions run on whichever thread drains; here the thread must hold the writes lock.
 internal sealed class RetiredMemory
 {
+    // A bounded first allocation for maintenance. A nonempty queue is never copied by a step.
+    private const int RelocationSeed = 4;
+
     private readonly ReadEpochs _epochs;
 
     private readonly Arena _arena;
@@ -81,6 +84,16 @@ internal sealed class RetiredMemory
 
     // In the order they were retired, and so in the order of their epochs.
     private readonly Queue<RetiredItem> _items = new();
+
+    // Only the FIFO head can be partial. A safe head stays safe across yields,
+    // even when later publications enqueue younger items.
+    private RootReclamation? _rootWork;
+
+    private NodeReclamation _nodeWork;
+
+    private bool _headActive;
+
+    private bool _releaseHandle;
 
     // The things and the bytes retired since the last look, a write that retired nothing counted as one
     // thing while the count of such writes is armed, and how many of each make a look (see the class).
@@ -132,6 +145,9 @@ internal sealed class RetiredMemory
     // The bytes of the retired tables of the primary indexes, counted as an index counts its table.
     public long IndexBytes { get; private set; }
 
+    // Under the writes lock: the full native slot sizes of pending physical relocations.
+    public int RelocationBytes { get; private set; }
+
     // Makes room for one more retired thing beside those reserved before, so that retiring it after a
     // publication allocates nothing and cannot fail. Called before the publication; the reservation
     // ends when the thing is retired, or with Release for a write that is withdrawn.
@@ -143,6 +159,43 @@ internal sealed class RetiredMemory
     {
         _capacity = _items.EnsureCapacity(_items.Count + _reserved + places);
         _reserved += places;
+    }
+
+    // Under the writes lock: charge the full new slot and reserve a FIFO place without copying
+    // queued items. The charge follows the old slot at publication until it is actually freed.
+    public bool TryReserveRelocated(int slotBytes = 0)
+    {
+        if (slotBytes > Arena.MaxBlockSize - RelocationBytes)
+        {
+            return false;
+        }
+
+        if (_capacity == 0)
+        {
+            try
+            {
+                _capacity = _items.EnsureCapacity(RelocationSeed);
+            }
+            catch (OutOfMemoryException)
+            {
+                return false;
+            }
+        }
+
+        if (_items.Count + _reserved == _capacity)
+        {
+            return false;
+        }
+
+        _reserved++;
+        RelocationBytes += slotBytes;
+        return true;
+    }
+
+    public void ReleaseRelocation(int slotBytes)
+    {
+        Release();
+        RelocationBytes -= slotBytes;
     }
 
     // Gives back the place a write reserved and does not use, because it was withdrawn.
@@ -158,6 +211,16 @@ internal sealed class RetiredMemory
     // Retires the root of a deleted entity and its entry, which stays counted until it is released.
     public void RetireDeleted(RootLayout layout, RootHandle handle, ArenaAddress root) =>
         Add(RetiredKindEnum.DeletedRoot, layout, root, handle, RetireBlocks(layout, root));
+
+    // Retires the old slot after publishing a physical move. Its owner and other edges,
+    // if any, belong to the replacement. The drain test can retire an already allocated
+    // block without a copy reservation.
+    public void RetireRelocated(ArenaAddress source, int reservedBytes = 0)
+    {
+        var slotBytes = _arena.Retire(source);
+        RelocationBytes += slotBytes - reservedBytes;
+        Add(RetiredKindEnum.RelocatedBlock, null, source, default, slotBytes);
+    }
 
     // Retires a table of an index that a larger one replaced, with its bytes.
     public void RetireTable(object table, long bytes)
@@ -189,6 +252,131 @@ internal sealed class RetiredMemory
         }
     }
 
+    // Shares one horizon across fresh heads, and carries an already safe
+    // partial head without a scan. The caller holds the writes lock.
+    public int DrainStep(int workLimit, Action? beforeRootReclamationAllocation = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
+
+        var spent = 0;
+        long? safe = null;
+        while (spent < workLimit && _items.TryPeek(out var item))
+        {
+            if (!_headActive)
+            {
+                safe ??= _epochs.Advance();
+                if (item.Epoch > safe.Value)
+                {
+                    break;
+                }
+
+                if (_rootWork is null && item.Kind is RetiredKindEnum.Root or RetiredKindEnum.DeletedRoot)
+                {
+                    try
+                    {
+                        beforeRootReclamationAllocation?.Invoke();
+                        _rootWork = new RootReclamation(_arena);
+                    }
+                    catch (OutOfMemoryException)
+                    {
+                        // No cursor or root has changed. Charge this attempt and
+                        // leave the same FIFO head for a later turn.
+                        return spent + 1;
+                    }
+                }
+            }
+
+            if (StepHead(item))
+            {
+                FinishHead();
+            }
+
+            spent++;
+        }
+
+        if (_items.Count == 0)
+        {
+            ForgetLook();
+
+            if (spent < workLimit && CanTrimEmptyQueue())
+            {
+                try
+                {
+                    TrimEmptyQueue();
+                }
+                catch (OutOfMemoryException)
+                {
+                    // The empty-array allocation was refused. Keep the current
+                    // backing and try again in a later turn.
+                }
+
+                spent++;
+            }
+        }
+
+        return spent;
+    }
+
+    // One unit belongs to the head: open its cursor, inspect one part, release
+    // one slot or handle, or drop one managed table. No later item can bypass it.
+    private bool StepHead(in RetiredItem item)
+    {
+        if (!_headActive)
+        {
+            switch (item.Kind)
+            {
+                case RetiredKindEnum.Root:
+                case RetiredKindEnum.DeletedRoot:
+                    _rootWork!.Start((RootLayout)item.Owner!, item.Address);
+                    _headActive = true;
+                    return false;
+
+                case RetiredKindEnum.IndexNode:
+                    _headActive = true;
+                    return false;
+
+                default:
+                    Free(item);
+                    return true;
+            }
+        }
+
+        if (item.Kind == RetiredKindEnum.IndexNode)
+        {
+            return _nodeWork.Step(_arena, (IndexLayout)item.Owner!, item.Address);
+        }
+
+        if (_releaseHandle)
+        {
+            _roots.Release(item.Handle);
+            return true;
+        }
+
+        if (!_rootWork!.Step())
+        {
+            return false;
+        }
+
+        _releaseHandle = item.Kind == RetiredKindEnum.DeletedRoot;
+        return !_releaseHandle;
+    }
+
+    private void FinishHead()
+    {
+        _items.Dequeue();
+        _nodeWork = default;
+        _headActive = false;
+        _releaseHandle = false;
+    }
+
+    private void ForgetLook()
+    {
+        _itemsSinceLook = 0;
+        _bytesSinceLook = 0;
+        _leftBehind = false;
+        _retiredSincePublication = false;
+    }
+
     // Frees every retired thing that no read in progress can reach, and returns; it does not wait.
     // With no read in progress it leaves nothing retired.
     public void Drain()
@@ -201,12 +389,24 @@ internal sealed class RetiredMemory
             return;
         }
 
-        var safe = _epochs.Advance();
-
-        while (_items.TryPeek(out var item) && item.Epoch <= safe)
+        if (_headActive)
         {
-            _items.Dequeue();
-            Free(item);
+            var partial = _items.Peek();
+            while (!StepHead(partial))
+            {
+            }
+
+            FinishHead();
+        }
+
+        if (_items.Count != 0)
+        {
+            var safe = _epochs.Advance();
+            while (_items.TryPeek(out var item) && item.Epoch <= safe)
+            {
+                _items.Dequeue();
+                Free(item);
+            }
         }
 
         _leftBehind = _items.Count > 0;
@@ -215,15 +415,23 @@ internal sealed class RetiredMemory
         // large: a read held for a second beside a million writes a second leaves a million places.
         // Once it is empty and its capacity is more than 64 looks' worth (8,192 places, 384 KiB with
         // 128 slots), it lets the places go, unless places are reserved for writes not published yet;
-        // emptied, the list allocates nothing for that, and it grows again by doubling, before a
-        // publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
+        // emptied, the trim replaces its backing without copying any items. It grows again by doubling
+        // before a publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
         // one or two looks' worth, from trimming and growing again: only a peak of 64 looks' worth
         // does, and its growth costs about as much as it retired.
-        if (_items.Count == 0 && _reserved == 0 && _capacity > 64 * _itemsPerLook)
+        if (CanTrimEmptyQueue())
         {
-            _items.TrimExcess();
-            _capacity = 0;
+            TrimEmptyQueue();
         }
+    }
+
+    private bool CanTrimEmptyQueue() =>
+        _items.Count == 0 && _reserved == 0 && _capacity > 64 * _itemsPerLook;
+
+    private void TrimEmptyQueue()
+    {
+        _items.TrimExcess();
+        _capacity = 0;
     }
 
     // For a write the arena refused, under the lock of the writes: the epoch below which the reads
@@ -263,6 +471,10 @@ internal sealed class RetiredMemory
     public void Clear()
     {
         _items.Clear();
+        _rootWork?.Clear();
+        _nodeWork = default;
+        _headActive = false;
+        _releaseHandle = false;
         IndexBytes = 0;
     }
 
@@ -277,7 +489,7 @@ internal sealed class RetiredMemory
     }
 
     // Retires a thing into the place its write reserved.
-    private void Add(RetiredKindEnum kind, object owner, ArenaAddress address, RootHandle handle, long bytes)
+    private void Add(RetiredKindEnum kind, object? owner, ArenaAddress address, RootHandle handle, long bytes)
     {
         _newest = _epochs.Current;
         _items.Enqueue(new RetiredItem(kind, _newest, owner, address, handle, bytes));
@@ -292,16 +504,21 @@ internal sealed class RetiredMemory
         switch (item.Kind)
         {
             case RetiredKindEnum.Root:
-                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address);
+                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address, reclaimingRetired: true);
                 break;
 
             case RetiredKindEnum.DeletedRoot:
-                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address);
+                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address, reclaimingRetired: true);
                 _roots.Release(item.Handle);
                 break;
 
             case RetiredKindEnum.IndexNode:
                 NodeStorage.Free(_arena, (IndexLayout)item.Owner!, item.Address);
+                break;
+
+            case RetiredKindEnum.RelocatedBlock:
+                _arena.Free(item.Address);
+                RelocationBytes -= (int)item.Bytes;
                 break;
 
             default:

@@ -12,7 +12,7 @@ repository run on it.
 
 The engine is being built in steps. Today it works in MemoryOnly mode: it stores and
 reads entities of scalar and Enum fields by primary key, under every key type and both
-text comparisons, in UTF-8 and UTF-16, within the memory budget of the instance. Every
+text comparisons, in UTF-8 and UTF-16. The instance limits its native arena. Every
 declared secondary index is kept with the data, and an application finds entities
 through an index by its full key, by its leading fields and a range on the next, in the
 order of the index or its reverse and in pages, each entity at most once. A child loads
@@ -29,8 +29,11 @@ which names the entity type. Partial updates assign named fields and edit Lists,
 Sets. The master executes them alone or in a write batch, also when a child submits them.
 Children apply the changed fields and collection entries at the committed position.
 Both by-name and generated typed views read one entity directly from its local arena
-inside a short synchronous callback. PostgreSQL persistence is planned, and the
-contract may still change.
+inside a short synchronous callback. Master and child run bounded storage maintenance
+in the background. Compatible blocks can move while earlier readers retain their
+original storage. The arena reuses and returns empty segments, and collections can
+release persistently unused lookup capacity. PostgreSQL persistence is planned, and
+the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and

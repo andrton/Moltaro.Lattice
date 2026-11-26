@@ -243,28 +243,34 @@ internal sealed class IndexTable
         var entry = EntryOf(hash, slot);
         long place = -BucketOf(hash);
 
-        while (true)
+        while (!TryRemoveFromBucket(entry, place, out place))
         {
-            var bucket = BucketAt(place);
+        }
+    }
 
-            for (var word = 0; word < EntriesPerBucket; word++)
+    // Looks for the exact entry in one bucket of this table version. On a miss
+    // the caller can yield and resume at the next bucket under the writes lock.
+    public bool TryRemoveFromBucket(long entry, long place, out long next)
+    {
+        var bucket = BucketAt(place);
+        for (var word = 0; word < EntriesPerBucket; word++)
+        {
+            if (bucket[word] == entry)
             {
-                if (bucket[word] == entry)
-                {
-                    Volatile.Write(ref bucket[word], 0);
-                    _counts.Entries--;
-
-                    return;
-                }
-            }
-
-            place = bucket[LinkWord];
-
-            if (place == 0)
-            {
-                throw new InvalidOperationException("A write removes an entry only after it found it.");
+                Volatile.Write(ref bucket[word], 0);
+                _counts.Entries--;
+                next = 0;
+                return true;
             }
         }
+
+        next = bucket[LinkWord];
+        if (next == 0)
+        {
+            throw new InvalidOperationException("A write removes an entry only after it found it.");
+        }
+
+        return false;
     }
 
     // Copies every entry into a larger table that no reader reaches yet. For the writer.

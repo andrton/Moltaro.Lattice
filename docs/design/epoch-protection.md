@@ -101,8 +101,10 @@ slot holds an epoch as old as that mark. In words: everyone who could have been 
 when it was put aside has left. Readers that entered after the epoch moved cannot have
 found it, because the pointer already led elsewhere.
 
-Only the writer frees, on the path of its own writes. The database starts no thread and
-no timer for this.
+A write may free eligible retirements while holding the local writes lock. The
+periodic maintenance worker on a Ready master or child also takes that lock and
+drains eligible retirements in bounded steps. It can free an eligible retirement
+after the reader leaves even when the application issues no further writes.
 
 ## The index works the same way
 
@@ -139,8 +141,8 @@ key up while the writer inserts, deletes or enlarges the table:
 - **Retired memory is counted.** It has its own counter, and it counts against the
   memory budget of the instance. A write that meets the budget first frees what can be
   freed and waits for the reads in progress before it is refused.
-- **An idle database may keep the last retired pieces** until its next write or its
-  close.
+- **An idle Ready database drains safe retirements in bounded turns.** A held reader
+  delays the slots it can still reach. Their reclamation can proceed after it leaves.
 
 ## What it is not
 

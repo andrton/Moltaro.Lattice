@@ -48,7 +48,12 @@ public sealed class RefusedWriteTests
     [Fact]
     public async Task Replace_that_the_arena_holds_only_once_retired_memory_no_read_holds_is_freed_succeeds()
     {
-        await using var database = await EngineMaster.OpenAsync(PieceSchema.Schema, TwoSegments, new NativeAllocator());
+        await using var database = await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs
+        {
+            Arena = TwoSegments,
+            Allocator = new NativeAllocator(),
+            DisableBackgroundMaintenance = true,
+        });
         var pieces = database.Set<PieceSchema.Piece>();
 
         await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
