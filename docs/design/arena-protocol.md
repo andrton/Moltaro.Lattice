@@ -633,7 +633,10 @@ An empty retirement queue can drop its backing array when no reservation
 remains and its capacity exceeds 64 times the number of reader slots. The trim costs one work unit and copies no entries.
 If allocating the empty backing or the first root cursor is refused, the
 worker charges one unit and leaves that work for a later turn. Cursor
-allocation precedes any change to the FIFO head or its storage.
+allocation precedes any change to the FIFO head or its storage. A synchronous
+drain during ordinary publication or memory recovery also tries to trim an
+eligible empty queue. If the allocation is refused, reclaimed blocks stay
+free and the queue keeps its backing for reuse or a later trim.
 
 After admitted operations and protected readers have left, close takes the
 writes lock, attempts the final drain, clears retired state and disposes the

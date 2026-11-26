@@ -56,6 +56,10 @@ internal sealed class EngineTestInputs
     // after the close has joined operations and reads. It can stand in for allocation failure.
     public Action? BeforeCloseRetiredTrim { get; init; }
 
+    // Under Writes, observes the count, reservation and capacity just before the empty
+    // retirement queue's trim at the end of a publication. A test may fail that allocation.
+    public Action<int, int, int>? BeforePublishedRetiredTrim { get; init; }
+
     // Invoked with a maintenance attempt counted by the close barrier, after observing Ready
     // and before trying the lock of the writes. Tests can hold an attempt that close may overtake.
     public Action? BeforeMaintenanceWrites { get; init; }
