@@ -101,8 +101,10 @@ slot holds an epoch as old as that mark. In words: everyone who could have been 
 when it was put aside has left. Readers that entered after the epoch moved cannot have
 found it, because the pointer already led elsewhere.
 
-Only the writer frees, on the path of its own writes. The database starts no thread and
-no timer for this.
+A write may free eligible retirements while holding the local writes lock. The
+periodic maintenance worker on a Ready master or child also takes that lock and
+drains eligible retirements in bounded steps. It can free an eligible retirement
+after the reader leaves even when the application issues no further writes.
 
 ## The index works the same way
 

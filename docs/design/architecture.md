@@ -84,9 +84,13 @@ its own lookup from the entries it receives. [Arena layout and transfer](arena-p
 ### Space is reused throughout the database lifetime
 
 Size-class free lists find reusable slots without scanning all segments. Counters
-identify sparse regions; background compaction moves bounded blocks under owner
-protection. Empty segments enter a limited reserve or are released. Collection shrink
-reclaims sustained excess capacity. No second full arena is needed.
+identify regions below half live occupancy. Each master or child can move one bounded
+block to a compatible earlier slot during a background turn under its write lock.
+The publishing edge changes atomically. Earlier readers retain the old block through
+their epochs. A stable identifier keeps every stored reference to shared text valid
+when that text moves. Primary lookups and secondary index searches keep their results.
+Empty segments enter a limited reserve or return to the native allocator. Collection
+shrink returns sustained excess lookup capacity using a separate writer-owned reserve.
 
 Initial segment sizes, chunk sizes and work budgets are specified in the engine
 contract. They are starting settings to measure, not unresolved architecture choices.
@@ -241,8 +245,9 @@ hosting decision.
   and can forward master-status requests through a child.
 - **Backup and restore:** infrastructure uses PostgreSQL mechanisms. Restore into a
   separate target, verify it, then activate a new history; children reload fully.
-- **Automatic maintenance:** bounded compaction, string reclamation, collection shrink
-  and saved-base application are part of the engine.
+- **Automatic maintenance:** MemoryOnly master and child run bounded compaction,
+  epoch reclamation and collection shrink. Saved-base application belongs to the
+  planned Durable engine.
 - **Deferred:** OQL, joins, external transactions, cross-call graph snapshots, lazy
   schema conversion, manual maintenance commands and a management UI.
 - **Not part of the design:** a partition layer, and election or promotion of a master.

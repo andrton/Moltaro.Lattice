@@ -14,19 +14,19 @@ This is evidence for the specified fixtures, not all schedules or production own
 ## Ownership and addresses
 
 The native allocator owns segments and size-class slots. A block has a relative
-segment/offset address, logical length, capacity, state and owner. Its states are
-Free, Prepared and Live; detached data may become reusable only after its protecting
-readers and other retainers have drained. Allocation must include prepared blocks
-and relocation destinations in the same memory budget as published data.
+segment/offset address, logical length, capacity, state and owner. Slots are free,
+prepared, live or retired. Readers and other retainers protect a detached retired
+slot until reclamation. The native arena budget includes prepared blocks and
+relocation destinations alongside published data.
 
 A managed struct control entry identifies one root lifetime: key, generation,
 published revision, root address, live/deleted state and temporary lookup claims.
 The primary index reaches this entry, never an unprotected native pointer. Owned
-chunks identify the root entry and the descriptor position that must be repaired
-when they move. Shared dictionary text instead belongs to a text entry
-with its own address and one count of the blocks that refer to it: a root, a prepared root
-or, later, a block of an index holds one reference for each Text descriptor it contains,
-from the moment it is written until it is freed.
+chunks identify the root lifetime and the owning edge that must be repaired when
+they move. A shared text descriptor names a stable text ID. The reader acquires the
+current address from the text locator. Each stored root, prepared root and index
+node holds its own references during its lifetime. A separator remains a text owner
+after the final indexed entity with that text is removed.
 
 All addresses are internal. Relocation changes addresses, not keys, revisions or
 logical contents. Published dictionary text is immutable; an update acquires a
@@ -76,8 +76,12 @@ uses the structure's bytes to find the descriptor and the whole containing paylo
 reach the inline value. For a root, place offsets also include the header, so subtract
 the header size when applying those offsets to the payload. The fixed part of a root,
 including the header, fits in at most 65,536 bytes. The record of an entry fits in a
-chunk with room for the inline values it can describe. The engine compiles the layout
-of every declared entity type at open. A layout beyond either limit fails open with
+chunk with room for the inline values it can describe. Records that contain native descriptors align their descriptor locations and
+record strides. The engine acquires each location atomically, including in later
+packed records. The loader validates
+canonical transfer descriptors and writes the native layout separately.
+The engine compiles the layout of every declared entity type at open. A layout
+beyond either limit fails open with
 `InvalidSchema`, which names the entity type. The failed instance is Closed.
 
 A String, a Binary or packed collection entries are placed by encoded length. Packed
@@ -114,15 +118,25 @@ The rest of a contiguous lookup block is a sequence of eight-byte slots. Each
 occupied slot holds a 32-bit hash and the entry ordinal plus one. The all-zero slot
 is empty. To find the home slot, multiply the hash by the slot count and take the
 high 32 bits of the product.
-Collisions use linear probing. The allocation fills a size class and its occupancy
-is at most 70 percent. The largest contiguous lookup has 8,186 slots.
+Collisions use linear probing. Home and every probe use the same active capacity,
+with occupancy at most 70 percent. The largest contiguous lookup has 8,186 slots.
+The allocator charges whole size-class slots, including padding outside the active
+payload.
 
 Above that capacity, the lookup block contains the eight-byte relative addresses of
 its slot chunks. Full chunks have 8,188 slots and the last chunk fills its own size
 class. A lookup uses at most 4,094 slot chunks. This gives a bound of 23,465,170
 entries. The entry layout can impose a smaller bound. A slot chunk's backlink
 names its address position at offset 48 plus eight times its chunk ordinal.
-The lookup owns its entries through the descriptor at offset 32.
+The lookup owns its entries through the descriptor at offset 32. A compatible
+unreferenced spare slot can remain available to the writer after the retirement
+epoch. It lies outside every active probe range. Growth can reuse such a slot.
+If retained capacity stays strictly above four times the required slot count for
+five seconds, bounded maintenance returns spares until retained capacity reaches at
+most twice the requirement. A required foreground allocation may recover a ready
+spare when the arena has exhausted its ordinary allocation paths at the native
+limit. An optional index-reserve refill uses the ordinary paths. Prepared borrows
+and retired slots remain protected.
 
 Text keeps its encoded bytes as specified by the schema. A nonempty Dictionary text,
 or a text value longer than 64 encoded bytes used as a secondary index part, uses an
@@ -278,16 +292,17 @@ root that names it. That over-counts, which is safe: it only makes a look come e
 and a look frees nothing a read can still reach. An enumeration enters and leaves at each step,
 and within a long step after each bounded piece of walking, and holds nothing between
 two steps. A reader that finds no free slot of the epoch
-table waits for one and never fails. A published root is never changed: a partial update
-publishes a new root block that shares the unchanged value blocks (the owner's decision
-of 16 November 2026).
+table waits for one and never fails. A partial update publishes a new root block that
+shares unchanged value blocks. Physical relocation can update a published owning edge
+atomically while keeping the logical value immutable (see
+[reclamation and relocation](#reclamation-and-relocation)).
 
 Retired memory is the engine's until it is freed: it is counted, it counts against the
 memory budget of the instance, and a write that meets the budget first frees what can be
-freed and waits for the reads that hold the rest before it is refused. The engine frees
-retired memory on the path of its own operations, as the mechanism it follows does; it
-starts no thread and no timer for it. A database nobody uses may therefore hold the last
-retired memory until its next operation or its close.
+freed and waits for the reads that hold the rest before it is refused. Foreground
+operations can reclaim eligible retirements, and the periodic worker takes bounded
+steps during idle periods as well as active writes. It can return the last eligible
+retirement after a reader leaves without another application write.
 
 ### Protected views
 
@@ -593,8 +608,30 @@ until they publish or abort, so slot reuse cannot change their target.
 
 ## Reclamation and relocation
 
-The current engine [defers reclamation](#deferred-reclamation-16-november-2026) with
-epochs. The prototype described below used synchronous root reads. Acquiring exclusive
+On a Ready master or child, a periodic worker offers a turn every 16 ms. Ticks
+can coalesce while work is in progress. A turn enters the counted operation barrier,
+tries the local write lock without waiting, and rechecks admission under it. It
+drains safe FIFO work and checks at most one collection spare for shrink. The
+reclamation and text maintenance share 64 work units, including actual releases.
+A bounded 128-unit search starts from regions below half live occupancy, resumes
+across turns and looks for existing compatible vacancy in earlier segments. At most
+one move publishes in a turn. Retained relocation copies together charge at most
+one 64 KiB slot. A prepared master write prevents relocation. Close joins the
+worker before its final cleanup.
+
+The mover checks the live owner and each backlink it follows before publication.
+A release operation changes one root address, owning descriptor location, lookup
+chunk word or stable text locator address. The reader or exporter acquires the
+complete address under its existing epoch. A reader that saw the old location
+may keep using its storage until that epoch ends. The retire tag follows publication.
+A raw relocation retirement releases just the old slot because ownership of the
+child graph moved with the copy. Secondary index nodes stay in place. Index searches
+keep resolving their root handles and text IDs. Relocation preserves payload
+values, revisions, counters for logical data and canonical transfer bytes.
+
+### Earlier gated experiment
+
+The prototype described here used synchronous root reads. Acquiring exclusive
 root protection drained readers of owned data, so a detached block could be freed in
 that scope after descriptor publication. A queued lookup retained control metadata.
 
