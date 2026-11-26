@@ -315,8 +315,17 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         Assert.True(source.Segment > destination.Segment);
         Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
-            long region = 0;
-            return parts.Arena.TryFindRelocationDestination(source, ref region, out _);
+            var arena = parts.Arena;
+            var sizeClass = SizeClasses.IndexFor((int)arena.Header(source).PayloadLength);
+            var expected = Arena.RegionOf(destination);
+            var region = arena.RelocationHead(sizeClass, source.Segment);
+            var earlier = arena.EarlierRelocationExtent(source);
+            for (var coordinate = 0L; region != expected && coordinate < earlier; coordinate++)
+            {
+                region = arena.RelocationVacancyAt(coordinate, sizeClass);
+            }
+
+            return region != 0 && region == expected && arena.TryFindRelocationDestination(source, ref region, out _);
         }));
     }
 
