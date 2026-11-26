@@ -56,7 +56,23 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
     public Task A_direct_leaf_already_obeys_the_same_reader_held_budget(LatticeRoleEnum role) =>
         RunAsync(role, SourceEnum.DirectValue);
 
-    private async Task RunAsync(LatticeRoleEnum role, SourceEnum kind)
+    public static TheoryData<LatticeRoleEnum, string> SourceReports
+    {
+        get
+        {
+            var cases = CompoundCases;
+            cases.Add(LatticeRoleEnum.Master, nameof(SourceEnum.DirectValue));
+            cases.Add(LatticeRoleEnum.Child, nameof(SourceEnum.DirectValue));
+            return cases;
+        }
+    }
+
+    [Theory(Skip = AutomaticRelocationTests.SourceReportPending)]
+    [MemberData(nameof(SourceReports))]
+    public Task A_worker_reports_the_verified_native_source_kind_and_owner_edge(LatticeRoleEnum role, string kind) =>
+        RunAsync(role, Enum.Parse<SourceEnum>(kind), reportSource: true);
+
+    private async Task RunAsync(LatticeRoleEnum role, SourceEnum kind, bool reportSource = false)
     {
         var input = InputFor(kind);
         var allocator = new CountingNativeAllocator();
@@ -120,6 +136,12 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
             Assert.Equal((default(ArenaAddress), default(ArenaAddress), 0), (quiet.Source, quiet.Destination, quiet.SlotBytes));
             Assert.Equal(Arena.MaxBlockSize, quiet.RelocationBytes);
             Assert.Equal(0, quiet.ReclamationWork);
+            if (reportSource)
+            {
+                Assert.Equal((default(BlockKindEnum), (ushort)0, default(DescriptorKindEnum)),
+                    (quiet.SourceKind, quiet.SourceFlags, quiet.SourceDescriptorKind));
+            }
+
             Assert.Equal(pinned, node.Counters.Arena);
             var after = AutomaticRelocationTests.SnapshotEarlierVacancies(node, allocator, before.Source, input.SlotBytes, witnesses);
             Assert.Equal(vacantBytes.Keys, after.Keys);
@@ -142,11 +164,22 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         using var holdTarget = new ViewerPause();
         var oldRead = Hold(items, input, revision, holdTarget);
         await holdTarget.EnteredAsync(oldRead);
+        var header = reportSource
+            ? await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.Header(before.Source))
+            : default;
         var first = FirstMove(node, samples);
         Assert.Equal(before.Source, first.Source);
         Assert.Equal(destination, first.Destination);
         Assert.Equal(input.SlotBytes, first.SlotBytes);
         Assert.Equal(input.SlotBytes, first.RelocationBytes);
+        if (reportSource)
+        {
+            var expected = (header.Kind, header.Flags, ExpectedSourceDescriptor(kind));
+            var reported = (first.SourceKind, first.SourceFlags, first.SourceDescriptorKind);
+            output.WriteLine($"Source report: expected {expected}, observed {reported}.");
+            Assert.Equal(expected, reported);
+        }
+
         Assert.Equal(position, node.Position);
         Assert.Equal(requests, allocator.Requests);
         var moved = Capture(node, input);
@@ -263,6 +296,15 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
             return parts.Arena.TryFindRelocationDestination(source, ref region, out _);
         }));
     }
+
+    private static DescriptorKindEnum ExpectedSourceDescriptor(SourceEnum source) => source switch
+    {
+        SourceEnum.InlineNullRoot or SourceEnum.DictionaryCollectionRoot or SourceEnum.LookupSlots => default,
+        SourceEnum.RawDirectory => DescriptorKindEnum.Chunked,
+        SourceEnum.RecordsBlock or SourceEnum.RecordsDirectory => DescriptorKindEnum.Records,
+        SourceEnum.Lookup => DescriptorKindEnum.Lookup,
+        _ => DescriptorKindEnum.Block,
+    };
 
     private static MaintenanceTurnSample FirstMove(EngineDatabase node, List<MaintenanceTurnSample> samples)
     {

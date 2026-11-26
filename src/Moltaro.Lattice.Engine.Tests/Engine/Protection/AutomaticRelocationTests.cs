@@ -29,6 +29,47 @@ public sealed class AutomaticRelocationTests
     private const int FillerCount = 64;
     private static readonly LatticeSchema Schema = MakeSchema();
 
+    internal const string SourceReportPending = "An automatic relocation sample does not report its source shape yet.";
+
+    [Theory(Skip = SourceReportPending)]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
+    public async Task A_worker_reports_the_actual_fixed_root_shape_only_after_a_move(LatticeRoleEnum role)
+    {
+        var samples = new List<MaintenanceTurnSample>();
+        await using var master = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(null,
+            observe: role == LatticeRoleEnum.Master ? samples.Add : null));
+        await InsertAsync(master, "Big", 1, Arena.MaxBlockSize / Big + 1);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, Inputs(null,
+            observe: role == LatticeRoleEnum.Child ? samples.Add : null));
+        var node = role == LatticeRoleEnum.Master ? master : child;
+        var roots = Locations(node).OrderBy(location => location.Key).ToArray();
+        var source = roots[^1];
+        var hole = roots[^2];
+        Assert.True(source.Address.Segment > hole.Address.Segment);
+
+        RunTurn(node);
+        var empty = samples[^1];
+        Assert.Equal(default, empty.Source);
+        Assert.Equal(0, empty.SlotBytes);
+        Assert.Equal(default, empty.SourceKind);
+        Assert.Equal((ushort)0, empty.SourceFlags);
+        Assert.Equal(default, empty.SourceDescriptorKind);
+
+        await DeleteAsync(master, [hole]);
+        await FollowAsync(master, node);
+        node.DrainRetired();
+        RunUntil(node, () => Find(node, source).Address != source.Address);
+
+        var moved = Assert.Single(samples, sample => sample.SlotBytes != 0);
+        Assert.Equal(source.Address, moved.Source);
+        Assert.Equal(hole.Address, moved.Destination);
+        Assert.Equal(Big, moved.SlotBytes);
+        Assert.Equal(BlockKindEnum.Root, moved.SourceKind);
+        Assert.Equal((ushort)0, moved.SourceFlags);
+        Assert.Equal(default, moved.SourceDescriptorKind);
+    }
+
     [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
