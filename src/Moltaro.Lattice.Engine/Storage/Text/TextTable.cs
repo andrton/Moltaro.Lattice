@@ -32,30 +32,45 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
 
     public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
-    public int Maintain(int workLimit, Action? beforeMigrationPageAllocation = null)
+    public int Maintain(int workLimit) => Maintain(workLimit, null, deferAllocationFailure: false, out _);
+
+    // Optional metadata work during an automatic turn. Charge a refused unit
+    // and tell the caller to defer the next attempt to another turn.
+    public int MaintainBackground(int workLimit, Action? beforeMigrationPageAllocation, out bool deferred) =>
+        Maintain(workLimit, beforeMigrationPageAllocation, deferAllocationFailure: true, out deferred);
+
+    private int Maintain(int workLimit, Action? beforeMigrationPageAllocation, bool deferAllocationFailure, out bool deferred)
     {
         AssertWrites();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
+        deferred = false;
         var work = 0;
-        while (work < workLimit)
+        for (; work < workLimit; work++)
         {
-            if (_old is { } old)
+            try
             {
-                Migrate(old, beforeMigrationPageAllocation);
+                if (_old is { } old)
+                {
+                    Migrate(old, beforeMigrationPageAllocation);
+                }
+                else if (NeededHeads() is var needed && needed != _active.Capacity)
+                {
+                    var replacement = new TextBucketSet(needed, _active.Tag ^ Tag);
+                    _old = _active;
+                    _active = replacement;
+                    _bucketCursor = 0;
+                }
+                else if (!_locator.TrimOne() && !_slots.TrimFirst())
+                {
+                    break;
+                }
             }
-            else if (NeededHeads() is var needed && needed != _active.Capacity)
+            catch (OutOfMemoryException) when (deferAllocationFailure)
             {
-                var replacement = new TextBucketSet(needed, _active.Tag ^ Tag);
-                _old = _active;
-                _active = replacement;
-                _bucketCursor = 0;
+                // Allocating steps reserve replacements before changing the published shape or cursor.
+                deferred = true;
+                return work + 1;
             }
-            else if (!_locator.TrimOne() && !_slots.TrimFirst())
-            {
-                break;
-            }
-
-            work++;
         }
 
         return work;
@@ -326,11 +341,10 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
             return;
         }
 
-        _bucketCursor = bucket;
         var reference = old.Head(bucket);
         if (reference == 0)
         {
-            _bucketCursor++;
+            _bucketCursor = bucket + 1;
             return;
         }
 
@@ -338,6 +352,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         _active.Reserve(destination, beforePageAllocation);
         Unlink(old, reference);
         Link(_active, destination, reference);
+        _bucketCursor = bucket;
     }
 
     private void Link(TextBucketSet table, int bucket, uint reference)

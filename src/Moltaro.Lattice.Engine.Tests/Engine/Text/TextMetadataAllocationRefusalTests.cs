@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // Deferring optional managed metadata work preserves the independent native FIFO.
 public sealed class TextMetadataAllocationRefusalTests(ITestOutputHelper output)
 {
-    [Theory(Skip = "Background text metadata must defer allocation refusals.")]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master)]
     [InlineData(LatticeRoleEnum.Child)]
     public async Task The_worker_keeps_reclaiming_and_recovers_after_migration_cannot_allocate(LatticeRoleEnum role)

@@ -32,12 +32,12 @@ internal sealed class AutomaticMaintenance(Action? beforeTextMigrationPageAlloca
         var segments = arena.Counters.Segments;
         // Text work gets one chance even when every raw retirement unit
         // is needed. An idle text table leaves the entire allowance to the FIFO.
-        var textWork = arena.Texts.Maintain(1, beforeTextMigrationPageAllocation);
+        var textWork = arena.Texts.MaintainBackground(1, beforeTextMigrationPageAllocation, out var deferred);
         var reclaimed = parts.Retired.DrainStep(ReclamationWorkLimit - textWork);
         var remaining = ReclamationWorkLimit - textWork - reclaimed;
-        if (remaining != 0)
+        if (!deferred && remaining != 0)
         {
-            textWork += arena.Texts.Maintain(remaining, beforeTextMigrationPageAllocation);
+            textWork += arena.Texts.MaintainBackground(remaining, beforeTextMigrationPageAllocation, out _);
         }
         arena.ReleaseCollectionTail();
         var work = 0;
