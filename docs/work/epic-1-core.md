@@ -1327,7 +1327,7 @@ Why this order:
 | S22 | Typed protected views | Full | Done on 25 November 2026 |
 | S22C | Cancellation of a registered position wait | Full, critical | Both parts done on 25 November 2026 |
 | S23 | Compaction and shrink | Full, critical | Done on 26 November 2026 |
-| S23A | Evacuate nearly empty segments | Full, critical | In progress |
+| S23A | Evacuate nearly empty segments | Full, critical | Done on 26 November 2026 |
 | S24 | The memory budget | Full | Not started |
 | S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
 | S26 | Operation identity and safe retry | Full | Not started |
@@ -14505,11 +14505,10 @@ and the [earlier string study](#s13--text-entries-and-dictionary-strings).
 
 ##### S23 closure
 
-The owner accepted S23 on 26 November 2026 with the current
-compaction trigger. A worker starts a move from a nonempty
-region only below half live occupancy. Exactly half remains
-ineligible. [Q66](open-questions.md#q66-may-segment-evacuation-start-without-a-sparse-occupied-region)
-puts the separate trigger in [S23A](#s23a--evacuate-nearly-empty-segments).
+[Q66](open-questions.md#q66-may-segment-evacuation-start-without-a-sparse-occupied-region)
+decided S23's scope. S23 shipped the below-half region trigger.
+[S23A](#s23a--evacuate-nearly-empty-segments) implements the separate segment
+trigger and records its verification.
 
 The independent code and breaker reviews are closed. The final
 executable tree is the one verified at `62c5c4c1`. The full
@@ -14683,6 +14682,122 @@ slot remains charged across retirement. The independent breaker passed its
 two-role probe with staggered old views, two 32 KiB publications, competing
 forwarded deletion and a later 64 KiB publication. The original segment
 returned 4 MiB to the native allocator before close, with the reserve still held.
+
+##### S23A ARM64 verification
+
+The exact engine at `5014a6c8b88fb31afba9cb099199c83d15394c21` and parent
+`b53fb21a2bfc69c7d8ac936017d57adc261b039e` ran on a native Linux ARM64 host.
+The static control used one compiled test assembly and common dependencies,
+with only the engine DLL changed. The parent passed four no-room controls and
+reproduced eight no-move cases. The candidate passed all 12 cases on master and
+TCP child with no paced reader workload. The verified archive SHA-256 is
+`62afecc7659c1c703cbe473ca6f140903e60f509640fc6ef7d90776a27db9498`.
+
+The read-loaded queue ran three functional jobs before nine timing jobs.
+Each timing comparison rotates the exact parent, a duplicate parent and the
+candidate through the same profiles. An independent replay verified 1,192 raw
+files and the allocator ledgers. On both roles all 52 candidate positive
+role/layout rows moved the physical block and returned exactly 4,194,304 bytes
+before close, after the old view was released. This covers a 32 KiB same-class
+slot, both sizes in an unassigned active region, and a later receiving segment.
+A move was observed while both old views were still held in 26 of the 42
+timing rows, with both roles represented in each shape. Every source release
+followed the last view exit. The original 4 MiB reserve remained in place.
+Positive native starts, peaks and pre-close endings were 12/12/8 MiB, or
+16/16/12 MiB with the later receiver.
+No-room layouts stayed at 12 MiB with zero moves and zero native returns.
+The original earlier-segment sparse-region control moved on all three arms.
+The read-loaded archive SHA-256 is
+`38fb5720730503db99d20f9eb169dd3472770febd2f59d9c261aec39a0231e53`.
+
+All read pairings delivered at least 4,799 samples per path and at least
+99.833% of planned bursts. The maximum paired rate spread was 0.331%. Of 40
+paired copy and view p99 comparisons, 25 were neutral, 14 inconclusive and one
+lower, the child's owned copy in the 32 KiB free-region layout. The matched
+262,144-operation ordinary replacement and TCP apply fence rates were neutral
+against the duplicate-parent gauge. Candidate writer-thread allocation was
+48.11–48.15 B per replacement and parent allocation was 48.08–48.14 B.
+The candidate process and TCP-fenced windows used 69.17–72.91 and 69.19–72.93 B
+per replacement, against 72.11–73.63 and 72.13–73.64 B on the parent. These are
+shared-process totals.
+
+The confirmed settled no-move p99 cost is in the 64 KiB no-room layout.
+Master turns measured 14.04–21.36 µs against 8.32–9.12 µs on the parent,
+and child turns measured 12.28–15.28 µs against 8.68–8.92 µs. A complete
+sweep performed 67 additional selection units while retaining the 128-unit
+per-turn bound. Other settled no-move comparisons were neutral or inconclusive.
+
+Full productive turns and native-return turns were checked separately. On the
+first wide Root in each rotation, with 4,000 live owning edges, move turns were
+1.83–2.36 ms on master and 1.31–1.86 ms on child. A repeat was 0.31–5.65 ms
+on master and 2.52–7.20 ms on child. Four of six repeat wide moves exceeded
+1 ms. Wide native-return turns took 16–81 µs. The earliest raw 64 KiB move
+also had cold outliers above 1 ms. All repeated raw 64 KiB moves were 16–35 µs
+and returns were 17–25 µs. The first admitted turn in the 64 KiB free-region
+profile exceeded 3 ms on both roles in all nine processes, including parent
+and duplicate-parent controls.
+
+###### Timing diagnosis
+
+Two short controls kept the exact engine and paired the same diagnostic driver
+with default runtime tiering and with tiering disabled. They measured full
+elapsed time, worker-thread CPU and process GC pauses. A second instrumented
+run also measured JIT time and method count on each worker. Their archive
+SHA-256 hashes are `d6a4fbd96802468a34e0634d134f6a98885f016529becf14fe8b72e0f31f1e60`
+and `261fd86637aceb56173dc92f376a9865efef6c7fb1de6f988d21ffb65f5fcff5`.
+
+The first default wide move used about 1.5–2.1 ms of worker CPU even with
+zero GC pause in the first diagnostic. Wide movement checks and then adopts
+4,000 real edges under Writes. In all three default rotations of the JIT
+control, the slower second wide move took 5.85–6.85 ms and compiled two
+methods on that worker for 4.90–5.96 ms. The other worker compiled zero
+methods in its turn and took 0.31–0.86 ms. With tiering disabled, repeated
+wide moves used 0.27–0.32 ms of CPU. One long wall-time sample in that mode
+overlapped about 1.1 ms of process GC pause. Cold raw movements and some
+cold native-return turns also included JIT cost. Disabling tiering increased
+the largest first raw move to 11.59–12.83 ms in the CPU control, compared
+with 5.16–5.56 ms at default tiering.
+
+The final control measured the third through fifth wide moves in each fresh
+process. The 18 default-tiering cases completed in 0.283–0.516 ms wall time,
+with 0.283–0.517 ms of worker CPU and zero observed JIT or GC pause. Master
+moves took 0.298–0.434 ms and child moves took 0.283–0.516 ms. Each moved
+the live owner and returned 4 MiB. The corresponding full return turns took
+19–52 µs on master and 20–37 µs on child. Two tiering-disabled repeats crossed
+1 ms wall time while each worker used about 0.327 ms of CPU and the process
+recorded 0.746 or 0.988 ms of GC pause. The archive SHA-256 is
+`8b32f756286ffed90a987f669f43e7747f09927b884f918f212f169d9be0aa06`.
+
+The observed warmed default path meets the approximate 1 ms target in this
+control. In the two JIT-instrumented default runs, eight of twelve second
+moves exceeded 1 ms. Seven had positive worker-thread JIT time. The
+remaining case took 1.351 ms of wall time and 1.350 ms of worker CPU with
+zero JIT or GC in the recorded interval. The first default owner walk also
+cost more before the later steady range. The shipped engine uses the usual
+runtime tiering. The short diagnostic runs establish no read p99 or writer
+comparison. Raw data and diagnostic overlays are retained outside the worktree.
+
+##### S23A closure
+
+S23A implements Q66 with verified physical reuse and native return on both
+roles. The tests-first gate, both code reviews and the breaker completed.
+The ARM64 evidence covers no-room controls, real held views, stable values
+and positions, and the measured warmed default range. The documented cold
+results and the extra selection work for the 64 KiB no-room case qualify
+the full-turn measurements. The planner accepted the measured first-use
+overruns and warmed results for S23A. The milestone sets the approximate
+1 ms target. The [scope decision and implementation links](open-questions.md#q66-may-segment-evacuation-start-without-a-sparse-occupied-region)
+tie the original S23 rule to this separately verified implementation.
+
+##### Pre-S24 close cleanup investigation
+
+**Open, E07.** The final retirement drain shares an exception scope with arena
+disposal in [EngineDatabase.FreeAfterOperationsAsync](../../src/Moltaro.Lattice.Engine/Engine/EngineDatabase.cs#L545).
+A throwing drain would skip disposal. The same order precedes S23 and the
+architect found no reachable failure. Before S24, reproduce a reachable failure
+after all readers leave, check the `CloseAsync` outcome and the allocator's own
+native ledger, or close the question with the reason a supported path cannot
+reach that condition.
 
 #### S24 · The memory budget
 
@@ -15154,13 +15269,6 @@ over the largest window of Windows (16 MiB). S33 gives a way to state it without
 on that buffer: the bound of the tail built here, or the option of the close.
 
 #### S34 · Reconnect, reload and a restarted master
-
-**Final cleanup after a failure.** E07 carries the review question after S23.
-An exception from the final retirement drain can skip arena disposal in
-`EngineDatabase.FreeAfterOperationsAsync`. Establish a reachable failure after
-all readers leave, then verify the `CloseAsync` result and the independent native
-allocator ledger. If S24 reproduces that failure under controlled pressure, bring
-the evidence forward.
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
 close the way to it** ([Epic 3](epic-3-after-the-first-milestone.md)). On every node there stays one place where a

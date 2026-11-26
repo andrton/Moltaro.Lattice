@@ -1040,17 +1040,32 @@ nonblocking maintenance admission, raw epoch retirement after address
 publication and separate bounded and synchronous cleanup paths preserve their
 responsibilities. No S23R is needed before S23A.
 
-- **Text detachment** (*for S24R evaluation*). Share last-reference detachment
-  inside `TextTable.Release` and `ReleaseStep`. Keep their immediate and resumable
-  native and locator return schedules explicit. This touches one product file.
-  Preserve the text lifetime and reclamation tests and compare matched ARM64
-  ordinary mixed replacement and allocations against S23, including the
+The owner requires a separate closure before S24. The following entries are open
+at S23A runtime `5014a6c8`.
+
+- **Text detachment** (*open, E01/E03*). The decrement and detachment remain
+  duplicated in [TextTable.Release and ReleaseStep](../../src/Moltaro.Lattice.Engine/Storage/Text/TextTable.cs#L149).
+  Keep immediate and resumable native and locator return separate. Preserve the
+  lifetime tests and matched ARM64 mixed replacement and allocations, using the
   anchored and disjoint dictionary controls.
-- **Repeated edge geometry** (*taken for S23AR*). After S23A, move the repeated
-  record-directory and lookup position arithmetic next to its layout owners.
-  Keep placement, relocation validation and reclamation walks separate. The
-  4–6 affected files must preserve their aligned physical layouts and wire bytes,
-  with matching read, write, allocation and complete-turn measurements.
-- **Protected export test setup** (*joined to S23A*). Reuse equivalent test
-  export code where the existing helper provides the same operation. Keep each
-  test's pauses, data, revision and physical placement assertions with its case.
+- **Repeated edge geometry** (*open, E01/E03*). Lookup offset arithmetic remains
+  in [CollectionLookup](../../src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs#L160),
+  [RelocationBlock](../../src/Moltaro.Lattice.Engine/Engine/Maintenance/RelocationBlock.cs#L48)
+  and [CompoundRelocation](../../src/Moltaro.Lattice.Engine/Engine/Maintenance/CompoundRelocation.cs#L52).
+  Move repeated record-directory and lookup geometry to the layout owners. Keep
+  placement, relocation validation and reclamation walks separate. Preserve
+  aligned layouts, wire bytes and matched read, write, allocation and turn
+  measurements.
+- **Protected export test setup** (*partially addressed, E03*). S23A reused
+  [PausedExportBuffer](../../src/Moltaro.Lattice.Engine.Tests/Engine/Views/PausedExportBuffer.cs#L18)
+  and added a pause after the old chunk is acquired. The normal protected export
+  sequence is still repeated in
+  [AutomaticCompoundRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/AutomaticCompoundRelocationTests.cs#L564),
+  [CompoundCollectionRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/CompoundCollectionRelocationTests.cs#L992),
+  [FixedRootRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/FixedRootRelocationTests.cs#L652)
+  and [OwnedValueRelocationTests](../../src/Moltaro.Lattice.Engine.Tests/Engine/Protection/OwnedValueRelocationTests.cs#L767).
+  Share only the equivalent capture setup. Keep each case's timing cuts, data,
+  revision and physical placement assertions local.
+
+The [final cleanup investigation](epic-1-core.md#pre-s24-close-cleanup-investigation)
+has a separate pre-S24 closure under E07 because its outcome may change behavior.

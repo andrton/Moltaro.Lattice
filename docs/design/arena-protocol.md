@@ -622,8 +622,8 @@ headers and class slack. Prepared and retired copies still occupy their physical
 slots. The mover rechecks the selected active vacancy under Writes and reserves
 retirement capacity before assigning an unassigned region to the required class.
 The claim removes that region from the free list and uses the same class-list
-transition as normal allocation. Subsequent slot release returns it by the normal
-arena path.
+transition as normal allocation. The normal arena path returns the region after
+its last allocated slot is freed.
 
 At most one move publishes in a turn. Retained relocation copies plus the proposed
 destination charge at most one 64 KiB slot. A prepared master write prevents
