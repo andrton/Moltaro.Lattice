@@ -19,25 +19,17 @@ internal static class FieldValues
     // checks of the write. For the types a primary key may have, the integers, String and Guid, the rule is
     // that of a key given as an argument.
     public static object Normalize(LatticeField field, object value, string parameterName) =>
-        value.GetType() == field.Declaration.ValueType ? value : Converted(field, value, parameterName);
+        value.GetType() == field.Declaration.ValueType ? value : Converted(field, value, parameterName).ToObject()!;
 
     // A value of another type than that of the field, converted as a part of a search key is, or refused.
-    private static object Converted(LatticeField field, object value, string parameterName, MemoryLease? lease = null)
+    private static IndexValue Converted(LatticeField field, object value, string parameterName)
     {
         if (!IndexValue.Of(value).TryConvertTo(field.Declaration.ScalarType, out var converted))
         {
             throw CannotBeUsed(field, value, parameterName);
         }
 
-        // Only batch keys pass a lease. A successful conversion across their legal
-        // key types creates an integer box, whose aligned size is the same at each width.
-        if (lease is null)
-        {
-            return converted.ToObject()!;
-        }
-
-        var owned = converted;
-        return lease.Allocate(MemoryBudget.ObjectBytes(sizeof(long)), nameof(FieldValues), () => owned.ToObject()!);
+        return converted;
     }
 
     // The refusal of a value, not null, that cannot be used for the field, for the parameter named: of a
@@ -48,19 +40,42 @@ internal static class FieldValues
     public static ArgumentException CannotBeUsed(LatticeValueDeclaration declaration, string fieldName, object value, string parameterName) =>
         new($"Field '{fieldName}' is {declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.", parameterName);
 
-    public static object NormalizeKey(LatticeEntityType entityType, object key, MemoryLease? lease = null)
+    public static object NormalizeKey(LatticeEntityType entityType, object key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        return NormalizeArgument(entityType.Key, key, nameof(key), lease);
+        return NormalizeArgument(entityType.Key, key, nameof(key));
+    }
+
+    public static object NormalizeBatchKey(LatticeEntityType entityType, object key, MemoryBudget? budget, out MemoryLease? lease)
+    {
+        lease = null;
+        var field = entityType.Key;
+        if (budget is null || key.GetType() == field.Declaration.ValueType)
+        {
+            return NormalizeArgument(field, key, nameof(key));
+        }
+
+        // Validate the conversion before reserving the integer box a batch owns.
+        var converted = Converted(field, key, nameof(key));
+        lease = MemoryLease.Create(budget);
+        try
+        {
+            return lease.Allocate(MemoryBudget.ObjectBytes(sizeof(long)), nameof(FieldValues), () => converted.ToObject()!);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
     }
 
     // A value given as an argument to look an entity up with by its primary key. Normalized as
     // above, and text that is not well-formed is refused as a value of another type is, since no
     // stored value can be equal to it, so a lookup by it could only find nothing. A value set into a
     // record is not checked for it; the write checks it.
-    public static object NormalizeArgument(LatticeField field, object value, string parameterName, MemoryLease? lease = null)
+    public static object NormalizeArgument(LatticeField field, object value, string parameterName)
     {
-        var normalized = value.GetType() == field.Declaration.ValueType ? value : Converted(field, value, parameterName, lease);
+        var normalized = Normalize(field, value, parameterName);
 
         if (normalized is string text)
         {

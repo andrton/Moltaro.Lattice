@@ -29,6 +29,7 @@ public sealed class ForwardedHolderBudgetTests
             MemoryLimit = 64L * Segment,
         }, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             BeforeMasterReplyDrain = async closing =>

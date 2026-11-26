@@ -5,6 +5,8 @@ namespace Moltaro.Lattice.Budgeting;
 internal sealed class BudgetSet<T>(MemoryBudget? budget, string owner, IEqualityComparer<T> comparer,
     bool restoresPreparation = false) : IDisposable
 {
+    public static long OwnerBytes => MemoryBudget.ObjectBytes(5L * IntPtr.Size + sizeof(int) + 1);
+
     private int[] _buckets = [];
     private Entry[] _entries = [];
 
@@ -65,22 +67,23 @@ internal sealed class BudgetSet<T>(MemoryBudget? budget, string owner, IEquality
                 budget.Own(entries, owner);
                 if (restoresPreparation && budget.IsPreparing)
                 {
-                    budget.WhenPreparationEnds(keeps =>
+                    var change = (Set: this, PreviousEntries: previousEntries, PreviousBuckets: previousBuckets, Entries: entries, Buckets: buckets);
+                    budget.WhenPreparationEnds(change, static (account, state, keeps) =>
                     {
                         if (keeps)
                         {
-                            budget.Release(previousBuckets);
-                            budget.Release(previousEntries);
+                            account.Release(state.PreviousBuckets);
+                            account.Release(state.PreviousEntries);
                         }
                         else
                         {
-                            _entries = previousEntries;
-                            _buckets = previousBuckets;
-                            Array.Clear(previousEntries);
-                            Array.Clear(previousBuckets);
-                            Count = 0;
-                            budget.Release(buckets);
-                            budget.Release(entries);
+                            state.Set._entries = state.PreviousEntries;
+                            state.Set._buckets = state.PreviousBuckets;
+                            Array.Clear(state.PreviousEntries);
+                            Array.Clear(state.PreviousBuckets);
+                            state.Set.Count = 0;
+                            account.Release(state.Buckets);
+                            account.Release(state.Entries);
                         }
                     });
                 }

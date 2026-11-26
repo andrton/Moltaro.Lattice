@@ -420,7 +420,7 @@ internal sealed class WriteCoordinator
     {
         try
         {
-            using var keys = new PublicationKeys(members.Length, _executor.Budget);
+            using var keys = PublicationKeys.Create(members.Length, _executor.Budget);
             foreach (ref readonly var member in members.AsSpan())
             {
                 if (!keys.TryAdd(member.Table, member.Key))

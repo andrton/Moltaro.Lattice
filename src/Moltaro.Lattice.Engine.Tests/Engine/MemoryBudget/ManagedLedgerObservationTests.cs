@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Xunit.Sdk;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
@@ -34,6 +36,121 @@ public sealed class ManagedLedgerObservationTests
 
         Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
     }
+
+    [Fact]
+    public void Physical_ownership_detects_unregistered_embedded_backing_and_its_captured_callback()
+    {
+        var ledger = new OwnedMemoryBudget(observesBackings: true);
+        ledger.Open(Segment);
+        var current = new byte[8];
+        var previous = new byte[16];
+        var held = new byte[32];
+        var callback = Capture(held);
+        var holder = new Probe(current, new EmbeddedBacking(previous, callback));
+        object[] omitted = [previous, callback, callback.Target!, held];
+
+        Own(holder);
+        Own(current);
+        var actual = OwnedBackingGraph.Find(holder);
+        var registered = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var partial = ledger.Inspect((_, backing) => registered.Add(backing));
+        Assert.True(registered.SetEquals([holder, current]));
+        Assert.True(actual.Except(registered, ReferenceEqualityComparer.Instance)
+            .ToHashSet(ReferenceEqualityComparer.Instance).SetEquals(omitted));
+        Assert.Equal(omitted.Sum(ManagedObjectSize), actual.Sum(ManagedObjectSize) - partial.Charged);
+
+        foreach (var backing in omitted)
+        {
+            Own(backing);
+        }
+
+        registered.Clear();
+        var complete = ledger.Inspect((_, backing) => registered.Add(backing));
+        Assert.True(actual.SetEquals(registered));
+        Assert.Equal(actual.Sum(ManagedObjectSize), complete.Charged);
+
+        void Own(object backing)
+        {
+            ledger.Reserve(ManagedObjectSize(backing));
+            ledger.Own(backing, nameof(ManagedLedgerObservationTests));
+        }
+
+        static Action Capture(byte[] backing) => () => GC.KeepAlive(backing);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Prepared_growth_charges_its_reachable_journal_record_until_it_settles(bool keeps)
+    {
+        var budget = new OwnedMemoryBudget(observesBackings: true);
+        budget.Open(Segment);
+        var list = new List<int>();
+        list.EnsureCapacity(1, budget, nameof(ManagedLedgerObservationTests));
+        var original = BudgetCollections.Items(list);
+        budget.BeginPreparation();
+
+        list.EnsureCapacity(8, budget, nameof(ManagedLedgerObservationTests), restoresPreparation: true);
+        var replacement = BudgetCollections.Items(list);
+        var journal = Backing<object>(budget, "_changes");
+        var actual = OwnedBackingGraph.Find(journal, item => ReferenceEquals(item, list));
+        Assert.Contains(journal, actual);
+        Assert.Contains(original, actual);
+        Assert.Contains(replacement, actual);
+        var recorded = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var prepared = budget.Inspect((_, backing) => recorded.Add(backing));
+        Assert.True(actual.SetEquals(recorded));
+        Assert.Equal(actual.Sum(ManagedObjectSize), prepared.Charged);
+
+        budget.EndPreparation(keeps);
+        var surviving = keeps ? replacement : original;
+        Assert.Same(surviving, BudgetCollections.Items(list));
+        recorded.Clear();
+        var settled = budget.Inspect((_, backing) => recorded.Add(backing));
+        Assert.Same(surviving, Assert.Single(recorded));
+        Assert.Equal(ManagedObjectSize(surviving), settled.Charged);
+        Assert.Equal(prepared.Charged, settled.Peak);
+        budget.Release(surviving);
+    }
+
+    [Fact]
+    public void A_throwing_factory_returns_its_charge_and_its_nested_backing_is_released_with_the_lease()
+    {
+        var budget = new OwnedMemoryBudget(observesBackings: true);
+        budget.Open(Segment);
+        var owned = CaptureThrowingFactory(budget);
+        Assert.Equal(0, budget.Inspect((_, _) => Assert.Fail("A dissolved lease still owns a backing.")).Charged);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Assert.All(owned, backing => Assert.False(backing.IsAlive));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference[] CaptureThrowingFactory(OwnedMemoryBudget budget)
+    {
+        using var lease = MemoryLease.Create(budget);
+        _ = lease.Allocate<byte>(1, nameof(ManagedLedgerObservationTests));
+        _ = lease.Allocate<byte>(1, nameof(ManagedLedgerObservationTests));
+        byte[]? nested = null;
+        Assert.Throws<InvalidOperationException>(() => lease.Allocate<object>(ManagedObjectSize(new object()), nameof(ManagedLedgerObservationTests), () =>
+        {
+            nested = lease.Allocate<byte>(40, nameof(ManagedLedgerObservationTests));
+            throw new InvalidOperationException("The fixture refused its enclosing object.");
+        }));
+
+        var owned = OwnedBackingGraph.Find(lease, item => ReferenceEquals(item, budget));
+        Assert.Contains(nested!, owned);
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var during = budget.Inspect((_, backing) => visited.Add(backing));
+        Assert.True(owned.SetEquals(visited));
+        Assert.Equal(owned.Sum(ManagedObjectSize), during.Charged);
+        return owned.Select(backing => new WeakReference(backing)).ToArray();
+    }
+
+    private sealed record Probe(byte[] Current, EmbeddedBacking Older);
+
+    private readonly record struct EmbeddedBacking(byte[] Previous, Action Release);
 
     private sealed class Empty;
 

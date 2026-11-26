@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Replication.Load;
 // beyond what one array can. Its bytes are read as a sequence of the pieces (Sequence).
 //
 // One thread at a time uses a buffer: the task of the connection that owns it.
-internal sealed class TransferBuffer(MemoryBudget? budget = null) : IBufferWriter<byte>, IDisposable
+internal sealed class TransferBuffer(MemoryBudget? budget = null, List<TransferPiece>? suppliedPieces = null) : IBufferWriter<byte>, IDisposable
 {
     // The bytes of one piece: as much as GetSpan hands out at once, and more than the largest payload of
     // a block, so that a root payload is written in one piece.
@@ -26,7 +26,15 @@ internal sealed class TransferBuffer(MemoryBudget? budget = null) : IBufferWrite
         MemoryBudget.ArrayBytes<byte>(PieceSize) +
         MemoryBudget.ObjectBytes(3L * IntPtr.Size + sizeof(long) + 3 * sizeof(int));
 
-    private readonly List<TransferPiece> _pieces = [];
+    private readonly List<TransferPiece> _pieces = suppliedPieces ?? [];
+
+    public static TransferBuffer ForSnapshot(MemoryLease snapshot)
+    {
+        var pieces = snapshot.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(TransferBuffer),
+            static () => new List<TransferPiece>());
+        return snapshot.Allocate(MemoryBudget.ObjectBytes(2L * IntPtr.Size + sizeof(long) + sizeof(int)), nameof(TransferBuffer),
+            () => new TransferBuffer(snapshot.Budget, pieces), static (_, buffer) => buffer.Dispose());
+    }
 
     // The piece being written; its index in _pieces. -1 while the buffer is empty.
     private int _current = -1;

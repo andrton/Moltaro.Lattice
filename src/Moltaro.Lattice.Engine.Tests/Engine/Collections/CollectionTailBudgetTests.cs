@@ -16,7 +16,7 @@ public sealed class CollectionTailBudgetTests
         bool set, bool flattened)
     {
         var storage = new HeldPersistence(holding: false);
-        await using var pair = await CollectionShrinkPair.OpenAsync(set, flattened, CollectionShrinkPair.Full, persistence: storage);
+        await using var pair = await CollectionShrinkPair.OpenAsync(set, flattened, CollectionShrinkPair.Full, persistence: storage, observeBudgetBackings: true);
         var before = await pair.ResizeAsync(CollectionShrinkPair.Full, CollectionShrinkPair.Small);
         pair.TurnAll();
         var node = pair.Nodes[0];

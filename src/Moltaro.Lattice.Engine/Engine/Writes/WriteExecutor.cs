@@ -134,6 +134,7 @@ internal sealed class WriteExecutor
     public void Withdraw(PreparedWrite prepared)
     {
         _changes.Release(prepared.Changes);
+        _arena.Texts.ReturnUnusedBucketGrowth();
         FinishWorkspace(prepared, published: false);
     }
 
@@ -356,7 +357,7 @@ internal sealed class WriteExecutor
 
             if (updates is not null && write.Forwarded is not null)
             {
-                using var replyWork = Budget is { } budget ? new MemoryLease(budget) : null;
+                using var replyWork = Budget is { } budget ? MemoryLease.Create(budget) : null;
                 updates.SetReply(UpdateReplies.Of(members, replyWork));
             }
 
@@ -542,7 +543,7 @@ internal sealed class WriteExecutor
             using var update = PlanUpdate(write.Table, replaced, input, updates);
             if (write.Forwarded is not null)
             {
-                using var replyWork = Budget is { } budget ? new MemoryLease(budget) : null;
+                using var replyWork = Budget is { } budget ? MemoryLease.Create(budget) : null;
                 updates.SetReply(UpdateReplies.Of(input, replyWork));
             }
 

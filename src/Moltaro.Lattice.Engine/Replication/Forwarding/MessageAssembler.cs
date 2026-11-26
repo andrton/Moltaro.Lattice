@@ -166,7 +166,7 @@ internal sealed class MessageAssembler(MemoryBudget? budget = null, bool borrows
         {
             if (budget is not null)
             {
-                _lease ??= new MemoryLease(budget);
+                _lease ??= MemoryLease.Create(budget);
             }
 
             piece = MessagePiece.Create(bytes, _held, _lease);

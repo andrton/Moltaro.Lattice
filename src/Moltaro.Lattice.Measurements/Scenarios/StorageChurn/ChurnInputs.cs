@@ -5,9 +5,10 @@ namespace Moltaro.Lattice.Measurements.Scenarios.StorageChurn;
 
 internal static class ChurnInputs
 {
-    public static EngineTestInputs Create(ChurnLedger ledger, bool off, ChurnTurns turns) => new()
+    public static EngineTestInputs Create(ChurnLedger ledger, bool off, ChurnTurns turns, bool observeBudgetBackings = false) => new()
     {
         Allocator = ledger,
+        ObserveBudgetBackings = observeBudgetBackings,
         IndexSeed = ChurnTrace.Seed,
         DisableBackgroundMaintenance = off,
         ObserveMaintenanceTurn = sample => turns.Offer(new ChurnTurns.Sample(

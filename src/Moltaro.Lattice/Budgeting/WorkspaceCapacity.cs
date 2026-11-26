@@ -1,18 +1,29 @@
 namespace Moltaro.Lattice.Budgeting;
 
-// Scratch used repeatedly under one writes lock. Remember prior arrays while a queued use
-// may still be withdrawn, and retain the smallest backing that serves the remaining uses.
+// Backing reused under one writes lock. Keep earlier arrays while queued use
+// might be withdrawn, and leave the smallest paid capacity that serves the
+// installed and remaining prepared work. Each caller owns its data copying.
 internal struct WorkspaceCapacity<T>
 {
     private BackingHistory<T[]>? _earlier;
     private int _installed;
 
+    public bool HasEarlier => _earlier is not null;
+
+    public bool CanRelease(int inUse) => HasEarlier || (_installed == 0 && inUse == 0);
+
     public T[] Grow(T[] previous, int length, MemoryBudget budget, string owner)
+    {
+        var replacement = AllocateGrowth(previous, length, budget, owner);
+        previous.CopyTo(replacement, 0);
+        return replacement;
+    }
+
+    public T[] AllocateGrowth(T[] previous, int length, MemoryBudget budget, string owner)
     {
         var replacement = budget.Allocate<T>(length, owner);
         try
         {
-            previous.CopyTo(replacement, 0);
             if (previous.Length != 0)
             {
                 _earlier = BackingHistory<T[]>.Keep(previous, _earlier, budget, owner);
@@ -27,61 +38,103 @@ internal struct WorkspaceCapacity<T>
         }
     }
 
+    // A caller can prepay several generations without installing any of them.
+    public void DiscardGrowth(T[] current, T[] original, MemoryBudget budget)
+    {
+        while (!ReferenceEquals(current, original))
+        {
+            budget.Release(current);
+            if (_earlier is not { } previous)
+            {
+                break;
+            }
+
+            current = previous.Backing;
+            _earlier = previous.Drop(budget);
+        }
+    }
+
     public void Keep(int used) => _installed = Math.Max(_installed, used);
+
+    public void Keep(int used, int currentCapacity, MemoryBudget budget)
+    {
+        if (used <= _installed)
+        {
+            return;
+        }
+
+        _installed = currentCapacity;
+        ref var obsolete = ref _earlier;
+        while (obsolete is { } retained && retained.Backing.Length >= used)
+        {
+            _installed = retained.Backing.Length;
+            obsolete = ref retained.Earlier;
+        }
+
+        ReleaseEarlier(ref obsolete, budget);
+    }
+
+    public void Reset() => _installed = 0;
 
     public void Drop(ref T[] backing, MemoryBudget budget)
     {
-        _installed = 0;
+        Reset();
         ReleaseUnused(ref backing, 0, budget);
     }
 
     public void ReleaseUnused(ref T[] backing, int inUse, MemoryBudget budget)
     {
-        var needed = Math.Max(inUse, _installed);
-        while (_earlier is { } previous && previous.Backing.Length >= needed)
+        var previous = backing;
+        backing = SelectRetained(previous, inUse, budget);
+        if (!ReferenceEquals(backing, previous))
         {
-            var released = backing;
-            backing = previous.Backing;
-            _earlier = previous.Earlier;
-            previous.Drop(budget);
-            budget.Release(released);
+            budget.Release(previous);
         }
+    }
 
+    // The caller's current array stays paid until it installs the returned one.
+    public T[] SelectRetained(T[] current, int inUse, MemoryBudget budget)
+    {
+        var needed = Math.Max(inUse, _installed);
         if (needed == 0)
         {
-            var released = backing;
-            backing = [];
-            budget.Release(released);
-            return;
+            ReleaseEarlier(ref _earlier, budget);
+            return [];
         }
 
-        var earlier = _earlier;
-        if (earlier is null)
+        var retained = current;
+        while (_earlier is { } previous && previous.Backing.Length >= needed)
         {
-            return;
-        }
-
-        if (earlier.Backing.Length < _installed)
-        {
-            _earlier = null;
-        }
-        else
-        {
-            while (earlier.Earlier is { } smaller && smaller.Backing.Length >= _installed)
+            if (!ReferenceEquals(retained, current))
             {
-                earlier = smaller;
+                budget.Release(retained);
             }
 
-            var retained = earlier;
-            earlier = retained.Earlier;
-            retained.Earlier = null;
+            retained = previous.Backing;
+            _earlier = previous.Drop(budget);
         }
 
-        while (earlier is not null)
+        ReleaseSuperseded(budget);
+        return retained;
+    }
+
+    private void ReleaseSuperseded(MemoryBudget budget)
+    {
+        ref var obsolete = ref _earlier;
+        while (obsolete is { } retained && retained.Backing.Length >= _installed)
         {
-            var abandoned = earlier;
-            earlier = abandoned.Drop(budget);
-            budget.Release(abandoned.Backing);
+            obsolete = ref retained.Earlier;
+        }
+
+        ReleaseEarlier(ref obsolete, budget);
+    }
+
+    private static void ReleaseEarlier(ref BackingHistory<T[]>? earlier, MemoryBudget budget)
+    {
+        while (earlier is { } backing)
+        {
+            earlier = backing.Drop(budget);
+            budget.Release(backing.Backing);
         }
     }
 }

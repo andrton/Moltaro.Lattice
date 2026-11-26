@@ -52,15 +52,22 @@ public sealed class PreparedSparseCommandsBudgetTests
         var position = layout.PositionOf([type.GetField("Text")]);
         using var transfer = new TransferBuffer();
         var budget = new Budgeting.MemoryBudget(observesBackings: true);
-        using var lease = new MemoryLease(budget);
         var bytes = ManagedObjectSize(text);
-        budget.Open(bytes - 1);
+        budget.Open(Segment);
+        using var lease = MemoryLease.Create(budget);
+        var marker = lease.Allocate<byte>(1, nameof(PreparedSparseCommandsBudgetTests));
+        var prepaid = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var opening = budget.Inspect((_, owner) => prepaid.Add(owner));
+        Assert.Contains(marker, prepaid);
+        var baseline = prepaid.Sum(ManagedObjectSize);
+        Assert.Equal((baseline, baseline, 0L), opening);
+        budget.Open(baseline + bytes - 1);
         transfer.Write(wire);
         var noRoom = Assert.Throws<BudgetRefusedException>(() => Read());
         Assert.Equal(LatticeLimitEnum.Memory, noRoom.Limit);
-        Assert.Equal((0L, 0L, 0L), budget.Inspect(null));
+        Assert.Equal((baseline, baseline, 0L), budget.Inspect(null));
 
-        budget.Open(0);
+        budget.Open(baseline);
         var goodContinuation = wire[TransferBuffer.PieceSize];
         wire[TransferBuffer.PieceSize] = (byte)'(';
         Reload(wire);
@@ -69,21 +76,21 @@ public sealed class PreparedSparseCommandsBudgetTests
         BinaryPrimitives.WriteUInt32LittleEndian(wire, (uint)(wire.Length - sizeof(uint) - 1));
         Reload(wire.AsSpan(0, wire.Length - 1));
         Assert.Equal(LatticeErrorEnum.ValidationFailed, Assert.Throws<LatticeException>(() => Read()).Error);
-        Assert.Equal((0L, 0L, 0L), budget.Inspect(null));
+        Assert.Equal((baseline, baseline, 0L), budget.Inspect(null));
 
         BinaryPrimitives.WriteUInt32LittleEndian(wire, (uint)(wire.Length - sizeof(uint)));
         Reload(wire);
-        budget.Open(bytes);
+        budget.Open(baseline + bytes);
         using var trace = new DecodePoolTrace();
         var decoded = Read();
         Assert.Equal(0, trace.LargestRent);
         Assert.NotSame(text, decoded);
         Assert.Equal(text, decoded);
         var owners = new List<object>();
-        Assert.Equal((bytes, bytes, 0L), budget.Inspect((_, owner) => owners.Add(owner)));
-        Assert.Same(decoded, Assert.Single(owners));
+        Assert.Equal((baseline + bytes, baseline + bytes, 0L), budget.Inspect((_, owner) => owners.Add(owner)));
+        Assert.Same(decoded, Assert.Single(owners.Except(prepaid, ReferenceEqualityComparer.Instance)));
         lease.Dispose();
-        Assert.Equal((0L, bytes, 0L), budget.Inspect(null));
+        Assert.Equal((0L, baseline + bytes, 0L), budget.Inspect(null));
 
         string Read()
         {
@@ -113,7 +120,7 @@ public sealed class PreparedSparseCommandsBudgetTests
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             ListenUri = MasterAndChild.Loopback,
             MemoryLimit = Limit,
-        }, new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, Persistence = storage });
+        }, new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, DisableBackgroundMaintenance = true, Persistence = storage });
         await master.OpenAsync();
         var source = master.Set(ItemSchema.EntityTypeName);
         var seed = await source.InsertAsync(new LatticeRecord(source.EntityType)
@@ -215,6 +222,7 @@ public sealed class PreparedSparseCommandsBudgetTests
             MemoryLimit = Limit,
         }, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             Persistence = storage,
@@ -235,6 +243,7 @@ public sealed class PreparedSparseCommandsBudgetTests
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, Limit), new EngineTestInputs
             {
+                ObserveBudgetBackings = true,
                 Allocator = childAllocator,
                 DisableBackgroundMaintenance = true,
                 BeforeChildPreparationMember = _ =>

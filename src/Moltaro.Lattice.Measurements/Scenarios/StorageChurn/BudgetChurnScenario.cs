@@ -61,7 +61,7 @@ internal static class BudgetChurnScenario
                 Schema = schema,
                 PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
                 MemoryLimit = limit,
-            }, ChurnInputs.Create(ledger, off: false, turns));
+            }, ChurnInputs.Create(ledger, off: false, turns, observeBudgetBackings: true));
             await node.OpenAsync(stop);
             try
             {

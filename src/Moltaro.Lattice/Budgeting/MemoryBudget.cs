@@ -21,7 +21,7 @@ internal sealed class MemoryBudget(bool observesBackings)
     // Only the publishing thread uses the journal, in the lock of the writes. Network and
     // batch builders reserve from the same instance without joining that preparation.
     private int _preparingThread;
-    private CapacityChange? _changes;
+    private PreparationChange? _changes;
 
     public long Limit { get; private set; }
 
@@ -41,42 +41,85 @@ internal sealed class MemoryBudget(bool observesBackings)
         var changes = _changes;
         _changes = null;
         _preparingThread = 0;
-        for (var change = changes; change is not null; change = change.Previous)
+        while (changes is { } change)
         {
-            change.Finish(keepsCapacity);
+            changes = change.Previous;
+            change.Previous = null;
+            change.Finish(this, keepsCapacity);
         }
     }
 
-    public void WhenPreparationEnds(Action<bool> finish)
+    public void WhenPreparationEnds<T>(T state, Action<MemoryBudget, T, bool> finish)
     {
         System.Diagnostics.Debug.Assert(IsPreparing);
-        _changes = new CapacityChange(finish, _changes);
+        var bytes = CapacityChange<T>.Charge;
+        Reserve(bytes);
+        try
+        {
+            var change = new CapacityChange<T>(state, finish);
+            Own(change, nameof(CapacityChange<T>));
+            WhenPreparationEnds(change);
+        }
+        catch
+        {
+            Release(bytes);
+            throw;
+        }
     }
 
-    public void Replace<T>(T[] previous, T[] current, Action<T[]> restore)
+    // A fixed owner may lend its already paid link to the preparation once.
+    public void WhenPreparationEnds(PreparationChange change)
     {
-        if (IsPreparing)
-        {
-            WhenPreparationEnds(keeps =>
-            {
-                if (keeps)
-                {
-                    Release(previous);
-                }
-                else
-                {
-                    restore(previous);
-                    Release(current);
-                }
-            });
-        }
-        else
+        System.Diagnostics.Debug.Assert(IsPreparing);
+        change.Previous = _changes;
+        _changes = change;
+    }
+
+    public void Replace<T, TOwner>(T[] previous, T[] current, TOwner owner, Action<TOwner, T[]> restore)
+    {
+        if (!IsPreparing)
         {
             Release(previous);
+            return;
         }
+
+        WhenPreparationEnds((Previous: previous, Current: current, Owner: owner, Restore: restore), static (budget, change, keeps) =>
+        {
+            if (keeps)
+            {
+                budget.Release(change.Previous);
+            }
+            else
+            {
+                change.Restore(change.Owner, change.Previous);
+                budget.Release(change.Current);
+            }
+        });
     }
 
-    private sealed record CapacityChange(Action<bool> Finish, CapacityChange? Previous);
+    internal abstract class PreparationChange
+    {
+        public PreparationChange? Previous;
+
+        public abstract void Finish(MemoryBudget budget, bool keeps);
+    }
+
+    private sealed class CapacityChange<T>(T state, Action<MemoryBudget, T, bool> finish) : PreparationChange
+    {
+        public static long Charge => ObjectBytes(2L * IntPtr.Size + Unsafe.SizeOf<T>());
+
+        public override void Finish(MemoryBudget budget, bool keeps)
+        {
+            try
+            {
+                finish(budget, state, keeps);
+            }
+            finally
+            {
+                budget.Release(Charge, this);
+            }
+        }
+    }
 
     public static long ArrayBytes<T>(int length) => AlignedBytes(3L * IntPtr.Size + (long)Unsafe.SizeOf<T>() * length);
 

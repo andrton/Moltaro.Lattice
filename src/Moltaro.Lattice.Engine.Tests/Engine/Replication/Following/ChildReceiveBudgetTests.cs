@@ -54,6 +54,7 @@ public sealed class ChildReceiveBudgetTests
         EngineDatabase? receiving = null;
         await using var child = EngineDatabase.Create(options, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             BeforeChildTransactionFrame = (sequence, received) =>
@@ -255,6 +256,7 @@ public sealed class ChildReceiveBudgetTests
         await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, ChildLimit),
             new EngineTestInputs
             {
+                ObserveBudgetBackings = true,
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 BeforeChildTransactionFrame = (sequence, frame) =>
@@ -327,7 +329,7 @@ public sealed class ChildReceiveBudgetTests
         var paused = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, limit),
-            new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = pressure => paused.TrySetResult(pressure) });
+            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = pressure => paused.TrySetResult(pressure) });
         var before = ExpectCapacity(child, allocator);
         var announced = await source.InsertAsync(PieceSchema.Of(2, 8, data: 8 * 1024 * 1024)).AsTask().WaitAsync(Bound);
         Assert.Equal(sequence, PositionSequence.Of(announced.Position));
@@ -376,6 +378,7 @@ public sealed class ChildReceiveBudgetTests
         var allocator = new CountingNativeAllocator();
         await using var control = await ReplicationNodes.OpenChildAsync(relay.Address, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
         });

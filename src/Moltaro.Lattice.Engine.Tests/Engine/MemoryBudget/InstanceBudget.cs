@@ -33,6 +33,7 @@ internal static class InstanceBudget
             MemoryLimit = limit,
         }, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             IndexSeed = 0,

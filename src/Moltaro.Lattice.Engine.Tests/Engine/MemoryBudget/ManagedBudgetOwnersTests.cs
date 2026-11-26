@@ -115,6 +115,7 @@ public sealed class ManagedBudgetOwnersTests
         var childAllocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = childAllocator,
             DisableBackgroundMaintenance = true,
         });

@@ -17,7 +17,7 @@ internal sealed class PreparedUpdates(MemoryBudget? budget) : IDisposable
     private MemoryLease? _work;
     private bool _keepsCallerResults;
 
-    public MemoryLease? Work => budget is null ? null : _work ??= new MemoryLease(budget);
+    public MemoryLease? Work => budget is null ? null : _work ??= MemoryLease.Create(budget);
 
     public byte[] ResultBits(UpdateInput input)
     {
@@ -27,11 +27,11 @@ internal sealed class PreparedUpdates(MemoryBudget? budget) : IDisposable
         }
 
         var bits = owner.Allocate<byte>(UpdateOutcome.BitmapLength(input.Commands.Length), nameof(PreparedUpdates));
-        owner.Own(() =>
+        owner.Own((Updates: this, Input: input, Bits: bits), static (_, state) =>
         {
-            if (!_keepsCallerResults)
+            if (!state.Updates._keepsCallerResults)
             {
-                input.Outcome.ClearBits(bits);
+                state.Input.Outcome.ClearBits(state.Bits);
             }
         });
         return bits;

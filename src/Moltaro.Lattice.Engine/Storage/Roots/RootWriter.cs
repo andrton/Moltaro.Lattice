@@ -4,7 +4,6 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.Storage.Values;
@@ -62,15 +61,16 @@ namespace Moltaro.Lattice.Storage.Roots;
 // InvalidOperationException, and so is Abandon after a Complete that returned. Abandon after a
 // failed Complete, and a second Abandon, do nothing.
 //
-// How it works. The fixed part and the inline values are collected in an image of the root block, a
-// byte array rented from ArrayPool<byte>.Shared when the writer starts and returned when it ends, so
-// that a write allocates no managed memory once the pool holds an array of its size. The array goes
-// back as it is: the bytes of the last root stay in it until its next user overwrites them. They are
-// bytes and reference nothing, so they keep no memory alive, and the pool is the process's own, so
-// clearing them would protect nothing. The size of the root block is known only when every value
-// is placed, so Complete allocates the root block, copies the canonical image and encodes its
-// descriptors in the native format. A
-// value too long to lie inline is copied into native memory at its Set… member, into its value
+// How it works. The fixed part and the inline values are collected in a byte array that holds the
+// image of the root block. A budgeted arena writer reserves the exact array capacity before taking
+// a matching image from the arena's single weak slot or allocating an array. It holds the charge
+// through placement and releases it when it returns the array to that slot. A forwarded writer
+// with a working lease keeps its image charged until the lease is disposed. A writer without a
+// budget rents from ArrayPool<byte>.Shared and returns the array when it ends. Returned arrays can
+// still hold bytes of the last root until overwritten. Those bytes hold no references.
+// The size of the root block is known only when every value is placed, so Complete allocates the
+// root block, copies the canonical image and encodes its descriptors in the native format.
+// A value too long to lie inline is copied into native memory at its Set… member, into its value
 // block or its chunks, because the span it comes in lives only for that call. A value is stored
 // whole or not at all (ValueBlocks.TryStore), so a descriptor in the image names a whole value or
 // nothing, and everything the writer holds is reachable from the image, where Complete or Abandon
@@ -81,7 +81,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 //
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
-// rented image and the blocks of the original, and ending both would free them twice.
+// image and the blocks of the original, and ending both would free them twice.
 //
 // The arena takes no lock and has one changing thread at a time: a writer of the database runs under
 // the lock of the writes (Engine.Writes.WriteCoordinator), and a writer of the tests is the only
@@ -106,13 +106,12 @@ internal ref struct RootWriter
 {
     private readonly RootLayout _layout;
 
-    // The rented array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
+    // The image array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
     // the image of the root block, its header bytes unused, so that an offset of the layout is an
     // index into it; after them, one bit for each field, by LatticeField.Ordinal, set once the field
     // was set.
     private byte[]? _scratch;
     private readonly bool _rented;
-    private readonly MemoryBudget? _scratchBudget;
 
     // The image of the root as the block its values are placed into (ValueHolder): the arena and the root,
     // the values out of line of a root for a forwarded write, the bytes of the root block so far as
@@ -135,10 +134,9 @@ internal ref struct RootWriter
         ArgumentNullException.ThrowIfNull(layout);
 
         _layout = layout;
-        _scratchBudget = arena.Budget;
-        _rented = _scratchBudget is null;
+        _rented = arena.Budget is null;
         var length = layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount);
-        _scratch = _scratchBudget?.Allocate<byte>(length, nameof(RootWriter)) ?? ArrayPool<byte>.Shared.Rent(length);
+        _scratch = _rented ? ArrayPool<byte>.Shared.Rent(length) : arena.TakeRootImage(length);
         _values = new ValueHolder(arena, layout, root, Image, origin: 0, address: default, layout.FixedSize);
         Start();
     }
@@ -164,7 +162,7 @@ internal ref struct RootWriter
     {
         var layout = _layout;
 
-        // A rented array holds what its last user left. The fixed part starts zero: the bytes of a
+        // A reused array holds what its last user left. The fixed part starts zero: the bytes of a
         // fixed field that stays null, and the descriptor of a String or Binary that stays null.
         Image[..layout.FixedSize].Clear();
         SetFields.Clear();
@@ -664,7 +662,7 @@ internal ref struct RootWriter
         }
         else
         {
-            _scratchBudget?.Release(scratch);
+            _values.Arena?.ReturnRootImage(scratch);
         }
 
         _state = state;

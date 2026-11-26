@@ -34,19 +34,6 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         _executor = executor;
         _budget = budget;
         _identities = new BudgetSet<WriteBatchEntity>(budget, nameof(WriteBatch), EqualityComparer<WriteBatchEntity>.Default);
-        if (budget is not null)
-        {
-            var operations = _operations;
-            var identities = _identities;
-            _lease = new MemoryLease(budget);
-            _lease.Own(() =>
-            {
-                budget.Release(BudgetCollections.Items(operations));
-                operations.Clear();
-                operations.Capacity = 0;
-                identities.Dispose();
-            });
-        }
     }
 
     public int Count { get; private set; }
@@ -110,9 +97,9 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         ArgumentNullException.ThrowIfNull(entity);
 
         var binding = EntityBinding<TEntity>.For(_schema);
-        using var snapshot = OpenSnapshot();
         try
         {
+            using var snapshot = OpenSnapshot();
             Add(kind, binding.EntityType, binding.ValuesForWrite(entity, snapshot), expectedRevision, snapshot);
         }
         catch (BudgetRefusedException exception)
@@ -129,10 +116,13 @@ internal sealed class WriteBatch : ILatticeWriteBatch
             throw new ArgumentException($"The record is a '{record.EntityType.Name}' of another schema, not of this database.", nameof(record));
         }
 
-        using var snapshot = OpenSnapshot();
         try
         {
-            Add(kind, entityType, record.ValuesForWrite(snapshot), expectedRevision, snapshot);
+            var values = record.ValuesForBatch(SnapshotBudget, out var snapshot);
+            using (snapshot)
+            {
+                Add(kind, entityType, values, expectedRevision, snapshot);
+            }
         }
         catch (BudgetRefusedException exception)
         {
@@ -146,10 +136,13 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     private void Delete(LatticeEntityType entityType, object key, LatticeRevision? expectedRevision)
     {
         ArgumentNullException.ThrowIfNull(key);
-        using var snapshot = OpenSnapshot();
         try
         {
-            Add(WriteKindEnum.Delete, entityType, FieldValues.NormalizeKey(entityType, key, snapshot), null, expectedRevision, snapshot);
+            var normalized = FieldValues.NormalizeBatchKey(entityType, key, SnapshotBudget, out var snapshot);
+            using (snapshot)
+            {
+                Add(WriteKindEnum.Delete, entityType, normalized, null, expectedRevision, snapshot);
+            }
         }
         catch (BudgetRefusedException exception)
         {
@@ -167,21 +160,23 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         MemoryLease? snapshot = null)
     {
         var entity = CheckIdentity(entityType, key);
-        using var addition = _budget is null ? null : new MemoryLease(_budget);
+        var addition = OpenSnapshot();
         try
         {
             var root = _executor.EncodeRoot(entityType, values, addition);
-            PrepareCapacity();
-            Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
             if (addition is not null)
             {
                 snapshot?.Transfer(key, addition);
-                _lease!.Take(addition);
             }
+
+            PrepareLease(addition);
+            PrepareCapacity();
+            Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
+            KeepLease(ref addition);
         }
-        catch (BudgetRefusedException exception)
+        finally
         {
-            throw exception.WriteRejected();
+            addition?.Dispose();
         }
     }
 
@@ -196,21 +191,20 @@ internal sealed class WriteBatch : ILatticeWriteBatch
 
         update.ThrowIfEmpty();
         // Finish any fallible allocation before changing either builder.
-        using var addition = OpenSnapshot();
+        MemoryLease? addition = null;
         try
         {
+            addition = OpenSnapshot();
             var input = update.ValidateContent(addition);
             var entityType = update.EntityType;
             var key = update.Key;
             var entity = CheckIdentity(entityType, key);
             _executor.CheckUpdate(entityType, input);
 
+            PrepareLease(addition);
             PrepareCapacity();
             Keep(entity, new WriteBatchOperation(WriteKindEnum.Update, entityType, key, expectedRevision, default, input));
-            if (addition is not null)
-            {
-                _lease!.Take(addition);
-            }
+            KeepLease(ref addition);
 
             _hasUpdates = true;
             update.Consume();
@@ -219,9 +213,48 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         {
             throw SnapshotRefusal(exception);
         }
+        finally
+        {
+            addition?.Dispose();
+        }
     }
 
-    private MemoryLease? OpenSnapshot() => _budget is not null && !_executor.IsClosed ? new MemoryLease(_budget) : null;
+    private MemoryBudget? SnapshotBudget => _executor.IsClosed ? null : _budget;
+
+    private MemoryLease? OpenSnapshot() => SnapshotBudget is { } budget ? MemoryLease.Create(budget) : null;
+
+    private void PrepareLease(MemoryLease? addition)
+    {
+        if (_lease is null && addition is not null)
+        {
+            addition.Own((Operations: _operations, Identities: _identities), static (budget, state) =>
+            {
+                budget.Release(BudgetCollections.Items(state.Operations));
+                state.Operations.Clear();
+                state.Operations.Capacity = 0;
+                state.Identities.Dispose();
+            });
+        }
+    }
+
+    private void KeepLease(ref MemoryLease? addition)
+    {
+        if (addition is null)
+        {
+            return;
+        }
+
+        if (_lease is { } lease)
+        {
+            lease.Take(addition);
+        }
+        else
+        {
+            _lease = addition;
+        }
+
+        addition = null;
+    }
 
     private LatticeException SnapshotRefusal(BudgetRefusedException exception)
     {

@@ -182,13 +182,14 @@ public sealed class PrimaryGenerationBudgetTests
     private static Task<PrimaryIndex> PrimaryAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts => Backing<PrimaryIndex>(parts.Tables.Stored(1), "_index"));
 
+    private const int HeldRetirementPlaces = 5;
+
     private static Task<Array> HoldRetirementRoomAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
             // A fixture-held reservation keeps the same already-owned retirement
             // queue through ordinary drains, with ample room to retire one table.
-            parts.Retired.Reserve(8);
-            parts.Retired.Release(7);
+            parts.Retired.Reserve(HeldRetirementPlaces);
             var queue = Backing<Array>(Backing<object>(parts.Retired, "_items"), "_array");
             Assert.True(queue.Length >= 8);
             return queue;
@@ -197,7 +198,7 @@ public sealed class PrimaryGenerationBudgetTests
     private static Task<bool> ReleaseRetirementRoomAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
-            parts.Retired.Release();
+            parts.Retired.Release(HeldRetirementPlaces);
             return true;
         });
 

@@ -69,17 +69,6 @@ internal sealed class TextWriterSlots(MemoryBudget? budget)
             var added = budget?.Allocate<TextSlot>(needed, nameof(TextWriterSlots)) ?? new TextSlot[needed];
             try
             {
-                if (budget is { IsPreparing: true })
-                {
-                    budget.WhenPreparationEnds(keeps =>
-                    {
-                        if (!keeps && ReferenceEquals(_pages.Get(page), added))
-                        {
-                            ReleaseLastPage();
-                        }
-                    });
-                }
-
                 _pages.Set(page, added);
                 _pageCount++;
             }

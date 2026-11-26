@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Storage.Text;
 // and hash links, and both table generations during bounded migration.
 // A root or index node holds a reference until its native retirement. After
 // final unlink the ID remains reserved until all its detached blocks go.
-internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
+internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? beforePreparedBucketGrowth)
 {
     private const int ScratchBytes = 512;
     private const uint Tag = 0x8000_0000;
@@ -21,20 +21,34 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
     private readonly Arena _arena = arena;
     private readonly ulong _seed = seed;
     private readonly Lock? _writes = writes;
+    private readonly Action? _beforePreparedBucketGrowth = beforePreparedBucketGrowth;
     private readonly TextLocator _locator = TextLocator.Create(arena.Budget);
     private readonly TextWriterSlots _slots = TextWriterSlots.Create(arena.Budget);
     private TextBucketSet _active = TextBucketSet.Create(2, 0, arena.Budget);
     private TextBucketSet? _old;
+    private EarlierBuckets? _earlier;
     private int _bucketCursor;
     private int _deferredWork;
     private int _installedCount;
     private bool _maintenanceRequested;
 
-    public static long OwnerBytes => MemoryBudget.ObjectBytes(7L * IntPtr.Size + 3 * sizeof(int) + 1);
+    public static long OwnerBytes => MemoryBudget.ObjectBytes(9L * IntPtr.Size + 3 * sizeof(int) + 1);
 
     public int Count => _slots.Count;
 
-    public long Bytes => OwnerBytes + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
+    public long Bytes
+    {
+        get
+        {
+            var bytes = OwnerBytes + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
+            for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
+            {
+                bytes += EarlierBuckets.Bytes + earlier.Active.Bytes + (earlier.Old?.Bytes ?? 0);
+            }
+
+            return bytes;
+        }
+    }
 
     public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
@@ -100,12 +114,19 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         else
         {
             _slots.ReleaseUnused();
+            ReturnUnusedBucketGrowth();
         }
     }
 
     private void MaintainAfterPublication()
     {
-        if (_maintenanceRequested && _installedCount == Count)
+        if (_installedCount != Count)
+        {
+            return;
+        }
+
+        ReleaseEarlierBuckets();
+        if (_maintenanceRequested)
         {
             _maintenanceRequested = false;
             Maintain(2, null, deferAllocationFailure: true, releaseWriterPage: false, out _);
@@ -124,6 +145,13 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         var old = new List<TextAllocationShape>();
         _active.Measure(active);
         _old?.Measure(old);
+        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
+        {
+            old.Add(new TextAllocationShape(1, (int)(EarlierBuckets.Bytes - 2 * IntPtr.Size), 0, 0));
+            earlier.Active.Measure(old);
+            earlier.Old?.Measure(old);
+        }
+
         return new TextCapacitySnapshot(directory, leaves, slots, active, old, []);
     }
 
@@ -345,9 +373,18 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         {
             // Catch up on placement without returning the empty page this
             // write can reuse. The automatic turn can return it later.
-            if (_arena.Budget is { IsPreparing: true })
+            if (_arena.Budget is { IsPreparing: true } budget)
             {
-                _deferredWork = 2;
+                // Relink a whole layout only when the preparation holds the
+                // larger population. An ordinary miss keeps bounded migration.
+                if (Count >= 4L * _active.Capacity && Count - _installedCount > _installedCount)
+                {
+                    GrowPreparedBuckets(budget);
+                }
+                else
+                {
+                    _deferredWork = 2;
+                }
             }
             else
             {
@@ -361,11 +398,18 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         }
 
         var bucket = _active.Bucket(hash);
+        var parkedEarlier = false;
         var added = false;
         try
         {
             _slots.Reserve();
             _active.Reserve(bucket);
+            if (_earlier is not null)
+            {
+                ReserveEarlierEntries(hash);
+                parkedEarlier = true;
+            }
+
             var source = pieces.Source();
             if (!ValueBlocks.TryStoreText(_arena, id, length, ref source, out var physical))
             {
@@ -385,11 +429,154 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         {
             if (!added)
             {
+                if (parkedEarlier)
+                {
+                    ReleaseEarlierEntries(hash, until: null);
+                }
+
                 _active.ReleaseReservation(bucket);
                 _slots.ReleaseReservation();
                 _locator.Return(id);
             }
         }
+    }
+
+    // A preparation can add many distinct values without publishing a root. Grow
+    // geometrically during those misses, and finish reserving pages before changing
+    // any links. Readers use the locator, so only the publishing thread sees the
+    // bucket layout. Each earlier layout is paid until its reservations settle.
+    private void GrowPreparedBuckets(MemoryBudget budget)
+    {
+        _beforePreparedBucketGrowth?.Invoke();
+        var needed = NeededHeads(Count + 1);
+        var replacement = TextBucketSet.Create(needed, _active.Tag ^ Tag, budget);
+        EarlierBuckets previous;
+        try
+        {
+            for (var reference = 1u; reference <= (uint)Count; reference++)
+            {
+                replacement.Reserve(replacement.Bucket(_slots.At(reference).Hash));
+            }
+
+            previous = EarlierBuckets.Keep(_active, _old, _bucketCursor, Count, _earlier, budget);
+        }
+        catch
+        {
+            replacement.ReleaseAll();
+            throw;
+        }
+
+        var firstGrowth = _earlier is null;
+        _earlier = previous;
+        _active = replacement;
+        _old = null;
+        _bucketCursor = 0;
+        for (var reference = 1u; reference <= (uint)Count; reference++)
+        {
+            ref var slot = ref _slots.At(reference);
+            var wasOld = (slot.Next & Tag) != previous.Active.Tag;
+            var table = wasOld ? previous.Old! : previous.Active;
+            table.KeepParkedEntry(slot.Hash);
+            if (firstGrowth)
+            {
+                slot.WasInOldBucket = wasOld;
+            }
+
+            Link(replacement, replacement.Bucket(slot.Hash), reference);
+        }
+    }
+
+    // Called after a failed or cancelled owner's references have gone. Rebuild the
+    // smallest retained layout that can hold the survivors without another allocation.
+    public void ReturnUnusedBucketGrowth()
+    {
+        if (_earlier is null)
+        {
+            return;
+        }
+
+        EarlierBuckets? restore = null;
+        for (var earlier = _earlier; earlier is not null && earlier.Fits(Count); earlier = earlier.Previous)
+        {
+            restore = earlier;
+        }
+
+        if (restore is not null)
+        {
+            _active.ReleaseAll();
+            _old?.ReleaseAll();
+            while (!ReferenceEquals(_earlier, restore))
+            {
+                DropEarlierBuckets();
+            }
+
+            _active = restore.Active;
+            _old = restore.Old;
+            _bucketCursor = restore.Cursor;
+            _earlier = restore.Previous;
+            _arena.Budget!.Release(EarlierBuckets.Bytes, restore);
+            _active.ResetHeads();
+            _old?.ResetHeads();
+            for (var reference = 1u; reference <= (uint)Count; reference++)
+            {
+                ref var slot = ref _slots.At(reference);
+                var table = TableToRestore(restore, slot);
+                Link(table, table.Bucket(slot.Hash), reference);
+            }
+        }
+
+        if (_installedCount == Count)
+        {
+            ReleaseEarlierBuckets();
+        }
+    }
+
+    // A later prepared owner can keep this ID. Pay its place in each layout
+    // we might restore. A refusal returns precisely the prefix already reserved.
+    private void ReserveEarlierEntries(uint hash)
+    {
+        var pending = _earlier;
+        try
+        {
+            while (pending is not null)
+            {
+                pending.Active.ReserveParkedEntry(hash);
+                pending = pending.Previous;
+            }
+        }
+        catch
+        {
+            ReleaseEarlierEntries(hash, pending);
+            throw;
+        }
+    }
+
+    private void ReleaseEarlierEntries(uint hash, EarlierBuckets? until)
+    {
+        for (var earlier = _earlier; earlier is not null && !ReferenceEquals(earlier, until); earlier = earlier.Previous)
+        {
+            earlier.Active.ReleaseParkedEntry(hash);
+        }
+    }
+
+    private static TextBucketSet TableToRestore(EarlierBuckets earlier, in TextSlot slot) =>
+        slot.WasInOldBucket && earlier.Old is { } old ? old : earlier.Active;
+
+    private void ReleaseEarlierBuckets()
+    {
+        while (_earlier is not null)
+        {
+            DropEarlierBuckets();
+        }
+    }
+
+    private void DropEarlierBuckets()
+    {
+        var earlier = _earlier!;
+        _earlier = earlier.Previous;
+        earlier.Active.ReleaseAll();
+        earlier.Old?.ReleaseAll();
+        _arena.Budget!.Release(EarlierBuckets.Bytes, earlier);
     }
 
     private void Migrate(TextBucketSet old, Action? beforePageAllocation)
@@ -475,6 +662,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
     private void Remove(uint reference)
     {
         ref var slot = ref _slots.At(reference);
+        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
+        {
+            TableToRestore(earlier, slot).ReleaseParkedEntry(slot.Hash);
+        }
+
         Unlink(TableOf(slot.Next), reference);
         _locator.SetOrdinal(slot.Id, -1);
 
@@ -504,7 +696,9 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         _slots.Pop();
     }
 
-    private int NeededHeads() => (int)BitOperations.RoundUpToPowerOf2(Math.Max(2u, ((uint)Count + 3) / 4));
+    private int NeededHeads() => NeededHeads(Count);
+
+    private static int NeededHeads(int count) => (int)BitOperations.RoundUpToPowerOf2(Math.Max(2u, ((uint)count + 3) / 4));
 
     private uint ReferenceOf(uint id) => (uint)(_locator.Ordinal(id) + 1);
 
@@ -556,6 +750,35 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         }
 
         return true;
+    }
+
+    private sealed class EarlierBuckets(TextBucketSet active, TextBucketSet? old, int cursor, int entries, EarlierBuckets? previous)
+    {
+        public static long Bytes => MemoryBudget.ObjectBytes(3L * IntPtr.Size + 2 * sizeof(int));
+
+        public TextBucketSet Active { get; } = active;
+        public TextBucketSet? Old { get; } = old;
+        public int Cursor { get; } = cursor;
+        public EarlierBuckets? Previous { get; } = previous;
+
+        public bool Fits(int count) => count <= Math.Max(entries, 4L * Active.Capacity);
+
+        public static EarlierBuckets Keep(TextBucketSet active, TextBucketSet? old, int cursor, int entries, EarlierBuckets? previous,
+            MemoryBudget budget)
+        {
+            budget.Reserve(Bytes);
+            try
+            {
+                var backing = new EarlierBuckets(active, old, cursor, entries, previous);
+                budget.Own(backing, nameof(TextTable));
+                return backing;
+            }
+            catch
+            {
+                budget.Release(Bytes);
+                throw;
+            }
+        }
     }
 
     private void AssertWrites() => Debug.Assert(_writes is null || _writes.IsHeldByCurrentThread);

@@ -86,6 +86,8 @@ internal sealed class RetiredMemory
 
     private readonly Action<int, int, int>? _beforePublishedTrim;
 
+    private readonly Action<int>? _observeBackingRefusal;
+
     // In the order they were retired, and so in the order of their epochs.
     private readonly Queue<RetiredItem> _items = new();
 
@@ -123,6 +125,11 @@ internal sealed class RetiredMemory
     // The capacity of the list, as EnsureCapacity reports it.
     private int _capacity;
 
+    // Growth for reservations stays provisional until actual retirements need it.
+    // Earlier arrays hold no items: a withdrawal copies the current FIFO into
+    // the smallest backing still needed by the published or prepared work.
+    private WorkspaceCapacity<RetiredItem> _backing;
+
     // The places reserved for things that writes prepared and not published yet will retire: while a
     // group is in the persistence step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator).
@@ -137,12 +144,14 @@ internal sealed class RetiredMemory
     // which runs it once.
     private Action? _waitSwitch;
 
-    public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots, Action<int, int, int>? beforePublishedTrim = null)
+    public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots, Action<int, int, int>? beforePublishedTrim = null,
+        Action<int>? observeBackingRefusal = null)
     {
         _epochs = epochs;
         _arena = arena;
         _roots = roots;
         _beforePublishedTrim = beforePublishedTrim;
+        _observeBackingRefusal = observeBackingRefusal;
         _itemsPerLook = epochs.SlotCount;
         _bytesPerLook = arena.SegmentSize;
     }
@@ -162,8 +171,8 @@ internal sealed class RetiredMemory
     // managed heap cannot hold the room.
     public void Reserve(int places)
     {
-        _items.EnsureCapacity(_items.Count + _reserved + places, _arena.Budget, nameof(RetiredMemory));
-        _capacity = _items.EnsureCapacity(0);
+        EnsureCapacity(_items.Count + _reserved + places);
+
         _reserved += places;
     }
 
@@ -180,8 +189,7 @@ internal sealed class RetiredMemory
         {
             try
             {
-                _items.EnsureCapacity(RelocationSeed, _arena.Budget, nameof(RetiredMemory));
-                _capacity = _items.EnsureCapacity(0);
+                EnsureCapacity(RelocationSeed);
             }
             catch (Exception exception) when (exception is OutOfMemoryException or BudgetRefusedException)
             {
@@ -209,7 +217,70 @@ internal sealed class RetiredMemory
     public void Release() => Release(1);
 
     // Gives back that many places reserved and not used.
-    public void Release(int places) => _reserved -= places;
+    public void Release(int places)
+    {
+        _reserved -= places;
+        ReturnUnusedBacking();
+    }
+
+    private void EnsureCapacity(int needed)
+    {
+        if (needed <= _capacity)
+        {
+            return;
+        }
+
+        if (_arena.Budget is not { } budget)
+        {
+            _capacity = _items.EnsureCapacity(needed);
+            return;
+        }
+
+        var previous = BudgetCollections.Items(_items);
+        var replacement = previous;
+        try
+        {
+            // A bulk reservation can later be released in part. Prepay the
+            // same doubling steps that a smaller surviving demand would use.
+            while (replacement.Length < needed)
+            {
+                var capacity = BudgetCollections.CapacityFor(replacement.Length, replacement.Length + 1);
+                replacement = _backing.AllocateGrowth(replacement, capacity, budget, nameof(RetiredMemory));
+            }
+        }
+        catch (Exception exception)
+        {
+            _backing.DiscardGrowth(replacement, previous, budget);
+            if (exception is BudgetRefusedException)
+            {
+                _observeBackingRefusal?.Invoke(needed);
+            }
+
+            throw;
+        }
+
+        _items.UseBacking(replacement);
+        _capacity = replacement.Length;
+        Array.Clear(previous);
+    }
+
+    private void ReturnUnusedBacking()
+    {
+        var inUse = _items.Count + _reserved;
+        if (!_backing.CanRelease(inUse) || _arena.Budget is not { } budget)
+        {
+            return;
+        }
+
+        var previous = BudgetCollections.Items(_items);
+        var replacement = _backing.SelectRetained(previous, inUse, budget);
+        if (!ReferenceEquals(replacement, previous))
+        {
+            _items.UseBacking(replacement);
+            _capacity = replacement.Length;
+            budget.Release(previous);
+        }
+    }
 
     // Retires the root a replace replaced: its blocks become retired in the arena (RootStorage.Retire).
     public void RetireRoot(RootLayout layout, ArenaAddress root) =>
@@ -466,6 +537,7 @@ internal sealed class RetiredMemory
         }
 
         _capacity = 0;
+        _backing.Reset();
     }
 
     // For a write the arena refused, under the lock of the writes: the epoch below which the reads
@@ -518,6 +590,9 @@ internal sealed class RetiredMemory
     public void Clear()
     {
         _items.Clear();
+        _reserved = 0;
+        _backing.Reset();
+        ReturnUnusedBacking();
         _rootWork?.Clear();
         _nodeWork = default;
         _headActive = false;
@@ -541,6 +616,15 @@ internal sealed class RetiredMemory
         _newest = _epochs.Current;
         _items.Enqueue(new RetiredItem(kind, _newest, owner, address, handle, bytes));
         _reserved--;
+        if (_arena.Budget is { } budget)
+        {
+            _backing.Keep(_items.Count, _capacity, budget);
+            if (_backing.HasEarlier && _reserved == 0)
+            {
+                ReturnUnusedBacking();
+            }
+        }
+
         _itemsSinceLook++;
         _bytesSinceLook += bytes;
         _retiredSincePublication = true;

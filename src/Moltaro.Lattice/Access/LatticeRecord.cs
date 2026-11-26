@@ -124,7 +124,10 @@ public sealed class LatticeRecord
 
     // Record -> values to store, checked against the schema at every depth. It shares the byte arrays of
     // the fields of the entity, which the engine reads while the write runs (RecordValues.Submit).
-    internal object?[] ValuesForWrite(MemoryLease? lease = null) => RecordValues.Submit(EntityType, _values, lease);
+    internal object?[] ValuesForWrite() => RecordValues.Submit(EntityType, _values);
+
+    internal object?[] ValuesForBatch(MemoryBudget? budget, out MemoryLease? lease) =>
+        RecordValues.SubmitBatch(EntityType, _values, budget, out lease);
 
     // The values the record holds, by LatticeField.Ordinal, for a read that fills a new record in
     // place: the engine, which puts into it values it has made for this record alone, each in the

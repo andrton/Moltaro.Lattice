@@ -16,6 +16,40 @@ that changes the same code; *refused* — with its reason; *done* — with the c
 Line numbers are those of `main` at `e7b6e0e`, in `src/Moltaro.Lattice.Engine` unless a
 path says otherwise.
 
+## After S24
+
+- **Return unused root pages in one pass** *(joined S24A)*. The failed preparation
+  path searched the free list for each returned new page. It now uses
+  `RootTable.WithdrawUnusedPages`. The root page and root slot witnesses keep
+  issued generations, the surviving directory and the release boundary.
+- **Register the follower's memory wait once** *(taken S24R)*. The only caller
+  that pairs `MemoryBudget.Change` with `WhenChanged` is the follower waiting to
+  resume after a capacity refusal. Study one post-rollback registration and one
+  signal to an armed follower. Keep the wakeup after a compatible release, finite
+  retry pacing, cancellation, close and ordered replay under pressure. Remeasure
+  the ordinary write controls. The isolated master diagnostic did not resolve
+  a latency effect.
+
+- **Share the lifetime of one charged owner** *(taken S24R)*. Compare the
+  reserve, construction, registration and failure cleanup in
+  `BackingHistory.Keep`, `TextTable.EarlierBuckets.Keep`, the individual lease
+  entries and the preparation journal. Use one internal operation with explicit
+  state and a shared factory where it removes repeated code, preserves the
+  exact refusal order and allocates no additional objects. Keep the
+  finalizable lease constructor and multi-object acquisition local to their
+  current owners. Include the weak root owner if it fits the same operation.
+- **Release parked bucket generations in one loop** *(taken S24R)*. Examine
+  whether the earlier-bucket pop loops can share the same bounded
+  `ReleaseEarlierBuckets(stop)` operation. Preserve the survivor's pages,
+  existing lookup work and the exact charged cleanup after withdrawal.
+- **Measure workspace retirement with a durable queue** *(joined S27)*.
+  `WriteExecutor.FinishWorkspace` and `ReleaseUnusedWorkspace` can scan the
+  outstanding borrowers for each ordered publication. Quantify the work at
+  increasing queue depth with delayed persistence and check exact physical
+  capacity against equivalent runs with only the surviving owners. The
+  ordinary single-member MemoryOnly path and immediate group do not show
+  that cost.
+
 ## Order
 
 Gone through by the planner and the coordinator on 18 November 2026.

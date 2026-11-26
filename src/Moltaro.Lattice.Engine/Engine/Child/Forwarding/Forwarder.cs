@@ -135,7 +135,7 @@ internal sealed class Forwarder
         try
         {
             sender = Begin(session, cancellationToken);
-            retained = update is not null && _budget is not null ? new MemoryLease(_budget) : null;
+            retained = update is not null && _budget is not null ? MemoryLease.Create(_budget) : null;
             var replies = UpdateReplies.Of(update, retained, receives: true);
             call = new ForwardedCall(Request(table, kind, key, values, update, expectedRevision, session?.MinPosition), table.EntityType, replies, retained);
         }
@@ -161,7 +161,7 @@ internal sealed class Forwarder
         try
         {
             sender = Begin(session, cancellationToken);
-            retained = _budget is null ? null : new MemoryLease(_budget);
+            retained = _budget is null ? null : MemoryLease.Create(_budget);
             var entityTypes = EntityTypesOf(members, retained);
             var replies = UpdateReplies.Of(members, retained, receives: true);
             call = new ForwardedCall(BatchRequest(members, session?.MinPosition), entityTypes, replies, retained);
@@ -269,7 +269,7 @@ internal sealed class Forwarder
             }
             else if (kind != WriteKindEnum.Delete)
             {
-                using var working = _budget is null ? null : new MemoryLease(_budget);
+                using var working = _budget is null ? null : MemoryLease.Create(_budget);
                 var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working));
 
                 try

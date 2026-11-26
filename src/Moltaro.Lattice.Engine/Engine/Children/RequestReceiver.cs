@@ -171,8 +171,17 @@ internal sealed class RequestReceiver : IDisposable
         var (minimumPosition, count) = ForwardEncoding.ReadBatchHead(ref reader);
         var members = lease?.Allocate<BatchMember>(count, nameof(RequestReceiver)) ?? new BatchMember[count];
         var entityTypes = lease?.Allocate<LatticeEntityType>(count, nameof(RequestReceiver)) ?? new LatticeEntityType[count];
-        var keys = new PublicationKeys(count, lease?.Budget);
-        lease?.Own(keys.Dispose);
+        var keys = PublicationKeys.Create(count, lease?.Budget);
+        try
+        {
+            lease?.Own(keys, static (_, owned) => owned.Dispose());
+        }
+        catch
+        {
+            keys.Dispose();
+            throw;
+        }
+
         var commands = 0L;
 
         for (var place = 0; place < count; place++)

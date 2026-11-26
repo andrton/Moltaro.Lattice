@@ -8,6 +8,8 @@ namespace Moltaro.Lattice.Storage;
 // The owner serializes writes and releases its backing only after the last borrower has left.
 internal sealed class BudgetByteWriter(MemoryBudget? budget, int capacity, string owner) : IBufferWriter<byte>, IDisposable
 {
+    public static long OwnerBytes => MemoryBudget.ObjectBytes(3L * IntPtr.Size + sizeof(int));
+
     private byte[] _buffer = budget?.Allocate<byte>(capacity, owner) ?? new byte[capacity];
     private int _written;
 
@@ -40,6 +42,15 @@ internal sealed class BudgetByteWriter(MemoryBudget? budget, int capacity, strin
     }
 
     public Span<byte> GetSpan(int sizeHint = 0) => GetMemory(sizeHint).Span;
+
+    public ReadOnlyMemory<byte> Take(MemoryLease lease)
+    {
+        lease.TakeArray(_buffer);
+        var written = WrittenMemory;
+        _buffer = [];
+        _written = 0;
+        return written;
+    }
 
     public void ResetWrittenCount() => _written = 0;
 

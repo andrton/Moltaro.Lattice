@@ -46,13 +46,14 @@ internal sealed class SequenceForm<T> : SequenceForm
         var budget = lease.Budget;
         if (_isSet)
         {
-            var set = lease.Allocate(BudgetHashSets.OwnerBytes, nameof(SequenceForm), () => new HashSet<T>(_comparer), budget.ReleaseSet);
+            var set = lease.Allocate(BudgetHashSets.OwnerBytes, nameof(SequenceForm), () => new HashSet<T>(_comparer),
+                static (account, value) => account.ReleaseSet(value));
             set.EnsureCapacity(capacity, budget, nameof(SequenceForm));
             return set;
         }
 
         var list = lease.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(SequenceForm),
-            static () => new List<T>(), value => budget.Release(BudgetCollections.Items(value)));
+            static () => new List<T>(), static (account, value) => account.Release(BudgetCollections.Items(value)));
         list.EnsureCapacity(capacity, budget, nameof(SequenceForm));
         return list;
     }

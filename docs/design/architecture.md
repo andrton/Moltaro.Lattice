@@ -170,9 +170,9 @@ also refuse a durable write at its configured hard limit.
 
 A batch may change different entity types in the same database. It contains
 at most one operation per type/key. Resources bound the size of a batch or entity.
-Each addition reserves local capacity for its input snapshot. An addition that exceeds
-that capacity leaves the batch as it was. Execution separately reserves the capacity
-it needs. Validation, durable effects and publication preserve the all-or-nothing
+Each addition reserves local capacity for its input snapshot and the structures that
+own it. An addition that exceeds that capacity leaves the batch as it was. Execution
+separately reserves the capacity it needs. Validation, durable effects and publication preserve the all-or-nothing
 boundary for a batch of complete writes, deletes or partial updates. Children preserve
 that boundary during replay.
 
