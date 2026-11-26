@@ -3,6 +3,8 @@
 **Milestone 1 implementation baseline:** [concrete mechanisms and initial settings](../design/milestone-1-engine-contract.md)
 now resolve the engineering selections described as open below. Product contracts
 remain in force; measured production validation is still required.
+The [reader protection and compaction section](../design/milestone-1-engine-contract.md#reader-protection-publication-and-compaction)
+specifies the current sparse-region and nearly empty segment rules.
 
 Accepted Moltaro.Lattice decisions, costs and alternatives. This record owns Q17's
 accepted subtopics; unresolved maintenance policies and numerical budgets remain open.

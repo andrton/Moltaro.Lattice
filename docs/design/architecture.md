@@ -83,9 +83,10 @@ its own lookup from the entries it receives. [Arena layout and transfer](arena-p
 
 ### Space is reused throughout the database lifetime
 
-Size-class free lists find reusable slots without scanning all segments. Counters
-identify regions below half live occupancy. Each master or child can move one bounded
-block to a compatible earlier slot during a background turn under its write lock.
+Size-class free lists find reusable slots without scanning all segments. A background
+turn on a master or child can move one block under the writes lock. A region below half
+live occupancy can supply a block to an earlier segment. A nearly empty segment can
+also supply a 32 KiB or 64 KiB block to existing space in another active segment.
 The publishing edge changes atomically. Earlier readers retain the old block through
 their epochs. A stable identifier keeps every stored reference to shared text valid
 when that text moves. Primary lookups and secondary index searches keep their results.

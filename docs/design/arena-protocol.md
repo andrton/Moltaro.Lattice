@@ -614,11 +614,20 @@ can coalesce while work is in progress. A turn enters the counted operation barr
 tries the local write lock without waiting, and rechecks admission under it. It
 drains safe FIFO work and checks at most one collection spare for shrink. The
 reclamation and text maintenance share 64 work units, including actual releases.
-A bounded 128-unit search starts from regions below half live occupancy, resumes
-across turns and looks for existing compatible vacancy in earlier segments. At most
-one move publishes in a turn. Retained relocation copies together charge at most
-one 64 KiB slot. A prepared master write prevents relocation. Close joins the
-worker before its final cleanup.
+A shared 128-unit search resumes across turns. The region rule looks below half
+live occupancy and takes an assigned same-class vacancy in an earlier segment.
+The [segment rule](milestone-1-engine-contract.md#reader-protection-publication-and-compaction)
+also admits 32 KiB and 64 KiB slots. Its rank uses published slot capacity including
+headers and class slack. Prepared and retired copies still occupy their physical
+slots. The mover rechecks the selected active vacancy under Writes and reserves
+retirement capacity before assigning an unassigned region to the required class.
+The claim removes that region from the free list and uses the same class-list
+transition as normal allocation. The normal arena path returns the region after
+its last allocated slot is freed.
+
+At most one move publishes in a turn. Retained relocation copies plus the proposed
+destination charge at most one 64 KiB slot. A prepared master write prevents
+relocation. Close joins the worker before its final cleanup.
 
 An empty retirement queue can drop its backing array when no reservation
 remains and its capacity exceeds 64 times the number of reader slots. The trim costs one work unit and copies no entries.

@@ -67,6 +67,13 @@ internal sealed unsafe class ArenaSegment
     // How many regions serve a size class. At zero the segment is empty.
     public int RegionsInUse { get; set; }
 
+    // Under the writes lock: the full slots of published blocks determine
+    // whether this segment can evacuate, including alignment and class slack.
+    public int LiveSlotBytes { get; set; }
+
+    // Prepared and retired index nodes also prevent returning this segment.
+    public int AllocatedIndexNodes { get; set; }
+
     // Marks the lowest free slot among the first slotCount slots of the region as allocated and
     // returns its index. The arena calls this only for a region that has a free slot; a region of
     // the smallest class searches at most SlotWordsPerRegion words, one of 1 KiB or more one word.
