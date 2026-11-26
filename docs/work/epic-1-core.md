@@ -14521,6 +14521,34 @@ connection assembler's retention policy. S34 owns the recorded
 fresh session read issue during close. S23A runs next in a separate
 full-track PR before S24 starts product work.
 
+###### Post-merge ARM64 verification
+
+The first main CI run after PR #81 passed build and Windows.
+ARM64 had one failure on `a17137b6`. A refused insert at a later
+index was being measured across an automatic maintenance turn.
+The snapshot saw managed text capacity fall from 5,984 to
+3,472 B. See the
+[original ARM64 job](https://github.com/andrton/Moltaro.Lattice/actions/runs/45760747708/job/139709890746).
+
+The exact Release reproduction held background maintenance
+outside the refusal window, then ran one ordinary maintenance
+turn after the refusal. The refusal itself left 5,984 B.
+The turn returned a 2,200 B empty writer page and its 312 B
+directory branch. All other engine counters, 62 text entries
+with their reference counts, all index nodes and the position
+matched. The unchanged snapshot assertion produced the same
+failure message. Without the intervening turn, all nine refusals
+passed the original rollback checks and the next insert succeeded.
+The reproduction archive SHA-256 is
+`72b632a66e5ece44d0df0de436d4d9228f05298f0bb9f54db824718aecce3deb`.
+
+The test-only correction isolates the strict rollback fixtures
+from periodic maintenance. The original rollback assertions
+and explicit drains are preserved. The dedicated worker tests
+still verify automatic reclamation. The independent review
+checked all direct snapshot callers and the equivalent
+reservation test.
+
 #### S23A · Evacuate nearly empty segments
 
 **Track:** full, critical · **Needs:** S23 · **Owners:** E01, E03 ·

@@ -17,7 +17,7 @@ public sealed class RefusedUniqueWriteTests
     [Fact]
     public async Task Refused_write_leaves_every_counter_every_pool_every_text_and_every_node_as_it_was()
     {
-        await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema);
+        await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var accounts = database.Set<UniqueSchema.Account>();
         var taken = new string('v', 100);
 

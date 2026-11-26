@@ -36,7 +36,7 @@ public sealed class FailedNodeAllocationTests
     public async Task Replace_and_insert_whose_later_index_meets_a_failed_native_allocation_give_back_what_the_earlier_index_reserved_and_leave_the_instance_Ready()
     {
         var allocator = new CountingNativeAllocator();
-        await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { Arena = Options, Allocator = allocator });
+        await using var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { Arena = Options, Allocator = allocator, DisableBackgroundMaintenance = true });
         var paired = database.Set("Paired");
         var first = PairedOf(paired, 1, 1, "a");
         var replacement = PairedOf(paired, 1, 2, "e");

@@ -30,7 +30,8 @@ public sealed class RefusedChildChangeTests
         // holds before it refuses one.
         int fillers;
 
-        await using (var probe = await EngineMaster.OpenAsync(FullArena.Schema, new EngineTestInputs { Arena = FullArena.Options }))
+        await using (var probe = await EngineMaster.OpenAsync(FullArena.Schema,
+            new EngineTestInputs { Arena = FullArena.Options, DisableBackgroundMaintenance = true }))
         {
             fillers = await FullArena.FillAsync(probe);
         }
@@ -39,7 +40,7 @@ public sealed class RefusedChildChangeTests
         var merging = 0;
         WireFrame? opening = null;
 
-        await using var master = await ReplicationNodes.OpenMasterAsync(FullArena.Schema);
+        await using var master = await ReplicationNodes.OpenMasterAsync(FullArena.Schema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
         {
             if (frame.Kind != FrameKindEnum.Transaction || Volatile.Read(ref merging) == 0)
@@ -59,7 +60,9 @@ public sealed class RefusedChildChangeTests
 
             return MergedTransaction.Of(opening, frame);
         });
-        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound), new EngineTestInputs { Arena = FullArena.Options });
+        await using var child = await ReplicationNodes.OpenChildAsync(
+            ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound),
+            new EngineTestInputs { Arena = FullArena.Options, DisableBackgroundMaintenance = true });
         var ranked = master.Set<IndexSchema.Ranked>();
         var moved = FullArena.First;
 
