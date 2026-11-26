@@ -206,7 +206,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R9 | Native segments, size classes, relative addressing, stable managed root entries, large values in bounded chunks | [Q05](../decisions/memory-and-access.md), [Q16](../decisions/physical-storage.md) | Must | Absent | S04, S05 |
 | R10 | Text: Plain and Dictionary storage, the database encoding, stable text entries, safe sharing and reclamation, well-formed Unicode only | [Q04.1–Q04.5](../decisions/strings.md) | Must | Works for String fields; text in collections and index keys with their sprints | S05, S13 |
 | R11 | Space is reused for the life of the database: size-class reuse, bounded incremental compaction, collection shrink, release of empty segments | [Q17](../decisions/allocation-and-compaction.md) | Must | Absent | S04, S23–S24 |
-| R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | MemoryOnly admission, rollback and ordered child pause and resume work. Delivery retention, reload and public pressure status follow in S33, S34 and S39. | S09, S23–S24, S33–S34, S39 |
+| R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | MemoryOnly admission and ordered child pause and resume are implemented. S24A corrects batch ownership and retirement queue withdrawal. Delivery retention, reload and public pressure status follow in S33, S34 and S39. | S09, S23–S24A, S33–S34, S39 |
 | R13 | Index structures of the engine's own — a hash table for the primary index (S08), an ordered structure for secondary indexes chosen in S14 after its study (the selection of the Arc collections is superseded, 18 November 2026) — rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
 | R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Done: the full key in S14, leading fields, ranges, both directions, Offset, Limit and the read limits in S15, part 1; the binding rules wait for S15, part 2 | S14–S15 |
@@ -1111,7 +1111,7 @@ S01 ground
                              └─ S19 maps, sets ── S20 partial updates
                                  └─ S21 views by name ── S21I List traversal ── S22 typed views
                                      └─ S22C position-wait cancellation ── S23 compaction ── S23A segment evacuation
-                                         └─ S24 memory budget ── S25 memory gate ── S26 operation identity
+                                         └─ S24 memory budget ── S24A budget corrections ── S25 memory gate ── S26 operation identity
                                              └─ S27 provider ── S28 durable commit
                                                  └─ S29 storage failures ── S30 saved base
                                                      └─ S31 journal limits ── S32 recovery
@@ -1328,8 +1328,9 @@ Why this order:
 | S22C | Cancellation of a registered position wait | Full, critical | Both parts done on 25 November 2026 |
 | S23 | Compaction and shrink | Full, critical | Done on 26 November 2026 |
 | S23A | Evacuate nearly empty segments | Full, critical | Done on 26 November 2026 |
-| S24 | The memory budget | Full, critical | Done on 26 November 2026. [Implementation and measurements](#s24--the-memory-budget) |
-| S25 | Reference fixture, managed reference, the memory gate | Full | Not started |
+| S24 | The memory budget | Full, critical | Merged at `895651e3`. Acceptance reopened after independent reproduction. [Original measurements](#s24--the-memory-budget) |
+| S24A | Budget ownership, withdrawal and dictionary growth | Full, critical | Owner approved the corrective sprint before S25. [Brief and acceptance](#s24a--budget-ownership-withdrawal-and-dictionary-growth) |
+| S25 | Reference fixture, managed reference, the memory gate | Full | Waiting for S24A and the disposition of S24R |
 | S26 | Operation identity and safe retry | Full | Not started |
 | S27 | PostgreSQL provider and Durable open | Full | Not started |
 | S28 | Durable commit | Full | Not started |
@@ -15675,9 +15676,106 @@ assemblies. Check the actual outcomes and physical boundary before timing.
 A local dry run of an ARM workload establishes local readiness and
 duration. The historical ARM timings require its matching environment.
 
-#### S25 · Reference fixture, managed reference and the memory gate
+#### S24A · Budget ownership, withdrawal and dictionary growth
 
-**Track:** full, verification · **Needs:** S24 · **Decisions:** O11, D6 · **Closes:** G1
+**Goal.** Restore the S24 ownership guarantees and the scaling of atomic writes
+that introduce dictionary text. The owner approved this corrective sprint before
+S25 after the independent review of `895651e3`. S24R remains available for
+separately reviewed changes of structure.
+
+**Track and contract.** Full, critical. Use the existing batch API, refusal order,
+retirement and replication contracts. The authorities are the [scope of
+Q14](../decisions/write-admission.md#scope-and-budget), the [engine
+contract](../design/milestone-1-engine-contract.md#initial-bounded-settings) and
+the [S24 contract boundaries](#contract-boundaries). Preserve signatures, encoded
+data and the ownership exclusions already agreed. Tests enter through the existing
+batch, write, cancellation and child APIs. Use existing internal admission,
+allocator, persistence and epoch controls for deterministic observation.
+
+**Evidence on entry.** On Windows x64 with .NET 10.0.15, a 4,194,304 B instance
+accepted 16,384 small typed inserts into one unsubmitted batch. Registered capacity
+was 4,094,040 B. An independent walk from the builder found at least 4,194,448 B
+of additional, distinct live ownership records, callbacks and their targets.
+Cancelling one prepared deletion under held persistence preserved the row and
+position but retained a new, empty 216 B retirement queue backing.
+With seed 6035, one cold batch of 4,096 distinct dictionary strings took 4,192,265
+chain visits against 14,980 on the pre-S24 revision. The individual inserts on
+S24 took 14,960. All three populations produced the expected values and positions.
+In six rotated public-API runs with 125,000 warm pairs and 25,000 measured
+pairs, the median allocation was about 128 B per pair on the baseline and
+830 B on S24. The baseline twin measured about 120 B. Each pair replaced six
+dictionary values and rewrote a short, indexed value.
+
+**Acceptance.**
+
+1. Ready creation of an empty batch keeps its existing result. Its first
+   input-dependent acquisition is charged at the existing addition boundary.
+   Reserve engine-owned payload and its growing ownership or cleanup records
+   before acquisition. Count each live backing once across snapshot, transfer,
+   queued commit and final release. A failed addition preserves earlier members
+   and can be retried. Commit, cancellation, failure and collection of an abandoned
+   builder release what has lost its last owner. Verify the 4 MiB case through the
+   public entry point and independently size live objects starting at the builder.
+   Derive the next allocation's peak from an independent witness and test one byte
+   below, at and above it. Keep the master and child addition order, including a
+   local refusal before a forwarded request. Apply the same accounting to any
+   input-dependent ownership or rollback records touched by these corrections
+   during preparation, publication or withdrawal. Include their actual cost
+   in the independently reconciled peak for as long as they are held.
+2. A failed or cancelled preparation that alone expanded the retirement queue
+   returns the extra backing immediately. A surviving reservation or published
+   reader-protected entry keeps the capacity it still needs. Compare the actual
+   backing, byte charge, data, revision and position with an equivalent run of
+   only the survivors. Cover first growth from empty, growth beyond an existing
+   backing, withdrawal before dispatch and a later preparation failure. Preserve
+   FIFO order across dequeue and wraparound, allocation-free publication and
+   the existing policy for trimming a queue that held published retirements.
+3. Cold atomic inserts with distinct dictionary text keep bounded average
+   lookup work as the batch grows. On the fixed workload above, count actual
+   chain visits at 1,024, 2,048 and 4,096 rows during preparation. Each doubling
+   must take fewer than three times the visits on that fixture. Use distinct
+   and repeated strings, stable IDs and reference counts, mixed existing and
+   new values, ordered child replay and preserved reads. A failed growth or
+   late cancellation returns exclusive capacity and retains every surviving
+   owner's mapping. Check actual data and one published position per successful
+   batch. Keep the visit counter in a diagnostic build or an equivalent
+   untimed witness that measures the work actually done. Compare the same
+   inserts submitted individually. Record migration or rebuilding work through
+   publication and the next ordinary maintenance turn so moving a scan outside
+   lookup cannot hide it. Bounded incremental maintenance may continue.
+4. Remeasure ordinary indexed and unindexed replacements through the public
+   API and the S14 fixture. Make physical backing inventory independently
+   selectable from deterministic fixture inputs so that timed writes can use
+   the production accounting path. Verify the same outcomes, positions and
+   preparation branches outside timing. Report p50, p95, p99 and allocated
+   bytes per operation or named pair. Record public writes with inventory off
+   separately from S14's diagnostic observations. Keep actual root image
+   capacity charged through placement. Retain the physical witnesses in
+   `OwnedSnapshotBackingsTests` and `RootSlotBudgetTests`. Evaluate avoidable
+   per-write allocations with one change at a time.
+
+**Comparison and close.** Use coherent builds from `dd519ba4`, `895651e3` and
+the correction on the same host. Rotate the three revisions, include duplicate
+baseline runs, and retain per-round results. Record the workload, order and
+decision criterion before timing. Compare consecutive windows after warm-up.
+The original 5,000 warm pairs still included a transition within the following
+25,000 measured pairs. The independent six-text repeat used 125,000 warm pairs.
+Report warm-up separately when a transition recurs. A repeatable loss beyond
+same-build variation needs a cause, measured alternatives and disposition under
+the [review process](process.md#when-to-stop-and-ask-the-owner). Use the
+[workloads for the final diff](#workloads-for-the-final-diff-review) for affected
+historical comparisons. The existing correctness CI and the rented ARM
+performance host have separate roles.
+
+The independent reviewer checks the tests before implementation and the final
+measurements. The breaker probes a tight competing batch, a withdrawal with
+another owner and a failed dictionary growth with a live reader or child.
+Close on reviewed corrections, the full repository checks, and disposition of
+the original performance finding. Raw runs stay outside Git.
+
+#### S25 · Reference fixture, managed reference, the memory gate
+
+**Track:** full, verification · **Needs:** S24A · **Decisions:** O11, D6 · **Closes:** G1
 
 - **Goal.** The reason the project exists is measured: the engine keeps the reference
   data in at most 75% of the memory of an optimized managed representation.
