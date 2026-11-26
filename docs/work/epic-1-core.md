@@ -15280,7 +15280,11 @@ add one 4 MiB segment of headroom. Use a separate, untimed preflight of the same
 fixture if the inventory needs to be established. If the measured run never
 encounters pressure, keep its result and report the uncovered condition. An
 adjacent deterministic boundary trace must show refusal and reuse independently
-of the timed profile. Sample steady charge after warm-up and at the same cycle
+of the timed profile. Record the high-water mark from fixture load, then use the
+internal measurement-only `EngineDatabase.ResetBudgetPeak()` on the warm-up
+boundary. It sets the peak to the current charge in the same synchronization as
+admission. The measurement call changes no ownership or reservation.
+Sample steady charge after warm-up and at the same cycle
 boundary after the last measured frame, with the same reader schedule. Record
 the reservation high-water mark at capacity transitions and confirm it against
 native allocator grants and an independently sized managed inventory, including
@@ -15318,6 +15322,22 @@ Use the local `development-5` manifest when its machine and affinity checks
 match. CI remains a correctness lane. Use the actual TCP child in separate
 deterministic load and resume tests. The churn tape serves as a capacity and
 composition workload here. The performance gates keep their own manifests.
+
+##### Tests-first gate
+
+The implementer committed the public contract in `acec10a5` and
+`6b0bf550`, then the tests in `e92b30f3`. The first exact review
+found resource and scheduling assumptions in the TCP fixtures and
+required stronger witnesses for actual ownership, distinct peak admission
+and follower termination. The coordinator approved the fixture corrections
+under the development process. The same implementer added the witnesses
+and corrected the fixtures in `1babed12ac7828d40b067fe7549f6074e9223e7a`.
+
+The independent reviewer accepted that exact head without open P1 or P2.
+The coordinator verified the clean revision, renewed the Release build and
+format check, ran all 18 examples, and ran the full Windows x64 Release
+suite. It reported 4,691 passes and 169 expected skips. The corrected
+tests-first SHA is the acceptance reference for implementation.
 
 #### S25 · Reference fixture, managed reference and the memory gate
 
