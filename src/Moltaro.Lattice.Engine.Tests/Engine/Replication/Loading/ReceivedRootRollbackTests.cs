@@ -126,6 +126,22 @@ public sealed class ReceivedRootRollbackTests
         Assert.Equal(LargeName, last.Name.Length);
         Assert.Equal(DataBytes, last.Data?.Length);
         Assert.Equal(LargeName, witnessPieces.Get(20L)?.Name.Length);
+        var expectedKeys = prefix.Concat([20L, 21L, 22L, 23L]);
+        if (!replaces)
+        {
+            expectedKeys = expectedKeys.Append(24L);
+        }
+
+        Assert.Equal(expectedKeys, witnessPieces.Enumerate().Select(piece => piece.Id).Order());
+        long[] changedKeys = [20, 21, 22, 23, replaces ? 1L : 24L];
+        foreach (var key in changedKeys)
+        {
+            var expected = PieceSchema.Of(key, LargeName, data: DataBytes);
+            var actual = Assert.IsType<PieceSchema.Piece>(witnessPieces.Get(key));
+            Assert.Equal((expected.Id, expected.Name, expected.Note, expected.Count), (actual.Id, actual.Name, actual.Note, actual.Count));
+            Assert.Equal(expected.Data, actual.Data);
+        }
+
         OwnershipAudit.Expect(witness);
 
         // The child can no longer reach the commit. The position wait distinguishes loss of the
