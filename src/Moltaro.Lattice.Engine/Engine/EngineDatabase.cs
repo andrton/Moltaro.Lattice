@@ -633,7 +633,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             {
                 lock (parts.Writes)
                 {
-                    parts.Retired.Drain();
+                    parts.Retired.Drain(_testInputs?.BeforeCloseRetiredTrim);
                     parts.Retired.Clear();
                     parts.Arena.Dispose();
                 }
