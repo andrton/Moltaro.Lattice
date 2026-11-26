@@ -15026,7 +15026,9 @@ announces, bounded only by its memory limit, and each accepted connection holds 
   does not wait for compaction; reads continue, and after memory is freed writes are
   accepted again. The budget counts the arena with its reserve, both tables of a growing
   primary index, secondary index nodes, the text table, the native scratch of reads if any exists, and the pages of root entries
-  (prepared capacity is counted in the arena since S09, and a waiting write holds nothing in the engine); S26 adds the retained outcomes of a MemoryOnly master. A reservation that fails releases everything it took,
+  (prepared arena capacity has been counted since S09). A waiting write takes no new
+  preparation reservation. Already owned batch input stays charged. S26 adds the
+  retained outcomes of a MemoryOnly master. A failed reservation returns what it took,
   shown by the counters. On a child, a deterministic capacity failure while
   preparing full roots leaves no newly retained handles or arena blocks after
   rollback, verified by an independent tally for initial load and transaction
@@ -15180,6 +15182,28 @@ fails. The caller can try the same addition again. Budget the temporary
 export and its final single-buffer or multi-piece copy while both are
 owned. Include the real list and identity-set replacement peaks. The
 caller's original input remains outside the charge.
+
+On an open instance, an addition stops at the first allocation for its
+snapshot or workspace whose reservation cannot fit. It reports synchronous
+`WriteRejected` with `Memory` and no `OperationIndex`. Argument, binding
+and schema errors already found retain their place in the order of errors.
+Later getters and collection elements remain unread. With sufficient
+capacity, preserve the established validation order and failures for
+full values and updates, including duplicate, submitted and closed
+checks. A closed instance still reports its ordinary close error. Use
+the actual capacity of the next allocation and reserve it before taking
+it. As the caller's values are visited, each getter is read once.
+
+Cover an open master and child with the same record that contains a key
+and a large List, followed by a required field with no value. With
+sufficient capacity this reports `ValidationFailed`. Before the later
+field, a genuine snapshot allocation boundary reports `Memory`. Also
+check an earlier error at that same capacity, exact getter calls on a
+bound class, and the owned nested snapshot of `AddUpdate`. Preserve
+existing members, identities, values and an unconsumed update across
+both failures. The independent inventory must see the temporary charge
+returned. After capacity returns, a repeated addition reaches the
+original late validation error.
 
 Submitting the completed batch transfers ownership of its charged input.
 Waiting adds no new preparation reservation. Commit can independently
