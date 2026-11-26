@@ -226,7 +226,8 @@ public sealed class LatticeDatabaseOptions
     /// If the budget cannot hold a child's initial state, its open fails with
     /// <see cref="LatticeErrorEnum.Unavailable"/>. A ready child pauses incremental application
     /// when it cannot hold the next change. It continues serving local reads at its applied
-    /// position and retries the blocked change in order when capacity becomes available.
+    /// position. While its connection remains usable, it retries the blocked change in order
+    /// when capacity becomes available.
     /// </para>
     /// </remarks>
     public long? MemoryLimit { get; init; }

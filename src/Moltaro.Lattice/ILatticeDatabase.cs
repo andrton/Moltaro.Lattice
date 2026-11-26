@@ -130,7 +130,8 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// reached, nothing arrives for <see cref="LatticeDatabaseOptions.OpenTimeout"/>, or the
     /// initial state exceeds the child's memory budget or addressable root slots.
     /// Once ready, a child under capacity pressure keeps its local reads and applied position.
-    /// It resumes applying in order when it can hold the first blocked change.
+    /// While its connection remains usable, it resumes applying in order when it can hold
+    /// the first blocked change.
     /// </para>
     /// <para>
     /// A master and its children can be opened in one process. Cancelling or failing the
