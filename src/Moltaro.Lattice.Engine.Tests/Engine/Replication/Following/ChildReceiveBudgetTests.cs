@@ -373,28 +373,33 @@ public sealed class ChildReceiveBudgetTests
 
             return [frame];
         });
-        await using var control = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var allocator = new CountingNativeAllocator();
+        await using var control = await ReplicationNodes.OpenChildAsync(relay.Address, new EngineTestInputs
+        {
+            Allocator = allocator,
+            DisableBackgroundMaintenance = true,
+        });
         var set = control.Set<TEntity>();
         // The duplicate check happens on the master. This sends a complete short
-        // request without changing the real master's starting position.
-        var measured = GC.GetAllocatedBytesForCurrentThread();
+        // request without changing the real master's starting position. Size the
+        // owned forwarding peak, which excludes transient CLR/JIT allocations.
+        var before = ExpectCapacity(control, allocator);
+        control.ResetBudgetPeak();
         var writing = set.InsertAsync(existing).AsTask();
-        var encodingAndCall = GC.GetAllocatedBytesForCurrentThread() - measured;
         long forwardingBytes;
         try
         {
             await hasReply.Task.WaitAsync(Bound);
             Assert.False(writing.IsCompleted);
-            Assert.True(encodingAndCall > 512);
             var follower = Backing<Follower>(control, "_follower");
             var pending = Backing<object>(follower, "_pending");
             var sender = Backing<object>(follower, "_sender");
             var calls = DictionaryArrays(Backing<object>(pending, "_calls"));
             var offers = Backing<Array>(Backing<object>(sender, "_queue"), "_array");
             Assert.NotEmpty(calls);
-            // Include the actual sender-side backing even when the measured
-            // caller already paid for some of it while queueing the request.
-            forwardingBytes = encodingAndCall + ManagedObjectSize(offers) + calls.Sum(ManagedObjectSize);
+            var held = ExpectCapacity(control, allocator, out _, [offers, .. calls]);
+            forwardingBytes = held.PeakBytes - before.ChargedBytes;
+            Assert.True(forwardingBytes > 512);
         }
         finally
         {

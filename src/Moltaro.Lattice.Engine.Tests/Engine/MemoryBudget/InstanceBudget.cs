@@ -19,6 +19,9 @@ internal static class InstanceBudget
     public const string Pending = "The instance memory budget is not implemented yet.";
     public const int Segment = 4 * 1024 * 1024;
     public const long OneSegmentWithReceive = 2L * Segment - 256 * 1024;
+    private static readonly Func<object, nuint> RawObjectSize = typeof(RuntimeHelpers)
+        .GetMethod("GetRawObjectDataSize", BindingFlags.Static | BindingFlags.NonPublic)!
+        .CreateDelegate<Func<object, nuint>>();
 
     public static EngineDatabase Master(long limit, CountingNativeAllocator allocator, int? rootPageLimit = null, bool listen = false,
         LatticeSchema? schema = null, IPersistence? persistence = null) =>
@@ -102,9 +105,6 @@ internal static class InstanceBudget
             return value;
         });
 
-    // The tests run on the .NET 10 64-bit hosts. Size the actual arrays by lengths and element
-    // widths, independently of the reservation. Typed allocation gives the size of an owned
-    // stand-alone object without relying on the budget's arithmetic.
     public static T Backing<T>(object owner, string field) =>
         (T)owner.GetType().GetField(field, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.GetValue(owner)!;
 
@@ -129,6 +129,7 @@ internal static class InstanceBudget
 
     public static long ManagedObjectSize(object backing)
     {
+        // The tests run on 64-bit .NET 10. Array widths and lengths are independent of the reservation.
         if (backing is Array array)
         {
             var element = array.GetType().GetElementType()!;
@@ -136,22 +137,13 @@ internal static class InstanceBudget
             return Align(3L * IntPtr.Size + array.LongLength * width);
         }
 
-        return (long)typeof(InstanceBudget).GetMethod(nameof(AllocatedObjectSize), BindingFlags.Static | BindingFlags.NonPublic)!
-            .MakeGenericMethod(backing.GetType()).Invoke(null, null)!;
+        // Size the existing object. A first allocation following collection of the
+        // weak RuntimeType cache also includes allocation of that metadata.
+        return checked((long)RawObjectSize(backing) + 2L * IntPtr.Size);
     }
 
     private static long Align(long bytes) => (bytes + IntPtr.Size - 1) / IntPtr.Size * IntPtr.Size;
 
     private static int SizeOf(Type element) =>
         (int)typeof(Unsafe).GetMethod(nameof(Unsafe.SizeOf))!.MakeGenericMethod(element).Invoke(null, null)!;
-
-    private static long AllocatedObjectSize<T>() where T : class
-    {
-        GC.KeepAlive(RuntimeHelpers.GetUninitializedObject(typeof(T)));
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        var value = RuntimeHelpers.GetUninitializedObject(typeof(T));
-        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
-        GC.KeepAlive(value);
-        return bytes;
-    }
 }
