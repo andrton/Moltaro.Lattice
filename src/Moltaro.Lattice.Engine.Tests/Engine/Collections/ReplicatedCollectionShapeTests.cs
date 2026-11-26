@@ -1,12 +1,15 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
+using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
+using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
@@ -46,6 +49,178 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
 
             return result;
         }
+    }
+
+    public static TheoryData<LatticeFieldTypeEnum, string, string> BudgetCases
+    {
+        get
+        {
+            var cases = new TheoryData<LatticeFieldTypeEnum, string, string>();
+            for (var index = 0; index < PrimaryKeys.Length; index++)
+            {
+                for (var encoding = 0; encoding < Encodings.Length; encoding++)
+                {
+                    var profiles = CollectionMatrixProfile.All;
+                    cases.Add(PrimaryKeys[index], Encodings[encoding], profiles[(index + encoding) % profiles.Count].Name);
+                }
+            }
+
+            return cases;
+        }
+    }
+
+    [Fact]
+    public void The_capacity_cases_cover_each_key_encoding_and_each_distinct_collection_profile()
+    {
+        var rows = BudgetCases.Select(row => row.Data).ToArray();
+        var legalKeys = Enum.GetValues<LatticeFieldTypeEnum>().Where(FieldTypes.CanBeKey);
+        var expected = from key in legalKeys from encoding in Encodings select (key, encoding);
+        Assert.Equal(expected.Order(), rows.Select(row => (row.Item1, row.Item2)).Order());
+        Assert.Equal(CollectionMatrixProfile.All.Select(profile => profile.Name).Order(),
+            rows.Select(row => row.Item3).Distinct().Order());
+    }
+
+    [Theory]
+    [MemberData(nameof(BudgetCases))]
+    public async Task Capacity_and_ownership_reconcile_across_inline_and_external_load_full_sparse_and_delete_effects(
+        LatticeFieldTypeEnum keyType, string encoding, string profileName)
+    {
+        var profile = CollectionMatrixProfile.All.Single(candidate => candidate.Name == profileName);
+        var schema = profile.Schema(keyType, encoding);
+        var entries = EntryLayout(schema);
+        var masterAllocator = new CountingNativeAllocator();
+        await using var master = await OpenAsync(64L * Segment, masterAllocator, listen: true, schema: schema);
+        var source = master.Set("Item");
+        var inlineKey = KeyOf(keyType, 0);
+        var externalKey = KeyOf(keyType, 1);
+        var externalCount = profile.Counts(entries).Max();
+        await source.InsertAsync(Record(source, inlineKey, 1, Initial, profile.Values(1, Initial)));
+        await source.InsertAsync(Record(source, externalKey, externalCount, Initial, profile.Values(externalCount, Initial)));
+        var childAllocator = new CountingNativeAllocator();
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
+        {
+            Allocator = childAllocator,
+            DisableBackgroundMaintenance = true,
+            IndexSeed = 91,
+        });
+        var mirror = child.Set("Item");
+        Assert.Equal(master.Position, child.Position);
+        ExpectBoth(master, child, profile, inlineKey, 1, Initial, profile.Values(1, Initial), profile.ExpectedShape(entries, 1));
+        ExpectBoth(master, child, profile, externalKey, externalCount, Initial, profile.Values(externalCount, Initial),
+            profile.ExpectedShape(entries, externalCount));
+        ExpectOwned();
+
+        var replacedValues = profile.Values(externalCount, Replaced);
+        var replacement = await mirror.ReplaceAsync(Record(mirror, inlineKey, 1, Replaced, replacedValues));
+        Assert.Equal(replacement.Position, child.Position);
+        ExpectBoth(master, child, profile, inlineKey, 1, Replaced, replacedValues, profile.ExpectedShape(entries, externalCount));
+        ExpectOwned();
+
+        var update = mirror.CreateUpdate(externalKey);
+        update.Assign("Stamp", Edited);
+        var commands = profile.Edit(update, externalCount, Edited, Initial);
+        var sparse = await update.CommitAsync();
+        Assert.Equal(sparse.Position, child.Position);
+        Assert.All(commands, command => Assert.True(command.Changed));
+        ExpectBoth(master, child, profile, externalKey, externalCount, Edited, profile.AfterEdit(externalCount, Initial, Edited),
+            profile.ExpectedShape(entries, externalCount));
+        ExpectOwned();
+
+        var removed = await mirror.DeleteAsync(inlineKey);
+        Assert.Equal(removed.Position, child.Position);
+        Assert.Null(source.Get(inlineKey));
+        Assert.Null(mirror.Get(inlineKey));
+        ExpectOwned();
+
+        void ExpectOwned()
+        {
+            OwnershipAudit.Expect(master);
+            OwnershipAudit.Expect(child);
+            Assert.True(ExpectCapacity(master, masterAllocator).NativeBytes > 0);
+            Assert.True(ExpectCapacity(child, childAllocator).NativeBytes > 0);
+        }
+    }
+
+    [Theory]
+    [InlineData(LatticeFieldTypeEnum.Int8, "Utf8", "PackedList", false)]
+    [InlineData(LatticeFieldTypeEnum.String, "Utf16", "RecordList", true)]
+    [InlineData(LatticeFieldTypeEnum.UInt32, "Utf8", "PackedMap", true)]
+    [InlineData(LatticeFieldTypeEnum.Guid, "Utf16", "RecordMap", false)]
+    [InlineData(LatticeFieldTypeEnum.Int16, "Utf8", "PackedSet", false)]
+    [InlineData(LatticeFieldTypeEnum.String, "Utf8", "RecordSet", true)]
+    public async Task A_collection_placement_that_cannot_fit_leaves_no_prepared_storage_and_replays_from_its_prefix(
+        LatticeFieldTypeEnum keyType, string encoding, string profileName, bool sparse)
+    {
+        var profile = CollectionMatrixProfile.All.Single(candidate => candidate.Name == profileName);
+        var schema = profile.Schema(keyType, encoding);
+        var entries = EntryLayout(schema);
+        var first = KeyOf(keyType, 0);
+        var second = KeyOf(keyType, 1);
+        var count = profile.Counts(entries).Max();
+        var masterAllocator = new CountingNativeAllocator();
+        await using var master = await OpenAsync(64L * Segment, masterAllocator, listen: true, schema: schema);
+        var source = master.Set("Item");
+        var original = await source.InsertAsync(Record(source, first, 1, Initial, profile.Values(1, Initial)));
+        var pressure = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allocator = new CountingNativeAllocator();
+        await using var child = await ReplicationNodes.OpenChildAsync(
+            ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
+            new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = sample => pressure.TrySetResult(sample) });
+        var mirror = child.Set("Item");
+        Assert.True(mirror.TryGet(first, out _, out var revision));
+        var taken = await MaintenanceStep.RunAfterAdmissionAsync(child, parts =>
+        {
+            const int payload = 65_536 - 32;
+            var held = new List<ArenaAddress>();
+            while (parts.Arena.TryAllocatePrepared(payload, BlockKindEnum.Value, new RootHandle(1, 1), out var address))
+            {
+                held.Add(address);
+            }
+
+            return held;
+        });
+        Assert.NotEmpty(taken);
+        var before = ExpectCapacity(child, allocator);
+        var earlierPrepared = child.Counters.Arena.PreparedBytes;
+        Assert.Equal((long)taken.Count * 65_536, earlierPrepared);
+        var input = profile.Values(count, Replaced);
+        LatticeWriteResult committed;
+        if (sparse)
+        {
+            var update = source.CreateUpdate(first);
+            update.Assign("Stamp", Replaced);
+            update.Assign("Values", input);
+            committed = await update.CommitAsync().AsTask().WaitAsync(Bound);
+        }
+        else
+        {
+            committed = await source.InsertAsync(Record(source, second, count, Replaced, input)).AsTask().WaitAsync(Bound);
+        }
+        var stopped = await pressure.Task.WaitAsync(Bound);
+        Assert.Equal(committed.Position.Sequence, stopped.Sequence);
+        Assert.Equal(LatticeLimitEnum.Memory, stopped.Limit);
+        Assert.False(stopped.DuringReceive);
+        Assert.Equal(original.Position, child.Position);
+        Assert.Null(mirror.Get(second));
+        Assert.True(mirror.TryGet(first, out _, out var still));
+        Assert.Equal(revision, still);
+        Assert.Equal(1, child.Counters.RootEntries);
+        Assert.Equal(earlierPrepared, child.Counters.Arena.PreparedBytes);
+        Assert.Equal(before.NativeBytes, ExpectCapacity(child, allocator).NativeBytes);
+
+        _ = await MaintenanceStep.RunAfterAdmissionAsync(child, parts =>
+        {
+            foreach (var address in taken)
+            {
+                parts.Arena.Free(address);
+            }
+
+            return true;
+        });
+        await child.WaitForPositionAsync(committed.Position, Bound);
+        ExpectBoth(master, child, profile, sparse ? first : second, sparse ? 1 : count, Replaced, input, profile.ExpectedShape(entries, count));
+        OwnershipAudit.Expect(child);
+        ExpectCapacity(child, allocator);
     }
 
     [Fact]
@@ -160,7 +335,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
 
             var update = replica.CreateUpdate(key);
             var stamp = update.Assign("Stamp", Edited);
-            var commands = profile.Edit(update, nextCount, Edited);
+            var commands = profile.Edit(update, nextCount, Edited, Replaced);
             foreach (var command in commands)
             {
                 Assert.Throws<InvalidOperationException>(() => command.Changed);

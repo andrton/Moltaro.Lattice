@@ -21,4 +21,10 @@ public enum LatticeLimitEnum
     /// write it cannot hold is refused with <see cref="LatticeErrorEnum.WriteRejected"/>.
     /// </summary>
     Memory = 3,
+
+    /// <summary>
+    /// The engine has no addressable root slot for a new entity lifetime. A write that needs
+    /// another slot is refused with <see cref="LatticeErrorEnum.WriteRejected"/>.
+    /// </summary>
+    RootSlots = 4,
 }

@@ -360,7 +360,7 @@ internal static class ChurnScenario
 
             if (frame.Collection is ChurnTrace.CollectionChangeEnum.Grow or ChurnTrace.CollectionChangeEnum.Trim)
             {
-                Wait(audit.EditCollectionsAsync(master, frame, trace.CollectionExtra, stop));
+                _ = Wait(audit.EditCollectionsAsync(master, frame, trace.CollectionExtra, stop));
                 collectionWrites++;
             }
 

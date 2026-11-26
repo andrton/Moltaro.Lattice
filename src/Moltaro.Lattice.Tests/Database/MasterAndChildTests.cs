@@ -152,7 +152,8 @@ public sealed class MasterAndChildTests
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
             ListenUri = MasterAndChild.Loopback,
-            MemoryLimit = 8L * Mebibyte,
+            // Hold the forwarded body with the first native grant, but not a third grant.
+            MemoryLimit = 11L * Mebibyte,
         });
         await using var child = await TestData.OpenChildAsync(master.ListenUri!);
         static LatticeRecord Setting(ILatticeSet settings, string name, int payload) =>

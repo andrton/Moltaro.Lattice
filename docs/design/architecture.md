@@ -14,7 +14,11 @@ master-coordinated writes and local read replicas, with PostgreSQL durability.
 ## Engine and distribution
 
 One instance owns one database: schema, data, indexes, strings and memory budget.
-The same engine runs embedded in an application or in a dedicated service.
+The same engine runs embedded in an application or in a dedicated service. The budget
+covers complete native segment grants, their empty reserve, engine-owned managed
+backing and the capacity needed for preparation and active connections. Reader-held
+backing remains charged until it can be released. The master accounts for its retained
+delivery blocks separately. See [capacity and ownership](milestone-1-engine-contract.md#initial-bounded-settings).
 
 <!-- DIAGRAM:architecture -->
 
@@ -154,24 +158,28 @@ unchanged value blocks with the previous version. An unchanged update keeps the 
 and revision and publishes a position. Expected revisions protect against conflicting
 changes. A successful update reports each command's outcome in its original order.
 
-A write can also be refused before it executes, or wait a bounded time: when the master
-cannot reserve memory within its budget, when the journal has reached its hard limit, or
-while PostgreSQL is unavailable.
+A master refuses a write before publication if it cannot reserve the required memory
+or address a usable root slot. The exception reports `WriteRejected` with `Memory` or
+`RootSlots`, respectively. A resource failure of a batch has no operation index. While
+PostgreSQL is unavailable, a durable write may wait a bounded time. The journal can
+also refuse a durable write at its configured hard limit.
 
 <!-- DIAGRAM:write -->
 
 ### A WriteBatch is one transaction
 
 A batch may change different entity types in the same database. It contains
-at most one operation per type/key. A batch has no limit of its own on the number of entities or on its size; it is refused
-only when the memory budget or the journal cannot hold it. Neither has one entity. Validation, durable effects and publication preserve
-its all-or-nothing boundary. A batch can mix complete writes, deletes and partial
-updates. Children preserve that boundary during replay.
+at most one operation per type/key. Resources bound the size of a batch or entity.
+Each addition reserves local capacity for its input snapshot. An addition that exceeds
+that capacity leaves the batch as it was. Execution separately reserves the capacity
+it needs. Validation, durable effects and publication preserve the all-or-nothing
+boundary for a batch of complete writes, deletes or partial updates. Children preserve
+that boundary during replay.
 
 It is a transaction of the database, not one the application works inside: a batch
 cannot read, and there is no interactive read/write transaction.
 
-Batch construction holds no locks. Readers continue during storage I/O; while the batch
+Readers continue during storage I/O. While the batch
 is published, only a read that meets one of its entities waits, until its position is
 published, and a read that begins at that position sees all of it. A search or an
 enumeration that runs across the publication is no snapshot: it may return some entities of
@@ -202,7 +210,13 @@ is planned and not built yet.
 A new child receives the whole database, builds local indexes and catches up through a
 fixed published position before opening reads. The stream carries the effective fields
 and collection edits of a partial update and identifies the root version they extend.
-Capture and complete writes still send whole roots.
+Capture and complete writes send whole roots. If the child cannot hold the initial
+state, opening fails with `Unavailable`. A ready child with insufficient capacity
+keeps its applied position and local reads. It retains the blocked frame or assembled
+transaction and retries in order on the same connection when useful capacity returns.
+Only a fully applied transaction advances its applied position. If the shortage
+persists, a stalled cursor can retain delivery history on the master. A delivery
+retention limit and reconnect with reload are planned.
 
 <!-- DIAGRAM:replication -->
 
@@ -218,11 +232,13 @@ the committed position: the write is not rolled back and must not be sent again.
 
 Waiting does not freeze the database or chase a moving latest position. A later update
 may already be visible. Unconstrained reads can use intact local state during lag or
-disconnection; status reports the observed progress and whether it is current or unknown.
+disconnection. A ready child reports its applied position. Public diagnostics for
+master progress and pressure are planned.
 
 The master retains a shared delivery tail only while recipients need it; its bound is
 planned and not built yet.
-Acknowledged payloads are released. A child that needs changes the master no longer
+Acknowledgements release delivery claims. In the planned reconnect flow, a child that
+needs changes the master no longer
 retains reloads fully, with one arena and bounded read waiting; an empty restarted child
 cannot serve data offline.
 

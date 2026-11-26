@@ -127,7 +127,14 @@ public sealed class StandingReserveTests
     [Fact]
     public async Task Database_whose_memory_limit_is_below_the_reserves_of_its_indexes_opens_writes_what_fits_by_itself_and_refuses_with_nothing_left_taken_what_does_not()
     {
-        var arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 2L * Arena.MaxBlockSize, ReservedSegments = 0 };
+        // Two regions make the index reserve compete with the write for reusable native slots.
+        var arena = new ArenaOptions
+        {
+            SegmentSize = Arena.MaxBlockSize,
+            MemoryLimit = 4L * 1024 * 1024,
+            NativeCapacityLimit = 2L * Arena.MaxBlockSize,
+            ReservedSegments = 0,
+        };
 
         await using var database = await EngineMaster.OpenAsync(SpreadSchema, new EngineTestInputs { Arena = arena });
         var spread = database.Set("Spread");

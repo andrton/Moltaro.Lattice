@@ -12,7 +12,7 @@ public sealed class GivenBackSlotTests
     [Fact]
     public async Task Child_loads_from_a_master_whose_root_table_holds_the_slot_of_an_insert_the_arena_refused()
     {
-        var inputs = new EngineTestInputs { Arena = new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize } };
+        var inputs = new EngineTestInputs { Arena = new ArenaOptions { MemoryLimit = MemoryBudget.InstanceBudget.OneSegmentWithReceive } };
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, inputs);
         await Pieces.InsertAsync(master, 1, 2, dataBytes: 16);
 

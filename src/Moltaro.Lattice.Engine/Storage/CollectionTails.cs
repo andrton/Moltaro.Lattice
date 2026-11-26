@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Budgeting;
+
 namespace Moltaro.Lattice.Storage;
 
 // The writer's spare lookup slots (Q17, allocation-and-compaction.md). A slot
@@ -17,8 +19,42 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     private readonly Dictionary<RootHandle, Dictionary<int, CollectionTail>> _owners = [];
     private readonly Dictionary<ArenaAddress, Dictionary<int, CollectionTailEdit>?> _preparations = [];
-    private readonly Dictionary<ArenaAddress, CollectionTail> _borrowed = [];
+    private Dictionary<ArenaAddress, CollectionTail> _borrowed = [];
+    private BackingHistory<Dictionary<ArenaAddress, CollectionTail>>? _borrowHistory;
     private readonly LinkedList<CollectionTail> _ready = new();
+
+    private const string BudgetOwner = nameof(CollectionTails);
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(7L * IntPtr.Size);
+    private static long ReadyBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 2 * sizeof(int));
+    private MemoryBudget? Budget => arena.Budget;
+    private static long TailBytes => MemoryBudget.ObjectBytes(7L * sizeof(long) + IntPtr.Size + 5 * sizeof(int) + 4);
+    private static long WorkBytes => MemoryBudget.ObjectBytes(4L * IntPtr.Size);
+
+    public static CollectionTails Create(Arena arena, TimeProvider time)
+    {
+        var budget = arena.Budget;
+        var required = OwnerBytes + ReadyBytes + 3 * BudgetDictionaries.OwnerBytes;
+        budget?.Reserve(required);
+        try
+        {
+            var tails = new CollectionTails(arena, time);
+            if (budget is not null)
+            {
+                budget.Own(tails, BudgetOwner);
+                budget.Own(tails._owners, BudgetOwner);
+                budget.Own(tails._preparations, BudgetOwner);
+                budget.Own(tails._borrowed, BudgetOwner);
+                budget.Own(tails._ready, BudgetOwner);
+            }
+
+            return tails;
+        }
+        catch
+        {
+            budget?.Release(required);
+            throw;
+        }
+    }
 
     public bool HasOwner(RootHandle handle) => _owners.ContainsKey(handle);
 
@@ -26,7 +62,11 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     // A sparse root keeps its leases even when none of their fields changes.
     // Only an actual collection edit needs a field table.
-    public void PrepareSparse(ArenaAddress root) => _preparations.Add(root, null);
+    public void PrepareSparse(ArenaAddress root)
+    {
+        _preparations.EnsureCapacity(_preparations.Count + 1, Budget, BudgetOwner);
+        _preparations.Add(root, null);
+    }
 
     public void PrepareChange(ArenaAddress root, RootHandle handle, int offset, ArenaAddress former, int active, int need)
     {
@@ -36,33 +76,54 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             return;
         }
 
+        var edits = Preparation(root);
+        edits.EnsureCapacity(edits.Count + 1, Budget, BudgetOwner);
         var isNew = tail is null;
-        if (tail is null)
-        {
-            tail = new CollectionTail(handle, offset);
-            tail.Work = new LinkedListNode<CollectionTail>(tail);
-        }
-
-        Preparation(root).Add(offset, new(tail, former, active, need, isNew, Ended: false));
-        tail.PendingEdit = true;
         if (isNew)
         {
-            if (_owners.TryGetValue(handle, out var fields))
+            var newFields = !_owners.TryGetValue(handle, out var fields);
+            if (newFields)
             {
-                fields.Add(offset, tail);
+                _owners.EnsureCapacity(_owners.Count + 1, Budget, BudgetOwner);
+                fields = BudgetDictionaries.Create<int, CollectionTail>(Budget, BudgetOwner);
             }
-            else
+
+            try
             {
-                _owners.Add(handle, new Dictionary<int, CollectionTail> { [offset] = tail });
+                var fieldTable = fields!;
+                fieldTable.EnsureCapacity(fieldTable.Count + 1, Budget, BudgetOwner);
+                tail = MakeTail(handle, offset);
+                fieldTable.Add(offset, tail);
+                if (newFields)
+                {
+                    _owners.Add(handle, fieldTable);
+                }
+            }
+            catch
+            {
+                if (newFields)
+                {
+                    Budget?.ReleaseDictionary(fields!, includesOwner: true);
+                }
+
+                throw;
             }
         }
+
+        edits.Add(offset, new(tail!, former, active, need, isNew, Ended: false));
+        tail!.PendingEdit = true;
     }
 
     public void PrepareEnd(ArenaAddress root, RootHandle handle, int offset)
     {
         if (Find(handle, offset) is { } tail)
         {
-            Preparation(root).TryAdd(offset, new(tail, default, 0, 0, NewOwner: false, Ended: true));
+            var edits = Preparation(root);
+            if (!edits.ContainsKey(offset))
+            {
+                edits.EnsureCapacity(edits.Count + 1, Budget, BudgetOwner);
+                edits.Add(offset, new(tail, default, 0, 0, NewOwner: false, Ended: true));
+            }
             tail.PendingEdit = true;
         }
     }
@@ -78,6 +139,8 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
                 {
                     End(tail);
                 }
+
+                Budget?.ReleaseDictionary(fields, includesOwner: true);
             }
 
             return;
@@ -113,6 +176,8 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             Refresh(tail);
             ForgetEmpty(tail);
         }
+
+        Budget?.ReleaseDictionary(edits, includesOwner: true);
     }
 
     public void Abandon(ArenaAddress root)
@@ -131,6 +196,8 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
                     ForgetEmpty(edit.Tail);
                 }
             }
+
+            Budget?.ReleaseDictionary(edits, includesOwner: true);
         }
     }
 
@@ -151,6 +218,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         }
 
         // Reserve rollback state before changing any native link.
+        ReserveBorrow();
         _borrowed.Add(slot, tail);
         Pop(tail, full);
         tail.BorrowedSlots += bytes / sizeof(ulong);
@@ -169,6 +237,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         arena.RestoreColdLookupSlot(slot);
         tail.BorrowedSlots -= slots;
         Push(tail, slot, slots);
+        ReleaseBorrowCapacity();
         return true;
     }
 
@@ -177,6 +246,63 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         if (_borrowed.Remove(slot, out var tail))
         {
             tail.BorrowedSlots -= arena.Payload(slot).Length / sizeof(ulong);
+            ReleaseBorrowCapacity();
+        }
+    }
+
+    private void ReserveBorrow()
+    {
+        var count = _borrowed.Count + 1;
+        var current = _borrowed.EnsureCapacity(0);
+        if (count <= current)
+        {
+            return;
+        }
+
+        if (Budget is not { } budget)
+        {
+            _borrowed.EnsureCapacity(count);
+            return;
+        }
+
+        var grown = BudgetDictionaries.Create<ArenaAddress, CollectionTail>(budget, BudgetOwner);
+        try
+        {
+            grown.EnsureCapacity(BudgetCollections.CapacityFor(current, count), budget, BudgetOwner);
+            foreach (var (slot, tail) in _borrowed)
+            {
+                grown.Add(slot, tail);
+            }
+
+            _borrowHistory = BackingHistory<Dictionary<ArenaAddress, CollectionTail>>.Keep(_borrowed, _borrowHistory, budget, BudgetOwner);
+        }
+        catch
+        {
+            budget.ReleaseDictionary(grown, includesOwner: true);
+            throw;
+        }
+
+        _borrowed.Clear();
+        _borrowed = grown;
+    }
+
+    // The old tables have room for the live loans but hold no stale copies of their owners.
+    // Restore from the actual surviving set under Writes, with no new allocation at withdrawal.
+    private void ReleaseBorrowCapacity()
+    {
+        while (_borrowHistory is { } history && history.Backing.EnsureCapacity(0) >= _borrowed.Count)
+        {
+            var previous = _borrowed;
+            foreach (var (slot, tail) in previous)
+            {
+                history.Backing.Add(slot, tail);
+            }
+
+            _borrowed = history.Backing;
+            _borrowHistory = history.Earlier;
+            history.Drop(Budget!);
+            previous.Clear();
+            Budget!.ReleaseDictionary(previous, includesOwner: true);
         }
     }
 
@@ -303,6 +429,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         arena.Free(Pop(tail, full));
         Refresh(tail);
         ForgetEmpty(tail);
+        ReleaseWhenUnowned(tail);
     }
 
     private IEnumerable<CollectionTail> SpareTails()
@@ -362,7 +489,12 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
     {
         if (!_preparations.TryGetValue(root, out var changes) || changes is null)
         {
-            changes = [];
+            if (!_preparations.ContainsKey(root))
+            {
+                _preparations.EnsureCapacity(_preparations.Count + 1, Budget, BudgetOwner);
+            }
+
+            changes = BudgetDictionaries.Create<int, CollectionTailEdit>(Budget, BudgetOwner);
             _preparations[root] = changes;
         }
 
@@ -416,6 +548,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         tail.Ended = true;
         tail.Transferring = default;
         Refresh(tail);
+        ReleaseWhenUnowned(tail);
     }
 
     private void Refresh(CollectionTail tail)
@@ -465,7 +598,45 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             if (fields.Count == 0)
             {
                 _owners.Remove(tail.Owner);
+                Budget?.ReleaseDictionary(fields, includesOwner: true);
             }
+        }
+
+        ReleaseWhenUnowned(tail);
+    }
+
+    private CollectionTail MakeTail(RootHandle handle, int offset)
+    {
+        var budget = Budget;
+        budget?.Reserve(TailBytes + WorkBytes);
+        try
+        {
+            var tail = new CollectionTail(handle, offset);
+            tail.Work = new LinkedListNode<CollectionTail>(tail);
+            if (budget is not null)
+            {
+                tail.BudgetOwned = true;
+                budget.Own(tail, BudgetOwner);
+                budget.Own(tail.Work, BudgetOwner);
+            }
+
+            return tail;
+        }
+        catch
+        {
+            budget?.Release(TailBytes + WorkBytes);
+            throw;
+        }
+    }
+
+    private void ReleaseWhenUnowned(CollectionTail tail)
+    {
+        if (tail.BudgetOwned && tail.Empty && tail.Work!.List is null && !ReferenceEquals(Find(tail.Owner, tail.Offset), tail))
+        {
+            tail.BudgetOwned = false;
+            var budget = Budget!;
+            budget.Forget(tail.Work);
+            budget.Release(TailBytes + WorkBytes, tail);
         }
     }
 }

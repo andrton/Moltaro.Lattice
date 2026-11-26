@@ -12,7 +12,8 @@ repository run on it.
 
 The engine is being built in steps. Today it works in MemoryOnly mode: it stores and
 reads entities of scalar and Enum fields by primary key, under every key type and both
-text comparisons, in UTF-8 and UTF-16. The instance limits its native arena. Every
+text comparisons, in UTF-8 and UTF-16. Each instance enforces one memory budget for
+its storage, write preparation and active connections. Every
 declared secondary index is kept with the data, and an application finds entities
 through an index by its full key, by its leading fields and a range on the next, in the
 order of the index or its reverse and in pages, each entity at most once. A child loads
@@ -322,9 +323,13 @@ on any node, sees an entity of the batch changed before that position on that no
 read that begins once its node has reached that position, as a read with the session of the
 commit does, sees all of it; a search or an enumeration that runs while the batch is
 published is no snapshot and may return some of its entities as they were before and
-others as after. A batch takes one operation per entity, and its size is
-limited only by what the master can hold. It is not a transaction the application works inside: it cannot read, and it holds
-no lock while it is built.
+others as after. A batch takes one operation per entity. Building the batch takes local
+memory for its snapshots. If the local instance cannot hold an addition, the adding
+method throws `WriteRejected` with `Limit` set to `Memory`. The adding method stops
+at the first snapshot allocation it cannot fund. Later properties may still need
+validation. The previous operations stay in the batch and the addition can be tried again. `CommitAsync` checks separately whether
+execution can fit. A batch cannot read and takes no place in the write queue while it is
+being built.
 
 **Editing part of an entity.** Create an update for an existing key, give it commands in
 execution order and commit it once. Both the class set and the set by name take schema
@@ -377,6 +382,11 @@ receives nothing from it, for `OpenTimeout`, 30 seconds by default, fails its op
 `Unavailable`; until then it keeps trying, so it may be started before its master. A load
 that keeps arriving is not ended by the timeout, however long it takes, as long as each of
 its frames, at most 64 KiB and a header of 32 bytes, arrives whole within the timeout.
+If a child cannot hold its initial state, opening fails with `Unavailable`. An open
+child short of memory or usable root slots pauses at the next change. It serves local
+reads at its applied position and resumes in order when capacity returns on the same
+connection. The master keeps publishing. A stalled child can retain a growing delivery
+history on the master until the connection ends or the child catches up.
 
 **The replication port must be reachable only from the nodes of the database.** This is a
 precondition of every deployment with children. The engine authenticates nobody at that
@@ -387,7 +397,7 @@ it on a network, or behind rules, that only the master and its children reach.
 The decision and its reasons are in
 [Q15](docs/decisions/replication-and-hosting.md#q15-configured-master-and-child-connection).
 
-**Reading your own writes.** A child follows its master with a small delay. Two rules make
+**Reading your own writes.** A child follows its master as it applies each change. Two rules make
 that safe to build on:
 
 - A write submitted through an open child completes when that child has applied it, so
@@ -425,6 +435,15 @@ await child.WaitForPositionAsync(position);        // or WaitForPositionAsync(se
 
 var user = child.Set<User>().Index("ByEmail").Find(IndexKey.Equal(email)).FirstOrDefault();
 ```
+
+**Instance memory.** `LatticeDatabaseOptions.MemoryLimit` covers the capacity the engine
+owns for storage, preparing and publishing mutations, and active connections. It counts
+whole native segments, including free space and the reserve, and backing kept for readers
+or index growth. A write that cannot fit returns `WriteRejected` with `Limit` set to
+`Memory`. When every root slot is occupied or has exhausted its generation and no new
+slot can be addressed, the limit is `RootSlots`. For a batch refused by either resource,
+`OperationIndex` is null. Caller-owned data, managed enumeration workspace and the
+master's retained delivery history are outside `MemoryLimit`.
 
 **Closing a database.** By the time a master or child reports `Closed`, it has stopped
 admitting new reads and writes. A fresh uncancelled asynchronous read or write

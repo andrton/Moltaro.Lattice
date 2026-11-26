@@ -59,8 +59,8 @@ namespace Moltaro.Lattice.Engine;
 // LatticeDatabaseOptions.MemoryLimit that was given, or half of
 // GC.GetGCMemoryInfo().TotalAvailableMemoryBytes and never less than one segment when none was, so
 // that a test can state the default. When a test gave the options of the arena (EngineTestInputs.Arena)
-// they are the options of the arena, MemoryLimit of the options of the database is not read, and this
-// is the limit of those options. It is the limit of the arena (brief of S09, "The refusal").
+// the test's limit applies to the instance. Physical segment capacity, retained managed
+// backing and work in progress are governed by the same admission limit.
 //
 // The members of the children of a master (brief of Epic 1, sprint S11, "Types and members of S11"; the
 // planner's decision of 17 November 2026 after the study, points 2 to 5; Delivery.DeliveryTail), written
@@ -74,7 +74,7 @@ namespace Moltaro.Lattice.Engine;
 // some child has not applied: what it appended to the tail less what it released once every child had
 // applied it, in bytes of transactions, not of the capacity of the blocks that hold them; 0 once every
 // child has applied everything, and with no child. The blocks themselves are managed memory outside the
-// budget of the instance, without a bound of their own until S33.
+// admission budget of the instance. The physical delivery capacity is measured independently.
 //
 // The members of the text table (brief of Epic 1, sprint S13, the planner's decision after the study,
 // points 3, 7 and 9; Storage.Text.TextTable), written and read under the lock of the writes. The bytes of
@@ -85,8 +85,8 @@ namespace Moltaro.Lattice.Engine;
 // retired and not freed yet, or prepared; an entry whose last reference goes leaves at once. 0 with no
 // Dictionary text, and after a drain with no read in progress once every such text was deleted.
 //
-// TextTableBytes: the managed bytes of the text table, its slots and its bucket table. Like
-// PrimaryIndexBytes it is reported and not charged to the memory budget; that is decided with S24.
+// TextTableBytes: the managed bytes of the text table, its slots and its bucket table.
+// Like PrimaryIndexBytes, it describes backing governed by the instance budget.
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,

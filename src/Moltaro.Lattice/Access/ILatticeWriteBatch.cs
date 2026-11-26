@@ -53,15 +53,27 @@ namespace Moltaro.Lattice.Access;
 /// caller and is not safe to use from several threads at once.
 /// </para>
 /// <para>
+/// On either role, adding an operation reserves local memory for its copied input and
+/// workspace. The call reports <see cref="LatticeErrorEnum.WriteRejected"/> with
+/// <see cref="LatticeLimitEnum.Memory"/> and no <see cref="LatticeException.OperationIndex"/>
+/// when a required snapshot or working allocation cannot fit. It stops at that allocation,
+/// before taking any later input or contacting the master. An error already found while checking
+/// the input keeps its usual code. Earlier operations, the count and any update passed to the call
+/// are preserved. The caller can retry the addition when memory is available.
+/// Submitting the batch transfers its charged input to the database until that input can be
+/// released. A batch that still waits for its turn takes no new preparation reservation.
+/// </para>
+/// <para>
 /// <b>Executing.</b> The master checks every operation against the state at the moment of
 /// execution, and the unique indexes against the state the batch would leave. Two
 /// entities may therefore exchange their values of a unique index inside one batch. When
 /// any check fails, the whole batch is refused and nothing is written; the exception
 /// carries the error of the failed operation and, in
 /// <see cref="LatticeException.OperationIndex"/>, its number. A batch has no limit of its
-/// own. The master refuses one it cannot hold — within its memory budget, or within a limit
-/// of its journal when one is set — with <see cref="LatticeErrorEnum.WriteRejected"/>, before
-/// anything is written.
+/// own. The master refuses a batch it cannot hold within an instance resource, such as memory
+/// or addressable root slots, with <see cref="LatticeErrorEnum.WriteRejected"/> before anything
+/// is written. A refusal for either resource leaves <see cref="LatticeException.OperationIndex"/>
+/// unset.
 /// </para>
 /// <para>
 /// A batch submitted through a child is executed by the master and completes when that
@@ -86,6 +98,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the entity violates the schema.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -99,6 +112,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -111,6 +125,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -128,6 +143,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -141,6 +157,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -157,6 +174,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -172,6 +190,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -187,6 +206,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -205,6 +225,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -225,6 +246,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -244,6 +266,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -264,6 +287,7 @@ public interface ILatticeWriteBatch
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
     /// </exception>
     /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
@@ -278,7 +302,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="ArgumentNullException">The update is null.</exception>
     /// <exception cref="ArgumentException">The update belongs to another database instance or the batch already addresses this entity.</exception>
     /// <exception cref="InvalidOperationException">The update is empty, or the update or batch is already submitted.</exception>
-    /// <exception cref="LatticeException"><see cref="LatticeErrorEnum.ValidationFailed"/> when copied operands violate the schema.</exception>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/> when copied operands violate the schema.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Update(LatticeUpdate update);
 
@@ -291,7 +318,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="ArgumentNullException">The update is null.</exception>
     /// <exception cref="ArgumentException">The update belongs to another database instance or the batch already addresses this entity.</exception>
     /// <exception cref="InvalidOperationException">The update is empty, or the update or batch is already submitted.</exception>
-    /// <exception cref="LatticeException"><see cref="LatticeErrorEnum.ValidationFailed"/> when copied operands violate the schema.</exception>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/> when copied operands violate the schema.
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> when the instance cannot hold the addition.
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Update(LatticeUpdate update, LatticeRevision expectedRevision);
 

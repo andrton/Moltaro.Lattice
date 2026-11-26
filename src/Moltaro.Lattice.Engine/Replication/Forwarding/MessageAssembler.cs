@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 
@@ -24,7 +25,7 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // that may wait (Engine.Children).
 //
 // One thread at a time uses an assembler: the task that receives on the connection.
-internal sealed class MessageAssembler
+internal sealed class MessageAssembler(MemoryBudget? budget = null, bool borrowsSingleFrame = false)
 {
     // The message in progress: its correlation id, its body, whose bytes are still to arrive, whether it is
     // dropped, and the pieces taken so far; nothing is in progress while its body is not.
@@ -39,6 +40,9 @@ internal sealed class MessageAssembler
     private MessagePiece? _last;
 
     private long _held;
+    private MemoryLease? _lease;
+
+    public MemoryLease? TakeLease() => Interlocked.Exchange(ref _lease, null);
 
     // Whether a message is in progress: the next frame continues it, rather than beginning one.
     public bool InProgress => _message.InProgress;
@@ -79,7 +83,16 @@ internal sealed class MessageAssembler
             return MessageStepEnum.Refused;
         }
 
-        Take(held);
+        if (complete && borrowsSingleFrame)
+        {
+            body = new ReadOnlySequence<byte>(frame.Payload[sizeof(ulong)..]);
+            return MessageStepEnum.Whole;
+        }
+
+        if (!TryTake(held, complete))
+        {
+            return MessageStepEnum.Refused;
+        }
 
         if (complete)
         {
@@ -94,6 +107,7 @@ internal sealed class MessageAssembler
     // Forgets the message in progress, when the connection it arrived on has ended: nothing of it is used.
     public void Reset()
     {
+        TakeLease()?.Dispose();
         _message.Reset();
         _dropping = false;
         _first = null;
@@ -125,7 +139,10 @@ internal sealed class MessageAssembler
             return MessageStepEnum.Dropped;
         }
 
-        Take(payload);
+        if (!TryTake(payload, complete))
+        {
+            return MessageStepEnum.Refused;
+        }
 
         if (!complete)
         {
@@ -137,19 +154,38 @@ internal sealed class MessageAssembler
         return MessageStepEnum.Whole;
     }
 
-    private void Take(ReadOnlySpan<byte> bytes)
+    private bool TryTake(ReadOnlySpan<byte> bytes, bool complete)
     {
         if (bytes.IsEmpty)
         {
-            return;
+            return true;
         }
 
-        var piece = new MessagePiece(bytes, _held);
+        MessagePiece piece;
+        try
+        {
+            if (budget is not null)
+            {
+                _lease ??= new MemoryLease(budget);
+            }
+
+            piece = MessagePiece.Create(bytes, _held, _lease);
+        }
+        catch (BudgetRefusedException)
+        {
+            TakeLease()?.Dispose();
+            _first = null;
+            _last = null;
+            _held = 0;
+            _dropping = !complete;
+            return false;
+        }
 
         _last?.Append(piece);
         _first ??= piece;
         _last = piece;
         _held += bytes.Length;
+        return true;
     }
 
     // The body of the message that is whole, which is the caller's from now on.

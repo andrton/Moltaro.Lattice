@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Replication.Load;
 
@@ -22,12 +24,13 @@ namespace Moltaro.Lattice.Replication.Load;
 // next frame is received. A root of several frames is collected in a TransferBuffer, which takes the
 // pieces the root needs as its bytes arrive and keeps them for the next large root: a child holds one
 // root at a time outside its arena.
-internal sealed class RootAssembler
+internal sealed class RootAssembler : IDisposable
 {
     // The type id, the last mutation sequence and the layout version that begin every root.
     public const int EnvelopeSize = RootEnvelope.Size + sizeof(uint);
 
-    private readonly TransferBuffer _large = new();
+    private readonly TransferBuffer _large;
+    private readonly MemoryBudget? _budget;
 
     // The root in progress, whose bytes are still to arrive.
     private AnnouncedBody _root;
@@ -35,9 +38,11 @@ internal sealed class RootAssembler
     // The most bytes one root may announce: the memory the child may take for its database.
     private readonly long _largestRoot;
 
-    public RootAssembler(long largestRoot)
+    public RootAssembler(long largestRoot, MemoryBudget? budget = null)
     {
         _largestRoot = largestRoot;
+        _budget = budget;
+        _large = new TransferBuffer(budget);
     }
 
     // Whether a root is in progress: at the end of a load none may be.
@@ -94,6 +99,7 @@ internal sealed class RootAssembler
 
             if (available >= length)
             {
+                completed.EnsureCapacity(completed.Count + 1, _budget, nameof(RootAssembler));
                 completed.Add(new ReadOnlySequence<byte>(payload.Slice(offset, (int)length)));
                 offset += (int)length;
 
@@ -134,7 +140,10 @@ internal sealed class RootAssembler
 
         if (complete)
         {
+            completed.EnsureCapacity(completed.Count + 1, _budget, nameof(RootAssembler));
             completed.Add(_large.Sequence);
         }
     }
+
+    public void Dispose() => _large.Dispose();
 }

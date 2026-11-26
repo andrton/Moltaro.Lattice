@@ -16,20 +16,21 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Memory;
 // same holds for a batch that waited behind a write of one of its entities and does not fit once that write
 // is published, and for a batch whose token is cancelled at the wait of the resolution of its refusal, where
 // the limit is looked at last.
-// UniqueSchema, whose Account holds a Data of the size each test gives, on an arena of four segments of
-// 4 MiB, or two, given through the inputs of a test (exception X3); every wait is bounded.
+// UniqueSchema, whose Account holds a Data of the size each test gives. Each limit leaves
+// room for the batch to hold its input and reach the preparation the test exercises.
 public sealed class RefusedBatchTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    private static readonly ArenaOptions FourSegments = new() { MemoryLimit = 4L * new ArenaOptions().SegmentSize };
-
-    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
-
     [Fact]
     public async Task Batch_the_arena_cannot_hold_leaves_the_entities_the_indexes_the_root_entries_and_the_position_as_they_were()
     {
-        await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Arena = FourSegments });
+        await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs
+        {
+            // The final Add overlaps the 16 MiB prior payload, an export and its encoded input.
+            // Commit needs its entire 20 MiB input alongside the existing and prepared roots.
+            Arena = new ArenaOptions { MemoryLimit = 29L * Mebibyte },
+        });
         var accounts = database.Set<UniqueSchema.Account>();
         await accounts.InsertAsync(UniqueSchema.Of(1, "a", data: Mebibyte));
         database.DrainRetired();
@@ -61,7 +62,7 @@ public sealed class RefusedBatchTests
     public async Task Batch_withdrawn_before_its_dispatch_gives_back_exactly_what_it_took()
     {
         var storage = new HeldPersistence(holding: false);
-        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Arena = FourSegments, Persistence = storage });
+        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = storage });
         var accounts = database.Set<UniqueSchema.Account>();
 
         try
@@ -116,20 +117,25 @@ public sealed class RefusedBatchTests
     public async Task Batch_that_waited_behind_a_write_of_its_entity_and_does_not_fit_after_it_changes_nothing()
     {
         var storage = new HeldPersistence(holding: false);
-        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Arena = FourSegments, Persistence = storage });
+        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs
+        {
+            Arena = new ArenaOptions { MemoryLimit = 21L * Mebibyte },
+            Persistence = storage,
+        });
         var accounts = database.Set<UniqueSchema.Account>();
 
         try
         {
             await accounts.InsertAsync(UniqueSchema.Of(1, "a"));
-            storage.Hold();
 
-            var holder = accounts.InsertAsync(UniqueSchema.Of(2, "b", data: 10 * Mebibyte)).AsTask();
-            await storage.NextAsync();
-
+            // Finish the snapshot before the predecessor reserves its 10 MiB root.
             var batch = database.CreateWriteBatch();
             batch.Replace(UniqueSchema.Of(2, "b", data: 8 * Mebibyte));
             batch.Insert(UniqueSchema.Of(3, "c"));
+
+            storage.Hold();
+            var holder = accounts.InsertAsync(UniqueSchema.Of(2, "b", data: 10 * Mebibyte)).AsTask();
+            await storage.NextAsync();
             var batched = batch.CommitAsync().AsTask();
 
             Assert.False(batched.IsCompleted);
@@ -162,7 +168,13 @@ public sealed class RefusedBatchTests
     public async Task Batch_cancelled_at_the_wait_of_the_resolution_of_its_refusal_ends_cancelled_and_changes_nothing()
     {
         var storage = new HeldPersistence(holding: false);
-        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Persistence = storage });
+        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs
+        {
+            // Two 4 MiB grants and the Add peak fit with the held predecessor.
+            // The next grant cannot coexist with the completed batch's input.
+            Arena = new ArenaOptions { MemoryLimit = 15L * Mebibyte },
+            Persistence = storage,
+        });
         var accounts = database.Set<UniqueSchema.Account>();
 
         try

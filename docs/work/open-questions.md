@@ -40,8 +40,8 @@ in the meantime.
 | --- | --- |
 | **Found** | 15 November 2026, implementation of Epic 1, sprint S04 |
 | **Question** | A region is 64 KiB and serves one size class. A class that does not divide 64 KiB leaves a tail at the end of each of its regions, at most 2,304 bytes (3.5 %) for the 3,328-byte class; and the free slots of a region that still holds blocks are counted nowhere either. `ArenaCounters` tells live bytes, class slack, free regions and the reserve apart, and neither the tails nor those free slots are in any of them, so the counters do not add up to the native capacity. Do the memory budget (S24), the memory gate (S25) and diagnostics (S39) need them as counters of their own, and is 64 KiB the region size they are judged with? |
-| **Until answered** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
-| **Decides** | The planner, before the contracts of the stage with the memory budget (S24) |
+| **Prior baseline** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
+| **Decided** | 26 November 2026, the planner. Admit the whole capacity of each actual grant at the arena segment size, including the reserve, idle slots and region tails. Charge it once until physical return. Region geometry stays 64 KiB in the standard arena. Internal decomposition reconciles with an independent native allocator ledger for the budget, memory gate and later diagnostics. S24 adds no public counter. See [S24](epic-1-core.md#contract-boundaries). |
 
 ### Q33. What an application sees when the table of root entries is full
 
@@ -49,8 +49,8 @@ in the meantime.
 | --- | --- |
 | **Found** | 15 November 2026, review of Epic 1, sprint S04 |
 | **Question** | The table of root entries ends at 2^31 − 4,096 slots, a limit of its structure and not an option. `RootTable.Add` then throws `InvalidOperationException` and leaves the table as it was. No brief says which error a write of an application gets when the engine reaches that limit, or a retired slot count that makes it nearer; the resource errors of the contract come with S08, S09, S17 and S24 |
-| **Until answered** | The internal exception stands; no test can reach the limit, which needs about 96 GiB of root entries |
-| **Decides** | The planner, with the resource errors of the memory budget (S24) |
+| **Prior baseline** | The internal exception stands on the base of S24. The production boundary would need about 96 GiB of root entry payloads. |
+| **Decided** | 26 November 2026, the planner. `WriteRejected` with `LatticeLimitEnum.RootSlots = 4` reports exhausted root addresses when no usable slot can be taken. A failed byte reservation for an addressable page or directory remains `Memory`. A released reusable slot can avoid a new reservation, and a permanently retired generation is never reused. A resource-refused batch names no member. A child fails to open with `Unavailable` under controlled pressure. A Ready child pauses with the applicable internal reason and can resume in order when a usable slot or sufficient capacity returns. See [S24](epic-1-core.md#contract-boundaries). |
 
 ### Q35. What the root layout of S05 leaves to later sprints
 

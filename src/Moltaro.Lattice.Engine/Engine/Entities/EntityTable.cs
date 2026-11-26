@@ -98,7 +98,7 @@ internal sealed class EntityTable
         _roots = roots;
         _epochs = epochs;
         _clock = clock;
-        _index = new PrimaryIndex(retired);
+        _index = new PrimaryIndex(retired, arena.Budget);
         _indexes = [.. entityType.Indexes.Select(index => SecondaryIndex.Open(index, layout, arena, retired))];
         HasUniqueIndex = _indexes.Any(index => index.IsUnique);
     }
@@ -152,6 +152,8 @@ internal sealed class EntityTable
     // writes.
     public void Presize(long count) => _index.Presize(count);
 
+    public long PresizeCapacity(long count) => _index.PresizeCapacity(count);
+
     // The table of an entity type of the schema, when the database opens, whose primary index hashes
     // with the seed of the instance. The root layout and the layout of each secondary index are compiled
     // here, before any data is admitted; an entity type whose fixed part does not fit one block, or one
@@ -203,7 +205,7 @@ internal sealed class EntityTable
     public void Reserve(in EntityKey key) => _index.Reserve(Keys.HashOf(key));
 
     // Gives back the room an insert reserved, when it is withdrawn. Under the lock of the writes.
-    public void ReleaseReservation() => _index.Release();
+    public void ReleaseReservation(in EntityKey key) => _index.Release(Keys.HashOf(key));
 
     // Maps an absent key to the root entry of its new root, after Reserve.
     public void Add(in EntityKey key, RootHandle handle) => _index.Add(Keys.HashOf(key), handle.Slot);

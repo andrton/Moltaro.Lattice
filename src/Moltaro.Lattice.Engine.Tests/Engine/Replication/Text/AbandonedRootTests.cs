@@ -3,7 +3,8 @@ using Moltaro.Lattice.Engine.Tests.Engine.Text;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Text;
@@ -13,27 +14,24 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Text;
 // value of the root does not fit the arena, the child gives back what the root took, and with it every
 // change of the same transaction it had prepared; it leaks no count (decision on strings, Q04.4), and the
 // counts of its text table equal the independent tally of what it holds (TextTally, EntryCounts).
-// - In the stream, the child then stops following, as a child does whose arena cannot hold a change: it
-//   ends its connection and keeps serving its reads, Ready at the position it had, without the change.
+// - In the stream, the child pauses and keeps serving its reads, Ready at the position it had.
 //   That holds for one root, and for a transaction of two writes whose first was prepared whole, which the
 //   relay (FrameRelay) makes of the first two transactions the master sends, as a master writes the members
 //   of a batch: one sequence, the effects of both.
 // - In a load, the open of the child fails with Unavailable, the reason named, and every piece of native
 //   memory the child obtained is returned (CountingNativeAllocator).
-// The child has the smallest memory limit, one segment of 4 MiB; its master holds a place with a Plain
+// The child has room for one segment and the transfer. Its master holds a place with a Plain
 // value of 2.5 MiB, and the root that does not fit brings another one after its two Dictionary texts: North,
 // which the child holds, and a text it does not hold.
 public sealed class AbandonedRootTests
 {
     private const int TwoAndAHalfMebibytes = 5 * 1024 * 1024 / 2;
 
-    private static readonly long Segment = new ArenaOptions().SegmentSize;
-
     public static IEnumerable<TheoryDataRow<string>> Changes => [new("one root"), new("two roots in one transaction")];
 
     [Theory]
     [MemberData(nameof(Changes))]
-    public async Task Child_that_cannot_hold_a_received_root_after_it_placed_its_texts_gives_back_every_reference_and_stops_following(string change)
+    public async Task Child_that_cannot_hold_a_received_root_after_it_placed_its_texts_gives_back_every_reference_and_pauses(string change)
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(TextSchema.Utf8);
         var places = master.Set<TextSchema.Place>();
@@ -59,7 +57,11 @@ public sealed class AbandonedRootTests
 
             return MergedTransaction.Of(first, frame);
         });
-        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs());
+        var pressure = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allocator = new CountingNativeAllocator();
+        await using var child = await ReplicationNodes.OpenChildAsync(
+            ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
+            new EngineTestInputs { Allocator = allocator, ObserveChildPressure = state => pressure.TrySetResult(state) });
         var readiness = child.Position;
 
         tally.ExpectHeldBy(child);
@@ -71,7 +73,9 @@ public sealed class AbandonedRootTests
         }
 
         await places.InsertAsync(new TextSchema.Place { Id = 6, Region = "North", Zone = "not held", Label = new string('l', TwoAndAHalfMebibytes) });
-        await relay.ChildEndedAsync();
+        var paused = await pressure.Task.WaitAsync(Bound);
+        Assert.Equal(LatticeLimitEnum.Memory, paused.Limit);
+        Assert.False(paused.DuringReceive);
 
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal(readiness, child.Position);
@@ -79,6 +83,7 @@ public sealed class AbandonedRootTests
         Assert.Null(child.Set<TextSchema.Place>().Get(6L));
         tally.ExpectHeldBy(child);
         EntryCounts.ExpectEqual(tally, child);
+        Assert.True(ExpectCapacity(child, allocator).NativeBytes > 0);
     }
 
     [Fact]
@@ -92,13 +97,24 @@ public sealed class AbandonedRootTests
         await places.InsertAsync(new TextSchema.Place { Id = 6, Region = "North", Zone = "not held", Label = new string('l', TwoAndAHalfMebibytes) });
 
         var allocator = new CountingNativeAllocator();
-        var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs { Allocator = allocator });
+        RootTable? roots = null;
+        var installed = 0;
+        await using var child = EngineDatabase.Create(
+            ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
+            new EngineTestInputs
+            {
+                Allocator = allocator,
+                BeforeReceivedRootListGrowth = (_, _, _, table) => roots = table,
+                AfterCloseStatePublication = () => installed = roots?.Count ?? 0,
+            });
 
         var exception = await Assert.ThrowsAsync<LatticeException>(() => child.OpenAsync().AsTask().WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
         Assert.Contains("memory", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
+        Assert.Equal(2, installed);
+        Assert.True(allocator.ObtainedBytes > 0);
         allocator.ExpectEverythingReturned();
     }
 

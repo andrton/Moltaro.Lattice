@@ -7,9 +7,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 
 // A child that cannot prepare a change it receives within its memory budget releases what it prepared for
 // it and keeps its local data intact and readable (decision on write admission, Q14, "Child replica memory
-// pressure"). The pause and the resume that decision accepts are not built; until they are, such a child
-// stops following: it ends its connection and keeps serving its reads at the position it has, Ready, and
-// does not resume by itself (Child.Following.Follower, "Stopping"). The nodes its indexes reserve are part of
+// pressure"). The child pauses on the current transaction, keeps its connection, and serves its reads
+// at the position it has. The nodes its indexes reserve are part of
 // what it prepares, as on a master (Entities.ChangePublisher; docs/design/ordered-index.md, "The
 // reservation" and "A child"), so a transaction whose roots and texts its arena holds and whose index
 // nodes it cannot hold is such a change: the child gives back the roots and the text entries it placed
@@ -20,11 +19,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 // one transaction (MergedTransaction). The two changes of that transaction wait together in the same
 // indexes and need more nodes than one change of key, the most the pool of an index holds while nothing
 // waits: so the child has to take nodes from its arena for them, which has none to give, however many
-// nodes its pool keeps. The relay shows when the child ends its connection.
+// nodes its pool keeps. The pressure observation runs after preparation has rolled back, while the
+// relay verifies that the child has kept the same TCP connection.
 public sealed class RefusedChildChangeTests
 {
     [Fact]
-    public async Task Child_whose_arena_holds_the_roots_of_a_received_transaction_and_not_their_index_nodes_gives_back_what_it_placed_and_stops_following_at_its_position()
+    public async Task Child_whose_arena_holds_the_roots_of_a_received_transaction_and_not_their_index_nodes_gives_back_what_it_placed_and_pauses_at_its_position()
     {
         // How many fillers the arena of the child holds beside First: as many as a master with that arena
         // holds before it refuses one.
@@ -39,6 +39,7 @@ public sealed class RefusedChildChangeTests
         // Once merging is set, the next transaction is held back and merged with the one after it.
         var merging = 0;
         WireFrame? opening = null;
+        var pressure = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         await using var master = await ReplicationNodes.OpenMasterAsync(FullArena.Schema, new EngineTestInputs { DisableBackgroundMaintenance = true });
         await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
@@ -62,7 +63,12 @@ public sealed class RefusedChildChangeTests
         });
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound),
-            new EngineTestInputs { Arena = FullArena.Options, DisableBackgroundMaintenance = true });
+            new EngineTestInputs
+            {
+                Arena = FullArena.Options,
+                DisableBackgroundMaintenance = true,
+                ObserveChildPressure = observed => pressure.TrySetResult(observed),
+            });
         var ranked = master.Set<IndexSchema.Ranked>();
         var moved = FullArena.First;
 
@@ -79,7 +85,11 @@ public sealed class RefusedChildChangeTests
         Volatile.Write(ref merging, 1);
         await ranked.ReplaceAsync(moved);
         await ranked.InsertAsync(FullArena.Second);
-        await relay.ChildEndedAsync();
+        var paused = await pressure.Task.WaitAsync(Bound);
+        Assert.Equal(LatticeLimitEnum.Memory, paused.Limit);
+        Assert.False(paused.DuringReceive);
+        var ended = relay.ChildEndedAsync();
+        Assert.False(ended.IsCompleted);
 
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal(position, child.Position);
@@ -87,5 +97,8 @@ public sealed class RefusedChildChangeTests
         Assert.Null(child.Set<IndexSchema.Ranked>().Get(FullArena.Second.Id));
         RankedSearch.ExpectFound(child, FullArena.Second, []);
         RankedSearch.ExpectFound(child, FullArena.First, [1L]);
+
+        await child.CloseAsync();
+        await ended;
     }
 }

@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Writes;
@@ -16,6 +17,33 @@ namespace Moltaro.Lattice.Engine;
 // a child's catch-up. Each member says what it costs an instance whose tests do not use it.
 internal sealed partial class EngineDatabase
 {
+    // Test-only observation of live owned backings, independent of the budget's byte totals.
+    // The callback must not retain the backing objects or call the database.
+    internal BudgetCapacitySample InspectBudget(Action<string, object>? observeBacking = null)
+    {
+        var (charged, peak, native) = _budget.Inspect(observeBacking);
+        return new BudgetCapacitySample(charged, peak, native, _parts?.Delivery.CapacityBytes ?? 0);
+    }
+
+    internal void ResetBudgetPeak() => _budget.ResetPeak();
+
+    // A test can hold a real charged allocation to align capacity return with a wire frame.
+    internal IDisposable HoldBudgetBacking(int length) => new HeldBudgetBacking(_budget, length);
+
+    private sealed class HeldBudgetBacking(MemoryBudget budget, int length) : IDisposable
+    {
+        private byte[]? _backing = budget.Allocate<byte>(length, nameof(HeldBudgetBacking));
+
+        public void Dispose()
+        {
+            var backing = Interlocked.Exchange(ref _backing, null);
+            if (backing is not null)
+            {
+                budget.Release(backing);
+            }
+        }
+    }
+
     // For the tests of the engine and the measurement program (exception X3, docs/work/exceptions.md):
     // makes an instance as LatticeDatabase.Create does, with the same refusals, that takes what the inputs
     // give instead of what an instance makes for itself: the options of its arena, the allocator of its

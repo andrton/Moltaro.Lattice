@@ -4,22 +4,24 @@ using Moltaro.Lattice.Measurements.Fixture;
 
 namespace Moltaro.Lattice.Measurements.Scenarios.StorageChurn;
 
-internal sealed class ChurnReads
+internal sealed class ChurnReads(ChurnReadBoundary? boundary = null)
 {
     private const int PerRole = 4;
     private static readonly LatticeViewFunc<LatticeRecordView, long> ReadId = static view => view["Id"].Get<long>();
 
     private readonly List<Reader> _readers = [];
-    private readonly CountdownEvent _started = new(2 * PerRole);
+    private readonly CountdownEvent _started = new(0);
     private readonly ManualResetEventSlim _armed = new();
     private readonly CancellationTokenSource _stop = new();
     private long _traceStart;
     private long _traceEnd;
     private long _interval;
 
-    public void Start(ILatticeSet master, ILatticeSet child, ChurnTrace trace)
+    public void Start(ILatticeSet master, ILatticeSet? child, ChurnTrace trace)
     {
-        foreach (var (role, set) in new[] { ("master", master), ("child", child) })
+        (string Role, ILatticeSet Set)[] roles = child is null ? [("master", master)] : [("master", master), ("child", child)];
+        _started.Reset(roles.Length * PerRole);
+        foreach (var (role, set) in roles)
         {
             for (var index = 0; index < PerRole; index++)
             {
@@ -83,11 +85,18 @@ internal sealed class ChurnReads
             }
 
             results.Add(new Result(reader.Role, reader.Index, reader.Copy ? "copy" : "view", name, reader.SampleCount,
-                reader.MeasuredReads, reader.MaximumBurstLateness, reader.LateBursts, reader.LastReadFromEnd));
+                reader.MeasuredReads, reader.MaximumBurstLateness, reader.LateBursts, reader.LastReadFromEnd, reader.ThreadAllocatedBytes));
         }
 
         return [.. results];
     }
+
+    public void WaitForTerminal(CancellationToken token) =>
+        Task.WhenAll(_readers.Select(reader => reader.Work)).WaitAsync(TimeSpan.FromSeconds(40), token).GetAwaiter().GetResult();
+
+    public ReadFence[] Progress() =>
+        [.. _readers.Select(reader => new ReadFence(reader.Role, reader.Index, reader.Copy ? "copy" : "view",
+            Volatile.Read(ref reader.CompletedBursts)))];
 
     private void Run(Reader reader, ILatticeSet set, ChurnTrace trace)
     {
@@ -96,9 +105,24 @@ internal sealed class ChurnReads
         _armed.Wait(_stop.Token);
         int offset = reader.Index * 2 + (reader.Role == "master" ? 1 : 2);
         long next = _traceStart;
+        long measuredStart = _traceStart + trace.WarmFrames * _interval;
+        long allocatedAtStart = 0;
         for (int burst = 0; burst < trace.Frames.Length; burst++)
         {
-            long due = _traceStart + burst * _interval + _interval * offset / (2 * PerRole + 1);
+            if (burst == trace.WarmFrames)
+            {
+                if (boundary is not null)
+                {
+                    measuredStart = boundary.Join(_stop.Token);
+                    next = measuredStart;
+                }
+
+                allocatedAtStart = GC.GetAllocatedBytesForCurrentThread();
+            }
+
+            long wave = burst < trace.WarmFrames ? _traceStart + burst * _interval
+                : measuredStart + (burst - trace.WarmFrames) * _interval;
+            long due = wave + _interval * offset / (2 * PerRole + 1);
             ChurnPacing.WaitUntil(Math.Max(due, next), _stop.Token);
             long actualBurst = Stopwatch.GetTimestamp();
             next = actualBurst + _interval / 2;
@@ -141,6 +165,12 @@ internal sealed class ChurnReads
                 }
             }
 
+            if (burst == trace.Frames.Length - 1)
+            {
+                long end = boundary is null ? _traceEnd : measuredStart + trace.MeasuredFrames * _interval;
+                reader.LastReadFromEnd = Stopwatch.GetTimestamp() - end;
+            }
+
             if (measured)
             {
                 reader.MeasuredReads += trace.ReadBurst;
@@ -150,9 +180,12 @@ internal sealed class ChurnReads
                     reader.LateBursts++;
                 }
             }
+
+
+            Volatile.Write(ref reader.CompletedBursts, burst + 1);
         }
 
-        reader.LastReadFromEnd = Stopwatch.GetTimestamp() - _traceEnd;
+        reader.ThreadAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedAtStart;
     }
 
     private static void Save(Reader reader, long stamp, long elapsed)
@@ -171,6 +204,8 @@ internal sealed class ChurnReads
         public readonly long[] Stamps = new long[capacity];
         public Task Work = Task.CompletedTask;
         public long MeasuredReads;
+        public int CompletedBursts;
+        public long ThreadAllocatedBytes;
         public int SampleCount;
         public long MaximumBurstLateness;
         public int LateBursts;
@@ -178,5 +213,7 @@ internal sealed class ChurnReads
     }
 
     internal sealed record Result(string Role, int Reader, string Path, string File, int Samples, long Reads,
-        long MaximumBurstLatenessTicks, int LateBursts, long LastReadFromEndTicks);
+        long MaximumBurstLatenessTicks, int LateBursts, long LastReadFromEndTicks, long ReaderThreadAllocatedBytes);
+
+    internal sealed record ReadFence(string Role, int Reader, string Path, int CompletedBursts);
 }

@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -232,9 +233,11 @@ internal static class RootValues
     // used in part: a root just above one piece takes two, up to twice its length, and a root of 3 MiB
     // takes 2 % more than its length. The root writer
     // refuses what it refuses for a write of values, and keeps nothing then.
-    public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values)
+    public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values,
+        MemoryLease? snapshot = null)
     {
-        var writer = new RootWriter(layout, ExportedValues.OfRoot(layout));
+        using var working = snapshot is null ? null : new MemoryLease(snapshot.Budget);
+        var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working));
 
         try
         {
@@ -244,14 +247,16 @@ internal static class RootValues
 
             if (length > TransferBuffer.PieceSize)
             {
-                var pieces = new TransferBuffer();
+                var pieces = new TransferBuffer(snapshot?.Budget);
+                snapshot?.Own(pieces.Dispose);
 
                 writer.Export(pieces);
 
                 return pieces.Sequence;
             }
 
-            var bytes = new ArrayBufferWriter<byte>((int)length);
+            var bytes = new BudgetByteWriter(snapshot?.Budget, (int)length, nameof(RootValues));
+            snapshot?.Own(bytes.Dispose);
 
             writer.Export(bytes);
 

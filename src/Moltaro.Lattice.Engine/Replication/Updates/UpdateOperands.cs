@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Unicode;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
@@ -133,7 +134,8 @@ internal static class UpdateOperands
         }
     }
 
-    public static object? Read(ref SequenceReader<byte> input, LatticeEntityType type, StructureLayout layout, int position)
+    public static object? Read(ref SequenceReader<byte> input, LatticeEntityType type, StructureLayout layout, int position,
+        MemoryLease? lease = null)
     {
         var declaration = layout.DeclarationOf(position);
         if (declaration.IsNullable)
@@ -151,10 +153,10 @@ internal static class UpdateOperands
 
         if (declaration.Type == LatticeFieldTypeEnum.Owned)
         {
-            var owned = new LatticeOwnedValue(declaration.OwnedType!);
+            var owned = LatticeOwnedValue.Snapshot(declaration.OwnedType!, lease);
             foreach (var member in owned.OwnedType.FieldsByOrdinal)
             {
-                owned.Values[member.Ordinal] = Read(ref input, type, layout, layout.ChildOf(position, member));
+                owned.Values[member.Ordinal] = Read(ref input, type, layout, layout.ChildOf(position, member), lease);
             }
 
             return owned;
@@ -162,7 +164,7 @@ internal static class UpdateOperands
 
         if (declaration.Sequence is not null || declaration.Map is not null)
         {
-            return ReadCollection(ref input, type, layout.ElementOf(position), declaration);
+            return ReadCollection(ref input, type, layout.ElementOf(position), declaration, lease);
         }
 
         ref readonly var field = ref layout.Place(position);
@@ -177,7 +179,7 @@ internal static class UpdateOperands
             var bytes = ReadBytes(ref input, bound);
             try
             {
-                value = Protocol.StrictUtf8.GetString(bytes);
+                value = ReadText(bytes, lease);
             }
             catch (DecoderFallbackException)
             {
@@ -186,7 +188,17 @@ internal static class UpdateOperands
         }
         else if (declaration.Type == LatticeFieldTypeEnum.Binary)
         {
-            value = ReadBytes(ref input, ValueBlocks.MostValueBytes).ToArray();
+            var bytes = ReadBytes(ref input, ValueBlocks.MostValueBytes);
+            if (lease is null)
+            {
+                value = bytes.ToArray();
+            }
+            else
+            {
+                var copy = lease.Allocate<byte>((int)bytes.Length, nameof(UpdateOperands));
+                bytes.CopyTo(copy);
+                value = copy;
+            }
         }
         else
         {
@@ -201,7 +213,7 @@ internal static class UpdateOperands
             NativeOrder(bytes, declaration.ScalarType);
             try
             {
-                value = StoredScalars.ReadBoxed(bytes, declaration.ScalarType);
+                value = ReadScalar(bytes, declaration.ScalarType, lease);
             }
             catch (ArgumentException)
             {
@@ -213,7 +225,108 @@ internal static class UpdateOperands
         return value;
     }
 
-    private static object ReadCollection(ref SequenceReader<byte> input, LatticeEntityType type, StructureLayout entry, LatticeValueDeclaration declaration)
+    private static string ReadText(ReadOnlySequence<byte> bytes, MemoryLease? lease)
+    {
+        if (bytes.IsEmpty)
+        {
+            return string.Empty;
+        }
+
+        if (lease is null && bytes.IsSingleSegment)
+        {
+            return Protocol.StrictUtf8.GetString(bytes.FirstSpan);
+        }
+
+        var characters = bytes.IsSingleSegment ? Protocol.StrictUtf8.GetCharCount(bytes.FirstSpan) : DecodeSplitText(bytes, []);
+        var capacity = MemoryBudget.StringBytes(characters);
+        lease?.Budget.Reserve(capacity);
+        try
+        {
+            // Writing directly into the exact string needs only the bytes of one split rune
+            // on the stack. The sequence GetString would rent full-sized scratch per piece.
+            var text = bytes.IsSingleSegment
+                ? Protocol.StrictUtf8.GetString(bytes.FirstSpan)
+                : string.Create(characters, bytes, static (output, source) => DecodeSplitText(source, output));
+            lease?.OwnReserved(text, capacity, nameof(UpdateOperands));
+            return text;
+        }
+        catch
+        {
+            lease?.Budget.Release(capacity);
+            throw;
+        }
+    }
+
+    // An empty destination counts UTF-16 units. Both passes use the same strict decoder.
+    private static int DecodeSplitText(in ReadOnlySequence<byte> bytes, Span<char> output)
+    {
+        var reader = new SequenceReader<byte>(bytes);
+        Span<char> scratch = stackalloc char[256];
+        Span<byte> split = stackalloc byte[4];
+        bool countsOnly = output.IsEmpty;
+        var characters = 0;
+        while (!reader.End)
+        {
+            var piece = reader.UnreadSpan;
+            var destination = countsOnly ? scratch : output[characters..];
+            var status = Utf8.ToUtf16(piece, destination, out var read, out var written,
+                replaceInvalidSequences: false, isFinalBlock: reader.Remaining == piece.Length);
+            reader.Advance(read);
+            characters += written;
+            if (status == OperationStatus.NeedMoreData)
+            {
+                var available = split[..(int)Math.Min(reader.Remaining, split.Length)];
+                if (!reader.TryCopyTo(available) || Rune.DecodeFromUtf8(available, out var rune, out var consumed) != OperationStatus.Done)
+                {
+                    throw new DecoderFallbackException();
+                }
+
+                characters += countsOnly ? rune.Utf16SequenceLength : rune.EncodeToUtf16(output[characters..]);
+                reader.Advance(consumed);
+            }
+            else if (status == OperationStatus.InvalidData)
+            {
+                throw new DecoderFallbackException();
+            }
+            else if (status == OperationStatus.DestinationTooSmall && !countsOnly)
+            {
+                throw new InvalidOperationException("A counted UTF-8 operand did not fit its string.");
+            }
+        }
+
+        return characters;
+    }
+
+    private static object ReadScalar(ReadOnlySpan<byte> bytes, LatticeFieldTypeEnum scalar, MemoryLease? lease)
+    {
+        if (lease is null)
+        {
+            return StoredScalars.ReadBoxed(bytes, scalar);
+        }
+
+        if (scalar == LatticeFieldTypeEnum.DateTimeOffset)
+        {
+            // Its stored instant is eight bytes, while the boxed .NET value also holds an offset.
+            return lease.Box(StoredScalars.ReadDateTimeOffset(bytes), nameof(UpdateOperands));
+        }
+
+        var capacity = MemoryBudget.ObjectBytes(bytes.Length);
+        lease.Budget.Reserve(capacity);
+        try
+        {
+            var value = StoredScalars.ReadBoxed(bytes, scalar);
+            lease.OwnReserved(value, capacity, nameof(UpdateOperands));
+            return value;
+        }
+        catch
+        {
+            lease.Budget.Release(capacity);
+            throw;
+        }
+    }
+
+    private static object ReadCollection(ref SequenceReader<byte> input, LatticeEntityType type, StructureLayout entry,
+        LatticeValueDeclaration declaration, MemoryLease? lease)
     {
         var count = ReadUInt32(ref input);
         var smallest = Minimum(entry, 0);
@@ -221,12 +334,12 @@ internal static class UpdateOperands
         {
             smallest += Minimum(entry, 1);
             CheckCount(count, entry.MostElements, smallest, input.Remaining);
-            var result = map.Create();
+            var result = map.Create(lease: lease);
             for (var index = 0u; index < count; index++)
             {
-                var key = Read(ref input, type, entry, 0)!;
-                var item = Read(ref input, type, entry, 1);
-                if (!map.TryAdd(result, key, item))
+                var key = Read(ref input, type, entry, 0, lease)!;
+                var item = Read(ref input, type, entry, 1, lease);
+                if (!map.TryAdd(result, key, item, lease))
                 {
                     throw Protocol.Invalid("An update operand repeats a Map key under its declared comparison.");
                 }
@@ -237,10 +350,10 @@ internal static class UpdateOperands
 
         CheckCount(count, entry.MostElements, smallest, input.Remaining);
         var sequence = declaration.Sequence!;
-        var collection = sequence.Create();
+        var collection = sequence.Create(lease: lease);
         for (var index = 0u; index < count; index++)
         {
-            sequence.Add(collection, Read(ref input, type, entry, 0));
+            sequence.Add(collection, Read(ref input, type, entry, 0, lease), lease);
         }
 
         if (sequence.Count(collection) != count)

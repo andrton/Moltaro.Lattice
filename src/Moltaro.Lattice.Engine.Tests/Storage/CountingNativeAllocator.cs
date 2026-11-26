@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using Moltaro.Lattice.Storage.Allocation;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage;
@@ -19,15 +18,10 @@ namespace Moltaro.Lattice.Engine.Tests.Storage;
 // lock of the writes of the engine meanwhile, so the action waits for nothing that needs it.
 internal sealed class CountingNativeAllocator : NativeAllocator
 {
-    private readonly HashSet<nint> _outstanding = [];
+    private readonly Dictionary<nint, int> _outstanding = [];
 
     private Action? _hold;
     private Action? _holdLastFree;
-
-    public CountingNativeAllocator()
-    {
-        OutstandingAddresses = new ReadOnlySet<nint>(_outstanding);
-    }
 
     // How many times memory was obtained.
     public int Obtained { get; private set; }
@@ -38,7 +32,15 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     // How many pieces of memory were obtained and not returned.
     public int Outstanding => _outstanding.Count;
 
-    public IReadOnlyCollection<nint> OutstandingAddresses { get; }
+    public IReadOnlyCollection<nint> OutstandingAddresses => _outstanding.Keys;
+
+    public long ObtainedBytes { get; private set; }
+
+    public long ReturnedBytes { get; private set; }
+
+    public long OutstandingBytes => ObtainedBytes - ReturnedBytes;
+
+    public long PeakBytes { get; private set; }
 
     public bool FailNextAllocation { get; set; }
 
@@ -60,7 +62,7 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     public unsafe nint AddressOf(ArenaSegment segment)
     {
         var memory = (nint)segment.Memory;
-        Assert.Contains(memory, _outstanding);
+        Assert.Contains(memory, OutstandingAddresses);
         return memory;
     }
 
@@ -70,6 +72,7 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     {
         Assert.Equal(0, Outstanding);
         Assert.Equal(Obtained, Returned);
+        Assert.Equal(ObtainedBytes, ReturnedBytes);
     }
 
     public override nint Allocate(int size)
@@ -94,8 +97,10 @@ internal sealed class CountingNativeAllocator : NativeAllocator
 
         var memory = base.Allocate(size);
 
-        _outstanding.Add(memory);
+        _outstanding.Add(memory, size);
         Obtained++;
+        ObtainedBytes += size;
+        PeakBytes = Math.Max(PeakBytes, OutstandingBytes);
 
         return memory;
     }
@@ -107,9 +112,10 @@ internal sealed class CountingNativeAllocator : NativeAllocator
             Interlocked.Exchange(ref _holdLastFree, null)?.Invoke();
         }
 
-        Assert.True(_outstanding.Remove(memory), "The arena returned memory that was not outstanding.");
+        Assert.True(_outstanding.Remove(memory, out var size), "The arena returned memory that was not outstanding.");
 
         Returned++;
         base.Free(memory);
+        ReturnedBytes += size;
     }
 }

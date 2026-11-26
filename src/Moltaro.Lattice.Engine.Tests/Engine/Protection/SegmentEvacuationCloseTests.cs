@@ -20,7 +20,8 @@ public sealed class SegmentEvacuationCloseTests
         using var waiting = new HeldEngineCallback();
         var inputs = new EngineTestInputs
         {
-            Arena = new ArenaOptions { MemoryLimit = 3L * SegmentBytes },
+            // The close race holds the same three native grants while the child can follow.
+            Arena = new ArenaOptions { MemoryLimit = 7L * SegmentBytes, NativeCapacityLimit = 3L * SegmentBytes },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             BeforeMaintenanceWrites = waiting.Hold,

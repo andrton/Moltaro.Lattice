@@ -25,7 +25,7 @@ internal sealed class SetCollectionMatrixProfile<T>(string profile, string eleme
         }
     }
 
-    public override LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt)
+    public override LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt, int predecessorSalt)
     {
         if (count <= 0)
         {
@@ -34,7 +34,7 @@ internal sealed class SetCollectionMatrixProfile<T>(string profile, string eleme
 
         return
         [
-            update.SetRemove("Values", item(count - 1, salt - 1)),
+            update.SetRemove("Values", item(count - 1, predecessorSalt)),
             update.SetAdd("Values", item(count + 1, salt)),
         ];
     }

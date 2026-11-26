@@ -1,4 +1,6 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Indexes;
@@ -48,9 +50,14 @@ internal sealed class PrimaryIndex
     // The first table: two main buckets and a page of one overflow bucket.
     private const int FirstBucketBits = 1;
 
-    private readonly RetiredMemory _retired;
+    public static long FirstCapacity => IndexTable.LeastCapacity(FirstBucketBits);
 
-    private IndexTable _table = new(FirstBucketBits, version: 0);
+    private readonly RetiredMemory _retired;
+    private readonly MemoryBudget? _budget;
+
+    private IndexTable _table;
+    private PreviousTable? _previous;
+    private int _version;
 
     // The bytes of the table being built while the index grows, 0 otherwise. Written by the writer
     // and read by the counters, both under the lock of the writes.
@@ -60,14 +67,19 @@ internal sealed class PrimaryIndex
     // the persistence step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator). The writer's alone, under the lock of the writes.
     private int _reserved;
+    // If only one reservation survives, its actual hash decides whether it needs an overflow bucket.
+    private uint _reservedHashes;
 
     // What the next growth runs for the tests of the engine (EngineDatabase.ArmGrowthSwitch); null when
     // no test armed it, which is all a growth pays: one load of a field nothing else writes.
     private Action? _growthSwitch;
 
-    public PrimaryIndex(RetiredMemory retired)
+    public PrimaryIndex(RetiredMemory retired, MemoryBudget? budget = null)
     {
         _retired = retired;
+        _budget = budget;
+        _table = new IndexTable(FirstBucketBits, version: 0, budget);
+        _table.Published();
     }
 
     // The bytes of the current table. For the writer and the counters.
@@ -77,10 +89,21 @@ internal sealed class PrimaryIndex
     // lock of the writes.
     public int Count => _table.Count;
 
-    // The bytes of the table being built while the index grows, 0 otherwise. The counters are taken
-    // between two writes, so they read 0 here; it is the figure the memory budget charges while a
-    // growth runs.
-    public long ReplacementBytes => _replacementBytes;
+    // Reader-visible predecessors still eligible for restoration are charged beside the current
+    // table, as is the table currently being built.
+    public long ReplacementBytes
+    {
+        get
+        {
+            var bytes = _replacementBytes;
+            for (var previous = _previous; previous is not null; previous = previous.Smaller)
+            {
+                bytes += previous.Table.Bytes;
+            }
+
+            return bytes;
+        }
+    }
 
     // The entries of the hash in the current table. The table is read with acquire semantics, which
     // pairs with the release of the store that published it (Grow).
@@ -106,17 +129,32 @@ internal sealed class PrimaryIndex
     // OutOfMemoryException leaves the current table in place and reserves nothing.
     public void Reserve(uint hash)
     {
-        if (_table.IsFull(_reserved) && _table.BucketBits < IndexTable.MostBucketBits)
+        try
         {
-            Grow();
+            if (_table.IsFull(_reserved) && _table.BucketBits < IndexTable.MostBucketBits)
+            {
+                Grow();
+            }
+
+            _table.Reserve(hash, _reserved);
+        }
+        catch
+        {
+            RestoreUnusedCapacity();
+            throw;
         }
 
-        _table.Reserve(hash, _reserved);
         _reserved++;
+        _reservedHashes ^= hash;
     }
 
     // Gives back the room an insert reserved and does not publish, because it was withdrawn.
-    public void Release() => _reserved--;
+    public void Release(uint hash)
+    {
+        _reserved--;
+        _reservedHashes ^= hash;
+        RestoreUnusedCapacity();
+    }
 
     // For the loader of a child, before the first root of the entity type is placed: replaces the empty
     // first table by one whose main table holds count entries without growing (IndexTable, "The capacity
@@ -130,29 +168,54 @@ internal sealed class PrimaryIndex
             throw new InvalidOperationException("Only an empty primary index is sized for a load.");
         }
 
-        var bits = FirstBucketBits;
+        var bits = BitsFor(count);
+        if (bits != _table.BucketBits)
+        {
+            var previous = _table;
+            var table = new IndexTable(bits, version: 0, _budget);
+            table.Published();
+            Volatile.Write(ref _table, table);
+            previous.ReleaseBacking();
+        }
+    }
 
+    public long PresizeCapacity(long count)
+    {
+        var bits = BitsFor(count);
+        return bits == _table.BucketBits ? 0 : IndexTable.LeastCapacity(bits);
+    }
+
+    private static int BitsFor(long count)
+    {
+        var bits = FirstBucketBits;
         while (bits < IndexTable.MostBucketBits && ((long)IndexTable.MostEntriesPerBucket << bits) < count)
         {
             bits++;
         }
 
-        if (bits != _table.BucketBits)
-        {
-            Volatile.Write(ref _table, new IndexTable(bits, version: 0));
-        }
+        return bits;
     }
 
     // Adds the entry of a key that the index does not hold, after Reserve, and ends that reservation;
     // IndexTable.Add says which store publishes it.
     public void Add(uint hash, uint slot)
     {
+        RetirePreviousTables();
         _table.Add(hash, slot);
         _reserved--;
+        _reservedHashes ^= hash;
+        if (_reserved == 0)
+        {
+            _table.KeepCapacity();
+        }
     }
 
     // Removes the entry of the slot, which the index holds under the hash.
-    public void Remove(uint hash, uint slot) => _table.Remove(hash, slot);
+    public void Remove(uint hash, uint slot)
+    {
+        RetirePreviousTables();
+        _table.Remove(hash, slot);
+    }
 
     // Arms the growth switch of the tests: the next growth runs the action once
     // (EngineDatabase.ArmGrowthSwitch).
@@ -166,35 +229,99 @@ internal sealed class PrimaryIndex
         // while the new table is built gives the place back and leaves the current table in place.
         _retired.Reserve();
 
-        IndexTable grown;
+        IndexTable? grown = null;
+        PreviousTable? previous = null;
 
         try
         {
-            grown = new IndexTable(current.BucketBits + 1, current.Version + 1);
+            grown = new IndexTable(current.BucketBits + 1, _version + 1, _budget);
             _replacementBytes = grown.Bytes;
             current.CopyInto(grown);
             _replacementBytes = grown.Bytes;
+            if (_budget is { } budget)
+            {
+                budget.Reserve(PreviousTable.OwnerBytes);
+                try
+                {
+                    previous = new PreviousTable(current, _previous);
+                    budget.Own(previous, nameof(PrimaryIndex));
+                }
+                catch
+                {
+                    budget.Release(PreviousTable.OwnerBytes);
+                    throw;
+                }
+            }
         }
         catch
         {
             _replacementBytes = 0;
             _retired.Release();
+            grown?.ReleaseBacking();
             throw;
         }
 
         // The release of this store publishes the new table with its version and every entry written
         // into it: a reader that reads the new table (Find, TableAndVersion) sees them all. A reader
         // that still has the old one finds the same entries in it, unchanged.
+        _version = grown.Version;
+        grown.Published();
         Volatile.Write(ref _table, grown);
+        _previous = previous;
 
         // The switch of the tests, after the store that publishes the grown table and before the old
         // one is retired; it changes nothing when no test armed it.
-        if (_growthSwitch is not null)
+        try
         {
-            Interlocked.Exchange(ref _growthSwitch, null)?.Invoke();
+            if (_growthSwitch is not null)
+            {
+                Interlocked.Exchange(ref _growthSwitch, null)?.Invoke();
+            }
+        }
+        finally
+        {
+            _replacementBytes = 0;
+            if (previous is null)
+            {
+                _retired.RetireTable(current, current.Bytes);
+            }
+        }
+    }
+
+    // Only a write that changes this table adopts the new generation. While its entries are the
+    // same as its predecessors', pending reservations can still use a smaller compatible one.
+    private void RestoreUnusedCapacity()
+    {
+        if (_budget is null)
+        {
+            return;
         }
 
-        _replacementBytes = 0;
-        _retired.RetireTable(current, current.Bytes);
+        while (_previous is { } previous && previous.Table.FitsReservations(_reserved, _reservedHashes))
+        {
+            var discarded = _table;
+            Volatile.Write(ref _table, previous.Table);
+            _previous = previous.Smaller;
+            _budget.Release(PreviousTable.OwnerBytes, previous);
+            // A reader may have acquired the abandoned generation before the switch.
+            _retired.RetireTable(discarded, discarded.Bytes);
+        }
+
+        _table.ReleaseUnused(_reserved, _reservedHashes);
+    }
+
+    private void RetirePreviousTables()
+    {
+        while (_previous is { } previous)
+        {
+            _previous = previous.Smaller;
+            _budget!.Release(PreviousTable.OwnerBytes, previous);
+            _retired.RetireTable(previous.Table, previous.Table.Bytes);
+        }
+    }
+
+    private sealed record PreviousTable(IndexTable Table, PreviousTable? Smaller)
+    {
+        public static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size);
     }
 }

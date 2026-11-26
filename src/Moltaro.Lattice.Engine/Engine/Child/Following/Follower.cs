@@ -1,11 +1,13 @@
 using System.Buffers;
 using System.Diagnostics;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child.Forwarding;
 using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Child.Following;
 
@@ -41,15 +43,14 @@ namespace Moltaro.Lattice.Engine.Child.Following;
 // open with Unavailable. After Ready a malformed stream ends following at the prior position. A fully
 // checked Update that contradicts the live predecessor faults the child at that position.
 //
-// Memory. A transaction the arena of the child cannot hold is applied by the rule of a write refused for
-// memory: what is retired is freed and the transaction is tried again; refused again, the reads that hold
-// retired memory are waited for, what they held is freed, and it is tried once more
-// (ReceivedChanges.Apply). Refused then, it cannot be held: before Ready the open fails with Unavailable;
-// after it the child stops following. So does a transaction announced larger than the memory
-// limit of the child, before anything is taken for it.
+// Capacity. Before Ready, a controlled refusal to hold a frame or apply a transaction fails the open
+// with Unavailable. Once Ready, the follower keeps the refused frame or complete transaction on the
+// live connection and retries it after a budget change or a paced wait. It holds no writes lock while
+// it waits. Reads continue at the applied position and no later frame or acknowledgement passes the
+// blocked work. Closing or an observed connection end releases the backing.
 //
-// Stopping. A child that stops following — a transaction it refused or cannot hold, a frame that is not
-// valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender that
+// Stopping. A child that stops following — a frame that is not valid, a connection that ended,
+// the end of the master's stream, the frame Closed, a send of the sender that
 // failed, the close of the child — ends its connection. A Ready child continues serving reads at the
 // last applied position. A faulted or closed child refuses reads. Nothing of a transaction it was
 // putting together is applied. It marks itself without a master (Forwarding.Forwarder.LoseMaster), so that a
@@ -75,8 +76,8 @@ namespace Moltaro.Lattice.Engine.Child.Following;
 //
 // The waits, and how each ends: the next frame, before Ready within OpenTimeout, after it until the master
 // sends one or ends the connection — an idle master is not a lost one —, and the close of the child ends
-// it, and so does the end of the sender; a suspension, until it is disposed or the child closes; the wait
-// for the reads that hold retired memory, which leave within a step, and the close of the child ends it; at
+// it, and so does the end of the sender; a suspension, until it is disposed or the child closes; the paced
+// wait for capacity, until the budget changes, the next attempt is due or the follower ends; at
 // the end, the end of the sender, which the end of the connection brings at once. The sends are the
 // sender's (Forwarding.ChildSender). Every
 // application passes the barrier of the close (ReceivedChanges.Apply), so that a close frees the arena only once no application is
@@ -98,6 +99,9 @@ internal sealed class Follower
     private readonly TransactionAssembler _assembler;
 
     private readonly TimeSpan _openTimeout;
+    private readonly MemoryBudget _budget;
+    private readonly EngineTestInputs? _testInputs;
+    private ChildPressureSample? _pressure;
 
     // Guards the count of the suspensions and the task their end completes.
     private readonly Lock _suspensions = new();
@@ -113,7 +117,8 @@ internal sealed class Follower
     // The follower of the connection given, with the sender of that connection and the table of the calls
     // it sends, which are made beside the forwarder the sender serves (EngineDatabase), and which this
     // follower attaches, runs and ends.
-    public Follower(MasterLink link, ChildSender sender, PendingRequests pending, Forwarder forwarder, PositionClock clock, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, ChildSender sender, PendingRequests pending, Forwarder forwarder, PositionClock clock,
+        ReceivedChanges changes, MemoryBudget budget, TimeSpan openTimeout, EngineTestInputs? testInputs)
     {
         _link = link;
         _forwarder = forwarder;
@@ -121,8 +126,10 @@ internal sealed class Follower
         _sender = sender;
         _clock = clock;
         _changes = changes;
-        _assembler = new TransactionAssembler(memoryLimit);
+        _assembler = new TransactionAssembler(budget.Limit, budget);
         _openTimeout = openTimeout;
+        _budget = budget;
+        _testInputs = testInputs;
     }
 
     // Applies the transactions after S up to R, which LoadEnd announced (see the class), and reports what
@@ -150,7 +157,8 @@ internal sealed class Follower
         catch
         {
             _changes.DropMissingUpdates();
-            _assembler.Reset();
+            _assembler.Dispose();
+            _changes.ReleaseTransferBacking();
             throw;
         }
 
@@ -194,7 +202,9 @@ internal sealed class Follower
         }
         finally
         {
-            _assembler.Reset();
+            _assembler.Dispose();
+            _changes.ReleaseTransferBacking();
+            _pressure = null;
 
             // For every end; after the frame Closed it changes nothing more. The child is marked before it
             // ends its side of the connection, so that a master, whose close waits for that end, finds it
@@ -206,6 +216,7 @@ internal sealed class Follower
             // Only once the sender has ended does nothing more go out: every call left was sent whole and
             // has no reply.
             await sending.ConfigureAwait(false);
+            _link.ReleaseBacking();
             _pending.Close();
         }
     }
@@ -252,8 +263,9 @@ internal sealed class Follower
     // already received, which a stream of transactions of several frames can keep up.
     private async Task<bool> ApplyNextAsync(TimeSpan? timeout, bool acknowledges, CancellationToken cancellationToken)
     {
-        ulong sequence;
-        ReadOnlySequence<byte> effects;
+        ulong sequence = 0;
+        ReadOnlySequence<byte> effects = default;
+        var received = 0;
 
         while (true)
         {
@@ -293,7 +305,27 @@ internal sealed class Follower
                 throw Protocol.Invalid($"The master sent a {frame.Kind} frame where the stream of its transactions comes.");
             }
 
-            if (_assembler.Accept(frame, out sequence, out effects))
+            var framePause = default(RetryPause);
+            bool complete;
+            while (true)
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    complete = _assembler.Accept(frame, out sequence, out effects,
+                        _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
+                    _pressure = null;
+                    break;
+                }
+                catch (BudgetRefusedException exception) when (acknowledges)
+                {
+                    await WaitForCapacityAsync(new ChildPressureSample(sequence, exception.Limit, true, received),
+                        framePause.Next(), cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            received++;
+            if (complete)
             {
                 break;
             }
@@ -306,12 +338,43 @@ internal sealed class Follower
 
         // The effects stay where they were received: no frame is received while the suspension lasts.
         await WhileSuspendedAsync(cancellationToken).ConfigureAwait(false);
-        _changes.Apply(sequence, effects, cancellationToken);
+        var applyPause = default(RetryPause);
+        var retry = false;
+        while (_changes.Apply(sequence, effects, ready: acknowledges, retry, cancellationToken) is { } limit)
+        {
+            await WaitForCapacityAsync(new ChildPressureSample(sequence, limit, false, received),
+                applyPause.Next(), cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            retry = true;
+        }
 
+        _pressure = null;
+        _assembler.Reset();
         _applied = sequence;
         _clock.Wake();
 
         return true;
+    }
+
+    private async ValueTask WaitForCapacityAsync(ChildPressureSample pressure, TimeSpan pace, CancellationToken cancellationToken)
+    {
+        // Observe the generation after rollback so returning this attempt's own backing does not
+        // cause an immediate retry. A paced attempt also lets the writer drain newly eligible
+        // read epochs whose capacity has not been returned yet.
+        var changed = _budget.WhenChanged(_budget.Change);
+        if (_pressure != pressure)
+        {
+            _pressure = pressure;
+            _testInputs?.ObserveChildPressure?.Invoke(pressure);
+        }
+
+        try
+        {
+            await changed.WaitAsync(pace, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+        }
     }
 
     // Completes at once when no suspension is held, otherwise when the last one ends.

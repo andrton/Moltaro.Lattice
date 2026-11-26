@@ -125,9 +125,13 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// </para>
     /// <para>
     /// A child connects to the master at <see cref="LatticeDatabaseOptions.MasterUri"/>, loads
-    /// the whole database and only then becomes readable. When the master cannot be reached, or
-    /// nothing arrives from it, for <see cref="LatticeDatabaseOptions.OpenTimeout"/>, the call
-    /// fails with <see cref="LatticeErrorEnum.Unavailable"/> and the instance is closed.
+    /// the whole database and only then becomes readable. The call fails with
+    /// <see cref="LatticeErrorEnum.Unavailable"/> and closes the instance if the master cannot be
+    /// reached, nothing arrives for <see cref="LatticeDatabaseOptions.OpenTimeout"/>, or the
+    /// initial state exceeds the child's memory budget or addressable root slots.
+    /// Once ready, a child under capacity pressure keeps its local reads and applied position.
+    /// While its connection remains usable, it resumes applying in order when it can hold
+    /// the first blocked change.
     /// </para>
     /// <para>
     /// A master and its children can be opened in one process. Cancelling or failing the
@@ -283,8 +287,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Starts a write batch: several writes, possibly of different entity types, that the
-    /// database executes together or not at all. Creating a batch and adding to it touches
-    /// nothing in the database; see <see cref="ILatticeWriteBatch"/>.
+    /// database executes together or not at all. No data changes until the batch is submitted.
+    /// Adding an operation reserves memory on this instance and does not contact the master.
+    /// See <see cref="ILatticeWriteBatch"/>.
     /// </summary>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.Unavailable"/>: the database is not ready.

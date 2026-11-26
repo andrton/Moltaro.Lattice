@@ -20,6 +20,7 @@ internal sealed class CollectionTail(RootHandle owner, int offset)
     public bool Shrinking;
     public bool Ended;
     public bool PendingEdit;
+    public bool BudgetOwned;
 
     public int Capacity => Active + ReadySlots + BorrowedSlots;
 

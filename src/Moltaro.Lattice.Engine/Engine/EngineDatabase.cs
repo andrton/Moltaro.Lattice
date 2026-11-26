@@ -8,6 +8,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Child.Forwarding;
@@ -131,6 +132,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     // Cancelled when close begins: ends the open of a child and the maintenance wait.
     private readonly CancellationTokenSource _closing = new();
+    private readonly MemoryBudget _budget;
 
     // An instance for the options, which Check has accepted, without opening it: LatticeDatabase.Create, and
     // the Create of the tests with their inputs.
@@ -138,6 +140,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     {
         _options = options;
         _testInputs = testInputs;
+        _budget = new MemoryBudget(testInputs is not null);
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
         _maintenance = new AutomaticMaintenance(
@@ -272,6 +275,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             }
 
             _state = child ? LatticeDatabaseStateEnum.Connecting : LatticeDatabaseStateEnum.Loading;
+            _budget.Open(MemoryLimitInForce());
 
             if (child)
             {
@@ -328,7 +332,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     {
         ThrowIfNotReady();
 
-        return new WriteBatch(Part(_parts).Schema, this);
+        return new WriteBatch(Part(_parts).Schema, this, _budget);
     }
 
     // The root of a member of a write batch, encoded when it is added, on the thread of the caller and
@@ -336,7 +340,15 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // as it is before a single write is submitted (RootValues.CheckCollectionBounds). A delete carries
     // an empty root body.
     // ObjectDisposedException once the database is closed, for every kind of member.
-    ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values)
+    bool IWriteBatchExecutor.IsClosed => IsClosed;
+
+    ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values) =>
+        EncodeBatchRoot(entityType, values, null);
+
+    ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values, MemoryLease? lease) =>
+        EncodeBatchRoot(entityType, values, lease);
+
+    private ReadOnlySequence<byte> EncodeBatchRoot(LatticeEntityType entityType, object?[]? values, MemoryLease? lease)
     {
         var table = Part(_parts).Operations[entityType].Table;
 
@@ -351,7 +363,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             RootValues.CheckCollectionBounds(layout, values);
         }
 
-        return RootValues.Export(layout, entityType, values);
+        return RootValues.Export(layout, entityType, values, lease);
     }
 
     void IWriteBatchExecutor.CheckUpdate(LatticeEntityType entityType, UpdateInput update)
@@ -373,20 +385,45 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             return ValueTask.FromException<LatticeWriteResult>(new ObjectDisposedException(GetType().FullName));
         }
 
-        var members = new BatchMember[operations.Count];
+        return ExecuteBatchAsync(parts, operations, session, cancellationToken);
+    }
 
-        for (var place = 0; place < members.Length; place++)
+    private async ValueTask<LatticeWriteResult> ExecuteBatchAsync(DatabaseParts parts, IReadOnlyList<WriteBatchOperation> operations,
+        LatticeSession? session, CancellationToken cancellationToken)
+    {
+        BatchMember[]? members = null;
+        try
         {
-            var operation = operations[place];
-            var table = parts.Operations[operation.EntityType].Table;
+            members = _budget.Allocate<BatchMember>(operations.Count, nameof(EngineDatabase));
 
-            var key = operation.Update is null ? KeyArgument.Of(table, operation.Key) : KeyArgument.OfNormalized(table, operation.Key);
-            members[place] = new BatchMember(operation.Kind, table, key, operation.ExpectedRevision, operation.Root, operation.Update);
+            for (var place = 0; place < members.Length; place++)
+            {
+                var operation = operations[place];
+                var table = parts.Operations[operation.EntityType].Table;
+
+                var key = operation.Update is null ? KeyArgument.Of(table, operation.Key) : KeyArgument.OfNormalized(table, operation.Key);
+                members[place] = new BatchMember(operation.Kind, table, key, operation.ExpectedRevision, operation.Root, operation.Update);
+            }
+
+            var result = parts.Forwarder is { } forwarder
+                ? forwarder.WriteBatchAsync(members, session, cancellationToken)
+                : parts.Coordinator.SubmitBatchAsync(members, session, cancellationToken);
+            return await result.ConfigureAwait(false);
         }
-
-        return parts.Forwarder is { } forwarder
-            ? forwarder.WriteBatchAsync(members, session, cancellationToken)
-            : parts.Coordinator.SubmitBatchAsync(members, session, cancellationToken);
+        catch (BudgetRefusedException exception)
+        {
+            throw exception.WriteRejected();
+        }
+        finally
+        {
+            if (members is not null)
+            {
+                // A caller may retain the completed task and its lifted local. End its
+                // ownership of the batch roots before the task publishes the result.
+                Array.Clear(members);
+                _budget.Release(members);
+            }
+        }
     }
 
     // Lets no operation start any more, ends the waits for a position, lets every write admitted before it
@@ -606,6 +643,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             }
 
             master?.Dispose();
+            master?.ReleaseBacking();
         }
         catch (Exception exception)
         {
@@ -674,6 +712,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             _following = null;
             _maintaining = null;
         }
+
+        _budget.Close();
 
         if (failure is null)
         {
@@ -751,7 +791,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     {
         try
         {
-            return ChildListener.Start(listenUri, capture, forwarded, _options.OpenTimeout);
+            return ChildListener.Start(listenUri, capture, forwarded, _options.OpenTimeout, _testInputs);
         }
         catch (SocketException exception)
         {
@@ -804,13 +844,14 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             // A child holds nothing before it loads: an empty identity, history zero, an empty
             // fingerprint (Replication.HelloBody).
             var hello = HelloCheck.Of(Guid.Empty, 0, default, LatticeRoleEnum.Child);
-            var master = await MasterLink.ConnectAsync(masterUri, _options.OpenTimeout, hello, token).ConfigureAwait(false);
+            var master = await MasterLink.ConnectAsync(masterUri, _options.OpenTimeout, hello, _budget, token).ConfigureAwait(false);
 
             lock (_stateLock)
             {
                 if (_state == LatticeDatabaseStateEnum.Closed)
                 {
                     master.Dispose();
+                    master.ReleaseBacking();
                     throw new ObjectDisposedException(GetType().FullName);
                 }
 
@@ -818,12 +859,14 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 _state = LatticeDatabaseStateEnum.Loading;
             }
 
-            var memoryLimit = MemoryLimitInForce();
+            var memoryLimit = _budget.Limit;
             var (schema, counts) = await ChildLoad.ReceiveSchemaAsync(master, masterUri, memoryLimit, token).ConfigureAwait(false);
             var parts = Build(schema, master.Master.History, child: true);
             var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, parts.Tables, parts.Publisher,
-                parts.Writes, _barrier, Fault, _testInputs?.BeforeReceivedRootListGrowth);
-            var end = await ChildLoad.ReceiveRootsAsync(master, changes, parts.Tables, parts.Writes, counts, memoryLimit, token).ConfigureAwait(false);
+                parts.Writes, _barrier, Fault, _testInputs?.BeforeReceivedRootListGrowth,
+                beforePreparationMember: _testInputs?.BeforeChildPreparationMember);
+            var end = await ChildLoad.ReceiveRootsAsync(master, changes, parts.Tables, parts.Roots, parts.Writes,
+                counts, _budget, token).ConfigureAwait(false);
 
             // The load is complete; the transactions of (S, R] follow LoadEnd: the child is CatchingUp
             // until it has applied R, and then Ready.
@@ -840,9 +883,10 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             // The writes of the child go to its master through the sender of its connection, made here beside
             // the forwarder Build made for a child, which the follower attaches it to once the child has
             // caught up; their replies come back to the table of the calls sent.
-            var pending = new PendingRequests(parts.Clock.History);
-            var sender = new ChildSender(master, pending);
-            var follower = new Follower(master, sender, pending, parts.Forwarder!, parts.Clock, changes, memoryLimit, _options.OpenTimeout);
+            var pending = new PendingRequests(parts.Clock.History, _budget);
+            var sender = new ChildSender(master, pending, _budget);
+            var follower = new Follower(master, sender, pending, parts.Forwarder!, parts.Clock, changes, _budget,
+                _options.OpenTimeout, _testInputs);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 
@@ -933,19 +977,24 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         // instances that hold the same data.
         var seed = _testInputs?.IndexSeed ?? DrawSeed();
         var writes = new Lock();
-        var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = MemoryLimitInForce() };
+        var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = _budget.Limit };
         var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator(), seed, writes,
-            _testInputs?.MaintenanceTimeProvider);
+            _testInputs?.MaintenanceTimeProvider, _budget);
 
         try
         {
-            var roots = new RootTable();
+            var roots = RootTable.Create(_budget, _testInputs?.RootPageLimit);
             var retired = new RetiredMemory(_epochs, arena, roots, _testInputs?.BeforePublishedRetiredTrim);
             var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime, _epochs,
                 isDatabaseClosed: () => IsClosed);
             var delivery = new DeliveryTail();
             var tables = new EntityTables([.. schema.EntityTypes.Select(entityType => EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed))]);
             var changes = new ChangePublisher(arena, roots, retired, clock, tables);
+            if (!child)
+            {
+                changes.TrackPreparedWorkspaces();
+            }
+
             var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery);
             var coordinator = new WriteCoordinator(
                 writes,
@@ -959,7 +1008,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 clock,
                 _options.SynchronizationTimeout,
                 Fault);
-            var forwarder = child ? new Forwarder(clock, _epochs, _options.SynchronizationTimeout) : null;
+            var forwarder = child ? new Forwarder(clock, _epochs, _options.SynchronizationTimeout, _budget) : null;
             var reads = new ReadSettings(_options, _testInputs?.ReadTimestamps);
             var views = new ResidentViews(arena, schema.StringEncoding);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();

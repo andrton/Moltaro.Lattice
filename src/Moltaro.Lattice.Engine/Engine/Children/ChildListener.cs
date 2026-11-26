@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication;
 
 namespace Moltaro.Lattice.Engine.Children;
@@ -48,24 +49,27 @@ internal sealed class ChildListener
     private readonly ForwardedWrites _writes;
 
     private readonly TimeSpan _helloTimeout;
+    private readonly EngineTestInputs? _testInputs;
 
     private readonly CancellationTokenSource _closing = new();
 
     private readonly Lock _lock = new();
 
     // The connections that run, with their tasks; none is added once the listener stops.
-    private readonly Dictionary<ChildConnection, Task> _connections = [];
+    private Dictionary<ChildConnection, Task> _connections = [];
 
     private bool _stopping;
 
     private Task _accepting = Task.CompletedTask;
 
-    private ChildListener(Socket socket, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout, Uri address)
+    private ChildListener(Socket socket, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout, Uri address,
+        EngineTestInputs? testInputs)
     {
         _socket = socket;
         _capture = capture;
         _writes = writes;
         _helloTimeout = helloTimeout;
+        _testInputs = testInputs;
         Address = address;
     }
 
@@ -76,7 +80,8 @@ internal sealed class ChildListener
     // or a name that the system resolves, whose first address is taken. A failure to listen, a port in
     // use for one or a name that resolves to no address, is the SocketException the system reports, and
     // nothing is left open.
-    public static ChildListener Start(Uri listenUri, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout)
+    public static ChildListener Start(Uri listenUri, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout,
+        EngineTestInputs? testInputs)
     {
         var host = listenUri.DnsSafeHost;
         var address = IPAddress.TryParse(host, out var literal) ? literal : FirstAddress(host);
@@ -90,7 +95,8 @@ internal sealed class ChildListener
 
             var port = ((IPEndPoint)socket.LocalEndPoint!).Port;
 
-            listener = new ChildListener(socket, capture, writes, helloTimeout, new UriBuilder(listenUri.Scheme, listenUri.Host, port).Uri);
+            listener = new ChildListener(socket, capture, writes, helloTimeout,
+                new UriBuilder(listenUri.Scheme, listenUri.Host, port).Uri, testInputs);
         }
         catch
         {
@@ -148,6 +154,12 @@ internal sealed class ChildListener
         }
 
         await ended.ConfigureAwait(false);
+        lock (_lock)
+        {
+            var connectionsEnded = _connections;
+            _connections = [];
+            _writes.Budget?.ReleaseDictionary(connectionsEnded);
+        }
     }
 
     // Accepts until the listener stops (see the class).
@@ -204,7 +216,7 @@ internal sealed class ChildListener
 
         try
         {
-            connection = new ChildConnection(accepted, _capture, _writes, _helloTimeout);
+            connection = new ChildConnection(accepted, _capture, _writes, _helloTimeout, _testInputs);
         }
         catch (Exception)
         {
@@ -213,21 +225,30 @@ internal sealed class ChildListener
             return true;
         }
 
+        bool keepsAccepting;
         lock (_lock)
         {
-            if (!_stopping)
+            keepsAccepting = !_stopping;
+            if (keepsAccepting)
             {
-                // The task is started under the lock, so that StopAsync, which takes it, finds every
-                // connection it has to wait for; RunAsync returns at its first wait, never under the lock.
-                _connections.Add(connection, RunAsync(connection));
-
-                return true;
+                try
+                {
+                    _connections.EnsureCapacity(_connections.Count + 1, _writes.Budget, nameof(ChildListener));
+                    // StopAsync finds every running connection. RunAsync yields before any connection work.
+                    _connections.Add(connection, RunAsync(connection));
+                    return true;
+                }
+                catch (BudgetRefusedException)
+                {
+                    // Only this socket was refused. A later acceptance can use returned capacity.
+                }
             }
         }
 
         connection.Reset();
+        connection.ReleaseBacking();
 
-        return false;
+        return keepsAccepting;
     }
 
     // Runs one connection and forgets it when it has ended.

@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Entities;
 
 namespace Moltaro.Lattice.Engine.Child.Loading;
@@ -6,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // Keys of effects that capture did not copy. Only an accepted Delete clears
 // one. The follower stages them under the writing lock as part of an attempt.
 // This separately bounded buffer owns decoded key strings, never frame slices.
-internal sealed class MissingUpdateTargets(long memoryLimit)
+internal sealed class MissingUpdateTargets(long memoryLimit, MemoryBudget? budget = null) : IDisposable
 {
     private Entry[] _entries = [];
     private Entry[]? _grown;
@@ -16,6 +17,7 @@ internal sealed class MissingUpdateTargets(long memoryLimit)
     private int _adds;
     private long _retainedText;
     private long _stagedText;
+    private bool _committed;
 
     public int Count { get; private set; }
 
@@ -40,19 +42,33 @@ internal sealed class MissingUpdateTargets(long memoryLimit)
 
     private void Stage(in Change change, long extraText)
     {
-        if (_stagedCount == _staged.Length)
+        RequireRoom(extraText);
+        budget?.Reserve(extraText);
+        try
         {
-            var capacity = NextCapacity(_staged.Length);
-            RequireRoom(BytesOf<Change>(capacity) + extraText);
-            Array.Resize(ref _staged, capacity);
-        }
-        else
-        {
-            RequireRoom(extraText);
-        }
+            if (_stagedCount == _staged.Length)
+            {
+                var capacity = NextCapacity(_staged.Length);
+                RequireRoom(BytesOf<Change>(capacity) + extraText);
+                var previous = _staged;
+                _staged = budget?.Allocate<Change>(capacity, nameof(MissingUpdateTargets)) ?? new Change[capacity];
+                previous.CopyTo(_staged, 0);
+                budget?.Release(previous);
+            }
 
-        _staged[_stagedCount++] = change;
-        _stagedText += extraText;
+            if (!change.Removes && change.Entry.Key.Text is { } text)
+            {
+                budget?.Own(text, nameof(MissingUpdateTargets));
+            }
+
+            _staged[_stagedCount++] = change;
+            _stagedText += extraText;
+        }
+        catch
+        {
+            budget?.Release(extraText);
+            throw;
+        }
     }
 
     // Before publication, reserve room for every addition, including the
@@ -72,7 +88,7 @@ internal sealed class MissingUpdateTargets(long memoryLimit)
         }
 
         RequireRoom(BytesOf<Entry>(capacity));
-        _grown = new Entry[capacity];
+        _grown = budget?.Allocate<Entry>(capacity, nameof(MissingUpdateTargets)) ?? new Entry[capacity];
         foreach (ref readonly var entry in _entries.AsSpan())
         {
             if (entry.Table is { } table)
@@ -86,7 +102,9 @@ internal sealed class MissingUpdateTargets(long memoryLimit)
     {
         if (_grown is not null)
         {
+            budget?.Release(_entries);
             _entries = _grown;
+            _grown = null;
         }
 
         foreach (ref readonly var change in _staged.AsSpan(0, _stagedCount))
@@ -98,6 +116,7 @@ internal sealed class MissingUpdateTargets(long memoryLimit)
                 DeleteAt(_entries, place);
                 Count--;
                 _retainedText -= TextBytes(entry.Key);
+                GiveBackText(entry.Key);
             }
             else
             {
@@ -107,21 +126,60 @@ internal sealed class MissingUpdateTargets(long memoryLimit)
         }
 
         _retainedText += _stagedText;
+        _committed = true;
     }
 
     public void EndAttempt()
     {
-        _grown = null;
+        if (!_committed && budget is not null)
+        {
+            foreach (ref readonly var change in _staged.AsSpan(0, _stagedCount))
+            {
+                if (!change.Removes)
+                {
+                    GiveBackText(change.Entry.Key);
+                }
+            }
+        }
+
+        if (_grown is not null)
+        {
+            budget?.Release(_grown);
+            _grown = null;
+        }
+
+        budget?.Release(_staged);
+        _committed = false;
         _staged = [];
         _stagedCount = 0;
         _adds = 0;
         _stagedText = 0;
     }
 
+    public void Dispose()
+    {
+        EndAttempt();
+        foreach (ref readonly var entry in _entries.AsSpan())
+        {
+            GiveBackText(entry.Key);
+        }
+
+        budget?.Release(_entries);
+        _entries = [];
+    }
+
+    private void GiveBackText(in EntityKey key)
+    {
+        if (key.Text is { } text)
+        {
+            budget?.Release(TextBytes(key), text);
+        }
+    }
+
     private void RequireRoom(long extra)
     {
         var held = _retainedText + _stagedText + BytesOf<Entry>(_entries.Length) + BytesOf<Change>(_staged.Length);
-        if (extra > memoryLimit - held)
+        if (budget is null && extra > memoryLimit - held)
         {
             throw Exhausted();
         }

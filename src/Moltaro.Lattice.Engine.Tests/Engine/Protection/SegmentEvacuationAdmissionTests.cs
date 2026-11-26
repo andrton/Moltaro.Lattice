@@ -24,7 +24,8 @@ public sealed class SegmentEvacuationAdmissionTests
         var attempts = 0;
         var inputs = new EngineTestInputs
         {
-            Arena = new ArenaOptions { MemoryLimit = 3L * SegmentBytes },
+            // Keep the last destination among three native grants independently of replay backing.
+            Arena = new ArenaOptions { MemoryLimit = 7L * SegmentBytes, NativeCapacityLimit = 3L * SegmentBytes },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             BeforeMaintenanceWrites = () =>

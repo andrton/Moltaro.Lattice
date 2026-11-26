@@ -326,7 +326,9 @@ public sealed class SegmentEvacuationTests
     internal static EngineTestInputs Inputs(int segments, CountingNativeAllocator? allocator = null, Action<MaintenanceTurnSample>? observe = null) =>
         new()
         {
-            Arena = new ArenaOptions { MemoryLimit = (long)segments * SegmentBytes },
+            // A grouped seed or replay can own several extra MiB in snapshots and framing.
+            // The physical source and destination segments still have the specified extent.
+            Arena = new ArenaOptions { MemoryLimit = (long)(segments + 4) * SegmentBytes, NativeCapacityLimit = (long)segments * SegmentBytes },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             ObserveMaintenanceTurn = observe,

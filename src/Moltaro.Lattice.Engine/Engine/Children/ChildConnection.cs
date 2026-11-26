@@ -91,18 +91,35 @@ internal sealed class ChildConnection
     // Set by the sender when it adds the frame Closed; the receiver drops every request from then on.
     private volatile bool _closed;
 
-    public ChildConnection(Socket socket, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout)
+    private readonly EngineTestInputs? _testInputs;
+
+    public ChildConnection(Socket socket, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout,
+        EngineTestInputs? testInputs)
     {
-        _connection = new FrameConnection(socket);
         _capture = capture;
         _writes = writes;
         _helloTimeout = helloTimeout;
-        _replies = new RecordedReplies(capture.Tail);
+        _testInputs = testInputs;
+        _connection = new FrameConnection(socket, writes.Budget);
+        try
+        {
+            _replies = new RecordedReplies(capture.Tail, writes.Budget, Reset);
+        }
+        catch
+        {
+            _connection.ReleaseBacking();
+            throw;
+        }
     }
 
     // Ends the connection at once, by a reset: for the close of the master, for a connection that did not
     // end within the time the listener gives it; RunAsync then ends.
     public void Reset() => _connection.Reset();
+    public void ReleaseBacking()
+    {
+        _replies.Close();
+        _connection.ReleaseBacking();
+    }
 
     // The master closes, and its admitted writes have ended (see the class): the connection sends what it
     // owes the child, then Closed, and ends its sending side in order.
@@ -138,9 +155,19 @@ internal sealed class ChildConnection
                 return;
             }
 
-            var start = _capture.Register();
+            var start = _capture.Register(out var counts);
 
             cursor = start.Cursor;
+            try
+            {
+                _connection.AddHello(FrameKindEnum.HelloReply, _capture.Hello);
+                SchemaTransfer.Add(_connection, _capture.SavedSchema, counts, _writes.Budget);
+            }
+            finally
+            {
+                _writes.Budget?.Release(counts);
+                counts = [];
+            }
 
             var readiness = await LoadAsync(start, finishing).ConfigureAwait(false);
 
@@ -163,6 +190,7 @@ internal sealed class ChildConnection
                 _connection.Reset();
             }
 
+            ReleaseBacking();
             if (cursor is not null)
             {
                 _capture.Unregister(cursor);
@@ -173,12 +201,10 @@ internal sealed class ChildConnection
     // Sends the whole database from the start of the capture, and LoadEnd; returns R.
     private async Task<ulong> LoadAsync(CaptureStart start, CancellationToken closing)
     {
-        _connection.AddHello(FrameKindEnum.HelloReply, _capture.Hello);
-        SchemaTransfer.Add(_connection, _capture.SavedSchema, start.Counts);
         await _connection.SendAsync(closing).ConfigureAwait(false);
 
-        var buffer = new TransferBuffer();
-        var framer = new RootFramer(_connection);
+        using var buffer = new TransferBuffer(_writes.Budget);
+        using var framer = new RootFramer(_connection, _writes.Budget);
 
         for (var slot = 0; slot < start.SlotExtent; slot++)
         {
@@ -358,6 +384,11 @@ internal sealed class ChildConnection
     // Adds every reply recorded, each whole, and sends whenever a frame's worth is waiting.
     private async ValueTask AddRepliesAsync(CancellationToken cancellationToken)
     {
+        if (_replies.HasReplies && _testInputs?.BeforeMasterReplyDrain is { } beforeDrain)
+        {
+            await beforeDrain(cancellationToken).ConfigureAwait(false);
+        }
+
         while (_replies.TryTake(out var reply))
         {
             if (reply.Refusal is null && reply.Updates.Count == 0)
@@ -366,7 +397,27 @@ internal sealed class ChildConnection
                 continue;
             }
 
-            var body = new OutgoingMessage();
+            var correlationId = reply.CorrelationId;
+            using var body = EncodeReply(reply);
+            reply = default;
+            for (var index = 0; index < body.FrameCount; index++)
+            {
+                _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, correlationId, body.Frame(index));
+
+                if (_connection.PendingBytes >= Protocol.MaxFrame)
+                {
+                    await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+    }
+
+    private OutgoingMessage EncodeReply(in RecordedReply reply)
+    {
+        OutgoingMessage? body = null;
+        try
+        {
+            body = new OutgoingMessage(_writes.Budget);
             if (reply.Refusal is { } refusal)
             {
                 ForwardEncoding.WriteReply(body, refusal, reply.IndexId);
@@ -377,15 +428,16 @@ internal sealed class ChildConnection
             }
 
             body.Complete();
-            for (var index = 0; index < body.FrameCount; index++)
-            {
-                _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, reply.CorrelationId, body.Frame(index));
-
-                if (_connection.PendingBytes >= Protocol.MaxFrame)
-                {
-                    await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
-                }
-            }
+            return body;
+        }
+        catch
+        {
+            body?.Dispose();
+            throw;
+        }
+        finally
+        {
+            _replies.ReleaseBody(reply);
         }
     }
 
@@ -428,7 +480,7 @@ internal sealed class ChildConnection
     // one the child cannot have applied, and a forwarded write that is not valid end it.
     private async Task ReceiveAsync(DeliveryCursor cursor, ulong readiness, CancellationToken cancellationToken)
     {
-        var requests = new RequestReceiver(_writes, _replies);
+        using var requests = new RequestReceiver(_writes, _replies, _testInputs?.ObserveMasterRequestFrame);
 
         while (true)
         {

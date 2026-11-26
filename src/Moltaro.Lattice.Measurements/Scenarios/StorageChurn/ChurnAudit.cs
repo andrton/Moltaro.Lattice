@@ -22,7 +22,7 @@ internal sealed class ChurnAudit
         _heldUser = seed.First(row => row.EntityType.Name == "User" && row.Get<long>("Id") == 2);
     }
 
-    public async ValueTask EditCollectionsAsync(EngineDatabase master, ChurnTrace.Frame frame, int extra, CancellationToken token)
+    public async ValueTask<LatticeWriteResult> EditCollectionsAsync(EngineDatabase master, ChurnTrace.Frame frame, int extra, CancellationToken token)
     {
         bool grow = frame.Collection == ChurnTrace.CollectionChangeEnum.Grow;
         var update = frame.CollectionTarget switch
@@ -44,19 +44,23 @@ internal sealed class ChurnAudit
             };
         }
 
-        Require((await update.CommitAsync(token)).Changed && outcomes.All(outcome => outcome.Changed),
+        var write = await update.CommitAsync(token);
+        Require(write.Changed && outcomes.All(outcome => outcome.Changed),
             "A planned collection edit was not applied.");
+        return write;
     }
 
-    public void CheckCollections(EngineDatabase node, int extra)
+    public void CheckCollections(EngineDatabase node, int extra) => CheckCollections(node, extra, extra, extra);
+
+    public void CheckCollections(EngineDatabase node, int groupExtra, int permissionExtra, int optionExtra)
     {
         var users = node.Set("User");
         var roles = node.Set("Role");
         var settings = node.Set("Setting");
 
-        long[] expectedGroups = [.. _groups, .. Enumerable.Range(0, extra).Select(ChurnTrace.Group)];
-        var expectedPermissions = new HashSet<string>(_permissions.Concat(Enumerable.Range(0, extra).Select(ChurnTrace.Permission)));
-        var expectedOptions = _options.Concat(Enumerable.Range(0, extra).Select(item =>
+        long[] expectedGroups = [.. _groups, .. Enumerable.Range(0, groupExtra).Select(ChurnTrace.Group)];
+        var expectedPermissions = new HashSet<string>(_permissions.Concat(Enumerable.Range(0, permissionExtra).Select(ChurnTrace.Permission)));
+        var expectedOptions = _options.Concat(Enumerable.Range(0, optionExtra).Select(item =>
             KeyValuePair.Create(ChurnTrace.SettingKey(item), ChurnTrace.Value(item, 0, 70)))).ToDictionary();
 
         Require(users.TryGet(ChurnTrace.CollectionUser, out var user, out var userRev) && GroupsMatch(user!, expectedGroups),
@@ -202,7 +206,7 @@ internal sealed class ChurnAudit
         return expected.Count;
     }
 
-    private static LatticeRevision CheckRead(ILatticeSet set, long key, LatticeRecord authored)
+    internal static LatticeRevision CheckRead(ILatticeSet set, long key, LatticeRecord authored)
     {
         Require(set.TryGet(key, out var record, out var revision) && revision != default &&
             record!.Get<long>("Id") == key && record.Get<string>("DisplayName") == authored.Get<string>("DisplayName") &&

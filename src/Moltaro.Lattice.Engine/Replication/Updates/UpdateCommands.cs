@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Roots.Edits;
@@ -61,28 +62,28 @@ internal static class UpdateCommands
         }
     }
 
-    public static UpdateCommand[] ReadRequest(RootLayout root, ref SequenceReader<byte> input)
+    public static UpdateCommand[] ReadRequest(RootLayout root, ref SequenceReader<byte> input, MemoryLease? lease = null)
     {
         var count = Count(ref input);
-        var scalars = new HashSet<int>();
-        var commands = new UpdateCommand[count];
+        using var scalars = new BudgetSet<int>(lease?.Budget, nameof(UpdateCommands), EqualityComparer<int>.Default);
+        var commands = lease?.Allocate<UpdateCommand>(count, nameof(UpdateCommands)) ?? new UpdateCommand[count];
         for (var index = 0; index < commands.Length; index++)
         {
-            commands[index] = Read(root, ref input, scalars, resolved: false).Command;
+            commands[index] = Read(root, ref input, scalars, lease, resolved: false).Command;
         }
 
         ExpectEnd(input);
         return commands;
     }
 
-    public static ResolvedCommand[] ReadEffect(RootLayout root, ref SequenceReader<byte> input)
+    public static ResolvedCommand[] ReadEffect(RootLayout root, ref SequenceReader<byte> input, MemoryLease? lease = null)
     {
         var count = Count(ref input);
-        var scalars = new HashSet<int>();
-        var commands = new ResolvedCommand[count];
+        using var scalars = new BudgetSet<int>(lease?.Budget, nameof(UpdateCommands), EqualityComparer<int>.Default);
+        var commands = lease?.Allocate<ResolvedCommand>(count, nameof(UpdateCommands)) ?? new ResolvedCommand[count];
         for (var index = 0; index < commands.Length; index++)
         {
-            commands[index] = Read(root, ref input, scalars, resolved: true);
+            commands[index] = Read(root, ref input, scalars, lease, resolved: true);
         }
 
         ExpectEnd(input);
@@ -109,7 +110,7 @@ internal static class UpdateCommands
         }
     }
 
-    private static ResolvedCommand Read(RootLayout root, ref SequenceReader<byte> input, HashSet<int> scalars, bool resolved)
+    private static ResolvedCommand Read(RootLayout root, ref SequenceReader<byte> input, BudgetSet<int> scalars, MemoryLease? lease, bool resolved)
     {
         if (!input.TryRead(out var opcode))
         {
@@ -164,20 +165,32 @@ internal static class UpdateCommands
                 throw Protocol.Invalid($"An update assigns target {ordinal} more than once.");
             }
 
-            first = UpdateOperands.Read(ref input, root.EntityType, structure, target);
+            first = UpdateOperands.Read(ref input, root.EntityType, structure, target, lease);
         }
         else if (kind != UpdateCommandKindEnum.ListRemove)
         {
             var entry = structure.ElementOf(target);
-            first = UpdateOperands.Read(ref input, root.EntityType, entry, 0);
+            first = UpdateOperands.Read(ref input, root.EntityType, entry, 0, lease);
             if (kind == UpdateCommandKindEnum.MapSet)
             {
-                second = UpdateOperands.Read(ref input, root.EntityType, entry, 1);
+                second = UpdateOperands.Read(ref input, root.EntityType, entry, 1, lease);
             }
         }
 
-        var name = path.Length == 1 ? path[0].Name : string.Join('.', path.Select(field => field.Name));
+        var name = NameOf(path, lease);
         return new ResolvedCommand(new UpdateCommand(kind, name, path, position, first, second, target), opcode == MapReplace);
+    }
+
+    private static string NameOf(LatticeField[] path, MemoryLease? lease)
+    {
+        if (path.Length == 1)
+        {
+            return path[0].Name;
+        }
+
+        string Join() => string.Join('.', path.Select(field => field.Name));
+        return lease?.Allocate(MemoryBudget.StringBytes(path.Sum(field => field.Name.Length) + path.Length - 1),
+            nameof(UpdateCommands), Join) ?? Join();
     }
 
     private static long Length(StructureLayout structure, in UpdateCommand command)

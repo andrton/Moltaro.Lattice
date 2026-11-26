@@ -89,6 +89,8 @@ internal sealed class FrameRelay : IAsyncDisposable
     // cut or ended; fails when that has not happened within the bound.
     public Task ChildEndedAsync() => BoundedWait.ForAsync(_childEnded.Task, "The end of the connection of the child");
 
+    public void Cut() => _link.Cut();
+
     public ValueTask DisposeAsync() => _link.DisposeAsync();
 
     private async Task CopyToChildAsync(Socket master, Socket child, CancellationToken cancellationToken)

@@ -29,7 +29,14 @@ internal static class FullArena
     // The slots of 1 KiB of one region, the size of a node and of the text entry of a filler.
     public const int SlotsOfOneKiB = Region / IndexSchema.NodeBytes;
 
-    public static ArenaOptions Options { get; } = new() { SegmentSize = Region, MemoryLimit = Regions * (long)Region, ReservedSegments = 0 };
+    // A fixed number of whole regions makes the allocator full even when a managed root page fits.
+    public static ArenaOptions Options { get; } = new()
+    {
+        SegmentSize = Region,
+        MemoryLimit = 32L * 1024 * 1024,
+        NativeCapacityLimit = Regions * (long)Region,
+        ReservedSegments = 0,
+    };
 
     // The schema of IndexSchema with the entity type Filler: the key Id and Tag, a String with Dictionary
     // storage, whose text lies in an entry of the text table.

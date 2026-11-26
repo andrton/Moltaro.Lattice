@@ -16,11 +16,21 @@ This is evidence for the specified fixtures, not all schedules or production own
 The native allocator owns segments and size-class slots. A block has a relative
 segment/offset address, logical length, capacity, state and owner. Slots are free,
 prepared, live or retired. Readers and other retainers protect a detached retired
-slot until reclamation. The native arena budget includes prepared blocks and
-relocation destinations alongside published data.
+slot until reclamation. The instance budget charges the full physical grant when a
+segment is allocated. That single charge covers prepared, live, retired and free slots,
+relocation destinations, unused capacity and the empty reserve. Giving a slot or region
+a new role changes no native charge. A managed directory or replacement array is
+charged separately for the time it is held.
 
 A managed struct control entry identifies one root lifetime: key, generation,
-published revision, root address and live or deleted state.
+published revision, root address and live or deleted state. Unpublished preparation can
+return a newly appended page if it was the sole owner and no capture can require it. A
+page that contains a published lifetime remains addressable so that stale handles keep
+their generation checks and exhausted generations stay exhausted. The table also
+preserves the generation of every issued prepared handle. A compact history remains
+charged while it supplies generations for removed pages. The table seeds all issued
+entries when it reconstructs a page, then releases redundant history when that page
+becomes permanent.
 The primary index reaches this entry, never an unprotected native pointer. Owned
 chunks identify the root lifetime and the owning edge that must be repaired when
 they move. A shared text descriptor names a stable text ID. The reader acquires the

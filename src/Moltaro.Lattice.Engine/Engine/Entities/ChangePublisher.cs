@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -73,10 +74,15 @@ internal sealed class ChangePublisher
     // owners they free. The values and the handles grow with the changes and are let go after a publication
     // past KeptRoom (PublishPositionAndAfter); the entity types are at most those of the schema, and are kept.
     private EntityTable[] _tablesOf = [];
+    private WorkspaceCapacity<EntityTable> _tableWorkspace;
+    private bool _tracksPreparedWorkspaces;
+    private Workspaces _workspaceUsed;
 
     private (int Place, ArenaAddress Root)[] _claims = [];
+    private WorkspaceCapacity<(int Place, ArenaAddress Root)> _claimWorkspace;
 
     private ulong[] _freed = [];
+    private WorkspaceCapacity<ulong> _freedWorkspace;
 
     // What a test of the engine runs at the place of the next publication that passes it
     // (ArmPublicationSwitch), and the place; null when no test armed it, which is all a publication pays:
@@ -343,15 +349,28 @@ internal sealed class ChangePublisher
 
             if (Frees(change, index))
             {
-                Grow(ref _freed, frees + 1);
+                if (frees + 1 > _freed.Length)
+                {
+                    _freed = GrowWorkspace(ref _freedWorkspace, _freed, frees + 1, restored => _freed = restored);
+                }
+
                 _freed[frees++] = change.Handle.Packed;
             }
 
             if (SetsValue(change, index) && !unique.Layout.HasNull(new RootReader(_arena, layout, change.Root)))
             {
-                Grow(ref _claims, claims + 1);
+                if (claims + 1 > _claims.Length)
+                {
+                    _claims = GrowWorkspace(ref _claimWorkspace, _claims, claims + 1, restored => _claims = restored);
+                }
+
                 _claims[claims++] = (place, change.Root);
             }
+        }
+
+        if (_tracksPreparedWorkspaces && _arena.Budget!.IsPreparing)
+        {
+            _workspaceUsed = _workspaceUsed.Max(new Workspaces(0, claims, frees));
         }
 
         var freed = _freed.AsSpan(0, frees);
@@ -402,6 +421,40 @@ internal sealed class ChangePublisher
     }
 
     // The entity types of several changes (TablesOf).
+    public void TrackPreparedWorkspaces() => _tracksPreparedWorkspaces = _arena.Budget is not null;
+
+    public Workspaces TakeWorkspaces()
+    {
+        var used = _workspaceUsed;
+        _workspaceUsed = default;
+        return used;
+    }
+
+    public void KeepWorkspaces(Workspaces used)
+    {
+        _tableWorkspace.Keep(used.Tables);
+        _claimWorkspace.Keep(Math.Min(used.Claims, _claims.Length));
+        _freedWorkspace.Keep(Math.Min(used.Freed, _freed.Length));
+    }
+
+    public void ReleaseUnusedWorkspaces(Workspaces used)
+    {
+        if (_tracksPreparedWorkspaces)
+        {
+            var budget = _arena.Budget!;
+            _tableWorkspace.ReleaseUnused(ref _tablesOf, used.Tables, budget);
+            _claimWorkspace.ReleaseUnused(ref _claims, used.Claims, budget);
+            _freedWorkspace.ReleaseUnused(ref _freed, used.Freed, budget);
+        }
+    }
+
+    public readonly record struct Workspaces(int Tables, int Claims, int Freed)
+    {
+        public bool Used => (Tables | Claims | Freed) != 0;
+
+        public Workspaces Max(Workspaces other) => new(Math.Max(Tables, other.Tables), Math.Max(Claims, other.Claims), Math.Max(Freed, other.Freed));
+    }
+
     private ReadOnlySpan<EntityTable> TablesOfSeveral(ReadOnlySpan<PreparedChange> changes)
     {
         var count = 0;
@@ -410,13 +463,27 @@ internal sealed class ChangePublisher
         {
             if (_tablesOf.AsSpan(0, count).IndexOf(change.Table) < 0)
             {
-                Grow(ref _tablesOf, count + 1);
+                if (count + 1 > _tablesOf.Length)
+                {
+                    _tablesOf = GrowWorkspace(ref _tableWorkspace, _tablesOf, count + 1, restored => _tablesOf = restored);
+                }
+
                 _tablesOf[count++] = change.Table;
             }
         }
 
+        if (_tracksPreparedWorkspaces && _arena.Budget!.IsPreparing)
+        {
+            _workspaceUsed = _workspaceUsed.Max(new Workspaces(count, 0, 0));
+        }
+
         return _tablesOf.AsSpan(0, count);
     }
+
+    private T[] GrowWorkspace<T>(ref WorkspaceCapacity<T> workspace, T[] previous, int count, Action<T[]> restore) =>
+        _tracksPreparedWorkspaces
+            ? workspace.Grow(previous, Math.Max(count, 2 * previous.Length), _arena.Budget!, nameof(ChangePublisher))
+            : Grow(previous, count, restore);
 
     // The inserts and the removes the changes of the entity type of the table take in its index at the
     // place given, together (Indexes.SecondaryIndex.CountsOf). Inlined, so that the reservation, the top-up
@@ -442,11 +509,21 @@ internal sealed class ChangePublisher
 
     // A scratch array of the publisher with room for the count given; it grows, is kept for the next
     // publication up to KeptRoom, and only the holder of the lock of the writes uses it.
-    private static void Grow<T>(ref T[] scratch, int count)
+    private T[] Grow<T>(T[] previous, int count, Action<T[]> restore)
     {
-        if (scratch.Length < count)
+        var length = Math.Max(count, 2 * previous.Length);
+        var budget = _arena.Budget;
+        var replacement = budget?.Allocate<T>(length, nameof(ChangePublisher)) ?? new T[length];
+        try
         {
-            Array.Resize(ref scratch, Math.Max(count, 2 * scratch.Length));
+            previous.CopyTo(replacement, 0);
+            budget?.Replace(previous, replacement, restore);
+            return replacement;
+        }
+        catch
+        {
+            budget?.Release(replacement);
+            throw;
         }
     }
 
@@ -487,7 +564,7 @@ internal sealed class ChangePublisher
 
     // Under the lock of the writes, for the changes of a write batch prepared and not published: what they
     // claim and free in the unique indexes, sorted, for the questions of later writes (UniqueClaims).
-    public UniqueClaims ClaimsOf(PreparedChange[] changes, int count) => new(this, _arena, changes, count);
+    public UniqueClaims ClaimsOf(PreparedChange[] changes, int count) => UniqueClaims.Create(this, _arena, changes, count);
 
     // Whether the change puts a value into the index at the place given: an insert, or a replace that
     // moves its key there, as the change records it.
@@ -618,6 +695,7 @@ internal sealed class ChangePublisher
     public void Release(ReadOnlySpan<PreparedChange> changes)
     {
         var tables = TablesOf(changes);
+        var releasedSlot = false;
 
         ReleaseIndexes(changes, tables, tables.Length, 0);
 
@@ -629,8 +707,9 @@ internal sealed class ChangePublisher
             {
                 case ChangeKindEnum.Insert:
                     RootStorage.Free(_arena, change.Table.Layout, change.Root);
-                    change.Table.ReleaseReservation();
+                    change.Table.ReleaseReservation(change.Key);
                     _roots.Release(change.Handle);
+                    releasedSlot = true;
                     break;
 
                 case ChangeKindEnum.Replace:
@@ -642,6 +721,11 @@ internal sealed class ChangePublisher
                     _retired.Release();
                     break;
             }
+        }
+
+        if (releasedSlot)
+        {
+            _roots.WithdrawUnusedPages();
         }
     }
 
@@ -755,6 +839,8 @@ internal sealed class ChangePublisher
         {
             LetGoOfScratch();
         }
+
+        _roots.ReleasePermanentDirectories();
     }
 
     // The scratch of the values and the handles of a reservation of several changes, empty again (see
@@ -762,8 +848,20 @@ internal sealed class ChangePublisher
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void LetGoOfScratch()
     {
-        _claims = [];
-        _freed = [];
+        if (_tracksPreparedWorkspaces)
+        {
+            _claimWorkspace.Drop(ref _claims, _arena.Budget!);
+            _freedWorkspace.Drop(ref _freed, _arena.Budget!);
+        }
+        else
+        {
+            var claims = _claims;
+            var freed = _freed;
+            _claims = [];
+            _freed = [];
+            _arena.Budget?.Release(claims);
+            _arena.Budget?.Release(freed);
+        }
     }
 
     // For the tests of the engine (EngineDatabase.ArmPublicationSwitch): the next publication that passes the
@@ -856,6 +954,7 @@ internal sealed class ChangePublisher
         entry.LastMutationSequence = sequence;
         entry.Member = member;
         entry.ReleaseState(RootStateEnum.Live);
+        _roots.NotePublished(handle);
 
         // The store that publishes the entry and the root to a read by key, with release semantics.
         table.Add(key, handle);
@@ -962,7 +1061,7 @@ internal sealed class ChangePublisher
         {
             if (change.Kind == ChangeKindEnum.Insert)
             {
-                change.Table.ReleaseReservation();
+                change.Table.ReleaseReservation(change.Key);
             }
             else
             {

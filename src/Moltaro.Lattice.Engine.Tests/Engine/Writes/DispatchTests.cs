@@ -448,7 +448,8 @@ public sealed class DispatchTests
 
         var allocator = new CountingNativeAllocator();
         var storage = new HeldPersistence(holding: false);
-        var database = await OpenAsync(storage, allocator, new ArenaOptions { MemoryLimit = 3L * new ArenaOptions().SegmentSize });
+        // The allocator still receives the third grant before the charge denies the fourth.
+        var database = await OpenAsync(storage, allocator, new ArenaOptions { MemoryLimit = 3L * new ArenaOptions().SegmentSize + 1024 * 1024 });
         var pieces = database.Set<PieceSchema.Piece>();
 
         try

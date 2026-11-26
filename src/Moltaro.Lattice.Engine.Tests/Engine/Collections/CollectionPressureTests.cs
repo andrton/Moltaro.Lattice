@@ -385,7 +385,14 @@ public sealed class CollectionPressureTests
         }, new EngineTestInputs
         {
             Allocator = allocator,
-            Arena = new ArenaOptions { MemoryLimit = nativeLimit * WholeChunk, SegmentSize = WholeChunk, ReservedSegments = 0 },
+            // Leave the allocator's last whole chunk to the collection paths these cases exercise.
+            Arena = new ArenaOptions
+            {
+                MemoryLimit = 32L * 1024 * 1024,
+                NativeCapacityLimit = nativeLimit * WholeChunk,
+                SegmentSize = WholeChunk,
+                ReservedSegments = 0,
+            },
             DisableBackgroundMaintenance = true,
             IndexSeed = 31,
             MaintenanceTimeProvider = time,

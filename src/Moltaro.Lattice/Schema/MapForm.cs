@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Budgeting;
+
 namespace Moltaro.Lattice.Schema;
 
 // The .NET collection that a record holds at a Map position: Dictionary<K, V>, where K and V
@@ -23,11 +25,11 @@ internal abstract class MapForm
     public abstract IEnumerable<KeyValuePair<object?, object?>> Entries(object input);
 
     // A new, empty collection of the record.
-    public abstract object Create(int capacity = 0);
+    public abstract object Create(int capacity = 0, MemoryLease? lease = null);
 
     // Adds an entry whose key and value are of type K and V; false when the Map already has a
     // key that the key declaration holds equal.
-    public abstract bool TryAdd(object map, object key, object? value);
+    public abstract bool TryAdd(object map, object key, object? value, MemoryLease? lease = null);
 
     public static MapForm For(LatticeValueDeclaration key, LatticeValueDeclaration value) =>
         For(key.PositionType, value.PositionType, key.TextComparison);

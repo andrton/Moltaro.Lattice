@@ -203,7 +203,9 @@ internal abstract class CollectionMatrixProfile(string name, LatticeFieldTypeEnu
 
     public abstract void AssertOwned(object? expected, LatticeRecord record);
 
-    public abstract LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt);
+    public LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt) => Edit(update, count, salt, salt - 1);
+
+    public abstract LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt, int predecessorSalt);
 
     public virtual LatticeCommandResult Remove(LatticeUpdate update, int ordinal, int salt) =>
         throw new InvalidOperationException("This collection does not remove lookup members.");

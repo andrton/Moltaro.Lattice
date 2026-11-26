@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication.Forwarding;
 
 namespace Moltaro.Lattice.Engine.Delivery;
@@ -21,37 +21,149 @@ namespace Moltaro.Lattice.Engine.Delivery;
 // a write it admitted is recorded, and the sender sends them before the frame Closed
 // (Children.ChildConnection).
 //
-// Who calls what. Any thread records, the holder of the lock of the writes among them, which takes no
-// other lock: the queue takes none. One thread takes: the sender of the connection.
+// Writes may take the reply lock to record an outcome. The sender takes only that lock and
+// releases it before I/O or a tail wake. The receiver reserves the reply before giving the
+// request to the write path, so recording its final outcome cannot allocate.
 internal sealed class RecordedReplies
 {
-    private readonly ConcurrentQueue<RecordedReply> _replies = new();
-
+    private readonly Lock _gate = new();
+    private readonly Queue<RecordedReply> _replies = new();
     private readonly DeliveryTail _tail;
+    private readonly MemoryBudget? _budget;
+    private readonly Action? _unableToSend;
+    private int _reserved;
+    private bool _closed;
 
-    public RecordedReplies(DeliveryTail tail)
+    public RecordedReplies(DeliveryTail tail, MemoryBudget? budget = null, Action? unableToSend = null)
     {
         _tail = tail;
+        _budget = budget;
+        _unableToSend = unableToSend;
+        _replies.EnsureCapacity(1, budget, nameof(RecordedReplies));
     }
 
-    // Whether a reply waits to be sent.
-    public bool HasReplies => !_replies.IsEmpty;
-
-    // In the hold of the lock of the writes that publishes the write, before its transaction is appended
-    // to the tail: the write of the correlation id succeeded with the result. The publication wakes the
-    // senders after the hold.
-    public void Succeed(ulong correlationId, in LatticeWriteResult result, in UpdateBitmap updates = default) =>
-        _replies.Enqueue(new RecordedReply(correlationId, result, null, null, updates));
-
-    // From any thread outside the lock of the writes: the write of the correlation id was refused, with the
-    // identity of the unique index the refusal names, if it names one, and the senders are woken, since no
-    // publication does it.
-    public void Refuse(ulong correlationId, LatticeException refusal, int? indexId)
+    public bool HasReplies
     {
-        _replies.Enqueue(new RecordedReply(correlationId, default, refusal, indexId));
+        get
+        {
+            lock (_gate)
+            {
+                return _replies.Count != 0;
+            }
+        }
+    }
+
+    public bool TryReserve()
+    {
+        lock (_gate)
+        {
+            if (_closed)
+            {
+                return false;
+            }
+
+            try
+            {
+                // Keep room for a refusal when a request cannot fund another reservation.
+                _replies.EnsureCapacity(_replies.Count + _reserved + 2, _budget, nameof(RecordedReplies));
+                _reserved++;
+                return true;
+            }
+            catch (BudgetRefusedException)
+            {
+                return false;
+            }
+        }
+    }
+
+    public void ReleaseReservation()
+    {
+        lock (_gate)
+        {
+            if (!_closed)
+            {
+                _reserved--;
+            }
+        }
+    }
+
+    public void Succeed(ulong correlationId, in LatticeWriteResult result, in UpdateBitmap updates = default)
+    {
+        var reply = new RecordedReply(correlationId, result, null, null, updates);
+        if (!Record(reply, reserved: true))
+        {
+            ReleaseBody(reply);
+        }
+    }
+
+    public void Refuse(ulong correlationId, LatticeException refusal, int? indexId, bool reserved = true)
+    {
+        Record(new RecordedReply(correlationId, default, refusal, indexId), reserved);
         _tail.Wake();
     }
 
-    // For the sender: the next reply to send, in the order of their records.
-    public bool TryTake(out RecordedReply reply) => _replies.TryDequeue(out reply);
+    private bool Record(RecordedReply reply, bool reserved)
+    {
+        lock (_gate)
+        {
+            if (_closed)
+            {
+                return false;
+            }
+
+            if (reserved)
+            {
+                _reserved--;
+                _replies.Enqueue(reply);
+                return true;
+            }
+
+            if (_replies.Count + _reserved < _replies.EnsureCapacity(0))
+            {
+                _replies.Enqueue(reply);
+                return true;
+            }
+        }
+
+        // No accepted write is involved. There is no room even for another refusal at the
+        // connection's current pressure point, so the receiver ends the connection.
+        _unableToSend?.Invoke();
+        return false;
+    }
+
+    public bool TryTake(out RecordedReply reply)
+    {
+        lock (_gate)
+        {
+            return _replies.TryDequeue(out reply);
+        }
+    }
+
+    public void ReleaseBody(in RecordedReply reply)
+    {
+        if (reply.Updates.Bits is { } bits)
+        {
+            _budget?.Release(bits);
+        }
+    }
+
+    public void Close()
+    {
+        lock (_gate)
+        {
+            _closed = true;
+            _reserved = 0;
+            while (_replies.TryDequeue(out var reply))
+            {
+                ReleaseBody(reply);
+            }
+
+            if (_budget is { } budget)
+            {
+                var array = BudgetCollections.Items(_replies);
+                _replies.TrimExcess();
+                budget.Release(array);
+            }
+        }
+    }
 }

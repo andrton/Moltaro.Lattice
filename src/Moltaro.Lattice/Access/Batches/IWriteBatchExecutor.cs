@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Batches;
@@ -10,6 +11,9 @@ namespace Moltaro.Lattice.Access.Batches;
 // execution of the batch once it is committed.
 internal interface IWriteBatchExecutor
 {
+    // Once closed, batch validation still runs in its original order before the closed result.
+    bool IsClosed => false;
+
     // The root of the values of a complete entity of the entity type, as the engine places it when it
     // executes the batch. The batch keeps it as it is. Empty for a delete, whose values are null.
     // Called for every operation added, so that each Add after the close of the database is
@@ -17,6 +21,9 @@ internal interface IWriteBatchExecutor
     // collection above its bound at any depth, which the engine knows from the layout of the entity type, so
     // that the Add refuses it as a single write refuses it before its conditions.
     ReadOnlySequence<byte> EncodeRoot(LatticeEntityType entityType, object?[]? values);
+
+    ReadOnlySequence<byte> EncodeRoot(LatticeEntityType entityType, object?[]? values, MemoryLease? lease) =>
+        EncodeRoot(entityType, values);
 
     void CheckUpdate(LatticeEntityType entityType, UpdateInput update);
 

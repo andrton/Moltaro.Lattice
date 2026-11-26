@@ -3,7 +3,8 @@ using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
@@ -13,11 +14,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 // reservation": a change withdrawn before its publication gives its nodes back; decision on strings,
 // Q04.4: failed changes leave no count). It is constructed as for a root without indexes
 // (Replication.Text.AbandonedRootTests), with Ranked, which has three indexes and text keys longer than 64
-// bytes: the child has the smallest memory limit, one segment of 4 MiB, its master holds an entity with a
-// Note of 2.5 MiB, and the root that does not fit brings another one after its long Login and its Region.
+// bytes. The child can hold one segment and the transfer. The blocked root has a second 2.5 MiB Note
+// after its long Login and Region.
 // - In the stream, for one root and for a transaction of two writes whose first was prepared whole, index
 //   nodes reserved, which the relay (FrameRelay) makes of the first two transactions the master sends: the
-//   child stops following, Ready at its position, and its entries, references and memory equal the tally
+//   child pauses, Ready at its position, and its entries, references and memory equal the tally
 //   of what it held before (IndexTally).
 // - In a load whose last root does not fit after the roots before it were placed with their index entries,
 //   the open of the child fails with Unavailable, the reason named, and every piece of native memory the
@@ -26,13 +27,11 @@ public sealed class AbandonedIndexChangesTests
 {
     private const int TwoAndAHalfMebibytes = 5 * 1024 * 1024 / 2;
 
-    private static readonly long Segment = new ArenaOptions().SegmentSize;
-
     public static IEnumerable<TheoryDataRow<string>> Changes => [new("one root"), new("two roots in one transaction")];
 
     [Theory]
     [MemberData(nameof(Changes))]
-    public async Task Child_that_cannot_hold_a_received_change_gives_back_the_nodes_and_references_of_its_indexes_and_stops_following(string change)
+    public async Task Child_that_cannot_hold_a_received_change_gives_back_the_nodes_and_references_of_its_indexes_and_pauses(string change)
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(IndexSchema.Utf8);
         var ranked = master.Set<IndexSchema.Ranked>();
@@ -58,7 +57,11 @@ public sealed class AbandonedIndexChangesTests
 
             return MergedTransaction.Of(first, frame);
         });
-        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs());
+        var pressure = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allocator = new CountingNativeAllocator();
+        await using var child = await ReplicationNodes.OpenChildAsync(
+            ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
+            new EngineTestInputs { Allocator = allocator, ObserveChildPressure = state => pressure.TrySetResult(state) });
         var readiness = child.Position;
 
         ExpectHeld(tally, child);
@@ -69,13 +72,16 @@ public sealed class AbandonedIndexChangesTests
         }
 
         await ranked.InsertAsync(new IndexSchema.Ranked { Id = 6, Number = 6, Login = LongLogin(6), Region = new string('n', 80), Note = new string('l', TwoAndAHalfMebibytes) });
-        await relay.ChildEndedAsync();
+        var paused = await pressure.Task.WaitAsync(Bound);
+        Assert.Equal(LatticeLimitEnum.Memory, paused.Limit);
+        Assert.False(paused.DuringReceive);
 
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal(readiness, child.Position);
         Assert.Null(child.Set<IndexSchema.Ranked>().Get(5L));
         Assert.Null(child.Set<IndexSchema.Ranked>().Get(6L));
         ExpectHeld(tally, child);
+        Assert.True(ExpectCapacity(child, allocator).NativeBytes > 0);
     }
 
     [Fact]
@@ -89,13 +95,24 @@ public sealed class AbandonedIndexChangesTests
         await ranked.InsertAsync(new IndexSchema.Ranked { Id = 6, Number = 6, Login = LongLogin(6), Region = new string('n', 80), Note = new string('l', TwoAndAHalfMebibytes) });
 
         var allocator = new CountingNativeAllocator();
-        var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs { Allocator = allocator });
+        RootTable? roots = null;
+        var installed = 0;
+        await using var child = EngineDatabase.Create(
+            ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
+            new EngineTestInputs
+            {
+                Allocator = allocator,
+                BeforeReceivedRootListGrowth = (_, _, _, table) => roots = table,
+                AfterCloseStatePublication = () => installed = roots?.Count ?? 0,
+            });
 
         var exception = await Assert.ThrowsAsync<LatticeException>(() => child.OpenAsync().AsTask().WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
         Assert.Contains("memory", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
+        Assert.Equal(3, installed);
+        Assert.True(allocator.ObtainedBytes > 0);
         allocator.ExpectEverythingReturned();
     }
 

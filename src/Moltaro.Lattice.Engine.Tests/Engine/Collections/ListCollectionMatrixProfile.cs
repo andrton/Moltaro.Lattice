@@ -14,7 +14,7 @@ internal sealed class ListCollectionMatrixProfile<T>(string profile, string elem
     public override void AssertOwned(object? expected, LatticeRecord record) =>
         Assert.Equal((List<T>?)expected, record.Get<List<T>>("Values"));
 
-    public override LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt) => count > 0
+    public override LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt, int predecessorSalt) => count > 0
         ? [update.ListReplace("Values", count - 1, item(count, salt))]
         : [];
 

@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Net.Sockets;
+using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Replication;
 
@@ -34,16 +36,17 @@ namespace Moltaro.Lattice.Replication;
 internal sealed class FrameConnection : IDisposable
 {
     private readonly Socket _socket;
+    private readonly MemoryBudget? _budget;
 
     // Received bytes: the unread ones lie from _start to _end.
-    private readonly byte[] _received = new byte[2 * Protocol.MaxFrame];
+    private byte[] _received;
 
     private int _start;
 
     private int _end;
 
     // The frames added and not sent yet.
-    private readonly ArrayBufferWriter<byte> _outgoing = new(Protocol.MaxFrame);
+    private readonly BudgetByteWriter _outgoing;
 
     // The stream sequence of the last frame added, and of the next frame expected.
     private ulong _added;
@@ -53,10 +56,21 @@ internal sealed class FrameConnection : IDisposable
     // Takes the socket, which is connected. The frames of the transport are written whole and the
     // handshake waits for the reply to a small frame, so the socket sends at once, without the delay
     // that holds back a small segment.
-    public FrameConnection(Socket socket)
+    public FrameConnection(Socket socket, MemoryBudget? budget = null)
     {
         _socket = socket;
         _socket.NoDelay = true;
+        _budget = budget;
+        _received = budget?.Allocate<byte>(2 * Protocol.MaxFrame, nameof(FrameConnection)) ?? new byte[2 * Protocol.MaxFrame];
+        try
+        {
+            _outgoing = new BudgetByteWriter(budget, Protocol.MaxFrame, nameof(FrameConnection));
+        }
+        catch
+        {
+            budget?.Release(_received);
+            throw;
+        }
     }
 
     // Writes a frame of the kind, with the flags and the payload, into the frames waiting to be sent; its
@@ -71,7 +85,7 @@ internal sealed class FrameConnection : IDisposable
     // Writes a Hello or a HelloReply.
     public void AddHello(FrameKindEnum kind, in HelloBody hello)
     {
-        var body = new ArrayBufferWriter<byte>(Protocol.HelloPayloadSize);
+        using var body = new BudgetByteWriter(_budget, Protocol.HelloPayloadSize, nameof(FrameConnection));
 
         FrameCodec.WriteHelloBody(body, hello);
         Add(kind, 0, body.WrittenSpan);
@@ -80,7 +94,7 @@ internal sealed class FrameConnection : IDisposable
     // Writes a Refuse with the reason.
     public void AddRefuse(RefuseReasonEnum reason)
     {
-        var body = new ArrayBufferWriter<byte>(Protocol.RefusePayloadSize);
+        using var body = new BudgetByteWriter(_budget, Protocol.RefusePayloadSize, nameof(FrameConnection));
 
         FrameCodec.WriteRefuseBody(body, reason);
         Add(FrameKindEnum.Refuse, 0, body.WrittenSpan);
@@ -208,6 +222,18 @@ internal sealed class FrameConnection : IDisposable
         }
 
         _socket.Dispose();
+    }
+
+    // Socket shutdown can race with the send and receive loops. Their owner returns the
+    // buffers only once both loops are done with their borrowed memory.
+    public void ReleaseBacking()
+    {
+        var received = Interlocked.Exchange(ref _received, []);
+        if (received.Length != 0)
+        {
+            _outgoing.Dispose();
+            _budget?.Release(received);
+        }
     }
 
     // Takes the next whole frame from the received bytes, when they hold one.

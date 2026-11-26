@@ -600,6 +600,18 @@ The child checks the rest of the transaction first. Invalid wire structure follo
 protocol failure path. Verified divergence faults the child at its prior position
 without publishing any member of the transaction.
 
+Controlled resource refusal during load ends open with `Unavailable`. After readiness
+it pauses the follower on the same connection. A frame that needs new assembly backing
+is validated and reserved before its bytes are consumed. A complete transaction that
+cannot be applied gives up its partial preparation and keeps its assembled body valid.
+This can hold the receive buffer for a single frame or charged pieces for several
+frames. The follower keeps serving local reads at its prior applied position. It
+acknowledges a transaction only after publication and resumes in order when useful
+capacity returns. A previously applied position can still be acknowledged. Close or
+an observed connection end releases that connection's cursor. The current engine can
+remain paused without reading past the held frame. The delivery retention limit and
+reconnect or reload are separate stages.
+
 **Decided by the owner on 14 November 2026:** children that start together are loaded
 in parallel, not one after another. A deployment of 5–10 children has to come up on
 default settings. Each capture has its own S, its fence of slots and its R. All of
@@ -622,11 +634,19 @@ A child forwards a write as a request on its one connection. For a complete writ
 sends the encoded root. For an update it sends the key, condition and original ordered
 commands with schema-encoded operands. The master checks the request and executes it.
 A write batch is one request, checked member by member and executed as one write.
+The batch input and workspace are charged to their owner on each node. A slow receive
+or apply step can hold delivery blocks on the master even when it keeps committing.
+The encoder writes directly into the delivery tail. Physical blocks held for a cursor,
+reader, capture, an in-progress transaction or reusable spare are counted once, outside
+instance admission. Committing a transaction updates logical `PendingDeliveryBytes`.
+A spare or current block can remain held after logical pending bytes reach zero.
+
+An earlier forwarding measurement recorded these capacities before instance admission.
 For a forwarded batch of complete writes of B bytes, the child holds about B bytes
 of managed memory from commit to reply and 2B while writing the encoded members.
 An update holds object snapshots of its operands, whose size depends on their types
 and values. For complete writes the same batch is held on
-the master, outside the memory budget, as B for the request from its first frame to the
+the master in that run as B for the request from its first frame to the
 outcome of the batch, B in the tail of the children and about 450 bytes a member of
 records — the member, its entry in the set of entities, the text of a String key, its
 change, its entity type and some five places of the retired list — beside B in the arena;
@@ -737,8 +757,8 @@ refusal, and where it can the database waits or slows down instead of refusing.
 
 | Limit / setting | Starting value |
 | --- | --- |
-| Root encoded size, including owned data | No limit of its own, by the owner's decision of 15 November 2026. A root is refused only when the instance memory budget cannot hold it; one String or Binary value is bounded by the storage format |
-| Explicit WriteBatch | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of roots nor on the size. A batch is refused only when a resource cannot hold it: the instance memory budget, the hard limit of the journal |
+| Root encoded size, including owned data | The instance budget bounds capacity. One String or Binary value is bounded by the storage format. A new lifetime also needs an addressable root slot. |
+| Explicit WriteBatch | Local snapshots and execution use the instance budget. A new lifetime needs an addressable root slot and a durable append needs capacity in the journal. The application chooses the number of operations and their size. |
 | Internal group | Up to 32 operations / 8 MiB; 1 ms collection delay for a durable commit only, not built before S27; never split a WriteBatch |
 | Queued write input | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of requests nor on their bytes. A write waits for its turn, what waits is counted in the instance budget, and a write is refused only when the budget cannot hold it |
 | Storage recovery wait / SQL failure deadline | 30 s / 5 s per attempt, explicit Unknown around uncertain commit |
@@ -760,19 +780,31 @@ One root and one transaction may
 be larger than any bounded buffer of this table — an internal
 group, the pending replication, a batch of base application: each of them bounds what
 accumulates and takes a transaction that exceeds it alone, and none refuses a transaction
-for its own size. What a transaction needs is reserved in the instance budget before it is
-committed, the copy for delivery to children included (from S24/S33; until then that copy
-is counted and reported only, outside the budget and without a limit); a transaction the budget cannot
-hold is refused before it has any effect: it leaves no entry, no reference and no native byte
-behind. Reusable managed capacity, including text table pages and bucket storage,
-may remain after a refusal. The text table reuses this capacity and returns unused
-pages in bounded maintenance turns. Managed retained capacity is reported separately
-from the native arena. Its admission reservation, refusal and rollback accounting
-belong to S24.
-Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
-encoded size alone is not a memory reservation. Reject inconsistent options at open.
-Count old/new primary tables and managed arrays awaiting collection in peak evidence.
-Do not weaken the 1.5x peak target by measuring a post-growth reference baseline.
+for its own size. The MemoryOnly engine reserves the required capacity before acquisition
+and before a transaction can publish. Full native segment grants include the empty
+reserve, unused slots and alignment tails. Native slots within a charged segment add no
+second charge. Managed owner capacity includes root pages, primary and secondary index
+backing, text metadata, prepared and queued input, publication scratch and connection
+buffers. A replacement is charged while its predecessor is still held, including old
+index generations held by readers. The budget includes native read scratch when the
+engine owns it. Managed enumeration workspace uses the separate read budget. Application
+memory and garbage awaiting collection are outside instance admission. The retained
+delivery tail is accounted for separately until its own retention policy is implemented.
+
+A transaction that exhausts the byte budget is refused with `WriteRejected` and `Memory`.
+When all addressable root slots are in use or permanently exhausted, a request for a
+new lifetime is refused with `RootSlots`. A free root slot can be reused without reserving
+a new page. If a root slot can be addressed and its new backing cannot fit, the reason is
+`Memory`. A resource refusal of a complete batch has no `OperationIndex`. Local batch
+addition can report `Memory` synchronously before queueing or transmission. It keeps the
+previous members and leaves the failed addition available to retry.
+
+A refusal leaves installed data, revisions and position unchanged. It releases unused
+reservations and backing owned exclusively by that attempt. Earlier paid-for reusable
+capacity and storage still protected by another owner remain charged. A dropped managed
+reference ends its ownership charge; collection happens on the runtime's schedule.
+Report both effects separately in peak evidence. The 1.5x peak target uses the steady
+reference baseline before growth.
 
 ## Diagnostics, backup and deployment boundary
 

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -8,55 +9,75 @@ namespace Moltaro.Lattice.Storage.Roots.Edits;
 // Plans an ordered update from the published version under the writing lock.
 // It holds only changed targets and cached collection edits. New slots and
 // references are taken by the writer after the commands have succeeded.
-internal sealed class RootUpdate
+internal sealed class RootUpdate : IDisposable
 {
     private readonly Arena _arena;
     private readonly RootLayout _layout;
     private readonly ArenaAddress _source;
-    private readonly Dictionary<int, object?> _changes = [];
+    private readonly MemoryLease? _work;
+    private Dictionary<int, object?> _changes;
 
     private readonly List<ResolvedCommand> _effects = [];
 
-    private RootUpdate(Arena arena, RootLayout layout, ArenaAddress source)
+    private RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, MemoryLease? work)
     {
         _arena = arena;
         _layout = layout;
         _source = source;
+        _work = work;
+        _changes = BudgetDictionaries.Create<int, object?>(arena.Budget, nameof(RootUpdate));
     }
 
-    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, UpdateCommand[] commands)
-        : this(arena, layout, source)
+    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, UpdateCommand[] commands, byte[] bits, MemoryLease? work)
+        : this(arena, layout, source, work)
     {
-        Bits = UpdateOutcome.BitsFor(commands.Length);
-
-        for (var index = 0; index < commands.Length; index++)
+        try
         {
-            if (Apply(commands[index], out var effective))
+            Bits = bits;
+
+            for (var index = 0; index < commands.Length; index++)
             {
-                UpdateOutcome.SetChanged(Bits, index);
-                _effects.Add(effective);
-                Changed = true;
+                if (Apply(commands[index], out var effective))
+                {
+                    UpdateOutcome.SetChanged(Bits, index);
+                    _effects.EnsureCapacity(_effects.Count + 1, _arena.Budget, nameof(RootUpdate));
+                    _effects.Add(effective);
+                    Changed = true;
+                }
             }
+        }
+        catch
+        {
+            Dispose();
+            throw;
         }
     }
 
     // Replay uses the same edits but verifies each resolved action against the
     // exact predecessor. A failed plan owns no arena slots.
-    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, ReadOnlySpan<ResolvedCommand> commands)
-        : this(arena, layout, source)
+    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, ReadOnlySpan<ResolvedCommand> commands, MemoryLease? work)
+        : this(arena, layout, source, work)
     {
-        foreach (ref readonly var expected in commands)
+        try
         {
-            var command = expected.Command;
-            if (!Apply(command, out var actual) ||
-                actual.ReplacesMapValue != expected.ReplacesMapValue ||
-                (command.First is string spelling && actual.Command.First is string found && !StringComparer.Ordinal.Equals(spelling, found)))
+            foreach (ref readonly var expected in commands)
             {
-                throw TargetMissing(layout.EntityType, command.Name, "does not match the committed collection action.");
+                var command = expected.Command;
+                if (!Apply(command, out var actual) ||
+                    actual.ReplacesMapValue != expected.ReplacesMapValue ||
+                    (command.First is string spelling && actual.Command.First is string found && !StringComparer.Ordinal.Equals(spelling, found)))
+                {
+                    throw TargetMissing(layout.EntityType, command.Name, "does not match the committed collection action.");
+                }
             }
-        }
 
-        Changed = true;
+            Changed = true;
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
 
     public bool Changed { get; }
@@ -65,20 +86,49 @@ internal sealed class RootUpdate
 
     public ReadOnlySpan<ResolvedCommand> Effects => CollectionsMarshal.AsSpan(_effects);
 
+    public void Dispose()
+    {
+        var changes = _changes;
+        _changes = null!;
+        foreach (var value in changes.Values)
+        {
+            if (value is EditedCollection collection)
+            {
+                collection.Dispose();
+            }
+        }
+
+        var effects = BudgetCollections.Items(_effects);
+        _effects.Clear();
+        _effects.Capacity = 0;
+        if (_arena.Budget is { } budget)
+        {
+            budget.ReleaseDictionary(changes, includesOwner: true);
+            budget.Release(effects);
+        }
+    }
+
     private bool Apply(in UpdateCommand command, out ResolvedCommand resolved)
     {
         var payload = _arena.Payload(_source);
         var structure = _layout.Structure;
         RequireParents(payload, structure, command);
+        var hasChange = _changes.TryGetValue(command.Target, out var staged);
         if (command.Kind == UpdateCommandKindEnum.Assign)
         {
+            if (!hasChange)
+            {
+                _changes.EnsureCapacity(_changes.Count + 1, _arena.Budget, nameof(RootUpdate));
+            }
+
             _changes[command.Target] = command.First;
+            (staged as EditedCollection)?.Dispose();
             resolved = new ResolvedCommand(command);
             return true;
         }
 
         var element = structure.ElementOf(command.Target);
-        if (!_changes.TryGetValue(command.Target, out var staged))
+        if (!hasChange)
         {
             ref readonly var place = ref structure.Place(command.Target);
             if (IsNull(payload, place))
@@ -88,7 +138,8 @@ internal sealed class RootUpdate
 
             var descriptor = ResidentDescriptor.Read(payload[(place.Offset - BlockHeader.Size)..]);
             var stored = new StoredCollection(_arena, element, _layout.StringEncoding, _source, descriptor);
-            staged = new EditedCollection(element, stored, assigned: null);
+            _changes.EnsureCapacity(_changes.Count + 1, _arena.Budget, nameof(RootUpdate));
+            staged = new EditedCollection(element, stored, assigned: null, _arena.Budget, _work);
         }
         else if (staged is null)
         {
@@ -96,7 +147,7 @@ internal sealed class RootUpdate
         }
         else if (staged is not EditedCollection)
         {
-            staged = new EditedCollection(element, stored: null, staged);
+            staged = new EditedCollection(element, stored: null, staged, _arena.Budget, _work);
         }
 
         var collection = (EditedCollection)staged;

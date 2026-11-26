@@ -142,7 +142,7 @@ public sealed class WaitersAndChainsTests
     public async Task Waiter_admitted_before_a_write_refused_for_memory_runs_first_and_that_write_is_resolved_after_it()
     {
         var storage = new HeldPersistence(holding: false);
-        var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
+        var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize + 1024 * 1024 };
         var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = storage, Arena = arena });
         var accounts = database.Set<UniqueSchema.Account>();
 
@@ -191,7 +191,7 @@ public sealed class WaitersAndChainsTests
     public async Task Waiter_the_arena_refuses_when_it_is_started_again_is_resolved_and_refused_for_memory_with_nothing_of_it_left()
     {
         var storage = new HeldPersistence(holding: false);
-        var arena = new ArenaOptions { MemoryLimit = 3L * new ArenaOptions().SegmentSize };
+        var arena = new ArenaOptions { MemoryLimit = 3L * new ArenaOptions().SegmentSize + 1024 * 1024 };
         var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = storage, Arena = arena });
         var accounts = database.Set<UniqueSchema.Account>();
 
@@ -247,7 +247,7 @@ public sealed class WaitersAndChainsTests
     [Fact]
     public async Task In_MemoryOnly_writes_of_one_value_deferred_by_a_resolution_wait_for_one_another_and_exactly_one_takes_it()
     {
-        var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
+        var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize + 1024 * 1024 };
         await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Arena = arena });
         var accounts = database.Set<UniqueSchema.Account>();
 

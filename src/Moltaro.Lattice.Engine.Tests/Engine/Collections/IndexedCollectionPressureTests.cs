@@ -131,7 +131,14 @@ public sealed class IndexedCollectionPressureTests
         EngineMaster.OpenAsync(Schema(pads), new EngineTestInputs
         {
             Allocator = allocator,
-            Arena = new ArenaOptions { SegmentSize = WholeChunk, MemoryLimit = limit * WholeChunk, ReservedSegments = 0 },
+            // Bound whole native chunks independently of the managed index and root directories.
+            Arena = new ArenaOptions
+            {
+                SegmentSize = WholeChunk,
+                MemoryLimit = 32L * 1024 * 1024,
+                NativeCapacityLimit = limit * WholeChunk,
+                ReservedSegments = 0,
+            },
             DisableBackgroundMaintenance = true,
             IndexSeed = 31,
             MaintenanceTimeProvider = time,

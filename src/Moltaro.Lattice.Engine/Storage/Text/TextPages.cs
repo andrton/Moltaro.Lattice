@@ -1,4 +1,5 @@
 using System.Numerics;
+using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Text;
 
@@ -9,11 +10,36 @@ internal sealed class TextPages<T> where T : class
 {
     private const int Stride = 32;
     private const int Top = 20;
+    private readonly MemoryBudget? _budget;
     private object? _root;
     private int _branches;
     private bool _directFull;
 
-    public long Bytes => 32 + (312L * _branches);
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + sizeof(int) + 1);
+    private static long BranchBytes => MemoryBudget.ObjectBytes(IntPtr.Size + sizeof(uint) + 2) +
+        MemoryBudget.ArrayBytes<object?>(Stride);
+
+    private TextPages(MemoryBudget? budget) => _budget = budget;
+
+    public static TextPages<T> Create(MemoryBudget? budget)
+    {
+        budget?.Reserve(OwnerBytes);
+        try
+        {
+            var pages = new TextPages<T>(budget);
+            budget?.Own(pages, nameof(TextPages<T>));
+            return pages;
+        }
+        catch
+        {
+            budget?.Release(OwnerBytes);
+            throw;
+        }
+    }
+
+    public long Bytes => OwnerBytes + (BranchBytes * _branches);
+
+    public void ReleaseBacking() => _budget?.Release(OwnerBytes, this);
 
     public T? Get(uint index)
     {
@@ -53,33 +79,53 @@ internal sealed class TextPages<T> where T : class
 
         var root = original as Branch;
         var wraps = 0;
-        if (root is null && original is T direct)
-        {
-            root = new Branch(0) { Count = 1, Full = _directFull ? 1u : 0 };
-            root.Children[0] = direct;
-            wraps++;
-        }
-
         var height = BitOperations.Log2(index) / 5 * 5;
         if (page is null && (root is null || height > root.Shift))
         {
             return;
         }
 
-        while (root is not null && root.Shift < height)
+        try
         {
-            var outer = new Branch(root.Shift + 5) { Count = 1, Full = root.Full == uint.MaxValue ? 1u : 0 };
-            outer.Children[0] = root;
-            root = outer;
-            wraps++;
+            if (root is null && original is T direct)
+            {
+                root = NewBranch(0);
+                root.Count = 1;
+                root.Full = _directFull ? 1u : 0;
+                root.Children[0] = direct;
+                wraps++;
+            }
+
+            while (root is not null && root.Shift < height)
+            {
+                var outer = NewBranch(root.Shift + 5);
+                outer.Count = 1;
+                outer.Full = root.Full == uint.MaxValue ? 1u : 0;
+                outer.Children[0] = root;
+                root = outer;
+                wraps++;
+            }
+
+            root = Set(root, root?.Shift ?? height, index, page, full);
+        }
+        catch
+        {
+            while (wraps-- > 0)
+            {
+                var previous = root!;
+                root = previous.Children[0] as Branch;
+                ReleaseBranch(previous);
+            }
+
+            throw;
         }
 
-        root = Set(root, root?.Shift ?? height, index, page, full);
         _branches += wraps;
 
         while (root is { Count: 1 } && root.Children[0] is { } first)
         {
             _branches--;
+            ReleaseBranch(root);
             if (root.Shift == 0)
             {
                 _directFull = (root.Full & 1) != 0;
@@ -142,7 +188,7 @@ internal sealed class TextPages<T> where T : class
 
     public void Measure(List<TextAllocationShape> groups)
     {
-        groups.Add(new TextAllocationShape(1, 16, 0, 0));
+        groups.Add(new TextAllocationShape(1, (int)(OwnerBytes - 2 * IntPtr.Size), 0, 0));
         if (_branches != 0)
         {
             groups.Add(new TextAllocationShape(_branches, 16, 0, 0));
@@ -158,7 +204,7 @@ internal sealed class TextPages<T> where T : class
         }
 
         var created = branch is null;
-        branch ??= new Branch(shift);
+        branch ??= NewBranch(shift);
         var slot = (int)((index >> shift) & 31);
         var previous = branch.Children[slot];
         object? child;
@@ -168,9 +214,21 @@ internal sealed class TextPages<T> where T : class
         }
         else
         {
-            var nested = Set((Branch?)previous, shift - 5, index, page, full);
-            full = nested?.Full == uint.MaxValue;
-            child = nested;
+            try
+            {
+                var nested = Set((Branch?)previous, shift - 5, index, page, full);
+                full = nested?.Full == uint.MaxValue;
+                child = nested;
+            }
+            catch
+            {
+                if (created)
+                {
+                    ReleaseBranch(branch);
+                }
+
+                throw;
+            }
         }
 
         if ((previous is null) != (child is null))
@@ -184,6 +242,7 @@ internal sealed class TextPages<T> where T : class
         if (branch.Count == 0)
         {
             _branches--;
+            ReleaseBranch(branch);
             return null;
         }
 
@@ -193,6 +252,37 @@ internal sealed class TextPages<T> where T : class
         }
 
         return branch;
+    }
+
+    private Branch NewBranch(int shift)
+    {
+        var budget = _budget;
+        budget?.Reserve(BranchBytes);
+        try
+        {
+            var branch = new Branch(shift);
+            if (budget is not null)
+            {
+                budget.Own(branch, nameof(TextPages<T>));
+                budget.Own(branch.Children, nameof(TextPages<T>));
+            }
+
+            return branch;
+        }
+        catch
+        {
+            budget?.Release(BranchBytes);
+            throw;
+        }
+    }
+
+    private void ReleaseBranch(Branch branch)
+    {
+        if (_budget is { } budget)
+        {
+            budget.Forget(branch.Children);
+            budget.Release(BranchBytes, branch);
+        }
     }
 
     private static bool Next(Branch? branch, int shift, uint prefix, uint index, out uint number, out T page)

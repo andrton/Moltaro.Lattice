@@ -9,6 +9,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 using Moltaro.Lattice.TestSupport.PartialUpdates;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Updates;
@@ -166,8 +167,11 @@ public sealed class UpdateOwnershipTests
     [Fact]
     public async Task Arena_refusal_of_a_mixed_batch_gives_back_prepared_blocks_but_keeps_borrowed_values()
     {
-        var arena = new ArenaOptions { MemoryLimit = 4L * new ArenaOptions().SegmentSize };
-        await using var database = await EngineMaster.OpenAsync(UpdateSchema.Schema, new EngineTestInputs { Arena = arena });
+        const long limit = 8L * Segment;
+        const int tooLargeBytes = 18 * 1024 * 1024;
+        const long roomForPreparation = Segment + Segment / 2;
+        var allocator = new CountingNativeAllocator();
+        await using var database = await OpenAsync(limit, allocator, schema: UpdateSchema.Schema);
         var items = database.Set<UpdateItem>();
         var first = UpdateSchema.Item("ada");
         first.Data = Bytes(140_000, 17);
@@ -177,22 +181,50 @@ public sealed class UpdateOwnershipTests
         database.DrainRetired();
         Assert.True(items.TryGet("ada", out _, out var revision));
         var before = database.Counters;
+        var parts = await MaintenanceStep.RunAfterAdmissionAsync(database, parts => parts);
 
         var update = items.CreateUpdate("ada");
         var changed = update.MapSet("Options", "new", new UpdateHome { City = "Paris", Data = Bytes(95_000, 47) });
         var tooLarge = items.CreateUpdate("grace");
-        tooLarge.MapSet("Options", "large", new UpdateHome { City = "Paris", Data = new byte[18 * 1024 * 1024] });
+        var larger = new byte[tooLargeBytes];
+        tooLarge.MapSet("Options", "large", new UpdateHome { City = "Paris", Data = larger });
         var batch = database.CreateWriteBatch();
         batch.Update(update);
         batch.Insert(UpdateSchema.Item("linus"));
         batch.Update(tooLarge);
 
-        var error = await Assert.ThrowsAsync<LatticeException>(() => batch.CommitAsync().AsTask().WaitAsync(Bound));
+        Assert.Equal(3, batch.Count);
+        var built = ExpectCapacity(database, allocator);
+        Assert.InRange(built.ChargedBytes, Segment + ManagedObjectSize(larger), limit - 1);
+        Assert.Equal(Segment, built.NativeBytes);
+        var requests = allocator.Requests;
+        var reachedLastMember = false;
+        allocator.HoldNextAllocation(() =>
+        {
+            // The replacement uses its old handle. The earlier addition must already
+            // hold a new root before the oversized final update obtains a second grant.
+            Assert.Equal(3, parts.Roots.Count);
+            reachedLastMember = true;
+        });
+        LatticeException error;
+        var length = checked((int)(limit - built.ChargedBytes - roomForPreparation - ManagedObjectSize(Array.Empty<byte>())));
+        using (database.HoldBudgetBacking(length))
+        {
+            var held = ExpectCapacity(database, allocator);
+            Assert.Equal(roomForPreparation, limit - held.ChargedBytes);
+            error = await Assert.ThrowsAsync<LatticeException>(() => batch.CommitAsync().AsTask().WaitAsync(Bound));
+        }
+
+        Assert.True(reachedLastMember);
+        Assert.True(allocator.Requests > requests);
+        Assert.Equal(2L * Segment, allocator.PeakBytes);
+        Assert.Equal(built.NativeBytes, allocator.OutstandingBytes);
         Assert.Equal(LatticeErrorEnum.WriteRejected, error.Error);
         Assert.Equal(LatticeLimitEnum.Memory, error.Limit);
         Assert.Null(error.OperationIndex);
         Assert.Throws<InvalidOperationException>(() => changed.Changed);
         OwnershipAudit.Expect(database);
+        _ = ExpectCapacity(database, allocator);
         var after = database.Counters;
         Assert.Equal(before.PublishedSequence, after.PublishedSequence);
         Assert.Equal(before.Arena.LiveBytes, after.Arena.LiveBytes);

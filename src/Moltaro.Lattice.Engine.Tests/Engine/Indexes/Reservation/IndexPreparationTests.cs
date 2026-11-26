@@ -67,7 +67,13 @@ public sealed class IndexPreparationTests
         var storage = new HeldPersistence(holding: false);
         var database = await EngineMaster.OpenAsync(FillerSchema, new EngineTestInputs
         {
-            Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = (long)Regions * Arena.MaxBlockSize },
+            // The physical last slot must bind before the indexes' already reserved publication.
+            Arena = new ArenaOptions
+            {
+                SegmentSize = Arena.MaxBlockSize,
+                MemoryLimit = 32L * 1024 * 1024,
+                NativeCapacityLimit = (long)Regions * Arena.MaxBlockSize,
+            },
             Allocator = allocator,
             Persistence = storage,
         });

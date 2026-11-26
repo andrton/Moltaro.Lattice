@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Concurrency;
@@ -33,7 +34,7 @@ internal sealed class CollectionShrinkPair(
     public string FieldPath => flattened ? "Holder.Values" : "Values";
 
     public static async Task<CollectionShrinkPair> OpenAsync(bool set, bool flattened, int count, bool duplicateTarget = false,
-        int fillerCount = 0, bool includeStamp = false)
+        int fillerCount = 0, bool includeStamp = false, IPersistence? persistence = null)
     {
         var declaration = set
             ? """ "Type": "Set", "Element": { "Type": "Int32" } """
@@ -58,7 +59,7 @@ internal sealed class CollectionShrinkPair(
         var time = new CollectionMaintenanceTime();
         var left = new CountingNativeAllocator();
         var right = new CountingNativeAllocator();
-        var master = await ReplicationNodes.OpenMasterAsync(schema, Inputs(left, 31, time));
+        var master = await ReplicationNodes.OpenMasterAsync(schema, Inputs(left, 31, time, persistence));
         try
         {
             var masterItems = master.Set("Item");
@@ -250,12 +251,13 @@ internal sealed class CollectionShrinkPair(
         }
     }
 
-    private static EngineTestInputs Inputs(CountingNativeAllocator allocator, ulong seed, TimeProvider time) => new()
+    private static EngineTestInputs Inputs(CountingNativeAllocator allocator, ulong seed, TimeProvider time, IPersistence? persistence = null) => new()
     {
         Arena = new ArenaOptions { MemoryLimit = 32 * 1024 * 1024, SegmentSize = WholeChunk, ReservedSegments = 0 },
         Allocator = allocator,
         IndexSeed = seed,
         DisableBackgroundMaintenance = true,
         MaintenanceTimeProvider = time,
+        Persistence = persistence,
     };
 }

@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Load;
@@ -26,6 +27,7 @@ internal sealed class ForwardedWrites
 
     // The limit in force of the arena, the memory budget of the master.
     public long MemoryLimit => _arena.MemoryLimit;
+    public MemoryBudget? Budget => _arena.Budget;
 
     // A checker of received roots for one receiver: its own buffer, used by its task alone, and never to
     // place a root, which only the write path does under the lock of the writes (Writes.WriteExecutor).

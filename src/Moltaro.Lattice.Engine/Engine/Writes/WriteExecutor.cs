@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -103,9 +104,96 @@ internal sealed class WriteExecutor
 
     private readonly DeliveryTail _delivery;
 
+    public MemoryBudget? Budget => _arena.Budget;
+
+    public void EndPreparation(bool keeps, PreparedWrite? prepared)
+    {
+        _roots.ReleasePermanentDirectories();
+        _arena.Texts.EndPreparation(keeps);
+        var import = _import?.TakeWorkspace() ?? 0;
+        var scratch = _changes.TakeWorkspaces();
+        if (keeps && (import != 0 || scratch.Used))
+        {
+            prepared!.ImportWorkspace = import;
+            prepared.PublicationWorkspace = scratch;
+            prepared.NextWorkspaceUser = _workspaceUsers;
+            _workspaceUsers = prepared;
+        }
+        else if (!keeps)
+        {
+            ReleaseUnusedWorkspace();
+        }
+    }
+
     // Places the roots that children forward; made by the first of them, since only a master with
     // children receives one, and used under the lock of the writes alone.
     private BlockImport? _import;
+    private bool _installedImport;
+    private PreparedWrite? _workspaceUsers;
+
+    public void Withdraw(PreparedWrite prepared)
+    {
+        _changes.Release(prepared.Changes);
+        FinishWorkspace(prepared, published: false);
+    }
+
+    private void FinishWorkspace(PreparedWrite prepared, bool published)
+    {
+        if (prepared.ImportWorkspace == 0 && !prepared.PublicationWorkspace.Used)
+        {
+            return;
+        }
+
+        ref var user = ref _workspaceUsers;
+        while (!ReferenceEquals(user, prepared))
+        {
+            user = ref user!.NextWorkspaceUser;
+        }
+
+        user = prepared.NextWorkspaceUser;
+        prepared.NextWorkspaceUser = null;
+        if (published)
+        {
+            if (prepared.ImportWorkspace != 0)
+            {
+                _installedImport = true;
+                _import!.KeepWorkspace(prepared.ImportWorkspace);
+            }
+
+            _changes.KeepWorkspaces(prepared.PublicationWorkspace);
+        }
+
+        prepared.ImportWorkspace = 0;
+        prepared.PublicationWorkspace = default;
+        ReleaseUnusedWorkspace();
+    }
+
+    private void ReleaseUnusedWorkspace()
+    {
+        if (Budget is null)
+        {
+            return;
+        }
+
+        var import = 0;
+        var scratch = default(ChangePublisher.Workspaces);
+        for (var user = _workspaceUsers; user is not null; user = user.NextWorkspaceUser)
+        {
+            import = Math.Max(import, user.ImportWorkspace);
+            scratch = scratch.Max(user.PublicationWorkspace);
+        }
+
+        _changes.ReleaseUnusedWorkspaces(scratch);
+        if (_import is { } workspace)
+        {
+            workspace.ReleaseUnusedWorkspace(import);
+            if (!_installedImport && import == 0)
+            {
+                _import = null;
+                workspace.Dispose();
+            }
+        }
+    }
 
     // The fault point a test armed, with the times it lets through first (Arm); default when none is
     // armed, which is all reaching a point loads.
@@ -182,9 +270,8 @@ internal sealed class WriteExecutor
     {
         var members = write.Members!;
         var record = write.Record;
-        var changes = record.BatchChanges(members.Length);
+        var changes = record.BatchChanges(members.Length, _arena.Budget);
         PreparedUpdates? updates = null;
-        record.Updates = null;
         var count = 0;
         var size = 0L;
 
@@ -210,8 +297,8 @@ internal sealed class WriteExecutor
 
                 if (member.Update is { } input)
                 {
-                    var update = PlanUpdate(table, replaced, input, place);
-                    updates ??= new PreparedUpdates();
+                    updates ??= new PreparedUpdates(_arena.Budget);
+                    using var update = PlanUpdate(table, replaced, input, updates, place);
                     if (!update.Changed)
                     {
                         continue;
@@ -267,14 +354,10 @@ internal sealed class WriteExecutor
                 size += rootSize;
             }
 
-            if (updates is not null)
+            if (updates is not null && write.Forwarded is not null)
             {
-                if (write.Forwarded is not null)
-                {
-                    updates.SetReply(UpdateReplies.Of(members));
-                }
-
-                record.Updates = updates;
+                using var replyWork = Budget is { } budget ? new MemoryLease(budget) : null;
+                updates.SetReply(UpdateReplies.Of(members, replyWork));
             }
 
             var reservation = _changes.TryReserve(changes[..count], checksUnique: true, out taken);
@@ -282,6 +365,7 @@ internal sealed class WriteExecutor
             if (reservation == ReservationEnum.Reserved)
             {
                 prepared = record.SetBatch(count, size);
+                prepared.Updates = updates;
             }
             else if (reservation == ReservationEnum.RefusedForMemory)
             {
@@ -298,7 +382,9 @@ internal sealed class WriteExecutor
         {
             if (prepared is null)
             {
+                updates?.Dispose();
                 _changes.GiveBack(changes[..count]);
+                record.Withdraw();
             }
         }
     }
@@ -449,32 +535,47 @@ internal sealed class WriteExecutor
     private ReservationEnum TryPrepareUpdate(PendingWrite write, UpdateInput input, RootHandle handle,
         ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
     {
-        var update = PlanUpdate(write.Table, replaced, input);
-        var updates = new PreparedUpdates();
-        write.Record.Updates = updates;
-        if (write.Forwarded is not null)
+        var updates = new PreparedUpdates(_arena.Budget);
+        prepared = null;
+        try
         {
-            updates.SetReply(UpdateReplies.Of(input));
-        }
+            using var update = PlanUpdate(write.Table, replaced, input, updates);
+            if (write.Forwarded is not null)
+            {
+                using var replyWork = Budget is { } budget ? new MemoryLease(budget) : null;
+                updates.SetReply(UpdateReplies.Of(input, replyWork));
+            }
 
-        if (!update.Changed)
+            if (!update.Changed)
+            {
+                prepared = write.PrepareNoChange();
+                refusal = null;
+                taken = default;
+                return ReservationEnum.Reserved;
+            }
+
+            updates.Add(0, _roots.Entry(handle).LastMutationSequence, write.Table.Layout.Structure, update.Effects);
+            var root = RootValues.Place(_arena, write.Table.Layout, handle, values: null, out var size, out refusal, update);
+            return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
+        }
+        finally
         {
-            prepared = write.PrepareNoChange();
-            refusal = null;
-            taken = default;
-            return ReservationEnum.Reserved;
+            if (prepared is null)
+            {
+                updates.Dispose();
+            }
+            else
+            {
+                prepared.Updates = updates;
+            }
         }
-
-        updates.Add(0, _roots.Entry(handle).LastMutationSequence, write.Table.Layout.Structure, update.Effects);
-        var root = RootValues.Place(_arena, write.Table.Layout, handle, values: null, out var size, out refusal, update);
-        return ReserveReplacement(write, handle, replaced, root, size, ref refusal, out prepared, out taken);
     }
 
-    private RootUpdate PlanUpdate(EntityTable table, ArenaAddress replaced, UpdateInput input, int? operation = null)
+    private RootUpdate PlanUpdate(EntityTable table, ArenaAddress replaced, UpdateInput input, PreparedUpdates updates, int? operation = null)
     {
         try
         {
-            var update = new RootUpdate(_arena, table.Layout, replaced, input.Commands);
+            var update = new RootUpdate(_arena, table.Layout, replaced, input.Commands, updates.ResultBits(input), updates.Work);
             // The command results can see these bits only after the submission's task succeeds.
             // If the coordinator retries admission it replaces them with those of the last attempt.
             input.Outcome.SetBits(update.Bits);
@@ -595,7 +696,7 @@ internal sealed class WriteExecutor
     private ArenaAddress Place(EntityTable table, RootHandle handle, in ReadOnlySequence<byte> bytes, bool replaces, out long size, out LatticeException? refusal)
     {
         var layout = table.Layout;
-        var import = _import ??= new BlockImport(_arena);
+        var import = _import ?? CreateImport();
         var reader = new SequenceReader<byte>(bytes);
         var received = import.Check(ref reader, layout);
 
@@ -618,6 +719,11 @@ internal sealed class WriteExecutor
 
     // Whether the entity of the handle stores its String key, compared without case, in another spelling
     // than the root received.
+    private BlockImport CreateImport()
+    {
+        return _import = new BlockImport(_arena, tracksQueuedUses: true);
+    }
+
     private bool KeepsAnotherSpelling(EntityTable table, RootHandle handle, BlockImport import, in ReceivedRoot received)
     {
         var key = table.EntityType.Key;
@@ -690,13 +796,18 @@ internal sealed class WriteExecutor
         }
 
         _changes.PublishPositionAndAfter(changes, sequence, publishesPosition: true);
+        FinishWorkspace(prepared, published: true);
+        if (write.Forwarded is null)
+        {
+            prepared.Updates?.PublishCallerResults();
+        }
 
         // The reply of a write a child forwarded, before its transaction is appended, so that the child
         // takes the reply first (Delivery.RecordedReplies).
         if (write.Forwarded is { } forwarded)
         {
-            forwarded.Replies.Succeed(forwarded.CorrelationId, new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity),
-                prepared.Updates?.Reply ?? default);
+            forwarded.Succeed(new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity),
+                prepared.Updates?.TakeReply() ?? default);
         }
 
         if (delivers)
