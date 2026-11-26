@@ -637,7 +637,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                     // Once the reads have left, a failure in one retirement step cannot keep the arena alive.
                     try
                     {
-                        parts.Retired.Drain(_testInputs?.BeforeCloseRetiredTrim);
+                        parts.Retired.DrainAtClose(_testInputs?.BeforeCloseRetiredTrim);
                     }
                     catch (Exception exception)
                     {
@@ -940,7 +940,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         try
         {
             var roots = new RootTable();
-            var retired = new RetiredMemory(_epochs, arena, roots);
+            var retired = new RetiredMemory(_epochs, arena, roots, _testInputs?.BeforePublishedRetiredTrim);
             var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime, _epochs,
                 isDatabaseClosed: () => IsClosed);
             var delivery = new DeliveryTail();
