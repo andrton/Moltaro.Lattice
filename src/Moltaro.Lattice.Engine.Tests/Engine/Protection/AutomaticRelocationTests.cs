@@ -68,6 +68,17 @@ public sealed class AutomaticRelocationTests
         Assert.Equal(BlockKindEnum.Root, moved.SourceKind);
         Assert.Equal((ushort)0, moved.SourceFlags);
         Assert.Equal(default, moved.SourceDescriptorKind);
+
+        RunTurn(node);
+        ExpectNoSourceReport(samples[^1]);
+    }
+
+    internal static void ExpectNoSourceReport(MaintenanceTurnSample sample)
+    {
+        Assert.True(sample.Admitted);
+        Assert.Equal((default(ArenaAddress), default(ArenaAddress), 0), (sample.Source, sample.Destination, sample.SlotBytes));
+        Assert.Equal((default(BlockKindEnum), (ushort)0, default(DescriptorKindEnum)),
+            (sample.SourceKind, sample.SourceFlags, sample.SourceDescriptorKind));
     }
 
     [Theory]

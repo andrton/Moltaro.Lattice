@@ -222,6 +222,29 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         Assert.Equal(0, node.Counters.Arena.RetiredBytes);
         OwnershipAudit.Expect(master);
         OwnershipAudit.Expect(child);
+        if (reportSource)
+        {
+            // After the successful move and the final reader's exit, remove
+            // the staging roots so the next admitted turn cannot move a block.
+            var cleanup = master.CreateWriteBatch();
+            foreach (var filler in RootsOf(master, "Cap"))
+            {
+                cleanup.Delete("Cap", filler.Key);
+            }
+
+            foreach (var filler in RootsOf(master, "Hole"))
+            {
+                cleanup.Delete("Hole", filler.Key);
+            }
+
+            Assert.True(cleanup.Count > 0);
+            var cleared = await cleanup.CommitAsync().AsTask().WaitAsync(Bound);
+            Assert.True(cleared.Changed);
+            await child.WaitForPositionAsync(cleared.Position, Bound);
+            node.DrainRetired();
+            AutomaticRelocationTests.ExpectNoSourceReport(RunTurn(node, samples));
+        }
+
         await node.CloseAsync().AsTask().WaitAsync(Bound);
         allocator.ExpectEverythingReturned();
     }
