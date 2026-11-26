@@ -130,6 +130,8 @@ internal sealed class ReceivedChanges
     // Faults the instance after the lock when a live transaction diverges or publication fails.
     private readonly Action _fault;
 
+    private readonly Action<int, uint, Arena, RootTable>? _beforeRootListGrowth;
+
     // The changes prepared and not published yet, in the order they were received: not reserved while the
     // effects of their transaction are prepared, and reserved together once every one is (TryReserve).
     private List<PreparedChange> _prepared = [];
@@ -168,7 +170,8 @@ internal sealed class ReceivedChanges
         ChangePublisher publisher,
         Lock writes,
         CloseBarrier barrier,
-        Action fault)
+        Action fault,
+        Action<int, uint, Arena, RootTable>? beforeRootListGrowth = null)
     {
         _arena = arena;
         _roots = roots;
@@ -180,6 +183,7 @@ internal sealed class ReceivedChanges
         _writes = writes;
         _barrier = barrier;
         _fault = fault;
+        _beforeRootListGrowth = beforeRootListGrowth;
         _import = new BlockImport(arena);
     }
 
@@ -515,6 +519,14 @@ internal sealed class ReceivedChanges
             _skipped++;
 
             return true;
+        }
+
+        // Once the root takes storage, recording the change for rollback must not allocate.
+        var preparedCount = _prepared.Count;
+        if (preparedCount == _prepared.Capacity)
+        {
+            _beforeRootListGrowth?.Invoke(preparedCount, member, _arena, _roots);
+            _prepared.EnsureCapacity(preparedCount + 1);
         }
 
         // A new lifetime for a key the child does not hold; the lifetime of the entity for one it holds.

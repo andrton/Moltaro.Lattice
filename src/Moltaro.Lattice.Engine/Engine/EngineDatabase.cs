@@ -821,7 +821,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             var memoryLimit = MemoryLimitInForce();
             var (schema, counts) = await ChildLoad.ReceiveSchemaAsync(master, masterUri, memoryLimit, token).ConfigureAwait(false);
             var parts = Build(schema, master.Master.History, child: true);
-            var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, parts.Tables, parts.Publisher, parts.Writes, _barrier, Fault);
+            var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, parts.Tables, parts.Publisher,
+                parts.Writes, _barrier, Fault, _testInputs?.BeforeReceivedRootListGrowth);
             var end = await ChildLoad.ReceiveRootsAsync(master, changes, parts.Tables, parts.Writes, counts, memoryLimit, token).ConfigureAwait(false);
 
             // The load is complete; the transactions of (S, R] follow LoadEnd: the child is CatchingUp
