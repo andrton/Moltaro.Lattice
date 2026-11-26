@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Measurements.Manifests;
@@ -28,7 +29,7 @@ if (args is [RemoteForwarder.Mode, var forwardTo, var writes])
     return RemoteForwarder.Serve(new Uri(forwardTo), int.Parse(writes, CultureInfo.InvariantCulture));
 }
 
-if (args.Length != 2)
+if (args.Length < 2)
 {
     return Refuse(Usage);
 }
@@ -39,6 +40,26 @@ var manifest = RunManifest.Find(manifestName);
 if (manifest is null)
 {
     return Refuse($"There is no manifest {manifestName}. Manifests: {string.Join(", ", RunManifest.Available())}.");
+}
+
+bool churn = scenario is BudgetChurnScenario.Plan or BudgetChurnScenario.Preflight or BudgetChurnScenario.Control or BudgetChurnScenario.Tight;
+bool timed = scenario is BudgetChurnScenario.Control or BudgetChurnScenario.Tight or StandingReserveScenario.Name;
+int arguments = scenario switch
+{
+    BudgetChurnScenario.Tight => 3,
+    StandingReserveScenario.Preflight => 6,
+    StandingReserveScenario.Verify => 8,
+    StandingReserveScenario.Name => 7,
+    _ => 2,
+};
+if (args.Length != arguments)
+{
+    return Refuse($"{Usage}. Tight churn also takes a preset path. Timed reserve takes a lane, byte limit, round, exact SHA and diagnostic driver path.");
+}
+
+if (timed && !MatchesDevelopmentFive(manifestName))
+{
+    return Refuse("The S24 timing lanes require Release, the development-5 manifest, Windows x64 build 26300, .NET 10.0.15 and process affinity 0xFF.");
 }
 
 IReadOnlyList<string>? results = scenario switch
@@ -77,12 +98,26 @@ IReadOnlyList<string>? results = scenario switch
     FullFormUsersScenario.Name => FullFormUsersScenario.Run(),
     ChurnScenario.Name => await ChurnScenario.RunAsync(maintenance: true),
     ChurnScenario.OffName => await ChurnScenario.RunAsync(maintenance: false),
+    ManagedPeakWitness.Name => await ManagedPeakWitness.RunAsync(),
+    _ when churn => await BudgetChurnScenario.RunAsync(scenario, arguments == 3 ? args[2] : null),
+    StandingReserveScenario.Plan => await StandingReserveScenario.RunAsync(scenario, "two-tight", 0, 0, "", null),
+    StandingReserveScenario.Preflight when long.TryParse(args[3], NumberStyles.None, CultureInfo.InvariantCulture, out var limit)
+        && limit > 0 && IsRevision(args[4]) =>
+        await StandingReserveScenario.RunAsync(scenario, args[2], limit, 0, args[4], args[5]),
+    StandingReserveScenario.Verify when long.TryParse(args[3], NumberStyles.None, CultureInfo.InvariantCulture, out var limit)
+        && limit > 0 && IsRevision(args[4]) =>
+        await StandingReserveScenario.RunAsync(scenario, args[2], limit, 0, args[4], null,
+            new StandingReserveTrace.Invocation(args[5], args[6], args[7])),
+    StandingReserveScenario.Name when long.TryParse(args[3], NumberStyles.None, CultureInfo.InvariantCulture, out var limit)
+        && limit > 0 && int.TryParse(args[4], NumberStyles.None, CultureInfo.InvariantCulture, out var round)
+        && round is >= 1 and <= 5 && IsRevision(args[5]) =>
+        await StandingReserveScenario.RunAsync(scenario, args[2], limit, round, args[5], args[6]),
     _ => null,
 };
 
 if (results is null)
 {
-    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}, {ClockWaitersScenario.Name}, {ForwardingScenario.Name}, {ForwardingCostsScenario.Name}, {DictionaryReadsScenario.Name}, {DictionaryWritesScenario.Name}, {DictionaryMemoryScenario.Name}, {DictionaryChildScenario.Name}, {IndexSearchScenario.Name}, {IndexWritesScenario.Name}, {IndexReadByKeyScenario.Name}, {IndexBuildScenario.Name}, {IndexLongTextScenario.Name}, {UniqueWritesScenario.Name}, {BatchWritesScenario.Name}, {ReadsBesideBatchesScenario.Name}, {FullFormUsersScenario.Name}, {NestedIndexReadScenario.Name}, {NestedIndexReadScenario.CollectionName}, {MapLookupScenario.Name}, {ChurnScenario.Name}, {ChurnScenario.OffName}.");
+    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}, {ClockWaitersScenario.Name}, {ForwardingScenario.Name}, {ForwardingCostsScenario.Name}, {DictionaryReadsScenario.Name}, {DictionaryWritesScenario.Name}, {DictionaryMemoryScenario.Name}, {DictionaryChildScenario.Name}, {IndexSearchScenario.Name}, {IndexWritesScenario.Name}, {IndexReadByKeyScenario.Name}, {IndexBuildScenario.Name}, {IndexLongTextScenario.Name}, {UniqueWritesScenario.Name}, {BatchWritesScenario.Name}, {ReadsBesideBatchesScenario.Name}, {FullFormUsersScenario.Name}, {NestedIndexReadScenario.Name}, {NestedIndexReadScenario.CollectionName}, {MapLookupScenario.Name}, {ChurnScenario.Name}, {ChurnScenario.OffName}, {BudgetChurnScenario.Plan}, {BudgetChurnScenario.Preflight}, {BudgetChurnScenario.Control}, {BudgetChurnScenario.Tight}, {StandingReserveScenario.Plan}, {StandingReserveScenario.Preflight}, {StandingReserveScenario.Verify}, {StandingReserveScenario.Name}, {ManagedPeakWitness.Name}.");
 }
 
 var finished = DateTimeOffset.UtcNow;
@@ -118,4 +153,23 @@ static int Refuse(string message)
     Console.Error.WriteLine(message);
 
     return 2;
+}
+
+static bool IsRevision(string text) => text.Length == 40 && text.All(Uri.IsHexDigit);
+
+static bool MatchesDevelopmentFive(string manifest)
+{
+#if DEBUG
+    return false;
+#else
+    if (manifest != "development-5" || !OperatingSystem.IsWindows() ||
+        RuntimeInformation.ProcessArchitecture != Architecture.X64 ||
+        Environment.OSVersion.Version.Build != 26300 || Environment.Version != new Version(10, 0, 15))
+    {
+        return false;
+    }
+
+    using var process = Process.GetCurrentProcess();
+    return process.ProcessorAffinity == 0xFF;
+#endif
 }

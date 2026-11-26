@@ -23,7 +23,8 @@ internal sealed class ChurnVolume
     public Volume MeasuredStart { get; }
     public Volume Final { get; }
 
-    public static ChurnVolume Model(IEnumerable<LatticeRecord> seed, ChurnTrace trace)
+    public static ChurnVolume Model(IEnumerable<LatticeRecord> seed, ChurnTrace trace,
+        Func<int, bool>? userChanged = null, Func<int, bool>? collectionChanged = null)
     {
         var changed = trace.Frames.SelectMany(frame => new[] { frame.Key, frame.OldKey }).ToHashSet();
         var users = new Dictionary<long, RowVolume>();
@@ -48,30 +49,43 @@ internal sealed class ChurnVolume
                 measuredStart = volume.Read();
             }
 
-            long removed = frame.Kind == ChurnTrace.ChangeEnum.Exchange ? frame.OldKey : frame.Key;
-            ChurnAudit.Require(users.Remove(removed, out var previous), "The volume model removed an absent user.");
-            volume.RemoveRow(previous);
-            var next = SizeOf(frame);
-            users.Add(frame.Key, next);
-            volume.AddRow(next);
-
-            if (frame.Collection == ChurnTrace.CollectionChangeEnum.Grow)
+            if (userChanged?.Invoke(frame.Number) != false)
             {
-                volume.ChangeCollection(extra[frame.CollectionTarget], 1);
+                long removed = frame.Kind == ChurnTrace.ChangeEnum.Exchange ? frame.OldKey : frame.Key;
+                ChurnAudit.Require(users.Remove(removed, out var previous), "The volume model removed an absent user.");
+                volume.RemoveRow(previous);
+                var next = SizeOf(frame);
+                users.Add(frame.Key, next);
+                volume.AddRow(next);
             }
-            else if (frame.Collection == ChurnTrace.CollectionChangeEnum.Trim)
+
+            if (collectionChanged?.Invoke(frame.Number) != false)
             {
-                volume.ChangeCollection(extra[frame.CollectionTarget], -1);
+                if (frame.Collection == ChurnTrace.CollectionChangeEnum.Grow)
+                {
+                    volume.ChangeCollection(extra[frame.CollectionTarget], 1);
+                }
+                else if (frame.Collection == ChurnTrace.CollectionChangeEnum.Trim)
+                {
+                    volume.ChangeCollection(extra[frame.CollectionTarget], -1);
+                }
             }
         }
 
         var final = volume.Read();
-        ChurnAudit.Require(measuredStart is not null && Equivalent(measuredStart, final),
+        ChurnAudit.Require(measuredStart is not null && (userChanged is not null || Equivalent(measuredStart, final)),
             "The cyclic trace did not preserve the expected logical volume across the measured window.");
         return new ChurnVolume(initial, measuredStart!, final);
     }
 
     public static Volume Observe(EngineDatabase database, Volume expected)
+    {
+        var observed = Observe(database);
+        ChurnAudit.Require(Equivalent(expected, observed), "Public enumeration disagreed with the authored logical volume.");
+        return observed;
+    }
+
+    public static Volume Observe(EngineDatabase database)
     {
         var observed = new Accumulator();
         foreach (var name in Sets)
@@ -82,13 +96,10 @@ internal sealed class ChurnVolume
             }
         }
 
-        var result = observed.Read();
-        ChurnAudit.Require(Equivalent(expected, result),
-            "Public enumeration disagreed with the authored logical volume.");
-        return result;
+        return observed.Read();
     }
 
-    private static bool Equivalent(Volume expected, Volume observed) =>
+    public static bool Equivalent(Volume expected, Volume observed) =>
         expected.Rows == observed.Rows && expected.ScalarBytes == observed.ScalarBytes &&
         expected.Utf8Bytes == observed.Utf8Bytes &&
         expected.UserDisplayNameUtf8Sizes.SequenceEqual(observed.UserDisplayNameUtf8Sizes);

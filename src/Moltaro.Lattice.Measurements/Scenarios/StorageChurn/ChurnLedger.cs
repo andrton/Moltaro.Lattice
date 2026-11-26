@@ -14,10 +14,13 @@ internal sealed class ChurnLedger : NativeAllocator
     private long _obtainedCount;
     private long _returnedCount;
 
+    public Action<long, int>? BeforeGrant { get; set; }
+
     public override nint Allocate(int bytes)
     {
         lock (_gate)
         {
+            BeforeGrant?.Invoke(_held, bytes);
             var address = base.Allocate(bytes);
             if (address == 0)
             {
