@@ -29,6 +29,12 @@ internal struct WorkspaceCapacity<T>
 
     public void Keep(int used) => _installed = Math.Max(_installed, used);
 
+    public void Drop(ref T[] backing, MemoryBudget budget)
+    {
+        _installed = 0;
+        ReleaseUnused(ref backing, 0, budget);
+    }
+
     public void ReleaseUnused(ref T[] backing, int inUse, MemoryBudget budget)
     {
         var needed = Math.Max(inUse, _installed);

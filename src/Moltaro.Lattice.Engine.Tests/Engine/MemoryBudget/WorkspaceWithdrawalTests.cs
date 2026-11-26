@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
@@ -14,6 +15,136 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 public sealed class WorkspaceWithdrawalTests
 {
+    [Fact]
+    public async Task A_withdrawn_unique_batch_returns_both_actual_scratch_arrays()
+    {
+        var allocator = new CountingNativeAllocator();
+        var storage = new HeldPersistence(holding: false);
+        await using var node = await OpenAsync(8L * Segment, allocator, schema: UniqueSchema.Schema, persistence: storage);
+        var accounts = node.Set<UniqueSchema.Account>();
+        await accounts.InsertAsync(UniqueSchema.Of(1L, "first"));
+        var seeded = await accounts.InsertAsync(UniqueSchema.Of(2L, "second"));
+        var parts = await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts);
+        var prior = Snapshot();
+
+        storage.Hold();
+        try
+        {
+            var blocker = accounts.DeleteAsync(-1L).AsTask();
+            await storage.NextAsync();
+            using var stop = new CancellationTokenSource();
+            var batch = node.CreateWriteBatch();
+            batch.Replace(UniqueSchema.Of(1L, "other first"));
+            batch.Replace(UniqueSchema.Of(2L, "other second"));
+            var replacing = batch.CommitAsync(stop.Token).AsTask();
+            await CountersWait.UntilAsync(node, counters => counters.QueuedWrites == 2, "the two unique changes are prepared");
+            var grown = Snapshot();
+            Assert.All(grown, array => Assert.True(array.Length >= 2));
+            Assert.NotSame(prior[0], grown[0]);
+            Assert.NotSame(prior[1], grown[1]);
+            _ = ExpectCapacity(node, allocator, out _, grown);
+            await stop.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => replacing.WaitAsync(Bound));
+            Assert.Equal(seeded.Position, node.Position);
+            Assert.All(prior.Zip(Snapshot()), pair => Assert.Same(pair.First, pair.Second));
+            node.InspectBudget((_, backing) => Assert.DoesNotContain(backing, grown, ReferenceEqualityComparer.Instance));
+            ExpectCapacity(node, allocator);
+            storage.ReleaseAll();
+            var outcome = await blocker.WaitAsync(Bound);
+            Assert.Equal(outcome.Position, node.Position);
+            Assert.All(prior.Zip(Snapshot()), pair => Assert.Same(pair.First, pair.Second));
+            Assert.NotNull(accounts.Get(1L));
+            Assert.NotNull(accounts.Get(2L));
+            OwnershipAudit.Expect(node);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+        }
+
+        Array[] Snapshot() => [Backing<Array>(parts.Publisher, "_claims"), Backing<Array>(parts.Publisher, "_freed")];
+    }
+
+    [Fact]
+    public async Task A_ready_child_gives_back_a_multitype_workspace_after_real_apply_pressure_then_rebuilds_it()
+    {
+        const long limit = 8L * Segment;
+        await using var master = await OpenAsync(limit, new CountingNativeAllocator(), listen: true);
+        var source = master.Set<PieceSchema.Piece>();
+        var holders = master.Set("Holder");
+        for (var id = 1L; id <= 8; id++)
+        {
+            await source.InsertAsync(PieceSchema.Of(id, 8));
+            await holders.InsertAsync(Holder(holders, id));
+        }
+
+        var allocator = new CountingNativeAllocator();
+        var paused = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var child = await ReplicationNodes.OpenChildAsync(
+            ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, limit), new EngineTestInputs
+            {
+                Allocator = allocator,
+                DisableBackgroundMaintenance = true,
+                ObserveChildPressure = sample => paused.TrySetResult(sample),
+            });
+        var children = child.Set<PieceSchema.Piece>();
+        var childHolders = child.Set("Holder");
+        var before = child.Position;
+        var parts = await MaintenanceStep.RunAfterAdmissionAsync(child, parts => parts);
+        var initial = Backing<Array>(parts.Publisher, "_tablesOf");
+        Array? attempted = null;
+        IDisposable? holder = null;
+        child.ArmGrowthSwitch(children.EntityType, () =>
+        {
+            var owned = Backing<Array>(parts.Publisher, "_tablesOf");
+            Assert.True(owned.Length >= 2);
+            Assert.NotSame(initial, owned);
+            var sample = ExpectCapacity(child, allocator, out _, owned);
+            holder = child.HoldBudgetBacking(checked((int)(limit - sample.ChargedBytes - 32 - ManagedObjectSize(Array.Empty<byte>()))));
+            attempted = owned;
+        });
+
+        try
+        {
+            var batch = master.CreateWriteBatch();
+            batch.Insert(PieceSchema.Of(9L, 19));
+            batch.Insert(Holder(holders, 9L));
+            var published = await batch.CommitAsync().AsTask().WaitAsync(Bound);
+            var pressure = await paused.Task.WaitAsync(Bound);
+            Assert.Equal(LatticeLimitEnum.Memory, pressure.Limit);
+            Assert.False(pressure.DuringReceive);
+            Assert.Equal(published.Position.Sequence, pressure.Sequence);
+            Assert.NotNull(attempted);
+            Assert.Equal(before, child.Position);
+            Assert.Same(initial, Backing<Array>(parts.Publisher, "_tablesOf"));
+            child.InspectBudget((_, backing) => Assert.NotSame(attempted, backing));
+            Assert.Null(children.Get(9L));
+            Assert.Null(childHolders.Get(9L));
+            Assert.NotNull(children.Get(1L));
+            Assert.NotNull(childHolders.Get(1L));
+
+            holder!.Dispose();
+            holder = null;
+            await child.WaitForPositionAsync(published.Position, Bound);
+            Assert.Equal(19, children.Get(9L)?.Name.Length);
+            Assert.NotNull(childHolders.Get(9L));
+            var kept = Backing<Array>(parts.Publisher, "_tablesOf");
+            Assert.NotSame(attempted, kept);
+            _ = ExpectCapacity(child, allocator, out _, kept);
+            OwnershipAudit.Expect(child);
+        }
+        finally
+        {
+            holder?.Dispose();
+        }
+
+        static LatticeRecord Holder(ILatticeSet set, long id) => new(set.EntityType)
+        {
+            ["Id"] = id,
+            ["Lines"] = new Dictionary<string, string>(),
+        };
+    }
+
     [Fact]
     public async Task A_cancelled_multitype_batch_gives_back_its_new_workspace_and_text_capacity()
     {

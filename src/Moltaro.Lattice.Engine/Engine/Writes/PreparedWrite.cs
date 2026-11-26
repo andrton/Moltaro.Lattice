@@ -56,7 +56,7 @@ internal sealed class PreparedWrite
 
     // Scratch capacity used during preparation that a withdrawal can still return.
     public int ImportWorkspace;
-    public int TableWorkspace;
+    public ChangePublisher.Workspaces PublicationWorkspace;
     public PreparedWrite? NextWorkspaceUser;
 
     // The write this is the prepared state of.

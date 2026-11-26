@@ -111,11 +111,11 @@ internal sealed class WriteExecutor
         _roots.ReleasePermanentDirectories();
         _arena.Texts.EndPreparation(keeps);
         var import = _import?.TakeWorkspace() ?? 0;
-        var tables = _changes.TakeTableWorkspace();
-        if (keeps && (import | tables) != 0)
+        var scratch = _changes.TakeWorkspaces();
+        if (keeps && (import != 0 || scratch.Used))
         {
             prepared!.ImportWorkspace = import;
-            prepared.TableWorkspace = tables;
+            prepared.PublicationWorkspace = scratch;
             prepared.NextWorkspaceUser = _workspaceUsers;
             _workspaceUsers = prepared;
         }
@@ -139,7 +139,7 @@ internal sealed class WriteExecutor
 
     private void FinishWorkspace(PreparedWrite prepared, bool published)
     {
-        if ((prepared.ImportWorkspace | prepared.TableWorkspace) == 0)
+        if (prepared.ImportWorkspace == 0 && !prepared.PublicationWorkspace.Used)
         {
             return;
         }
@@ -160,11 +160,11 @@ internal sealed class WriteExecutor
                 _import!.KeepWorkspace(prepared.ImportWorkspace);
             }
 
-            _changes.KeepTableWorkspace(prepared.TableWorkspace);
+            _changes.KeepWorkspaces(prepared.PublicationWorkspace);
         }
 
         prepared.ImportWorkspace = 0;
-        prepared.TableWorkspace = 0;
+        prepared.PublicationWorkspace = default;
         ReleaseUnusedWorkspace();
     }
 
@@ -176,14 +176,14 @@ internal sealed class WriteExecutor
         }
 
         var import = 0;
-        var tables = 0;
+        var scratch = default(ChangePublisher.Workspaces);
         for (var user = _workspaceUsers; user is not null; user = user.NextWorkspaceUser)
         {
             import = Math.Max(import, user.ImportWorkspace);
-            tables = Math.Max(tables, user.TableWorkspace);
+            scratch = scratch.Max(user.PublicationWorkspace);
         }
 
-        _changes.ReleaseUnusedTableWorkspace(tables);
+        _changes.ReleaseUnusedWorkspaces(scratch);
         if (_import is { } workspace)
         {
             workspace.ReleaseUnusedWorkspace(import);
@@ -212,7 +212,6 @@ internal sealed class WriteExecutor
         _retired = retired;
         _clock = clock;
         _changes = changes;
-        _changes.TrackPreparedTables();
         _delivery = delivery;
     }
 

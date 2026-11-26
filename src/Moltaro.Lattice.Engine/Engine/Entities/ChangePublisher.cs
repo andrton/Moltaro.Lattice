@@ -75,12 +75,14 @@ internal sealed class ChangePublisher
     // past KeptRoom (PublishPositionAndAfter); the entity types are at most those of the schema, and are kept.
     private EntityTable[] _tablesOf = [];
     private WorkspaceCapacity<EntityTable> _tableWorkspace;
-    private bool _tracksPreparedTables;
-    private int _tableWorkspaceUsed;
+    private bool _tracksPreparedWorkspaces;
+    private Workspaces _workspaceUsed;
 
     private (int Place, ArenaAddress Root)[] _claims = [];
+    private WorkspaceCapacity<(int Place, ArenaAddress Root)> _claimWorkspace;
 
     private ulong[] _freed = [];
+    private WorkspaceCapacity<ulong> _freedWorkspace;
 
     // What a test of the engine runs at the place of the next publication that passes it
     // (ArmPublicationSwitch), and the place; null when no test armed it, which is all a publication pays:
@@ -349,7 +351,7 @@ internal sealed class ChangePublisher
             {
                 if (frees + 1 > _freed.Length)
                 {
-                    _freed = Grow(_freed, frees + 1, restored => _freed = restored);
+                    _freed = GrowWorkspace(ref _freedWorkspace, _freed, frees + 1, restored => _freed = restored);
                 }
 
                 _freed[frees++] = change.Handle.Packed;
@@ -359,11 +361,16 @@ internal sealed class ChangePublisher
             {
                 if (claims + 1 > _claims.Length)
                 {
-                    _claims = Grow(_claims, claims + 1, restored => _claims = restored);
+                    _claims = GrowWorkspace(ref _claimWorkspace, _claims, claims + 1, restored => _claims = restored);
                 }
 
                 _claims[claims++] = (place, change.Root);
             }
+        }
+
+        if (_tracksPreparedWorkspaces && _arena.Budget!.IsPreparing)
+        {
+            _workspaceUsed = _workspaceUsed.Max(new Workspaces(0, claims, frees));
         }
 
         var freed = _freed.AsSpan(0, frees);
@@ -414,23 +421,38 @@ internal sealed class ChangePublisher
     }
 
     // The entity types of several changes (TablesOf).
-    public void TrackPreparedTables() => _tracksPreparedTables = _arena.Budget is not null;
+    public void TrackPreparedWorkspaces() => _tracksPreparedWorkspaces = _arena.Budget is not null;
 
-    public int TakeTableWorkspace()
+    public Workspaces TakeWorkspaces()
     {
-        var used = _tableWorkspaceUsed;
-        _tableWorkspaceUsed = 0;
+        var used = _workspaceUsed;
+        _workspaceUsed = default;
         return used;
     }
 
-    public void KeepTableWorkspace(int used) => _tableWorkspace.Keep(used);
-
-    public void ReleaseUnusedTableWorkspace(int used)
+    public void KeepWorkspaces(Workspaces used)
     {
-        if (_tracksPreparedTables)
+        _tableWorkspace.Keep(used.Tables);
+        _claimWorkspace.Keep(Math.Min(used.Claims, _claims.Length));
+        _freedWorkspace.Keep(Math.Min(used.Freed, _freed.Length));
+    }
+
+    public void ReleaseUnusedWorkspaces(Workspaces used)
+    {
+        if (_tracksPreparedWorkspaces)
         {
-            _tableWorkspace.ReleaseUnused(ref _tablesOf, used, _arena.Budget!);
+            var budget = _arena.Budget!;
+            _tableWorkspace.ReleaseUnused(ref _tablesOf, used.Tables, budget);
+            _claimWorkspace.ReleaseUnused(ref _claims, used.Claims, budget);
+            _freedWorkspace.ReleaseUnused(ref _freed, used.Freed, budget);
         }
+    }
+
+    public readonly record struct Workspaces(int Tables, int Claims, int Freed)
+    {
+        public bool Used => (Tables | Claims | Freed) != 0;
+
+        public Workspaces Max(Workspaces other) => new(Math.Max(Tables, other.Tables), Math.Max(Claims, other.Claims), Math.Max(Freed, other.Freed));
     }
 
     private ReadOnlySpan<EntityTable> TablesOfSeveral(ReadOnlySpan<PreparedChange> changes)
@@ -443,22 +465,25 @@ internal sealed class ChangePublisher
             {
                 if (count + 1 > _tablesOf.Length)
                 {
-                    _tablesOf = _tracksPreparedTables
-                        ? _tableWorkspace.Grow(_tablesOf, BudgetCollections.CapacityFor(_tablesOf.Length, count + 1), _arena.Budget!, nameof(ChangePublisher))
-                        : Grow(_tablesOf, count + 1, restored => _tablesOf = restored);
+                    _tablesOf = GrowWorkspace(ref _tableWorkspace, _tablesOf, count + 1, restored => _tablesOf = restored);
                 }
 
                 _tablesOf[count++] = change.Table;
             }
         }
 
-        if (_tracksPreparedTables && _arena.Budget!.IsPreparing)
+        if (_tracksPreparedWorkspaces && _arena.Budget!.IsPreparing)
         {
-            _tableWorkspaceUsed = Math.Max(_tableWorkspaceUsed, count);
+            _workspaceUsed = _workspaceUsed.Max(new Workspaces(count, 0, 0));
         }
 
         return _tablesOf.AsSpan(0, count);
     }
+
+    private T[] GrowWorkspace<T>(ref WorkspaceCapacity<T> workspace, T[] previous, int count, Action<T[]> restore) =>
+        _tracksPreparedWorkspaces
+            ? workspace.Grow(previous, Math.Max(count, 2 * previous.Length), _arena.Budget!, nameof(ChangePublisher))
+            : Grow(previous, count, restore);
 
     // The inserts and the removes the changes of the entity type of the table take in its index at the
     // place given, together (Indexes.SecondaryIndex.CountsOf). Inlined, so that the reservation, the top-up
@@ -823,10 +848,20 @@ internal sealed class ChangePublisher
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void LetGoOfScratch()
     {
-        _arena.Budget?.Release(_claims);
-        _arena.Budget?.Release(_freed);
-        _claims = [];
-        _freed = [];
+        if (_tracksPreparedWorkspaces)
+        {
+            _claimWorkspace.Drop(ref _claims, _arena.Budget!);
+            _freedWorkspace.Drop(ref _freed, _arena.Budget!);
+        }
+        else
+        {
+            var claims = _claims;
+            var freed = _freed;
+            _claims = [];
+            _freed = [];
+            _arena.Budget?.Release(claims);
+            _arena.Budget?.Release(freed);
+        }
     }
 
     // For the tests of the engine (EngineDatabase.ArmPublicationSwitch): the next publication that passes the

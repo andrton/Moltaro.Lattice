@@ -990,6 +990,11 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             var delivery = new DeliveryTail();
             var tables = new EntityTables([.. schema.EntityTypes.Select(entityType => EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed))]);
             var changes = new ChangePublisher(arena, roots, retired, clock, tables);
+            if (!child)
+            {
+                changes.TrackPreparedWorkspaces();
+            }
+
             var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery);
             var coordinator = new WriteCoordinator(
                 writes,
