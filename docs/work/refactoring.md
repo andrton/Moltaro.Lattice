@@ -287,7 +287,7 @@ Taken by the planner and the coordinator on the same day.
 | F5 | `src/Moltaro.Lattice.Engine/Engine/Entities/EntityTable.cs` (`TrySearch`, the condition that the end of a run is reported at the sequence before the step only when the sequence did not move) | No test holds the check. A mutant that drops it passes every test and every probe through the public API: a lazy `Find` drops the sequences of its steps, and `FindAsync` takes the largest of them, so no public path sees the sequence of the end step alone. A probe of the engine that takes the steps itself catches the mutant in every run, but it reaches the sequence only through private fields, and no member gives it. The check guards a replace or a delete of an entity after the identity, which publishes its position before it removes the old entry | The test, written with the first consumer of that sequence, the search resumed and paged, against the member that consumer needs; the probe kept with the outputs of the review of S14, part 2, outside the repository, is its starting point: 40 of 40 runs of one second caught the mutant, none of 55 failed on correct code, and the worst run caught it by 2 ends | removed with its subject (S15, part 1): the implementer and the breaker of S15, part 1 each answered on 21 November 2026 that nothing relies on an end at exactly the reported sequence, the owner removed the sentence of the Acceptance that asked for the test, and the end a step that copies an entity sees is reported at the sequence of that step, without the check; the probes of the breaker of S14, part 2 and of S15, part 1 are kept with their outputs, outside the repository, as the evidence |
 | F6 | `src/Moltaro.Lattice.Engine/Storage/Ordered/IndexLayout.cs` (`SameEntry`), with `RootLayout.StoredFieldOf` | The decision whether a write changes an index looks up the stored field of each part four times on every write, through a call that is not inlined: two for whether it is null and two for its bytes. On the head of S14, part 2 this is about 15 ns an index on the workstation of the breakdown, the most of the 30 ns an index that a replace keeping every key costs on the rented machine, where the owner accepted 0.94 and 0.86 of the rate without indexes with three and six indexes | The stored fields of an index resolved once when its layout is compiled, so that the decision reads each part from a known offset, width and null bit, with the same rule as today and no second path beside it; then the line of index-writes measured again | done (S16, e79a710): `EntryPart.Stored` holds the stored field, resolved once with the layout of the index. In the start of S16 the head over 57be01b runs at 1.02, 1.06 and 1.10 on a replace that keeps every key with 1, 3 and 6 indexes, one caller, the gauge 0.995 to 1.01: 0.94, 0.98 and 0.93 of the rate without indexes, where the owner had accepted 0.94 and 0.86. G2 and the implementation are measured with it, in one build |
 | F7 | `src/Moltaro.Lattice.Measurements/Scenarios/WriteCallersScenario.cs` and `ReadByKeyThreadsScenario.cs` | Both work on the users of the reference fixture, a type with three indexes, so neither measures a type without indexes, though the plan of the machine for S14, part 2 named them for it; that statement rested on the lines of `index-writes` with no index, one caller | A line of `write-callers` over a type without indexes, with its callers and its readers beside them, so that a start can state on many callers and readers that a type without indexes loses nothing | done (S15, part 1): the line of `write-callers` over users without indexes, compared on the first start of S15, part 1 with the line added to the older builds as a patch; a type without indexes loses nothing, neither to S14R nor to S15, part 1 |
-| F8 | `src/Moltaro.Lattice.Engine/Storage/Ordered/NodeStorage.cs` (the references of a shared text) | Each node that holds an entry of a shared key takes a reference to its text entry, so every copy of a leaf takes one for each such entry and every free releases them. A variant that leaves the reference to the root of the entry, for each entry, measured on the rented machine with keys of 100 and 200 bytes: a replace that changes the key 1.45 to 1.51 times the head, an insert and a delete 1.9 to 2.1 with distinct heads, a search and a replace that keeps the key unchanged; its patch is kept with the outputs of the start of S14, part 2, outside the repository | The references of a shared text held for each entry. It changes who holds a reference to a shared text, a rule of the [decision on strings](../decisions/strings.md), and its safety rests on the order of retirement: the owner's question, which the planner brings | taken (S23, decided by the owner on 20 November 2026, as the planner relays; it returns earlier only if a target for the writes of long text keys is set and missed) |
+| F8 | `src/Moltaro.Lattice.Engine/Storage/Ordered/NodeStorage.cs` (the references of a shared text) | Each node that holds an entry of a shared key takes a reference to its text entry, so every copy of a leaf takes one for each such entry and every free releases them. A variant that leaves the reference to the root of the entry, for each entry, measured on the rented machine with keys of 100 and 200 bytes: a replace that changes the key 1.45 to 1.51 times the head, an insert and a delete 1.9 to 2.1 with distinct heads, a search and a replace that keeps the key unchanged; its patch is kept with the outputs of the start of S14, part 2, outside the repository | The references of a shared text held for each entry. It changes who holds a reference to a shared text, a rule of the [decision on strings](../decisions/strings.md), and its safety rests on the order of retirement: the owner's question, which the planner brings | S23 kept per-node ownership as required by Q04.4. A physical text move preserves the stored reference count. The root-only variant remains an experiment. Reconsidering ownership requires a separate accepted decision. See the [index lifetime rule](../design/ordered-index.md#text-references) and the [S23 indexed-text probe](epic-1-core.md#final-arm64-acceptance-evidence). |
 | F9 | `src/Moltaro.Lattice.Measurements/Scenarios/IndexReadByKeyScenario.cs`, the line of 0 indexes, 1 thread, alone, before and after B2 | On the same engine the harness of B2 reads that line at 0.888 of the old one, in rounds of 0.94, 0.87 and 0.89, where its gauge is a single pair at 1.066; every other judged line agrees. Until the difference has a cause, the figures of that line recorded before B2 are not compared with figures after it | The cause found by reading what the old and the new harness do for that line: the window, the warm-up and what lies inside the timed region; if reading does not show it, that start carries a series of three builds for this line | open, place: the next start of the machine that measures `index-read-by-key`: read in both harnesses, the window, the warm-up and the timed region are the same; a variant that marks the step of the window `NoInlining`, which would give the old shape of the call, does not recover the line on ARM64 (0.99 against a gauge of 0.99, second start of S15, part 1) and a try on the workstation was too disturbed to say anything; so the difference is not how a step is called, its cause is unknown, and figures of that line from before B2 stay incomparable with later ones |
 | F10 | `src/Moltaro.Lattice.Samples/Limits/ReadLimitsSample.cs` and `MemoryLimitSample.cs` | Both samples show their limit held and never reached, so the block that catches the refusal never runs: a sample of a limit teaches half of it | The sample of the read limits shows a limit reached and the error an application sees, in S15, part 1, whose tests and sample extend those limits to a search; the sample of the memory limit shows a write refused for memory and what the application does next, in S24. Each still runs to the end: its catch block reports and the program goes on | done in part (S15, part 1): the read limits of a search, `ReadMemoryLimit` counting what the search remembers from the moment it is remembered and every entity of an answer by everything stored for it, `ReadTimeLimit` the engine time of its steps, the token looked at before a limit at every place; taken (S24), the memory limit |
 | F11 | `src/Moltaro.Lattice.TestSupport/Replication/ClosedPort.cs` and `ListeningPort.cs`, with the tests that free a port for a master to open at, `OpenTimeoutTests.Child_started_before_its_master_becomes_ready_when_the_master_opens_within_its_OpenTimeout` among them | Between freeing the port and the master binding it, any socket can take the port. The test then fails loudly, never with a false pass: it did once, AddressAlreadyInUse, in a Release run of S14R while another agent ran the suite on the same workstation | A master that takes a listener the test already holds, so that no port is ever free between the two | taken (the first sprint that touches the opening of the listener of a master; earlier if it fails once more on a machine that is not loaded) |
@@ -1040,15 +1040,16 @@ nonblocking maintenance admission, raw epoch retirement after address
 publication and separate bounded and synchronous cleanup paths preserve their
 responsibilities. No S23R is needed before S23A.
 
-The owner requires a separate closure before S24. The following entries are open
-at S23A runtime `5014a6c8`.
+The owner requires a separate closure before S24. These entries were open
+at S23A runtime `5014a6c8` and the [S23AR record](#s23ar-verification) shows
+their disposition.
 
-- **Text detachment** (*open, E01/E03*). The decrement and detachment remain
+- **Text detachment** (*done in S23AR, E01/E03*). The decrement and detachment were
   duplicated in [TextTable.Release and ReleaseStep](../../src/Moltaro.Lattice.Engine/Storage/Text/TextTable.cs#L149).
   Keep immediate and resumable native and locator return separate. Preserve the
   lifetime tests and matched ARM64 mixed replacement and allocations, using the
   anchored and disjoint dictionary controls.
-- **Repeated edge geometry** (*open, E01/E03*). Lookup offset arithmetic remains
+- **Repeated edge geometry** (*done in S23AR, E01/E03*). Lookup offset arithmetic was repeated
   in [CollectionLookup](../../src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs#L160),
   [RelocationBlock](../../src/Moltaro.Lattice.Engine/Engine/Maintenance/RelocationBlock.cs#L48)
   and [CompoundRelocation](../../src/Moltaro.Lattice.Engine/Engine/Maintenance/CompoundRelocation.cs#L52).
@@ -1056,7 +1057,7 @@ at S23A runtime `5014a6c8`.
   placement, relocation validation and reclamation walks separate. Preserve
   aligned layouts, wire bytes and matched read, write, allocation and turn
   measurements.
-- **Protected export test setup** (*partially addressed, E03*). S23A reused
+- **Protected export test setup** (*done in S23AR, E03*). S23A reused
   [PausedExportBuffer](../../src/Moltaro.Lattice.Engine.Tests/Engine/Views/PausedExportBuffer.cs#L18)
   and added a pause after the old chunk is acquired. The normal protected export
   sequence is still repeated in
@@ -1069,3 +1070,53 @@ at S23A runtime `5014a6c8`.
 
 The [final cleanup investigation](epic-1-core.md#pre-s24-close-cleanup-investigation)
 has a separate pre-S24 closure under E07 because its outcome may change behavior.
+
+### S23AR verification
+
+The refactoring shares the final-reference decrement and detachment in
+`TextTable`; each caller still owns its original native and locator return
+schedule. Record directory and lookup offset rules sit with the physical
+layout owners. The relocation walks retain their validation and publication
+order. `Arena.Retire` and the live path of `Arena.Free` share the live-slot
+accounting updates. The relocation tests keep their wire-byte checks. The
+ARM64 geometry comparison verified data, held views, the independent native
+ledger and the one-segment standing reserve.
+
+The test fixtures share an unpaused protected export and read-only segment
+and allocator inspection. The original length checks, pause points and
+physical-placement assertions stay with their cases. The full Windows x64
+Release solution at `382ecf1b` passed 4,667 tests with 129 expected skips,
+format and all 18 samples. The later read-only ledger wrapper at `5e12b72d`
+passed 248 focused tests and rejects an attempt to modify the live ledger.
+
+An independent ARM64 replay checked all 72 text windows from `4d8941e8`,
+a separately built copy of the parent, and `de4fcaf2`. Each window had
+524,288 public replacements. There was no directional change under the
+six-rotation rule, and both measured thread allocation rows stayed at
+152 B per replacement.
+
+| Text workload | Median paired candidate / parent | Gauge |
+| --- | ---: | ---: |
+| Mixed, default tiering | 0.9986 | 1.0300 |
+| Mixed, FullOpts | 0.9956 | 1.0435 |
+| Anchored | 1.0067 | 1.0326 |
+| Disjoint | 0.9927 | 1.0329 |
+
+The ARM64 geometry and arena accounting comparison used `de4fcaf2`, a
+separate build of that parent, and the exact product candidate `aaf43b25`.
+It completed three balanced rotations, with matching retained values and
+native ledger across master and child. Wide moves returned 4 MiB on each role
+and the no-room control preserved its native memory. Borrowed Map reads
+allocated 0 B in all rows. The 58 eligible comparisons gave no directional
+change under the paired rule. Default wide turns varied with process state.
+A separate FullOpts control used the same binaries and matched the wide move
+and return on both roles. The warmed repeat's median elapsed time was
+0.281 to 0.283 ms on master and 0.374 to 0.292 ms on child. The paired
+candidate-to-parent ratios were 1.015 and 0.990, within the gauge.
+Cold wide turns had wider variation and do not establish equivalence. An independent replay recomputed all 70 timing rows from the two geometry archives.
+
+The ARM64 archive SHA-256 values, in order, are
+`2cbc4a622b8de556c0458196cdee33872a17d030b8ce2ebc374183de06fcfd6e`,
+`ba99524206a52935128aadbd82d46fda84fe586c00a9fb67a2046ad84e55e17a` and
+`0ba044f40eabebbee8f2879fc11a40b7ab97a0664f6567fb8a3440799b6261a2`.
+Raw measurements stay outside Git.

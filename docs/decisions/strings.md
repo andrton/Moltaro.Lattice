@@ -443,7 +443,9 @@ database; no handle table and no generation stand between them. The table that f
 existing entry by its exact bytes serves writes only; a read follows the address. Text
 travels to a child as bytes with the root that uses it: no identifier crosses the wire,
 and each node builds its own entries. The sentences below that leave the identifier, its
-portability and the replica's ids open are answered by this note.
+portability and the replica's ids open are answered by this note. S23 introduced
+stable local text identifiers for [compaction](../design/arena-protocol.md#reclamation-and-relocation).
+Replication still carries encoded text rather than an identifier.
 
 Dictionary storage pays when values repeat. Measured on the reference fixture: a field
 with 16 distinct values over 100,000 entities retains 9.1% less memory; a field whose
@@ -542,11 +544,13 @@ reference for each Text descriptor it contains, from the moment it is written un
 freed; the entry is freed when its last referring block is freed: for a block that was
 published, by the deferred reclamation of the arena, after the last reader that could
 reach it has left; for a block that was only prepared, at once. A count changes only
-under the lock of the writes. Because nothing is addressed by an identifier, the
+under the lock of the writes. At that stage nothing was addressed by an identifier, so the
 questions of identifier reuse, generations and wraparound do not arise: an address is
 reused only after the reclamation that already protects every reader of a block. An
 index that keeps a Text descriptor in a block of its own follows the same rule.
-Compaction of shared entries is not built; it is noted where compaction is planned.
+The compaction work later introduced a stable, node-local text ID and locator.
+Moving the text leaves the count and the owning descriptors intact, including
+the descriptors in index nodes. See [the arena protocol](../design/arena-protocol.md#reclamation-and-relocation).
 
 There are two different questions: whether current stored values still use a
 string, and whether a reader or retained storage generation can still access its

@@ -11542,10 +11542,13 @@ cost G1 after churn.
 **Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
 under the lock of the writes or by the rule this sprint states.
 
-**Carried from S14, part 2, deferred here by the owner on 20 November 2026, as the planner
-relays:** before its design, the references of a shared text for each entry are decided
-with the figures of 20 November 2026 (F8 of the [refactoring backlog](refactoring.md)):
-compaction revisits the shared entries anyway.
+**Index text ownership (F8).** S23 kept the reference held by each index node
+for each of its shared text keys. A text move updates the stable locator and
+preserves that ownership. The independent final indexed-text probe kept the
+view and export across a relocation on both roles, checked the reference count
+before and after the drain and checked index lookup after deletion and recreation.
+See the [index lifetime rule](../design/ordered-index.md#text-references) and the
+[F8 disposition](refactoring.md#found-while-coordinating-s14-part-2-20-november-2026).
 
 **Track:** full · **Needs:** S22C · **Owners:** E01, E03 · **Closes:** Q17
 

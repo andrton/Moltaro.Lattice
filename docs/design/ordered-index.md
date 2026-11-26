@@ -170,9 +170,9 @@ A text entry has one count, and a block holds one reference for each Text descri
 contains, from the moment it is written until it is freed
 ([strings](../decisions/strings.md), Q04.4, the settlement of 18 November 2026). A node of
 an index follows the same rule: it holds one reference for each shared key among its
-entries and separators. The writer takes one more reference at the address of each shared
-key when it writes a node, at its publication, which allocates nothing and cannot fail;
-the drain releases them, by address, when it frees the node. A separator that is a copy of
+entries and separators. The writer takes a reference by each shared text ID when it
+writes a node for publication. This allocates nothing and cannot fail. The drain releases
+those references by ID when it frees the node. A separator that is a copy of
 a long key keeps its text entry alive after the entity is gone, as long as the separator
 is in the tree.
 
@@ -184,8 +184,8 @@ the one of every block, confirmed for index nodes. Measured on the rented machin
 November 2026, with keys of 100 and 200 bytes, references held for each entry by its root
 instead of for each node made a replace that changes the key 1.45 to 1.51 times as fast,
 and an insert and a delete 1.9 to 2.1, with a search unchanged; that would change the rule
-of the decision on strings, and the owner deferred it to the sprint of compaction. The rule
-of the decision on strings is unchanged.
+of the decision on strings. Compaction kept per-node ownership and moves shared text by
+updating its locator. The stable ID and its reference count survive the move.
 
 ## How a reader descends, and why it is safe
 
