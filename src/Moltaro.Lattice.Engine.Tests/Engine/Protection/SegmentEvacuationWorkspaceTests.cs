@@ -134,6 +134,115 @@ public sealed class SegmentEvacuationWorkspaceTests
             Assert.Equal(value.Value, ExpectRecord(items, Data(value.Key, HalfChunkPayload), value.Key)));
     }
 
+    [Theory]
+    [InlineData(LatticeRoleEnum.Master, Skip = PendingSegmentEvacuation)]
+    [InlineData(LatticeRoleEnum.Child, Skip = PendingSegmentEvacuation)]
+    public async Task Old_copies_in_different_segments_share_one_node_wide_workspace(LatticeRoleEnum role)
+    {
+        const int anchorStart = 401;
+        const int firstSource = 501;
+        const int secondSource = 601;
+        const int firstFill = 101;
+        const int secondFill = 201;
+        const int reserveKey = 701;
+        const int halfSlot = RegionBytes / 2;
+        var allocator = new CountingNativeAllocator();
+        var samples = new List<MaintenanceTurnSample>();
+        await using var master = await ReplicationNodes.OpenMasterAsync(ItemSchema,
+            role == LatticeRoleEnum.Master ? Inputs(4, allocator, samples.Add) : Inputs(4));
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!,
+            role == LatticeRoleEnum.Child ? Inputs(4, allocator, samples.Add) : Inputs(4));
+        var node = role == LatticeRoleEnum.Master ? master : child;
+
+        await InsertAsync(master, 1, AnchorChunks - 3);
+        await InsertAsync(master, anchorStart, 6, HalfChunkPayload);
+        await InsertAsync(master, firstSource, 2, HalfChunkPayload);
+        await InsertAsync(master, firstFill, RegionsPerSegment - 1);
+        await InsertAsync(master, secondSource, 2, HalfChunkPayload);
+        await InsertAsync(master, secondFill, RegionsPerSegment - 1);
+        await InsertAsync(master, reserveKey, 1);
+        await child.WaitForPositionAsync(master.Position, Bound);
+        var full = Locations(node);
+        var first = full[firstSource];
+        var second = full[secondSource];
+        var anchor = full[anchorStart];
+        Assert.Equal(3, new[] { first.Chunk.Segment, second.Chunk.Segment, anchor.Chunk.Segment }.Distinct().Count());
+        Assert.Equal(first.Chunk.Segment, full[firstSource + 1].Chunk.Segment);
+        Assert.Equal(4, allocator.Outstanding);
+        var nativeFirst = NativeOf(allocator, first);
+        var nativeSecond = NativeOf(allocator, second);
+        var nativeAnchor = NativeOf(allocator, anchor);
+        var reserve = NativeOf(allocator, full[reserveKey]);
+        var holes = new[] { anchorStart + 1, anchorStart + 3, anchorStart + 5 };
+
+        await DeleteAsync(master, Enumerable.Range(firstFill, RegionsPerSegment - 1)
+            .Concat(Enumerable.Range(secondFill, RegionsPerSegment - 1))
+            .Concat(holes).Append(secondSource + 1).Append(reserveKey));
+        await child.WaitForPositionAsync(master.Position, Bound);
+        node.DrainRetired();
+        var staged = Locations(node);
+        Assert.Equal(1, OccupiedRegions(staged, first.Chunk.Segment));
+        Assert.Equal(1, OccupiedRegions(staged, second.Chunk.Segment));
+        var candidates = new[] { firstSource, firstSource + 1, secondSource };
+        Assert.All(candidates, key => Assert.Equal(halfSlot, staged[key].SlotBytes));
+        Assert.All(holes, key => Assert.Throws<ArgumentException>("address", () => _ = anchor.Arena.Header(full[key].Chunk)));
+        var stamps = holes.ToDictionary(key => full[key].Chunk, key => Snapshot(nativeAnchor, full[key].Chunk, halfSlot));
+        var items = node.Set("Item");
+        var revisions = candidates.ToDictionary(key => key, key => ExpectRecord(items, Data(key, HalfChunkPayload), key));
+        var position = node.Position;
+        var requests = allocator.Requests;
+        var returns = allocator.Returned;
+        using var pause = new ViewerPause();
+        var held = OwnThread.Run(() =>
+        {
+            Assert.True(items.TryView((long)firstSource, view =>
+            {
+                var old = view["Data"].GetPart(0);
+                pause.Hold();
+                Assert.True(old.SequenceEqual(Data(firstSource, HalfChunkPayload)));
+                return view.Revision;
+            }, out var revision));
+            return revision;
+        });
+        try
+        {
+            await pause.EnteredAsync(held);
+            await RunTurnsAsync(node, TurnsPerSweep);
+            var moves = samples.Where(sample => sample.SlotBytes != 0).ToArray();
+            Assert.True(moves.Length == 2,
+                $"Two source segments must share two held 32 KiB moves, observed {moves.Length}.");
+            Assert.Equal(new[] { halfSlot, RegionBytes }, moves.Select(move => move.RelocationBytes));
+            Assert.All(moves, move => Assert.Equal(halfSlot, move.SlotBytes));
+            Assert.Equal(RegionBytes, node.Counters.Arena.RetiredBytes);
+            Assert.Equal(returns, allocator.Returned);
+            Assert.Equal(requests, allocator.Requests);
+            Assert.Contains(nativeFirst, Outstanding(allocator));
+            Assert.Contains(nativeSecond, Outstanding(allocator));
+            var unused = stamps.Keys.Except(moves.Select(move => move.Destination)).ToArray();
+            Assert.NotEmpty(unused);
+            Assert.All(unused, hole => Assert.Equal(stamps[hole], Snapshot(nativeAnchor, hole, halfSlot)));
+        }
+        finally
+        {
+            pause.Release();
+            await held.WaitAsync(Bound);
+        }
+
+        Assert.Equal(revisions[firstSource], await held.WaitAsync(Bound));
+        await RunTurnsAsync(node, TurnsPerSweep);
+        Assert.Equal(returns + 2, allocator.Returned);
+        Assert.Equal(2L * SegmentBytes, samples.Sum(sample => sample.ReturnedNativeBytes));
+        Assert.Equal(requests, allocator.Requests);
+        Assert.DoesNotContain(nativeFirst, Outstanding(allocator));
+        Assert.DoesNotContain(nativeSecond, Outstanding(allocator));
+        Assert.Contains(reserve, Outstanding(allocator));
+        Assert.Equal(1, node.Counters.Arena.ReservedSegments);
+        Assert.Equal(0, node.Counters.Arena.RetiredBytes);
+        Assert.Equal(position, node.Position);
+        Assert.All(revisions, value =>
+            Assert.Equal(value.Value, ExpectRecord(items, Data(value.Key, HalfChunkPayload), value.Key)));
+    }
+
     private static byte[] Snapshot(nint segment, ArenaAddress slot, int bytes)
     {
         var snapshot = new byte[bytes];

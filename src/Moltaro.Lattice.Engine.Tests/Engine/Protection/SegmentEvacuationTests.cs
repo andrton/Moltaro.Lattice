@@ -174,6 +174,15 @@ public sealed class SegmentEvacuationTests
         Assert.Equal(0, OccupiedRegions(staged, reserve.Segment));
 
         var arena = node.Counters.Arena;
+        const int rootUsedBytes = BlockHeader.Size + sizeof(long) + sizeof(sbyte) + ValueBlocks.DescriptorSize;
+        const int rootSlotBytes = 64;
+        const int directoryBytes = BlockHeader.Size + ValueBlocks.DescriptorSize;
+        var expectedLiveBytes = staged.Values.Sum(record =>
+            (long)rootUsedBytes + directoryBytes + BlockHeader.Size +
+            (record.SlotBytes == RegionBytes / 2 ? HalfChunkPayload : ValueBlocks.ChunkPayload));
+        var expectedSlotBytes = staged.Values.Sum(record => (long)rootSlotBytes + directoryBytes + record.SlotBytes);
+        Assert.Equal(expectedLiveBytes, arena.LiveBytes);
+        Assert.Equal(expectedSlotBytes - expectedLiveBytes, arena.ClassSlackBytes);
         Assert.Equal(1, arena.ReservedSegments);
         Assert.Equal(segmentCount, arena.Segments);
         Assert.Equal(0, arena.PreparedBytes);
@@ -188,6 +197,9 @@ public sealed class SegmentEvacuationTests
         Assert.Equal(revision, ExpectRecord(child.Set("Item"), expected));
         var position = node.Position;
 
+        var stamped = hasVacancy
+            ? Array.Empty<StampedSlot>()
+            : StampNoRoom(arenaStorage, before.Chunk.Segment, sourceNative, reserve.Segment, reserveNative, slotBytes);
         await RunTurnsAsync(node, TurnsPerSweep);
         Assert.Equal(TurnsPerSweep, samples.Count(sample => sample.Admitted));
         Assert.All(samples.Where(sample => sample.Admitted), sample =>
@@ -211,6 +223,19 @@ public sealed class SegmentEvacuationTests
             Assert.Contains(reserveNative, Outstanding(allocator));
             Assert.Equal(0, Segments(arenaStorage)[reserve.Segment]!.RegionsInUse);
             Assert.All(samples, sample => Assert.Equal(0, sample.SlotBytes));
+            CheckStamps(stamped);
+
+            await RunTurnsAsync(node, TurnsPerSweep);
+            Assert.Equal(before, Locations(node)[TargetKey]);
+            Assert.Equal(arena, node.Counters.Arena);
+            Assert.Equal(position, node.Position);
+            Assert.Equal(revision, ExpectRecord(items, expected));
+            Assert.Equal(returned, allocator.Returned);
+            Assert.Equal(requests, allocator.Requests);
+            Assert.Contains(sourceNative, Outstanding(allocator));
+            Assert.Contains(reserveNative, Outstanding(allocator));
+            Assert.All(samples, sample => Assert.Equal(0, sample.SlotBytes));
+            CheckStamps(stamped);
             return;
         }
 
@@ -238,6 +263,57 @@ public sealed class SegmentEvacuationTests
         Assert.Equal(LatticeDatabaseStateEnum.Ready, node.State);
         OwnershipAudit.Expect(node);
     }
+
+    private static StampedSlot[] StampNoRoom(Arena arena, uint source, nint sourceNative, uint reserve, nint reserveNative,
+        int slotBytes)
+    {
+        var stamped = new List<StampedSlot>();
+        var sourceMetadata = SegmentAt(arena, source);
+        var blockClass = SizeClasses.IndexFor(slotBytes - BlockHeader.Size);
+        for (var region = 0; region < sourceMetadata.Regions.Length; region++)
+        {
+            var metadata = sourceMetadata.Regions[region];
+            var start = sourceNative + region * RegionBytes;
+            if (metadata.Allocated == 0)
+            {
+                stamped.Add(Stamp(start, RegionBytes, 0xA5));
+            }
+            else if (metadata.SizeClass == blockClass)
+            {
+                for (var slot = 0; slot < RegionBytes / slotBytes; slot++)
+                {
+                    if (!sourceMetadata.IsAllocated(region, slot))
+                    {
+                        stamped.Add(Stamp(start + slot * slotBytes, slotBytes, 0xA5));
+                    }
+                }
+            }
+        }
+
+        Assert.Equal(0, SegmentAt(arena, reserve).RegionsInUse);
+        stamped.Add(Stamp(reserveNative, SegmentBytes, 0x5A));
+        return [.. stamped];
+    }
+
+    private static StampedSlot Stamp(nint start, int length, byte marker)
+    {
+        var bytes = new byte[length];
+        Array.Fill(bytes, marker);
+        Marshal.Copy(bytes, 0, start, length);
+        return new StampedSlot(start, bytes);
+    }
+
+    private static void CheckStamps(IEnumerable<StampedSlot> stamped)
+    {
+        foreach (var slot in stamped)
+        {
+            var bytes = new byte[slot.Bytes.Length];
+            Marshal.Copy(slot.Start, bytes, 0, bytes.Length);
+            Assert.Equal(slot.Bytes, bytes);
+        }
+    }
+
+    private sealed record StampedSlot(nint Start, byte[] Bytes);
 
     internal static async Task DeleteAsync(EngineDatabase master, IEnumerable<int> keys)
     {

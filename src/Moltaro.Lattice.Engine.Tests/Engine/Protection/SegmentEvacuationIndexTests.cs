@@ -118,6 +118,71 @@ public sealed class SegmentEvacuationIndexTests
         Assert.Equal(1, node.Counters.Arena.ReservedSegments);
     }
 
+    [Theory]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
+    public async Task A_prepared_only_index_node_blocks_segment_evacuation(LatticeRoleEnum role)
+    {
+        var allocator = new CountingNativeAllocator();
+        var samples = new List<MaintenanceTurnSample>();
+        await using var master = await ReplicationNodes.OpenMasterAsync(ItemSchema,
+            role == LatticeRoleEnum.Master ? Inputs(3, allocator, samples.Add) : Inputs(3));
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!,
+            role == LatticeRoleEnum.Child ? Inputs(3, allocator, samples.Add) : Inputs(3));
+        var node = role == LatticeRoleEnum.Master ? master : child;
+
+        await InsertAsync(master, 1, AnchorChunks);
+        await InsertAsync(master, TargetKey, RegionsPerSegment);
+        await InsertAsync(master, EarlierReserveKey, 1);
+        await child.WaitForPositionAsync(master.Position, Bound);
+        var full = Locations(node);
+        var before = full[TargetKey];
+        var hole = full[AnchorChunks].Chunk;
+        await DeleteAsync(master, Enumerable.Range(TargetKey + 1, RegionsPerSegment));
+        await child.WaitForPositionAsync(master.Position, Bound);
+        node.DrainRetired();
+
+        var prepared = await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            Assert.True(parts.Arena.TryAllocatePrepared(1_024, BlockKindEnum.IndexNode, default, out var address));
+            return address;
+        });
+        Assert.Equal(before.Chunk.Segment, prepared.Segment);
+        Assert.Equal(BlockKindEnum.IndexNode, before.Arena.Header(prepared).Kind);
+        Assert.True(before.Arena.IsPrepared(prepared));
+        Assert.Empty(LiveIndexNodes(before.Arena, prepared.Segment));
+        try
+        {
+            await DeleteAsync(master, [AnchorChunks]);
+            await child.WaitForPositionAsync(master.Position, Bound);
+            node.DrainRetired();
+            Assert.Throws<ArgumentException>("address", () => _ = before.Arena.Header(hole));
+            var start = node.Counters.Arena;
+            Assert.Equal(3, start.Segments);
+            Assert.Equal(1, start.ReservedSegments);
+            Assert.Equal(Arena.BlockSizeFor(1_024), start.PreparedBytes);
+            Assert.Equal(0, start.RetiredBytes);
+            var requests = allocator.Requests;
+            var returns = allocator.Returned;
+
+            await RunTurnsAsync(node, TurnsPerSweep);
+            Assert.Equal(before, Locations(node)[TargetKey]);
+            Assert.Equal(start, node.Counters.Arena);
+            Assert.True(before.Arena.IsPrepared(prepared));
+            Assert.All(samples, sample => Assert.Equal(0, sample.SlotBytes));
+            Assert.Equal(requests, allocator.Requests);
+            Assert.Equal(returns, allocator.Returned);
+        }
+        finally
+        {
+            await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            {
+                parts.Arena.Free(prepared);
+                return true;
+            });
+        }
+    }
+
     private static List<ArenaAddress> LiveIndexNodes(Arena arena, uint id)
     {
         var segment = SegmentAt(arena, id);

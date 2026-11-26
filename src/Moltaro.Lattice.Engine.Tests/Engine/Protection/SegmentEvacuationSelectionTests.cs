@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Values;
@@ -151,5 +152,81 @@ public sealed class SegmentEvacuationSelectionTests
         Assert.Equal(returns + 1, allocator.Returned);
         Assert.DoesNotContain(sourceNative, Outstanding(allocator));
         Assert.Equal(1, node.Counters.Arena.ReservedSegments);
+    }
+
+    [Theory]
+    [InlineData(LatticeRoleEnum.Master)]
+    [InlineData(LatticeRoleEnum.Child)]
+    public async Task An_earlier_compatible_region_in_a_less_dense_segment_is_refused(LatticeRoleEnum role)
+    {
+        const int lowerKey = TargetKey;
+        const int higherKey = lowerKey + RegionsPerSegment;
+        const int reserveKey = higherKey + RegionsPerSegment;
+        var allocator = new CountingNativeAllocator();
+        var samples = new List<MaintenanceTurnSample>();
+        await using var master = await ReplicationNodes.OpenMasterAsync(ItemSchema,
+            role == LatticeRoleEnum.Master ? Inputs(4, allocator, samples.Add) : Inputs(4));
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!,
+            role == LatticeRoleEnum.Child ? Inputs(4, allocator, samples.Add) : Inputs(4));
+        var node = role == LatticeRoleEnum.Master ? master : child;
+        var items = node.Set("Item");
+        await InsertAsync(master, 1, AnchorChunks);
+        await InsertAsync(master, lowerKey, RegionsPerSegment);
+        await InsertAsync(master, higherKey, RegionsPerSegment);
+        await InsertAsync(master, reserveKey, 1);
+        await child.WaitForPositionAsync(master.Position, Bound);
+        var full = Locations(node);
+        var lower = full[lowerKey];
+        var higher = full[higherKey];
+        var hole = full[lowerKey + 1].Chunk;
+        Assert.True(hole.Segment < higher.Chunk.Segment);
+        await DeleteAsync(master, Enumerable.Range(lowerKey + 1, RegionsPerSegment - 1).Append(reserveKey));
+        await child.WaitForPositionAsync(master.Position, Bound);
+        node.DrainRetired();
+        var requests = allocator.Requests;
+        var returns = allocator.Returned;
+        var expected = Data(higherKey, ValueBlocks.ChunkPayload);
+        var revision = ExpectRecord(items, expected, higherKey);
+        using var pause = new ViewerPause();
+        var reading = OwnThread.Run(() =>
+        {
+            Assert.True(items.TryView((long)higherKey, view =>
+            {
+                var old = view["Data"].GetPart(0);
+                pause.Hold();
+                Assert.True(old.SequenceEqual(expected));
+                return view.Revision;
+            }, out var seen));
+            return seen;
+        });
+        try
+        {
+            await pause.EnteredAsync(reading);
+            await DeleteAsync(master, Enumerable.Range(higherKey + 2, RegionsPerSegment - 2));
+            await child.WaitForPositionAsync(master.Position, Bound);
+            var stored = node.Counters.Arena;
+            var position = node.Position;
+            Assert.Equal(1, OccupiedRegions(Locations(node), lower.Chunk.Segment));
+            Assert.Equal(2, OccupiedRegions(Locations(node), higher.Chunk.Segment));
+            Assert.Equal(RegionsPerSegment, SegmentAt(higher.Arena, higher.Chunk.Segment).RegionsInUse);
+            Assert.Equal(RegionsPerSegment - 1, stored.FreeRegions);
+            Assert.Equal(1, stored.ReservedSegments);
+            Assert.Throws<ArgumentException>("address", () => _ = lower.Arena.Header(hole));
+
+            await RunTurnsAsync(node, TurnsPerSweep);
+            Assert.Equal(lower, Locations(node)[lowerKey]);
+            Assert.Equal(higher, Locations(node)[higherKey]);
+            Assert.Equal(stored, node.Counters.Arena);
+            Assert.Equal(position, node.Position);
+            Assert.Equal(revision, ExpectRecord(items, expected, higherKey));
+            Assert.All(samples, sample => Assert.Equal(0, sample.SlotBytes));
+            Assert.Equal(requests, allocator.Requests);
+            Assert.Equal(returns, allocator.Returned);
+        }
+        finally
+        {
+            pause.Release();
+            await reading.WaitAsync(Bound);
+        }
     }
 }
