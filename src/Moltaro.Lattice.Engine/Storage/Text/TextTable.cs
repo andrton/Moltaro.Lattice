@@ -398,13 +398,18 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         }
 
         var bucket = _active.Bucket(hash);
-        var reservedEarlier = false;
+        var parkedEarlier = false;
         var added = false;
         try
         {
             _slots.Reserve();
             _active.Reserve(bucket);
-            ReserveEarlierPages(hash, ref reservedEarlier);
+            if (_earlier is not null)
+            {
+                ReserveEarlierEntries(hash);
+                parkedEarlier = true;
+            }
+
             var source = pieces.Source();
             if (!ValueBlocks.TryStoreText(_arena, id, length, ref source, out var physical))
             {
@@ -415,11 +420,6 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
             _locator.SetOrdinal(id, (int)reference - 1);
             _locator.SetAddress(id, ValueBlocks.AddressOf(physical));
             Link(_active, bucket, reference);
-            for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
-            {
-                earlier.Active.KeepParkedEntry(hash);
-            }
-
             added = true;
             descriptor = Resident(id, (uint)length);
             newBytes = ValueBlocks.SlotBytesOf(length);
@@ -429,12 +429,9 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         {
             if (!added)
             {
-                if (reservedEarlier)
+                if (parkedEarlier)
                 {
-                    for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
-                    {
-                        earlier.Active.ReleaseParkedReservation(hash);
-                    }
+                    ReleaseEarlierEntries(hash, until: null);
                 }
 
                 _active.ReleaseReservation(bucket);
@@ -534,18 +531,31 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         }
     }
 
-    private void ReserveEarlierPages(uint hash, ref bool reserved)
+    // A later prepared owner can keep this ID. Pay its place in each layout
+    // we might restore. A refusal returns precisely the prefix already reserved.
+    private void ReserveEarlierEntries(uint hash)
     {
-        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
+        var pending = _earlier;
+        try
         {
-            var table = earlier.Active;
-            if (!table.FullyBacked && !table.HasRoomFor(hash))
+            while (pending is not null)
             {
-                // A later prepared owner can keep this ID. Prepay its place in
-                // any layout we might restore when the first owner withdraws.
-                reserved = true;
-                table.Reserve(table.Bucket(hash));
+                pending.Active.ReserveParkedEntry(hash);
+                pending = pending.Previous;
             }
+        }
+        catch
+        {
+            ReleaseEarlierEntries(hash, pending);
+            throw;
+        }
+    }
+
+    private void ReleaseEarlierEntries(uint hash, EarlierBuckets? until)
+    {
+        for (var earlier = _earlier; earlier is not null && !ReferenceEquals(earlier, until); earlier = earlier.Previous)
+        {
+            earlier.Active.ReleaseParkedEntry(hash);
         }
     }
 

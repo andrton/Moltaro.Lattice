@@ -64,8 +64,6 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
         }
     }
 
-    public bool FullyBacked => _pageCount == Math.Max(1, Capacity / PageSize);
-
     public bool HasRoomFor(uint hash) => _pages.Get((uint)Bucket(hash) >> 6) is not null;
 
     // Parked heads are stale. Count the entries that could return to each
@@ -82,58 +80,57 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
         }
     }
 
-    public void ReleaseParkedReservation(uint hash)
-    {
-        var number = (uint)Bucket(hash) >> 6;
-        if (_pages.Get(number) is { ParkedEntries: 0 } page)
-        {
-            DropPage(number, page);
-        }
-    }
-
     public long Bytes => OwnerBytes + _pages.Bytes + PageBytes * _pageCount;
 
     public int Bucket(uint hash) => (int)((hash * Fibonacci) >> (64 - BitOperations.Log2((uint)Capacity)));
 
     public uint Head(int bucket) => _pages.Get((uint)bucket >> 6)?.Heads[bucket & 63] ?? 0;
 
-    public void Reserve(int bucket, Action? beforePageAllocation = null)
+    public void Reserve(int bucket, Action? beforePageAllocation = null) =>
+        GetOrReservePage(bucket, beforePageAllocation);
+
+    private Page GetOrReservePage(int bucket, Action? beforePageAllocation)
     {
-        var page = (uint)bucket >> 6;
-        if (_pages.Get(page) is null)
+        var number = (uint)bucket >> 6;
+        if (_pages.Get(number) is { } existing)
         {
-            beforePageAllocation?.Invoke();
-            budget?.Reserve(PageBytes);
-            Page? added = null;
-            try
+            return existing;
+        }
+
+        beforePageAllocation?.Invoke();
+        budget?.Reserve(PageBytes);
+        Page? added = null;
+        try
+        {
+            added = new Page(PageHeads);
+            if (budget is not null)
             {
-                added = new Page(PageHeads);
-                if (budget is not null)
+                budget.Own(added, nameof(TextBucketSet));
+                budget.Own(added.Heads, nameof(TextBucketSet));
+            }
+
+            _pages.Set(number, added);
+            _pageCount++;
+            return added;
+        }
+        catch
+        {
+            if (budget is not null)
+            {
+                if (added is not null)
                 {
-                    budget.Own(added, nameof(TextBucketSet));
-                    budget.Own(added.Heads, nameof(TextBucketSet));
+                    budget.Forget(added.Heads);
+                    budget.Forget(added);
                 }
 
-                _pages.Set(page, added);
-                _pageCount++;
+                budget.Release(PageBytes);
             }
-            catch
-            {
-                if (budget is not null)
-                {
-                    if (added is not null)
-                    {
-                        budget.Forget(added.Heads);
-                        budget.Forget(added);
-                    }
 
-                    budget.Release(PageBytes);
-                }
-
-                throw;
-            }
+            throw;
         }
     }
+
+    public void ReserveParkedEntry(uint hash) => GetOrReservePage(Bucket(hash), beforePageAllocation: null).ParkedEntries++;
 
     public void ReleaseReservation(int bucket)
     {
