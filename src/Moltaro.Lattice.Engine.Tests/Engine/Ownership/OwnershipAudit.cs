@@ -31,7 +31,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 // for the entries the roots name and which the encoding of the database gives for the keys of the nodes.
 internal static class OwnershipAudit
 {
-    public static void Expect(EngineDatabase database)
+    public static void Expect(EngineDatabase database) =>
+        database.WithOwnershipAudit(() => ExpectUnderWrites(database));
+
+    private static void ExpectUnderWrites(EngineDatabase database)
     {
         database.DrainRetired();
 
