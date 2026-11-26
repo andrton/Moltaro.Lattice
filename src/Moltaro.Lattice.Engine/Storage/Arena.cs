@@ -69,6 +69,12 @@ internal sealed unsafe class Arena : IDisposable
     public MemoryBudget? Budget { get; }
     private CollectionTails? _collectionTails;
 
+    // Only the weak owner stays in the budget between writes. The saved width
+    // lets a writer reject a mismatch without taking a strong reference to it.
+    private WeakReference<byte[]>? _idleRootImage;
+    private int _idleRootImageLength;
+    private static long RootImageOwnerBytes => MemoryBudget.ObjectBytes(IntPtr.Size);
+
     // The segments by their slot, which is the segment of an ArenaAddress; null where no segment
     // is held. Slot 0 is never used, so that no block has the address zero, which is null.
     private ArenaSegment?[] _segments;
@@ -154,6 +160,62 @@ internal sealed unsafe class Arena : IDisposable
         budget?.Reserve(TextTable.OwnerBytes);
         Texts = new TextTable(this, textSeed, writes, beforePreparedTextBucketGrowth);
         budget?.Own(Texts, nameof(TextTable));
+
+        if (budget is not null)
+        {
+            budget.Reserve(RootImageOwnerBytes);
+            try
+            {
+                _idleRootImage = new WeakReference<byte[]>(null!);
+                budget.Own(_idleRootImage, nameof(Arena));
+            }
+            catch
+            {
+                budget.Release(RootImageOwnerBytes, _idleRootImage);
+                throw;
+            }
+        }
+    }
+
+    // Under the writes lock: pay for the exact image before making it live.
+    public byte[] TakeRootImage(int length)
+    {
+        var budget = Budget!;
+        var bytes = MemoryBudget.ArrayBytes<byte>(length);
+        budget.Reserve(bytes);
+        byte[]? image = null;
+        try
+        {
+            var idle = _idleRootImage!;
+            byte[]? reusable = null;
+            if (_idleRootImageLength == length)
+            {
+                idle.TryGetTarget(out reusable);
+            }
+
+            image = reusable ?? new byte[length];
+            budget.Own(image, nameof(Roots.RootWriter));
+            if (reusable is not null)
+            {
+                idle.SetTarget(null!);
+                _idleRootImageLength = 0;
+            }
+
+            return image;
+        }
+        catch
+        {
+            budget.Release(bytes, image);
+            throw;
+        }
+    }
+
+    // Under the writes lock: make the returned image eligible for collection.
+    public void ReturnRootImage(byte[] image)
+    {
+        _idleRootImage!.SetTarget(image);
+        _idleRootImageLength = image.Length;
+        Budget!.Release(image);
     }
 
     // The text entries of the database, in this arena (see the class).
@@ -772,6 +834,11 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         _disposed = true;
+        if (_idleRootImage is { } owner)
+        {
+            _idleRootImage = null;
+            Budget!.Release(RootImageOwnerBytes, owner);
+        }
 
         for (var slot = 1; slot < _segments.Length; slot++)
         {

@@ -16,9 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // memory accounting). An image for forwarding belongs to its own working lease.
 public sealed class RootImageReuseTests
 {
-    private const string PendingReuse = "An arena does not yet keep a weakly held root image.";
-
-    [Fact(Skip = PendingReuse)]
+    [Fact]
     public void Construction_pays_for_the_actual_weak_owner_and_disposal_returns_its_capacity_once()
     {
         var budget = OpenBudget();
@@ -43,7 +41,7 @@ public sealed class RootImageReuseTests
         Assert.Equal(opened - ownerBytes, ExpectCharge(budget));
     }
 
-    [Fact(Skip = PendingReuse)]
+    [Fact]
     public void A_same_size_image_is_borrowed_once_and_each_open_writer_owns_its_own_exact_image()
     {
         var budget = OpenBudget();
@@ -92,7 +90,7 @@ public sealed class RootImageReuseTests
         }
     }
 
-    [Fact(Skip = PendingReuse)]
+    [Fact]
     public void Cached_images_obey_the_exact_budget_boundary_for_matching_and_different_sizes()
     {
         var budget = OpenBudget();
@@ -133,7 +131,7 @@ public sealed class RootImageReuseTests
         }
     }
 
-    [Fact(Skip = PendingReuse)]
+    [Fact]
     public void An_idle_image_can_be_collected_with_its_arena_open_and_its_replacement_is_paid()
     {
         var budget = OpenBudget();
@@ -160,7 +158,7 @@ public sealed class RootImageReuseTests
         }
     }
 
-    [Fact(Skip = PendingReuse)]
+    [Fact]
     public void Independent_arenas_and_the_forwarded_image_keep_separate_ownership()
     {
         var budget = OpenBudget();

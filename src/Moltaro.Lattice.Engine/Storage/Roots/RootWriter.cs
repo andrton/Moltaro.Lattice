@@ -4,7 +4,6 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.Storage.Values;
@@ -106,13 +105,12 @@ internal ref struct RootWriter
 {
     private readonly RootLayout _layout;
 
-    // The rented array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
+    // The image array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
     // the image of the root block, its header bytes unused, so that an offset of the layout is an
     // index into it; after them, one bit for each field, by LatticeField.Ordinal, set once the field
     // was set.
     private byte[]? _scratch;
     private readonly bool _rented;
-    private readonly MemoryBudget? _scratchBudget;
 
     // The image of the root as the block its values are placed into (ValueHolder): the arena and the root,
     // the values out of line of a root for a forwarded write, the bytes of the root block so far as
@@ -135,10 +133,9 @@ internal ref struct RootWriter
         ArgumentNullException.ThrowIfNull(layout);
 
         _layout = layout;
-        _scratchBudget = arena.Budget;
-        _rented = _scratchBudget is null;
+        _rented = arena.Budget is null;
         var length = layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount);
-        _scratch = _scratchBudget?.Allocate<byte>(length, nameof(RootWriter)) ?? ArrayPool<byte>.Shared.Rent(length);
+        _scratch = _rented ? ArrayPool<byte>.Shared.Rent(length) : arena.TakeRootImage(length);
         _values = new ValueHolder(arena, layout, root, Image, origin: 0, address: default, layout.FixedSize);
         Start();
     }
@@ -164,7 +161,7 @@ internal ref struct RootWriter
     {
         var layout = _layout;
 
-        // A rented array holds what its last user left. The fixed part starts zero: the bytes of a
+        // A reused array holds what its last user left. The fixed part starts zero: the bytes of a
         // fixed field that stays null, and the descriptor of a String or Binary that stays null.
         Image[..layout.FixedSize].Clear();
         SetFields.Clear();
@@ -664,7 +661,7 @@ internal ref struct RootWriter
         }
         else
         {
-            _scratchBudget?.Release(scratch);
+            _values.Arena?.ReturnRootImage(scratch);
         }
 
         _state = state;
