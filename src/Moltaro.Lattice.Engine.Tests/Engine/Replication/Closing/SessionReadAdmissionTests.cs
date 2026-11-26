@@ -13,11 +13,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Closing;
 // is disposed, while an undecided wait registered before close ends in Unavailable.
 public sealed class SessionReadAdmissionTests
 {
-    private const string FreshReadClose = "Fresh session reads still use the position clock's later close mark.";
     private const long ExistingKey = 1;
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(2);
 
-    [Theory(Skip = FreshReadClose)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Fresh_session_reads_after_Closed_are_disposed_while_registered_waits_end_in_Unavailable(bool childRole)
@@ -105,7 +104,7 @@ public sealed class SessionReadAdmissionTests
         await AssertLatticeErrorAsync(LatticeErrorEnum.Unavailable, notificationWait);
     }
 
-    [Theory(Skip = FreshReadClose)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Fresh_session_reads_report_a_published_fault_until_Closed_takes_precedence(bool childRole)
@@ -168,7 +167,7 @@ public sealed class SessionReadAdmissionTests
         }
     }
 
-    [Fact(Skip = FreshReadClose)]
+    [Fact]
     public async Task New_views_searches_and_first_enumeration_steps_after_Closed_are_disposed()
     {
         using var gate = new HeldEngineCallback();
@@ -228,6 +227,7 @@ public sealed class SessionReadAdmissionTests
                 named.ViewAsync(ExistingKey, session, namedViewer).AsTask(),
                 typedIndex.FindAsync(key, options).AsTask(),
                 namedIndex.FindAsync(key, options).AsTask(),
+                typed.Index("ByTag").FindAsync(key, options).AsTask(),
                 heldSteps.MoveNextAsync().AsTask(),
                 freshSteps.MoveNextAsync().AsTask(),
             ]);
