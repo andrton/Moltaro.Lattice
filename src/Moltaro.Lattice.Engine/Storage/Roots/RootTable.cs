@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Roots;
@@ -56,6 +57,13 @@ internal sealed class RootTable
     // page never were; their entries are as the page was allocated, Free at generation 0.
     private int _nextUnusedSlot;
 
+    // Slots have been issued in sequence up to this fence, including on pages already returned.
+    // Their last generation is one unless a never-published page has an exception here.
+    private int _everIssuedExtent;
+    private uint _generationSlot;
+    private uint _generation;
+    private Dictionary<uint, uint>? _generations;
+
     // The list of released slots that Add gives out again, the last released first: the first slot
     // plus one, 0 when no slot is free. A free entry has no entity type, so its TypeId holds the
     // next slot of the list in the same form; Add overwrites it with the type of the new lifetime
@@ -65,13 +73,34 @@ internal sealed class RootTable
     // With the count, on lines of their own (RootTableCounts).
     private RootTableCounts _counts;
 
-    public RootTable(MemoryBudget? budget = null, int? pageLimit = null)
+    public RootTable() : this(null, null)
+    {
+    }
+
+    private RootTable(MemoryBudget? budget, int? pageLimit)
     {
         _budget = budget;
         _pageLimit = pageLimit ?? MostPages;
         ArgumentOutOfRangeException.ThrowIfLessThan(_pageLimit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(_pageLimit, MostPages);
         _smallerDirectories = budget?.Allocate<RootEntry[][]>(BitOperations.Log2((uint)_pageLimit) + 2, nameof(RootTable)) ?? [];
+    }
+
+    public static RootTable Create(MemoryBudget budget, int? pageLimit)
+    {
+        var bytes = MemoryBudget.ObjectBytes(4L * IntPtr.Size + 8 * sizeof(int) + Unsafe.SizeOf<RootTableCounts>());
+        budget.Reserve(bytes);
+        try
+        {
+            var table = new RootTable(budget, pageLimit);
+            budget.Own(table, nameof(RootTable));
+            return table;
+        }
+        catch
+        {
+            budget.Release(bytes);
+            throw;
+        }
     }
 
     // Takes a free slot for a new lifetime of a root of the entity type typeId and returns its
@@ -81,24 +110,36 @@ internal sealed class RootTable
     // it yet. A new page can be refused for slot address space or for its backing.
     public RootHandle Add(uint typeId)
     {
-        uint slot;
-
-        if (_counts.FreeSlots != 0)
-        {
-            slot = _counts.FreeSlots - 1;
-            _counts.FreeSlots = EntryAt(slot).TypeId;
-        }
-        else
-        {
-            slot = TakeUnusedSlot();
-        }
-
+        var usesFreeSlot = _counts.FreeSlots != 0;
+        var slot = usesFreeSlot ? _counts.FreeSlots - 1 : NextUnusedSlot();
         ref var entry = ref EntryAt(slot);
 
         // A released slot keeps the generation of its last lifetime, and a slot never given out has
         // generation 0, so the next lifetime has the next generation, 1 for the first. A slot at
         // uint.MaxValue was retired and is never taken, so the generation cannot wrap.
         var generation = entry.Generation + 1;
+        if (_budget is { } budget)
+        {
+            if (generation > 1 && slot / EntriesPerPage >= PublishedPages)
+            {
+                RememberGeneration(slot, generation, budget);
+            }
+
+            if (slot >= _everIssuedExtent)
+            {
+                _everIssuedExtent = (int)slot + 1;
+            }
+        }
+
+        // The history reservation can fail. Neither way of selecting a slot consumes it early.
+        if (usesFreeSlot)
+        {
+            _counts.FreeSlots = entry.TypeId;
+        }
+        else
+        {
+            _nextUnusedSlot++;
+        }
 
         // Field by field, each an aligned word written whole, and not as one assignment of the struct, which
         // the compiler may copy in pieces of its choosing: the capture of a load reads the state of any slot
@@ -198,8 +239,83 @@ internal sealed class RootTable
     // the capture began arrives in the transaction stream, regardless of the slot it uses.
     public int CaptureExtent => _publishedExtent;
 
-    public void NotePublished(RootHandle handle) =>
+    public void NotePublished(RootHandle handle)
+    {
+        var oldPages = PublishedPages;
         _publishedExtent = Math.Max(_publishedExtent, checked((int)handle.Slot + 1));
+        var pages = PublishedPages;
+        if (pages > oldPages && _budget is { } budget)
+        {
+            ForgetPublishedGenerations((uint)(pages * EntriesPerPage), budget);
+        }
+    }
+
+    private void RememberGeneration(uint slot, uint generation, MemoryBudget budget)
+    {
+        if (_generations is { } generations)
+        {
+            if (!generations.ContainsKey(slot))
+            {
+                generations.EnsureCapacity(generations.Count + 1, budget, nameof(RootTable));
+            }
+
+            generations[slot] = generation;
+        }
+        else if (_generation == 0 || _generationSlot == slot)
+        {
+            _generationSlot = slot;
+            _generation = generation;
+        }
+        else
+        {
+            var history = BudgetDictionaries.Create<uint, uint>(budget, nameof(RootTable));
+            try
+            {
+                history.EnsureCapacity(2, budget, nameof(RootTable));
+                history.Add(_generationSlot, _generation);
+                history.Add(slot, generation);
+                _generation = 0;
+                _generations = history;
+            }
+            catch
+            {
+                budget.ReleaseDictionary(history, includesOwner: true);
+                throw;
+            }
+        }
+    }
+
+    // A permanent page already contains every issued generation, even in its unissued suffix
+    // since reconstruction. Its slots can no longer need the separate history.
+    private void ForgetPublishedGenerations(uint extent, MemoryBudget budget)
+    {
+        if (_generations is { } generations)
+        {
+            foreach (var (slot, _) in generations)
+            {
+                if (slot < extent)
+                {
+                    generations.Remove(slot);
+                }
+            }
+
+            if (generations.Count <= 1)
+            {
+                foreach (var (slot, generation) in generations)
+                {
+                    _generationSlot = slot;
+                    _generation = generation;
+                }
+
+                _generations = null;
+                budget.ReleaseDictionary(generations, includesOwner: true);
+            }
+        }
+        else if (_generationSlot < extent)
+        {
+            _generation = 0;
+        }
+    }
 
     public void ReleasePublishedDirectories()
     {
@@ -212,7 +328,9 @@ internal sealed class RootTable
         var obsolete = FirstDirectoryFor(publishedPages);
         for (var index = 0; index < obsolete; index++)
         {
-            budget.Release(_smallerDirectories[index]);
+            var previous = _smallerDirectories[index];
+            _smallerDirectories[index] = null!;
+            budget.Release(previous);
         }
 
         if (obsolete == 0)
@@ -263,6 +381,17 @@ internal sealed class RootTable
 
         RemoveFreeSlotsAtOrAbove(keep * EntriesPerPage);
         _nextUnusedSlot = keep * EntriesPerPage;
+        // A historical directory may still reach an unused page. Drop its copy before
+        // signalling that another thread can take the page's memory from the budget.
+        for (var index = 0; index < _smallerDirectoryCount; index++)
+        {
+            var previous = _smallerDirectories[index];
+            if (previous.Length > keep)
+            {
+                Array.Clear(previous, keep, previous.Length - keep);
+            }
+        }
+
         while (Pages > keep)
         {
             var index = --Pages;
@@ -277,7 +406,6 @@ internal sealed class RootTable
             var previous = _smallerDirectories[saved];
             var discarded = _pages;
             Array.Copy(discarded, previous, keep);
-            Array.Clear(previous, keep, previous.Length - keep);
             _pages = previous;
             budget.Release(discarded);
             while (_smallerDirectoryCount - 1 > saved)
@@ -315,14 +443,14 @@ internal sealed class RootTable
         ref _pages[slot / EntriesPerPage][slot % EntriesPerPage];
 
     // The lowest slot never given out, after adding a page when every slot of the table was.
-    private uint TakeUnusedSlot()
+    private uint NextUnusedSlot()
     {
         if (_nextUnusedSlot == Pages * EntriesPerPage)
         {
             AddPage();
         }
 
-        return (uint)_nextUnusedSlot++;
+        return (uint)_nextUnusedSlot;
     }
 
     // Adds a page of free entries. The new page is allocated before anything changes, so a failure
@@ -346,6 +474,20 @@ internal sealed class RootTable
         try
         {
             page = new RootEntry[EntriesPerPage];
+            var first = index * EntriesPerPage;
+            var lastIssued = Math.Min(first + EntriesPerPage, _everIssuedExtent);
+            for (var slot = first; slot < lastIssued; slot++)
+            {
+                var stored = (uint)slot;
+                var generation = _generationSlot == stored && _generation != 0 ? _generation : 1u;
+                if (_generations is { } generations && generations.TryGetValue(stored, out var saved))
+                {
+                    generation = saved;
+                }
+
+                page[slot - first].Generation = generation;
+            }
+
             _budget?.Own(page, nameof(RootTable));
             if (grows)
             {
@@ -397,6 +539,11 @@ internal sealed class RootTable
 
     private void RemoveNewPage(int index, RootEntry[][] previous, RootEntry[][] directory, RootEntry[] page)
     {
+        if (Pages != index + 1 || !IsWhollyFree(page))
+        {
+            return;
+        }
+
         var first = index * EntriesPerPage;
         RemoveFreeSlotsAtOrAbove(first);
         _nextUnusedSlot = first;

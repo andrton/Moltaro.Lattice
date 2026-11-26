@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
@@ -284,6 +285,136 @@ public sealed class RootPageWithdrawalTests
             storage.ReleaseAll();
             held.Release();
         }
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public async Task Rolled_back_pages_remember_each_issued_generation_without_aging_neighbors(bool reusesFirst, bool synchronous)
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(2L * Segment, allocator);
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            var roots = parts.Roots;
+            var budget = parts.Arena.Budget!;
+            var baseline = ExpectCapacity(node, allocator);
+
+            budget.BeginPreparation();
+            var first = roots.Add(1);
+            var second = roots.Add(1);
+            if (!synchronous)
+            {
+                budget.EndPreparation(keepsCapacity: true);
+            }
+
+            var chosen = reusesFirst ? first : second;
+            var other = reusesFirst ? second : first;
+            roots.Release(chosen);
+            var reused = roots.Add(1);
+            Assert.Equal(chosen.Slot, reused.Slot);
+            Assert.Equal(2u, reused.Generation);
+            roots.Release(other);
+            roots.Release(reused);
+            if (synchronous)
+            {
+                budget.EndPreparation(keepsCapacity: false);
+            }
+            else
+            {
+                roots.WithdrawUnusedPages();
+            }
+
+            Assert.Equal(0, roots.Pages);
+            Assert.Equal(baseline, ExpectCapacity(node, allocator) with { PeakBytes = baseline.PeakBytes });
+
+            budget.BeginPreparation();
+            var nextFirst = roots.Add(1);
+            var nextSecond = roots.Add(1);
+            var untouched = roots.Add(1);
+            budget.EndPreparation(keepsCapacity: true);
+            Assert.Equal(new RootHandle(reusesFirst ? 3u : 2u, first.Slot), nextFirst);
+            Assert.Equal(new RootHandle(reusesFirst ? 2u : 3u, second.Slot), nextSecond);
+            Assert.Equal(new RootHandle(1, 2), untouched);
+            foreach (var stale in new[] { first, second, reused })
+            {
+                Assert.False(roots.IsCurrent(stale));
+                Assert.Throws<ArgumentException>(() => { _ = roots.Entry(stale).Generation; });
+            }
+
+            roots.Release(nextFirst);
+            roots.Release(nextSecond);
+            roots.Release(untouched);
+            roots.WithdrawUnusedPages();
+            Assert.Equal(0, roots.Pages);
+            budget.BeginPreparation();
+            var again = roots.Add(1);
+            budget.EndPreparation(keepsCapacity: true);
+            Assert.Equal(new RootHandle(nextFirst.Generation + 1, first.Slot), again);
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task Sparse_generation_storage_is_admitted_before_reuse_and_transferred_to_permanent_pages()
+    {
+        const long limit = 2L * Segment;
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(limit, allocator);
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            var roots = parts.Roots;
+            var budget = parts.Arena.Budget!;
+            var empty = ExpectCapacity(node, allocator);
+            budget.BeginPreparation();
+            var first = roots.Add(1);
+            var second = roots.Add(1);
+            budget.EndPreparation(keepsCapacity: true);
+            roots.Release(first);
+            var reusedFirst = roots.Add(1);
+            roots.Release(second);
+            var inline = ExpectCapacity(node, allocator);
+
+            using (node.HoldBudgetBacking(checked((int)(limit - inline.ChargedBytes - 64))))
+            {
+                var binding = ExpectCapacity(node, allocator);
+                Assert.InRange(limit - binding.ChargedBytes, 1, 63);
+                budget.BeginPreparation();
+                var refusal = Assert.Throws<BudgetRefusedException>(() => roots.Add(1));
+                budget.EndPreparation(keepsCapacity: false);
+                Assert.Equal(LatticeLimitEnum.Memory, refusal.Limit);
+                Assert.False(roots.IsCurrent(second));
+                Assert.True(roots.IsCurrent(reusedFirst));
+                Assert.Equal(binding.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
+            }
+
+            var reusedSecond = roots.Add(1);
+            Assert.Equal(new RootHandle(second.Generation + 1, second.Slot), reusedSecond);
+            var generations = Backing<Dictionary<uint, uint>>(roots, "_generations");
+            object[] all = [generations, .. DictionaryArrays(generations)];
+            var historyBytes = all.Sum(ManagedObjectSize);
+            Assert.True(historyBytes > 0);
+            Assert.Equal(inline.ChargedBytes + historyBytes, ExpectCapacity(node, allocator, out _, all).ChargedBytes);
+            roots.Release(reusedFirst);
+            roots.Release(reusedSecond);
+            roots.WithdrawUnusedPages();
+            Assert.Equal(0, roots.Pages);
+            Assert.Equal(empty.ChargedBytes + historyBytes, ExpectCapacity(node, allocator, out _, all).ChargedBytes);
+
+            budget.BeginPreparation();
+            var published = roots.Add(1);
+            roots.Entry(published).State = RootStateEnum.Live;
+            roots.NotePublished(published);
+            budget.EndPreparation(keepsCapacity: true);
+            roots.ReleasePublishedDirectories();
+            Assert.Equal(new RootHandle(reusedFirst.Generation + 1, first.Slot), published);
+            _ = node.InspectBudget((_, backing) => Assert.DoesNotContain(all, item => ReferenceEquals(item, backing)));
+            var suffix = roots.Add(1);
+            Assert.Equal(new RootHandle(reusedSecond.Generation + 1, second.Slot), suffix);
+            return true;
+        });
     }
 
     private static (RootHandle Handle, ArenaAddress Address, LatticeRevision Revision) Snapshot(EngineDatabase node)
