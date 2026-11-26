@@ -32,14 +32,14 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
 
     public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
-    public int Maintain(int workLimit) => Maintain(workLimit, null, deferAllocationFailure: false, out _);
+    public int Maintain(int workLimit) => Maintain(workLimit, null, deferAllocationFailure: false, releaseWriterPage: true, out _);
 
     // Optional metadata work during an automatic turn. Charge a refused unit
     // and tell the caller to defer the next attempt to another turn.
     public int MaintainBackground(int workLimit, Action? beforeMigrationPageAllocation, out bool deferred) =>
-        Maintain(workLimit, beforeMigrationPageAllocation, deferAllocationFailure: true, out deferred);
+        Maintain(workLimit, beforeMigrationPageAllocation, deferAllocationFailure: true, releaseWriterPage: true, out deferred);
 
-    private int Maintain(int workLimit, Action? beforeMigrationPageAllocation, bool deferAllocationFailure, out bool deferred)
+    private int Maintain(int workLimit, Action? beforeMigrationPageAllocation, bool deferAllocationFailure, bool releaseWriterPage, out bool deferred)
     {
         AssertWrites();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
@@ -60,7 +60,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
                     _active = replacement;
                     _bucketCursor = 0;
                 }
-                else if (!_locator.TrimOne() && !_slots.TrimFirst())
+                else if (!_locator.TrimOne() && !_slots.TrimOne(releaseWriterPage))
                 {
                     break;
                 }
@@ -300,7 +300,9 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         // existing text never enters this path or advances a migration.
         if (_old is not null || Count >= 4L * _active.Capacity)
         {
-            Maintain(2);
+            // Catch up on placement without returning the empty page this
+            // write can reuse. The automatic turn can return it later.
+            Maintain(2, null, deferAllocationFailure: false, releaseWriterPage: false, out _);
         }
 
         if (!_locator.TryTake(out var id))

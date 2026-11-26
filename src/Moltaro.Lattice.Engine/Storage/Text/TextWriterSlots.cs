@@ -2,8 +2,9 @@ using System.Numerics;
 
 namespace Moltaro.Lattice.Storage.Text;
 
-// Dense writer entries. The last page is removed when its final slot
-// leaves. The extra cells keep mutable counts off the neighboring lines.
+// Dense writer entries. Keep one empty trailing page available for
+// the next write until bounded maintenance returns it. The extra cells
+// keep mutable counts off the neighboring lines.
 internal sealed class TextWriterSlots
 {
     private const int Padding = 2;
@@ -42,11 +43,9 @@ internal sealed class TextWriterSlots
 
     public void ReleaseReservation()
     {
-        var page = (uint)Count >> 6;
-        if ((Count & 63) == 0 && _pages.Get(page) is not null)
+        if (Count == 0 && _pageCount != 0)
         {
-            _pages.Set(page, null);
-            _pageCount--;
+            ReleaseLastPage();
         }
     }
 
@@ -61,11 +60,28 @@ internal sealed class TextWriterSlots
     {
         At((uint)Count) = default;
         Count--;
-        ReleaseReservation();
+        if ((Count & 63) == 0)
+        {
+            // Crossing the next boundary can leave two empty pages. Keep
+            // the nearer one, where the next new ordinal will arrive.
+            if (_pageCount > (Count >> 6) + 1)
+            {
+                ReleaseLastPage();
+            }
+
+            ReleaseReservation();
+        }
     }
 
-    public bool TrimFirst()
+    public bool TrimOne(bool releaseEmptyPage)
     {
+        var usedPages = (int)(((uint)Count + 63) >> 6);
+        if (releaseEmptyPage && _pageCount > usedPages)
+        {
+            ReleaseLastPage();
+            return true;
+        }
+
         if (Count is 0 or > 64)
         {
             return false;
@@ -81,6 +97,8 @@ internal sealed class TextWriterSlots
         ResizeFirst(previous, needed);
         return true;
     }
+
+    private void ReleaseLastPage() => _pages.Set((uint)--_pageCount, null);
 
     private void ResizeFirst(TextSlot[] previous, int needed)
     {

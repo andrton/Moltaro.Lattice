@@ -14,9 +14,8 @@ public sealed class TextWriterPageReuseTests
 {
     private const int Boundary = 64;
     private const int Peak = 4 * Boundary;
-    private const string Pending = "Trailing text writer capacity is returned before it can be reused.";
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeRoleEnum.Master, false)]
     [InlineData(LatticeRoleEnum.Child, false)]
     [InlineData(LatticeRoleEnum.Master, true)]
