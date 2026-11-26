@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Text;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Maintenance;
@@ -6,7 +5,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
-using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
@@ -561,17 +559,8 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         Assert.Equal(expected.Length, offset);
     }
 
-    private static byte[] Export(ILatticeSet items, LocatedRoot root)
-    {
-        Assert.True(items.TryView(TargetKey, _ =>
-        {
-            var output = new ArrayBufferWriter<byte>();
-            BlockExport.Write(output, root.Arena, root.Layout, root.Root);
-            Assert.Equal(output.WrittenCount, BlockExport.Length(root.Arena, root.Layout, root.Root));
-            return output.WrittenSpan.ToArray();
-        }, out var bytes));
-        return bytes;
-    }
+    private static byte[] Export(ILatticeSet items, LocatedRoot root) =>
+        ProtectedExport.Capture(items, TargetKey, root.Arena, root.Layout, root.Root);
 
     private static void ExpectText(EngineDatabase node, Input input)
     {

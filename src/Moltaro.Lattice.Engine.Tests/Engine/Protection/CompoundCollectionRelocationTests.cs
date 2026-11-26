@@ -9,7 +9,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
-using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
@@ -989,17 +988,8 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
         }
     }
 
-    private static byte[] Export(ILatticeSet items, Root root)
-    {
-        Assert.True(items.TryView(root.Key, _ =>
-        {
-            var output = new ArrayBufferWriter<byte>();
-            BlockExport.Write(output, root.Arena, root.Layout, root.Address);
-            Assert.Equal(output.WrittenCount, BlockExport.Length(root.Arena, root.Layout, root.Address));
-            return output.WrittenSpan.ToArray();
-        }, out var bytes));
-        return bytes;
-    }
+    private static byte[] Export(ILatticeSet items, Root root) =>
+        ProtectedExport.Capture(items, root.Key, root.Arena, root.Layout, root.Address);
 
     private static void ExpectFreed(Root root, ArenaAddress address) =>
         Assert.Throws<ArgumentException>("address", () => _ = root.Arena.Header(address));

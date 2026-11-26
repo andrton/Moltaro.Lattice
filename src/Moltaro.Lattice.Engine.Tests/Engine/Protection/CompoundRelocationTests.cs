@@ -655,17 +655,8 @@ public sealed class CompoundRelocationTests
         return revision;
     }
 
-    private static byte[] Export(ILatticeSet items, Chain chain)
-    {
-        Assert.True(items.TryView(TargetKey, _ =>
-        {
-            var output = new ArrayBufferWriter<byte>();
-            BlockExport.Write(output, chain.Arena, chain.Layout, chain.Root);
-            Assert.Equal(output.WrittenCount, BlockExport.Length(chain.Arena, chain.Layout, chain.Root));
-            return output.WrittenSpan.ToArray();
-        }, out var body));
-        return body;
-    }
+    private static byte[] Export(ILatticeSet items, Chain chain) =>
+        ProtectedExport.Capture(items, TargetKey, chain.Arena, chain.Layout, chain.Root);
 
     private static byte[] ExpectedBody(Chain chain, sbyte code)
     {

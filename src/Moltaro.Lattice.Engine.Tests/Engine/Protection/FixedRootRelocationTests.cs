@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
@@ -9,7 +8,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
-using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
@@ -649,16 +647,8 @@ public sealed class FixedRootRelocationTests
     private static void ExpectFreed(Location location) =>
         Assert.Throws<ArgumentException>("address", () => _ = location.Arena.Header(location.Address));
 
-    private static byte[] Export(ILatticeSet items, Location location)
-    {
-        Assert.True(items.TryView(location.Key, view =>
-        {
-            var output = new ArrayBufferWriter<byte>();
-            BlockExport.Write(output, location.Arena, location.Layout, location.Address);
-            return output.WrittenSpan.ToArray();
-        }, out var body));
-        return body;
-    }
+    private static byte[] Export(ILatticeSet items, Location location) =>
+        ProtectedExport.Capture(items, location.Key, location.Arena, location.Layout, location.Address, checkLength: false);
 
     private static async Task InsertAsync(EngineDatabase database, int count, string? inlineText = null)
     {
