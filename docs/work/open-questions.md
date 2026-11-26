@@ -81,6 +81,8 @@ in the meantime.
 | **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
 | **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1-core.md), "Measured results" |
 
+## Answered
+
 ### Q54. What the binding of an index value does where the documents do not say
 
 | | |
@@ -88,7 +90,7 @@ in the meantime.
 | **Found** | 21 November 2026, the coordinator's inventory for Epic 1, sprint S15, part 2 |
 | **Question** | Three points that neither the engine contract nor Q07.3.6 decides. (1) Is a .NET enum value accepted for an Enum part? (2) Is an integer the enum type does not declare refused as a bound of a range as well as an exact value? (3) Is a null given as `string` a null with a type? |
 | **Answer** | Taken by the planner, 21 November 2026, for the owner to read at the close of the sprint. (1) No: an Enum part is given as its integer; accepting the .NET enum would need a rule of agreement at every search and can be added later. (2) Yes: the contract rejects invalid enum and Flags bits for "lookup/bound parameters" alike. (3) Yes: Q07.3.6 checks a null by its declared type, and `string` is one; a null given as `object` has none. Taken by the coordinator, 21 November 2026, after the review of the sprint, from the same rule: a null given as any other class has a type no scalar field has and is refused for every part, as a `Nullable` without a value of such a type is |
-| **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part (`IndexValue.Of`, the remarks of `IndexKey`) |
+| **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part. The [enum and bounds tests](../../src/Moltaro.Lattice.Tests/Indexes/ValueBinding/EnumAndFlagsTests.cs) and [typed null tests](../../src/Moltaro.Lattice.Tests/Indexes/ValueBinding/TypedNullTests.cs) verify the rule. |
 | **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1-core.md) |
 
 ### Q61. Does "stable write inputs" allow a batch and an update to take their input when it is added?
@@ -98,8 +100,9 @@ in the meantime.
 | **Found** | 23 November 2026, the document review of the contract of stage 5, part 2 |
 | **Question** | `docs/decisions/mutation-commands.md`, "Stable write inputs until completion", tells a caller to keep the input of an asynchronous write unchanged until it completes and says the public contract "does not expose early release in v1". A write batch takes each member as it is when it is added (`WriteBatchTests.Batch_saves_the_entity_as_it_was_when_added`, since the contract stage), and an update of S20 takes each value the same way. Is that a release the record did not want to promise? |
 | **Answer** | Taken by the planner, 23 November 2026, for the owner to read: no. The record speaks of the input of an asynchronous write between its start and its completion; adding to a batch or to an update is synchronous and starts no write, and what was added is the batch's own from then on. A write of a set, `SaveAsync` and the others, keeps the rule of the record |
-| **What the code does** | A member of a batch is encoded when it is added (S17) |
+| **What the code does** | A member of a batch is encoded when it is added (S17). The [batch tests](../../src/Moltaro.Lattice.Tests/ReadsAndWrites/Batches/WriteBatchTests.cs) and [update submission tests](../../src/Moltaro.Lattice.Tests/ReadsAndWrites/PartialUpdates/UpdateSubmissionTests.cs) check that later edits to the supplied values do not change the captured operands. |
 | **Where the rule lives** | The remarks of `ILatticeWriteBatch`; the brief of S20 in the document of Epic 1 |
+
 ### Q62. Two rules of the schema language that the stored form of S18 brings
 
 | | |
@@ -107,10 +110,8 @@ in the meantime.
 | **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
 | **Question** | An owned value is stored inside its holder, so the fixed part of an entity can outgrow one block through its owned types; and the record of an element of a List has to fit one chunk. Until now the contract stated a size rule only in a clause of `LatticeIndex`. May a schema be refused for either? |
 | **Answer** | Taken by the planner, 24 November 2026, for the owner to read: yes, both are rules of the schema language, the same in every process, checked when a database compiles its layouts at its open (`InvalidSchema`, the entity type named) and stated in the remarks of `LatticeEntityType` and `LatticeOwnedType`; every node compiles them by the same code, so a schema means the same on every node; a schema would need thousands of fixed fields to meet them |
-| **What the code does** | As the brief of S18 says |
+| **What the code does** | The [open tests](../../src/Moltaro.Lattice.Tests/NestedValues/Bounds/SchemaRuleTests.cs) open at the limit and report `InvalidSchema` for an oversized fixed root or List element. |
 | **Where the rule lives** | The brief of S18 in the [document of Epic 1](epic-1-core.md); the remarks named above |
-
-## Answered
 
 ### Q66. May segment evacuation start without a sparse occupied region?
 
