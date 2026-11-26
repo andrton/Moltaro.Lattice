@@ -82,6 +82,8 @@ internal sealed class RetiredMemory
 
     private readonly RootTable _roots;
 
+    private readonly Action<int, int, int>? _beforePublishedTrim;
+
     // In the order they were retired, and so in the order of their epochs.
     private readonly Queue<RetiredItem> _items = new();
 
@@ -133,11 +135,12 @@ internal sealed class RetiredMemory
     // which runs it once.
     private Action? _waitSwitch;
 
-    public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)
+    public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots, Action<int, int, int>? beforePublishedTrim = null)
     {
         _epochs = epochs;
         _arena = arena;
         _roots = roots;
+        _beforePublishedTrim = beforePublishedTrim;
         _itemsPerLook = epochs.SlotCount;
         _bytesPerLook = arena.SegmentSize;
     }
@@ -248,7 +251,7 @@ internal sealed class RetiredMemory
 
         if (_itemsSinceLook >= _itemsPerLook || _bytesSinceLook >= _bytesPerLook)
         {
-            Drain();
+            Drain(inspectPublishedTrim: _beforePublishedTrim);
         }
     }
 
@@ -379,7 +382,7 @@ internal sealed class RetiredMemory
 
     // Frees every retired thing that no read in progress can reach, and returns; it does not wait.
     // With no read in progress it leaves nothing retired.
-    public void Drain(Action? beforeTrim = null)
+    public void Drain(Action? beforeTrim = null, Action<int, int, int>? inspectPublishedTrim = null)
     {
         _itemsSinceLook = 0;
         _bytesSinceLook = 0;
@@ -421,6 +424,7 @@ internal sealed class RetiredMemory
         // does, and its growth costs about as much as it retired.
         if (CanTrimEmptyQueue())
         {
+            inspectPublishedTrim?.Invoke(_items.Count, _reserved, _capacity);
             beforeTrim?.Invoke();
             TrimEmptyQueue();
         }
