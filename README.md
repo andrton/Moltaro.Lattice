@@ -30,10 +30,11 @@ Sets. The master executes them alone or in a write batch, also when a child subm
 Children apply the changed fields and collection entries at the committed position.
 Both by-name and generated typed views read one entity directly from its local arena
 inside a short synchronous callback. Master and child run bounded storage maintenance
-in the background. Compatible blocks can move while earlier readers retain their
-original storage. The arena reuses and returns empty segments, and collections can
-release persistently unused lookup capacity. PostgreSQL persistence is planned, and
-the contract may still change.
+in the background. The worker can evacuate large blocks from a nearly empty segment
+into existing space in another active segment. Earlier readers retain their original
+storage until they leave. The arena reuses and returns empty segments, and collections
+can release persistently unused lookup capacity. PostgreSQL persistence is planned,
+and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and

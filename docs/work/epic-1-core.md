@@ -14669,6 +14669,21 @@ The gate also checked actual native return, concurrent epochs, canonical transfe
 ordinary worker cadence, shared headroom, rank and slot accounting, write
 interference, close admission, index ownership, and the 4,000-edge root.
 
+##### Implementation and local verification
+
+The runtime at `5014a6c8b88fb31afba9cb099199c83d15394c21` passed a Release
+solution build, format verification, all 18 samples and the full local suite.
+The suite discovered 4,796 tests, with 4,667 passing, 129 existing skips and
+zero failures. All 56 S23A tests passed with their assertions from tests first.
+
+The first independent code review identified a duplicate assigned-vacancy
+predicate. The second accepted the shared predicate on the exact runtime SHA.
+The hardest part to review was the free/class list transition while a copied
+slot remains charged across retirement. The independent breaker passed its
+two-role probe with staggered old views, two 32 KiB publications, competing
+forwarded deletion and a later 64 KiB publication. The original segment
+returned 4 MiB to the native allocator before close, with the reserve still held.
+
 #### S24 · The memory budget
 
 **Rollback of a full root on a child.** In `ReceivedChanges.TryPrepareWrite`,
