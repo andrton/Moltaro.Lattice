@@ -1,6 +1,10 @@
+using System.Text.Json.Nodes;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
+using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
@@ -26,10 +30,34 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
     public Task Ordinary_typed_reads_own_wide_nested_Map_areas_across_load_and_replay(
         string encoding, LatticeFieldTypeEnum primaryKey, bool records) =>
         primaryKey == LatticeFieldTypeEnum.String
-            ? ExpectKeyAsync<string>(encoding, primaryKey, records)
-            : ExpectKeyAsync<ulong>(encoding, primaryKey, records);
+            ? ExpectKeyAsync<string>(encoding, primaryKey, records, moveRoots: false)
+            : ExpectKeyAsync<ulong>(encoding, primaryKey, records, moveRoots: false);
 
-    private Task ExpectKeyAsync<TKey>(string encoding, LatticeFieldTypeEnum primaryKey, bool records)
+    [Theory]
+    [InlineData("Utf8", LatticeFieldTypeEnum.String, false)]
+    [InlineData("Utf16", LatticeFieldTypeEnum.String, false)]
+    [InlineData("Utf8", LatticeFieldTypeEnum.UInt64, false)]
+    [InlineData("Utf16", LatticeFieldTypeEnum.UInt64, false)]
+    [InlineData("Utf8", LatticeFieldTypeEnum.String, true)]
+    [InlineData("Utf16", LatticeFieldTypeEnum.String, true)]
+    [InlineData("Utf8", LatticeFieldTypeEnum.UInt64, true)]
+    [InlineData("Utf16", LatticeFieldTypeEnum.UInt64, true)]
+    public Task An_owned_typed_copy_survives_relocating_wide_Map_roots(
+        string encoding, LatticeFieldTypeEnum primaryKey, bool records) =>
+        primaryKey == LatticeFieldTypeEnum.String
+            ? ExpectKeyAsync<string>(encoding, primaryKey, records, moveRoots: true)
+            : ExpectKeyAsync<ulong>(encoding, primaryKey, records, moveRoots: true);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task A_hashed_Map_with_wide_entries_keeps_every_byte_key_through_relocation(bool unsigned) => unsigned
+        ? ExpectPackedAsync<ulong, byte>("Utf8", LatticeFieldTypeEnum.UInt64, LatticeFieldTypeEnum.UInt8,
+            ordinal => (byte)ordinal, moveRoots: true)
+        : ExpectPackedAsync<ulong, sbyte>("Utf8", LatticeFieldTypeEnum.UInt64, LatticeFieldTypeEnum.Int8,
+            ordinal => (sbyte)(sbyte.MinValue + ordinal), moveRoots: true);
+
+    private Task ExpectKeyAsync<TKey>(string encoding, LatticeFieldTypeEnum primaryKey, bool records, bool moveRoots)
         where TKey : notnull
     {
         if (records)
@@ -48,27 +76,37 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
                     leaf.Part0 = "changed by the caller";
                     leaf.Numbers[0] = -1;
                     leaf.Bytes[0] ^= 0xff;
-                });
+                },
+                moveRoots);
         }
 
-        return ExpectAsync<TKey, ulong, WideBoundGuids>(
-            encoding, primaryKey, LatticeFieldTypeEnum.UInt64, records: false,
-            ordinal => 0xF000_0000_0000_1000UL + (ulong)ordinal, WideBoundGuids.Create,
-            static (actual, expected) => Assert.Equal(expected.Values, actual.Values),
-            static leaf => leaf.Part0 = Guid.Empty);
+        return ExpectPackedAsync<TKey, ulong>(encoding, primaryKey, LatticeFieldTypeEnum.UInt64,
+            ordinal => 0xF000_0000_0000_1000UL + (ulong)ordinal, moveRoots);
     }
+
+    private Task ExpectPackedAsync<TKey, TMember>(string encoding, LatticeFieldTypeEnum primaryKey,
+        LatticeFieldTypeEnum innerKey, Func<int, TMember> member, bool moveRoots)
+        where TKey : notnull
+        where TMember : notnull =>
+        ExpectAsync<TKey, TMember, WideBoundGuids>(encoding, primaryKey, innerKey, records: false, member, WideBoundGuids.Create,
+            static (actual, expected) => Assert.Equal(expected.Values, actual.Values),
+            static leaf => leaf.Part0 = Guid.Empty, moveRoots);
 
     private async Task ExpectAsync<TKey, TMember, TLeaf>(
         string encoding, LatticeFieldTypeEnum primaryKey, LatticeFieldTypeEnum innerKey, bool records,
-        Func<int, TMember> member, Func<int, int, int, TLeaf> make, Action<TLeaf, TLeaf> same, Action<TLeaf> mutate)
+        Func<int, TMember> member, Func<int, int, int, TLeaf> make, Action<TLeaf, TLeaf> same, Action<TLeaf> mutate,
+        bool moveRoots)
         where TKey : notnull
         where TMember : notnull
         where TLeaf : class
     {
         var clr = typeof(OwnedCollectionItem<TKey, Dictionary<TMember, WideBoundBranch<WideBoundBranch<TLeaf>>>>);
-        var schema = Compile<TLeaf>(encoding, primaryKey, innerKey, records, clr);
+        var json = SchemaJson<TLeaf>(encoding, primaryKey, innerKey, records, clr);
+        var schema = LatticeSchema.Compile(json);
         var entity = Assert.Single(schema.EntityTypes);
         var entries = RootLayout.Compile(entity, schema).Structure.ElementOf(entity.GetField("Values").Ordinal);
+        const int byteDomainSize = byte.MaxValue + 1;
+        var byteKey = innerKey is LatticeFieldTypeEnum.Int8 or LatticeFieldTypeEnum.UInt8;
         Assert.Equal(records, entries.HoldsDescriptors);
         if (records)
         {
@@ -78,12 +116,35 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
         }
         else
         {
-            Assert.Equal(Leaves * Fanout * 16 + sizeof(ulong), entries.Size);
+            var keyBytes = byteKey ? sizeof(byte) : sizeof(ulong);
+            Assert.Equal(Leaves * Fanout * 16 + keyBytes, entries.Size);
             Assert.Equal(7, ValueBlocks.ChunkPayload / entries.Size);
         }
 
         int[] counts = records ? [-1, 0, 1, 2] : [-1, 0, 1, 6, 7, 8, 9];
-        await using var master = await ReplicationNodes.OpenMasterAsync(schema, new EngineTestInputs { IndexSeed = 61 });
+        if (byteKey)
+        {
+            counts = [8, 9, byteDomainSize];
+            Assert.Equal(byteDomainSize, Enumerable.Range(0, byteDomainSize).Select(member).Distinct().Count());
+        }
+
+        var extraSlots = moveRoots ? counts.Where(count => count > CollectionLookup.MostCompactEntries)
+            .Select(count => Arena.BlockSizeFor(ValueBlocks.ChunkCount(count * entries.Size) * ValueBlocks.DescriptorSize)).ToArray() : [];
+        int[] slots = [];
+        if (moveRoots)
+        {
+            var document = JsonNode.Parse(json)!.AsObject();
+            slots = RelocatedCollectionMatrixTests.AddFillers(document, extraSlots);
+            schema = LatticeSchema.Compile(document.ToJsonString());
+        }
+
+        var masterInputs = moveRoots ? RelocatedCollectionMatrixTests.Inputs(61) : new EngineTestInputs { IndexSeed = 61 };
+        await using var master = await ReplicationNodes.OpenMasterAsync(schema, masterInputs);
+        foreach (var slot in slots)
+        {
+            await AutomaticCompoundRelocationTests.FillAsync(master, RelocatedCollectionMatrixTests.FillerName(slot), Arena.MaxBlockSize / slot);
+        }
+
         var source = master.Set<OwnedCollectionItem<TKey, Dictionary<TMember, WideBoundBranch<WideBoundBranch<TLeaf>>>>>();
         for (var index = 0; index < counts.Length; index++)
         {
@@ -91,9 +152,15 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
             Assert.True(written.Changed);
         }
 
-        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { IndexSeed = 93 });
+        var childInputs = moveRoots ? RelocatedCollectionMatrixTests.Inputs(93) : new EngineTestInputs { IndexSeed = 93 };
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, childInputs);
         var replica = child.Set<OwnedCollectionItem<TKey, Dictionary<TMember, WideBoundBranch<WideBoundBranch<TLeaf>>>>>();
         Assert.Equal(master.Position, child.Position);
+        if (moveRoots)
+        {
+            await RelocateAsync();
+        }
+
         for (var index = 0; index < counts.Length; index++)
         {
             var key = KeyOf(index);
@@ -146,6 +213,138 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
         // The String sequence includes encoded long keys on both sides of the
         // join cases. The UInt64 generator has its high bit set on every key.
         TKey KeyOf(int index) => (TKey)ReplicatedCollectionShapeTests.KeyOf(primaryKey, index + 3);
+
+        async Task RelocateAsync()
+        {
+            EngineDatabase[] nodes = [master, child];
+            var locations = nodes.Select(RelocatedCollectionMatrixTests.Locate).ToArray();
+            await RelocatedCollectionMatrixTests.ClearEarlierSlotsAsync(nodes, locations, slots, extraSlots);
+            for (var role = 0; role < nodes.Length; role++)
+            {
+                await RelocatedCollectionMatrixTests.TestVacanciesAsync(nodes[role], locations[role]);
+            }
+
+            var packedPerChunk = ValueBlocks.ChunkPayload / entries.Size;
+            int[] selected = records
+                ? [entries.RecordsPerChunk + 1]
+                : [packedPerChunk, packedPerChunk + 1, CollectionLookup.MostCompactEntries + 1];
+            if (byteKey)
+            {
+                selected = counts;
+            }
+            var start = master.Position;
+            foreach (var count in selected)
+            {
+                var index = Array.IndexOf(counts, count);
+                Assert.True(index >= 0);
+                var key = KeyOf(index);
+                var before = ExpectBoth(key, index, count, stamp: 1);
+                var shape = ExpectedShape(entries, records, count);
+                for (var role = 0; role < nodes.Length; role++)
+                {
+                    var root = locations[role].Targets[index];
+                    Assert.Equal(shape, root.Shape);
+                    var moved = await RelocatedCollectionMatrixTests.MoveAsync(nodes[role], index, root, locations[role].Anchors[root.Slot]);
+                    if (count > CollectionLookup.MostCompactEntries)
+                    {
+                        await RelocateHashedEntriesAsync(nodes[role], key, moved, locations[role], count);
+                    }
+                }
+
+                var after = ExpectBoth(key, index, count, stamp: 1);
+                Assert.Equal(before.Revision, after.Revision);
+                Check(before.Master.Values, count, stamp: 1);
+                Check(before.Child.Values, count, stamp: 1);
+                Assert.Equal(start, master.Position);
+                Assert.Equal(start, child.Position);
+                output.WriteLine($"{shape} at {count} entries moved to earlier real slots and preserved typed copies on both roles.");
+            }
+        }
+
+        async Task RelocateHashedEntriesAsync(EngineDatabase node, TKey key, RelocatedCollectionMatrixTests.Location root,
+            RelocatedCollectionMatrixTests.NodeLocations locations, int count)
+        {
+            var arena = root.Arena;
+            var field = root.Layout.StoredFieldOf(root.Layout.EntityType.GetField("Values"));
+            var outer = ResidentDescriptor.Read(arena.Payload(root.Address)[(field.Offset - BlockHeader.Size)..]);
+            Assert.Equal(DescriptorKindEnum.Lookup, outer.Kind);
+            var lookup = ValueBlocks.AddressOf(outer);
+            Assert.False(CollectionLookup.IsChunked(outer));
+            Assert.InRange(new CollectionLookup(arena, outer).Capacity, CollectionLookup.SlotsNeeded(count), ValueBlocks.ChunkPayload / sizeof(ulong));
+            var packed = ResidentDescriptor.ReadAligned(arena.Payload(lookup));
+            Assert.Equal(DescriptorKindEnum.Chunked, packed.Kind);
+            Assert.Equal((uint)(count * entries.Size), packed.Length);
+            var previous = ValueBlocks.AddressOf(packed);
+            var header = arena.Header(previous);
+            Assert.Equal(BlockKindEnum.ChunkDirectory, header.Kind);
+            Assert.Equal(ValueBlocks.ChunkCount((int)packed.Length) * ValueBlocks.DescriptorSize, (int)header.PayloadLength);
+            var slot = Arena.BlockSizeFor((int)header.PayloadLength);
+            var anchor = locations.Anchors[slot];
+            var set = node.Set("Item");
+            using var pause = new ViewerPause();
+            var read = OwnThread.Run(() =>
+            {
+                Assert.True(set.TryView(key, view =>
+                {
+                    var map = view["Values"].Map;
+                    var cursor = map.GetEnumerator();
+                    Assert.True(cursor.MoveNext());
+                    var first = cursor.Current;
+                    var firstKey = first.Key.Get<TMember>();
+                    var copy = cursor;
+                    Assert.Contains(firstKey, Enumerable.Range(0, count).Select(member));
+                    pause.Hold();
+                    Assert.Equal(firstKey, first.Key.Get<TMember>());
+                    Assert.Equal(firstKey, copy.Current.Key.Get<TMember>());
+                    Assert.True(cursor.MoveNext());
+                    Assert.True(copy.MoveNext());
+                    Assert.Equal(cursor.Current.Key.Get<TMember>(), copy.Current.Key.Get<TMember>());
+                    if (firstKey is ulong wideKey)
+                    {
+                        Assert.NotEqual(0UL, wideKey & 0x8000_0000_0000_0000UL);
+                    }
+
+                    Assert.Equal(count, map.Count);
+                    for (var ordinal = 0; ordinal < count; ordinal++)
+                    {
+                        Assert.True(map.TryGetValue(member(ordinal), out var value));
+                        var leaf = value.Owned["Part7"].Owned["Part7"].Owned;
+                        var expected = WideBoundGuids.Create(ordinal, Leaves - 1, stamp: 1);
+                        Assert.Equal(expected.Part0, leaf["Part0"].Get<Guid>());
+                        Assert.Equal(expected.Part7, leaf["Part7"].Get<Guid>());
+                    }
+
+                    if (count < byteDomainSize)
+                    {
+                        Assert.False(map.TryGetValue(member(count), out _));
+                    }
+
+                    return view.Revision;
+                }, out _));
+            });
+            await pause.EnteredAsync(read);
+            var replacement = await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            {
+                var region = RelocatedCollectionMatrixTests.RegionFor(parts.Arena, anchor);
+                Assert.NotEqual(0L, region);
+                Assert.True(parts.Arena.TryFindRelocationDestination(previous, ref region, out _));
+                Assert.True(CompoundRelocation.TryMove(parts, root.Handle, previous, region, out var address, out var incoming));
+                Assert.Equal(DescriptorKindEnum.Chunked, incoming);
+                return address;
+            });
+            Assert.NotEqual(previous, replacement);
+            Assert.Equal(anchor.Address.Segment, replacement.Segment);
+            Assert.True(replacement.Segment < previous.Segment);
+            Assert.Equal(packed with { Location = replacement.Value }, ResidentDescriptor.ReadAligned(arena.Payload(lookup)));
+            node.DrainRetired();
+            Assert.Equal(header, arena.Header(previous));
+            pause.Release();
+            await read.WaitAsync(Bound);
+            node.DrainRetired();
+            Assert.Throws<ArgumentException>("address", () => _ = arena.Header(previous));
+            var role = node == master ? "Master" : "Child";
+            output.WriteLine($"{innerKey} inner Map, {count} keys, contiguous lookup and {ValueBlocks.ChunkCount((int)packed.Length)} raw entry chunks: directory moved on {role}.");
+        }
 
         WideBoundBranch<WideBoundBranch<TLeaf>> Cell(int row, int stamp) =>
             WideBoundBranch<WideBoundBranch<TLeaf>>.Create(first =>
@@ -211,6 +410,11 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
                 var shapes = new List<string>();
                 node.ForEachLiveRoot((arena, layout, _, root) =>
                 {
+                    if (layout.EntityType.Name != "Item")
+                    {
+                        return;
+                    }
+
                     var reader = new RootReader(arena, layout, root);
                     if (reader.GetInteger(layout.EntityType.GetField("Case")) != row)
                     {
@@ -249,7 +453,7 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
         return count > CollectionLookup.MostCompactEntries ? "Slots/" + payload : payload;
     }
 
-    private static LatticeSchema Compile<TLeaf>(
+    private static string SchemaJson<TLeaf>(
         string encoding, LatticeFieldTypeEnum primaryKey, LatticeFieldTypeEnum innerKey, bool records, Type entity)
         where TLeaf : class
     {
@@ -266,7 +470,7 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
 
         var inner = BranchFields("Leaf");
         var outer = BranchFields("Branch");
-        return LatticeSchema.Compile($$"""
+        return $$"""
             {
               "StringEncoding": "{{encoding}}",
               "OwnedTypes": [
@@ -286,7 +490,7 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
                 "PrimaryKey": [1]
               }]
             }
-            """);
+            """;
 
         static string BranchFields(string owned) =>
             string.Join(", ", Enumerable.Range(0, Fanout).Select(index => $$"""

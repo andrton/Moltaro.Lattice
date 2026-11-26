@@ -354,7 +354,7 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
         return sample;
     }
 
-    private static async Task FillAsync(EngineDatabase master, string type, int count)
+    internal static async Task FillAsync(EngineDatabase master, string type, int count)
     {
         var set = master.Set(type);
         var batch = master.CreateWriteBatch();
@@ -599,7 +599,7 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
            "PrimaryKey":[1],"Indexes":[{"Id":1,"Name":"ByStamp","Fields":[2]}]}]}
         """);
 
-    private static string FixedEntity(int id, string name, int slot)
+    internal static string FixedEntity(int id, string name, int slot)
     {
         var pads = Enumerable.Range(0, 1_024).First(count => Arena.BlockSizeFor(sizeof(long) + count * 16 + (count + 7) / 8) == slot);
         var fields = Enumerable.Range(2, pads).Select(field => $$""",{"Id":{{field}},"Name":"Pad{{field}}","Type":"Guid","Nullable":true}""");

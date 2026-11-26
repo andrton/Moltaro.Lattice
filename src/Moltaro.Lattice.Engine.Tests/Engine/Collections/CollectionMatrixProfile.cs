@@ -31,10 +31,13 @@ internal abstract class CollectionMatrixProfile(string name, LatticeFieldTypeEnu
 
     public LatticeFieldTypeEnum Kind { get; } = kind;
 
-    public LatticeSchema Schema(LatticeFieldTypeEnum primaryKey, string encoding, string? clrType = null)
+    public LatticeSchema Schema(LatticeFieldTypeEnum primaryKey, string encoding, string? clrType = null) =>
+        LatticeSchema.Compile(SchemaJson(primaryKey, encoding, clrType));
+
+    public string SchemaJson(LatticeFieldTypeEnum primaryKey, string encoding, string? clrType = null)
     {
         var binding = clrType is null ? "" : $"\"ClrType\": \"{clrType}\",";
-        return LatticeSchema.Compile($$"""
+        return $$"""
         {
           "StringEncoding": "{{encoding}}",
           "EntityTypes": [
@@ -50,7 +53,7 @@ internal abstract class CollectionMatrixProfile(string name, LatticeFieldTypeEnu
             }
           ]
         }
-        """);
+        """;
     }
 
     public int[] Counts(StructureLayout entries)

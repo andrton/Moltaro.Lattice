@@ -210,9 +210,9 @@ public sealed class WideCompactMapTransferTests(ITestOutputHelper output)
         }
     }
 
-    private static string FieldName(int field) => "Value" + field.ToString(CultureInfo.InvariantCulture);
+    internal static string FieldName(int field) => "Value" + field.ToString(CultureInfo.InvariantCulture);
 
-    private static object ValueAt(WideMapProfile profile, int field, int row, int salt) => profile.UsesRecords
+    internal static object ValueAt(WideMapProfile profile, int field, int row, int salt) => profile.UsesRecords
         ? string.Create(CultureInfo.InvariantCulture, $"s{salt}-r{row}-f{field}-é")
         : new Guid(row, (short)field, (short)salt, 1, 2, 3, 4, 5, 6, 7, 8);
 }

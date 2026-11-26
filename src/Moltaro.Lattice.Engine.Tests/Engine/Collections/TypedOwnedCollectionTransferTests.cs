@@ -190,7 +190,7 @@ public sealed class TypedOwnedCollectionTransferTests(ITestOutputHelper output)
         }
     }
 
-    private static void AssertCollection<TCollection>(TCollection? expected, TCollection? actual, LatticeFieldTypeEnum kind)
+    internal static void AssertCollection<TCollection>(TCollection? expected, TCollection? actual, LatticeFieldTypeEnum kind)
         where TCollection : class
     {
         if (expected is null)

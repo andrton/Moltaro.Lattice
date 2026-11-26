@@ -16,12 +16,15 @@ internal sealed record WideMapProfile(string Name, LatticeFieldTypeEnum InnerKey
 
     public bool UsesRecords => ValueField == LatticeFieldTypeEnum.String;
 
-    public LatticeSchema Schema(LatticeFieldTypeEnum primaryKey, string encoding)
+    public LatticeSchema Schema(LatticeFieldTypeEnum primaryKey, string encoding) =>
+        LatticeSchema.Compile(SchemaJson(primaryKey, encoding));
+
+    public string SchemaJson(LatticeFieldTypeEnum primaryKey, string encoding)
     {
         var fields = string.Join(", ", Enumerable.Range(1, FieldCount).Select(id => $$"""
             { "Id": {{id}}, "Name": "Value{{id}}", "Type": "{{ValueField}}" }
             """));
-        return LatticeSchema.Compile($$"""
+        return $$"""
             {
               "StringEncoding": "{{encoding}}",
               "OwnedTypes": [{ "Id": 1, "Name": "Wide", "Fields": [{{fields}}] }],
@@ -37,7 +40,7 @@ internal sealed record WideMapProfile(string Name, LatticeFieldTypeEnum InnerKey
                 "PrimaryKey": [1]
               }]
             }
-            """);
+            """;
     }
 
     public StructureLayout EntryLayout(LatticeSchema schema)
