@@ -616,6 +616,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         {
             if (_epochs.HasReadsBefore(mark))
             {
+                _testInputs?.BeforeCloseReadWait?.Invoke();
                 await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
             }
 
@@ -633,8 +634,25 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             {
                 lock (parts.Writes)
                 {
-                    parts.Retired.Drain();
-                    parts.Retired.Clear();
+                    // Once the reads have left, a failure in one retirement step cannot keep the arena alive.
+                    try
+                    {
+                        parts.Retired.Drain(_testInputs?.BeforeCloseRetiredTrim);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+
+                    try
+                    {
+                        parts.Retired.Clear();
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+
                     parts.Arena.Dispose();
                 }
             }

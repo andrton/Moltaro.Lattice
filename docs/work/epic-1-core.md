@@ -14807,13 +14807,26 @@ x64. The product engine is unchanged. Raw controls stay outside Git.
 
 ##### Pre-S24 close cleanup investigation
 
-**Open, E07.** The final retirement drain shares an exception scope with arena
-disposal in [EngineDatabase.FreeAfterOperationsAsync](../../src/Moltaro.Lattice.Engine/Engine/EngineDatabase.cs#L545).
-A throwing drain would skip disposal. The same order precedes S23 and the
-architect found no reachable failure. Before S24, reproduce a reachable failure
-after all readers leave, check the `CloseAsync` outcome and the allocator's own
-native ledger, or close the question with the reason a supported path cannot
-reach that condition.
+S23C corrects final cleanup after admitted operations and protected readers
+have left. On `b53fb21a`, the final drain reached the optional trim with an
+empty queue of capacity 16,384 on master and child. [.NET 10's queue trim](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Queue.cs#L283-L331)
+allocates an array even at zero requested capacity. Injecting an allocation
+refusal at that point left one 4 MiB native segment outstanding on each role.
+The no-failure controls returned every segment.
+
+The independent tests-first review accepted `92994d9edd1580086965a98e07db4a2b473e9411`.
+The corrected close at `511ed7a156cd0a09677e61e1e80db61cb0873260` attempts
+the drain, clearing retired state and arena disposal after quiescence. Both
+roles returned every native segment after the injected failure. A separate
+control with an earlier maintenance failure and later trim failure on each role
+also returned every segment and preserved the original exception on both
+`CloseAsync` and repeated `DisposeAsync`. See the
+[arena cleanup protocol](../design/arena-protocol.md#reclamation-and-relocation).
+The coordinator's full Windows x64 Release run passed 4,615 tests with 129
+expected skips, format and all 18 samples. An independent test held both an
+admitted maintenance turn and a reader, then held the last native return.
+The two close calls still waited and both reported the first exception.
+Raw results stay outside Git.
 
 #### S24 · The memory budget
 
