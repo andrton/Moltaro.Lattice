@@ -98,7 +98,7 @@ internal sealed class SetOperations : IUpdateExecutor
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        await _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken).ConfigureAwait(false);
+        await WaitAsync(session, cancellationToken).ConfigureAwait(false);
 
         var result = TryRead<TCopy, TResult>(key, copy, out var revision, out var sequence, cancellationToken);
         var position = _clock.At(sequence);
@@ -159,9 +159,13 @@ internal sealed class SetOperations : IUpdateExecutor
     public IndexSearch StartSearch(SecondaryIndex index, in IndexKey key, bool reverse, int offset) =>
         new(_reads, index, key, reverse, offset);
 
-    // Waits for the position the session depends on, before the first step of an enumeration.
-    public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken) =>
-        _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
+    // A new read observes the database close before it enters the clock. An existing
+    // wait is already in the clock and keeps the outcome the clock decides.
+    public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_database.IsClosed && !cancellationToken.IsCancellationRequested, _database);
+        return _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
+    }
 
     // The position of a sequence of the database.
     public LatticePosition At(ulong sequence) => _clock.At(sequence);
