@@ -15331,8 +15331,10 @@ class can be saturated independently of other allocations. In one lane
 alternate a successful two-text unindexed change with a one-leaf indexed
 rewrite. In another lane offer a six-text change that still fails after
 give-back, followed by the same indexed rewrite. A case-only rewrite of
-the short indexed value needs one node and leaves the optional top-up
-observable. An untimed check on each head must see the original capacity
+the short indexed value publishes one leaf. The untimed pilot confirmed that
+it reserves three required nodes before publication. Under tight capacity it
+also tops up two optional nodes. Keep the physical reservation and published
+leaf counts distinct. An untimed check on each head must see the original capacity
 refusals, give-back, isolated retry and reuse of at least one returned node
 by the next top-up without another native grant. Drain retired entries at
 equal points outside both timed calls. In each lane and its unconstrained
