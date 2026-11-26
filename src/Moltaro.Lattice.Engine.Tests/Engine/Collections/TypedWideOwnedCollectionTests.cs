@@ -327,7 +327,7 @@ public sealed class TypedWideOwnedCollectionTests(ITestOutputHelper output)
             {
                 var region = RelocatedCollectionMatrixTests.RegionFor(parts.Arena, anchor);
                 Assert.NotEqual(0L, region);
-                Assert.True(parts.Arena.TryFindRelocationDestination(previous, ref region, out _));
+                Assert.True(parts.Arena.TryFindRelocationDestination(previous, region, out _));
                 Assert.True(CompoundRelocation.TryMove(parts, root.Handle, previous, region, out var address, out var incoming));
                 Assert.Equal(DescriptorKindEnum.Chunked, incoming);
                 return address;

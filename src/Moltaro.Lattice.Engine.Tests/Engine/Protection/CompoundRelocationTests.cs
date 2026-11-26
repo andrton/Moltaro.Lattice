@@ -333,7 +333,7 @@ public sealed class CompoundRelocationTests
             {
                 var inconsistent = later;
                 var destination = Arena.RegionOf(stage.SmallAnchor);
-                Assert.True(arena.TryFindRelocationDestination(source.Directory, ref destination, out _));
+                Assert.True(arena.TryFindRelocationDestination(source.Directory, destination, out _));
                 Assert.True(RootStorage.Owns(arena,
                     ResidentDescriptor.Read(arena.Payload(source.Directory)), source.Directory, BlockHeader.Size));
                 Assert.False(RootStorage.Owns(arena,
@@ -407,7 +407,7 @@ public sealed class CompoundRelocationTests
                 Assert.Equal(source.Tail, ValueBlocks.AddressOf(localEntry));
                 Assert.True(RootStorage.Owns(arena, localEntry, source.Directory, BlockHeader.Size + ValueBlocks.DescriptorSize));
                 var destination = Arena.RegionOf(stage.BigAnchor);
-                Assert.True(arena.TryFindRelocationDestination(source.Tail, ref destination, out _));
+                Assert.True(arena.TryFindRelocationDestination(source.Tail, destination, out _));
                 ExpectRefusalWithoutChanges(parts, source, source.Tail, stage.BigAnchor, stage.BigHoles);
                 Assert.Equal(incoming, ResidentDescriptor.Read(rootEdge));
                 Assert.Equal(requests, allocator.Requests);
@@ -739,7 +739,7 @@ public sealed class CompoundRelocationTests
 
 
     private static Task<bool> EligibleAsync(EngineDatabase node, ArenaAddress address, long destination) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationDestination(address, ref destination, out _));
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationDestination(address, destination, out _));
 
     private static async Task FollowAsync(EngineDatabase source, EngineDatabase? child)
     {

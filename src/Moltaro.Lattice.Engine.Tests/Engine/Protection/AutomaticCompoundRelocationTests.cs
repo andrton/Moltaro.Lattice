@@ -285,7 +285,7 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
             Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
             {
                 var region = CapVacancy(parts.Arena, copy);
-                return parts.Arena.TryFindRelocationDestination(copy.Source, ref region, out _);
+                return parts.Arena.TryFindRelocationDestination(copy.Source, region, out _);
             }));
         }
 
@@ -323,7 +323,7 @@ public sealed class AutomaticCompoundRelocationTests(ITestOutputHelper output)
                 region = arena.RelocationVacancyAt(coordinate, sizeClass);
             }
 
-            return region != 0 && region == expected && arena.TryFindRelocationDestination(source, ref region, out _);
+            return region != 0 && region == expected && arena.TryFindRelocationDestination(source, region, out _);
         }));
     }
 

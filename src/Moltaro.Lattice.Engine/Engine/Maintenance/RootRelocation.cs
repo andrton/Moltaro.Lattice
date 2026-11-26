@@ -29,7 +29,7 @@ internal static class RootRelocation
 
         var layout = parts.Tables.Stored(entry.TypeId).Layout;
         var arena = parts.Arena;
-        if (!arena.TryFindRelocationDestination(source, ref region, out var sizeClass) ||
+        if (!arena.TryFindRelocationDestination(source, region, out var sizeClass) ||
             !RelocationBlock.TryReadRoot(arena, layout, source, expected, out var holder) ||
             !RelocationChildren.Validate(arena, holder))
         {

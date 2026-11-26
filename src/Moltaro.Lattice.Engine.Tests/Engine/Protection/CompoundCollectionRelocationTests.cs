@@ -135,7 +135,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
             Assert.False(await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
             {
                 var destination = Arena.RegionOf(recordHole);
-                return parts.Arena.TryFindRelocationDestination(full, ref destination, out _);
+                return parts.Arena.TryFindRelocationDestination(full, destination, out _);
             }));
             output.WriteLine($"{role}: Records directory {originalOuter} => {directoryHole}; full ordinal 0 {full}, {recordsPerChunk} records, {fullBytes} payload bytes; tail ordinal {tailOrdinal} {block} => {recordHole}, {RecordCount} records, {tailBytes} payload bytes.");
         }
@@ -828,7 +828,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
     {
         Assert.True(source.Segment > destination.Segment, $"Source {source} is not later than the hole {destination}.");
         var region = Arena.RegionOf(destination);
-        Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationDestination(source, ref region, out _)),
+        Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationDestination(source, region, out _)),
             $"Source {source} is not eligible for the available hole {destination}.");
     }
 
@@ -842,7 +842,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
             var destination = Arena.RegionOf(hole);
-            Assert.True(parts.Arena.TryFindRelocationDestination(source, ref destination, out _));
+            Assert.True(parts.Arena.TryFindRelocationDestination(source, destination, out _));
             var last = children[^1];
             var correct = root.Arena.Header(last);
             Assert.NotEqual(correct.DescriptorOffset, (uint)wrongOffset);
@@ -854,7 +854,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
             }
 
             Assert.Equal(correct, root.Arena.Header(last));
-            Assert.True(parts.Arena.TryFindRelocationDestination(source, ref destination, out _));
+            Assert.True(parts.Arena.TryFindRelocationDestination(source, destination, out _));
             return CompoundRelocation.TryMove(parts, root.Handle, source, destination, out _, out _);
         });
 

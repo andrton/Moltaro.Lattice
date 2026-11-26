@@ -298,7 +298,7 @@ public sealed class RelocatedCollectionMatrixTests(ITestOutputHelper output)
                 Assert.True(target.Address.Segment > earlier.Address.Segment);
                 var region = RegionFor(parts.Arena, earlier);
                 Assert.NotEqual(0L, region);
-                Assert.True(parts.Arena.TryFindRelocationDestination(target.Address, ref region, out _));
+                Assert.True(parts.Arena.TryFindRelocationDestination(target.Address, region, out _));
             }
 
             return true;

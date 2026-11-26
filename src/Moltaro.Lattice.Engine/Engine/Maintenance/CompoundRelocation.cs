@@ -27,7 +27,7 @@ internal static class CompoundRelocation
         ref var entry = ref parts.Roots.EntryOfSlot(expected.Slot);
         var arena = parts.Arena;
         if (entry.Generation != expected.Generation || entry.State != RootStateEnum.Live || entry.Root == source ||
-            !arena.TryFindRelocationDestination(source, ref region, out var sizeClass))
+            !arena.TryFindRelocationDestination(source, region, out var sizeClass))
         {
             return false;
         }
