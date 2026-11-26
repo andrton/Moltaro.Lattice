@@ -14879,6 +14879,22 @@ format and six focused controls. The two intended regression rows remained
 skipped until implementation. The earlier forced run reproduced both failures
 without those skips.
 
+The implementation at `782424ae83007ba713421356266349ca2ad3aed1` shares
+optional trim handling across the synchronous drain and the bounded worker.
+The bounded worker still charges one unit for an attempted trim. Strict
+close reports its original error and continues with native cleanup.
+
+The independent review approved the ordinary, memory recovery and final
+close paths. All 51 related tests passed in each of Debug and Release. The
+coordinator's full Windows x64 Release run passed 4,683 tests, with 129
+expected skips, format and all 18 samples. An independent three-case
+Release comparison held two protected readers. The refused ordinary trim
+kept only the empty managed backing, the next bounded pass spent one unit
+reducing it to zero, and a subsequent write reached the next position.
+Close returned every native segment. The strict close case kept both
+callers waiting for the readers and returned the same original exception
+after the native return. Raw checks stay outside Git.
+
 #### S24 · The memory budget
 
 **Rollback of a full root on a child (S23D).** The verified `b53fb21a`
