@@ -16,6 +16,8 @@ internal sealed class TextWriterSlots
     public long Bytes => 32 + _pages.Bytes + (_pageCount == 0 ? 0 :
         24L + 32L * _pages.Get(0)!.Length + (24L + 32L * PageSlots) * (_pageCount - 1));
 
+    public object? CapturePage(uint page) => _pages.Get(page);
+
     public ref TextSlot At(uint reference)
     {
         var index = reference - 1;

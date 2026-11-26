@@ -114,6 +114,13 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         return true;
     }
 
+    // Under Writes, observes the actual page identity without changing its lifetime in the table.
+    public object? CaptureWriterPage(uint page)
+    {
+        AssertWrites();
+        return _slots.CapturePage(page);
+    }
+
     public bool TryCaptureLocatorLeaf(uint id, out IReadOnlyList<TextLocatorAllocation> actual)
     {
         AssertWrites();
