@@ -32,7 +32,8 @@ internal sealed class CollectionShrinkPair(
     public ILatticeSet ChildItems => child.Set("Item");
     public string FieldPath => flattened ? "Holder.Values" : "Values";
 
-    public static async Task<CollectionShrinkPair> OpenAsync(bool set, bool flattened, int count, bool duplicateTarget = false, int fillerCount = 0)
+    public static async Task<CollectionShrinkPair> OpenAsync(bool set, bool flattened, int count, bool duplicateTarget = false,
+        int fillerCount = 0, bool includeStamp = false)
     {
         var declaration = set
             ? """ "Type": "Set", "Element": { "Type": "Int32" } """
@@ -43,11 +44,12 @@ internal sealed class CollectionShrinkPair(
         var owned = flattened
             ? $$""" "OwnedTypes": [{ "Id": 1, "Name": "Payload", "Fields": [{ "Id": 1, "Name": "Values", {{declaration}}, "Nullable": true }] }], """
             : "";
+        var stamp = includeStamp ? """, { "Id": 3, "Name": "Stamp", "Type": "Int32", "Nullable": true }""" : "";
         var schema = LatticeSchema.Compile($$"""
             {
               {{owned}}
               "EntityTypes": [{
-                "Id": 1, "Name": "Item", "Fields": [{ "Id": 1, "Name": "Id", "Type": "Int32" }, {{field}}],
+                "Id": 1, "Name": "Item", "Fields": [{ "Id": 1, "Name": "Id", "Type": "Int32" }, {{field}}{{stamp}}],
                 "PrimaryKey": [1]
               }]
             }

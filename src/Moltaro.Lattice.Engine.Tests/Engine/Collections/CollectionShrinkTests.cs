@@ -11,6 +11,67 @@ public sealed class CollectionShrinkTests
 {
     private const int ValueDescriptorBytes = 16;
 
+    [Fact]
+    public async Task A_scalar_only_update_leaves_the_same_collection_capacity_available_after_forwarding_and_refusal()
+    {
+        await using var pair = await OpenAsync(set: false, flattened: false, Full, duplicateTarget: true, includeStamp: true);
+        var original = pair.Nodes.Select(node => ExpectFull(pair, node, Full, 2).Chunks).ToArray();
+        var declined = await pair.ResizeAsync(Full, Small);
+        pair.TurnAll();
+        var revisions = pair.Nodes.Select(node => pair.ExpectCurrent(node, Small, declined)).ToArray();
+        for (var role = 0; role < pair.Nodes.Length; role++)
+        {
+            ExpectCold(pair, pair.Nodes[role], original[role]);
+            Assert.Null(pair.Nodes[role].Database.Set("Item").Get(Key)!["Stamp"]);
+            pair.Nodes[role].ExpectNativeLedger();
+        }
+
+        pair.Advance(4_999);
+        var update = pair.ChildItems.CreateUpdate(Key);
+        update.Assign("Stamp", 17);
+        var refusedBatch = pair.Batch();
+        refusedBatch.Update(update);
+        refusedBatch.Insert(pair.Input(2, Small));
+        var refusal = await Assert.ThrowsAsync<LatticeException>(() => refusedBatch.CommitAsync().AsTask().WaitAsync(Bound));
+        Assert.Equal(LatticeErrorEnum.DuplicateKey, refusal.Error);
+        for (var role = 0; role < pair.Nodes.Length; role++)
+        {
+            var node = pair.Nodes[role];
+            Assert.Equal(revisions[role], pair.ExpectCurrent(node, Small, declined));
+            Assert.Null(node.Database.Set("Item").Get(Key)!["Stamp"]);
+            ExpectCold(pair, node, original[role]);
+            node.ExpectNativeLedger();
+        }
+
+        var assign = pair.ChildItems.CreateUpdate(Key);
+        assign.Assign("Stamp", 31);
+        var written = await assign.CommitAsync().AsTask().WaitAsync(Bound);
+        Assert.True(written.Changed);
+        Assert.Equal(declined.Sequence + 1, written.Position.Sequence);
+        await pair.FollowAsync(written.Position);
+        pair.TurnAll();
+        for (var role = 0; role < pair.Nodes.Length; role++)
+        {
+            var node = pair.Nodes[role];
+            Assert.NotEqual(revisions[role], pair.ExpectCurrent(node, Small, written.Position));
+            Assert.Equal(31, node.Database.Set("Item").Get(Key)!.Get<int?>("Stamp"));
+            ExpectCold(pair, node, original[role]);
+            node.ExpectNativeLedger();
+        }
+
+        var grown = await pair.ResizeAsync(Small, Full);
+        pair.TurnAll();
+        for (var role = 0; role < pair.Nodes.Length; role++)
+        {
+            var node = pair.Nodes[role];
+            pair.ExpectCurrent(node, Full, grown);
+            Assert.Equal(31, node.Database.Set("Item").Get(Key)!.Get<int?>("Stamp"));
+            AssertSameGrants(original[role], ExpectFull(pair, node, Full, 2).Chunks);
+            Assert.Empty(node.LeaseSnapshot());
+            node.ExpectNativeLedger();
+        }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
