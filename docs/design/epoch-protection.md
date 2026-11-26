@@ -141,8 +141,8 @@ key up while the writer inserts, deletes or enlarges the table:
 - **Retired memory is counted.** It has its own counter, and it counts against the
   memory budget of the instance. A write that meets the budget first frees what can be
   freed and waits for the reads in progress before it is refused.
-- **An idle database may keep the last retired pieces** until its next write or its
-  close.
+- **An idle Ready database drains safe retirements in bounded turns.** A held reader
+  delays the slots it can still reach. Their reclamation can proceed after it leaves.
 
 ## What it is not
 

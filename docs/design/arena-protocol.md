@@ -20,7 +20,7 @@ slot until reclamation. The native arena budget includes prepared blocks and
 relocation destinations alongside published data.
 
 A managed struct control entry identifies one root lifetime: key, generation,
-published revision, root address, live/deleted state and temporary lookup claims.
+published revision, root address and live or deleted state.
 The primary index reaches this entry, never an unprotected native pointer. Owned
 chunks identify the root lifetime and the owning edge that must be repaired when
 they move. A shared text descriptor names a stable text ID. The reader acquires the

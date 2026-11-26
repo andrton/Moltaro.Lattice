@@ -50,7 +50,7 @@ to infrastructure and do not block engine implementation planning.
 | Q13 | [Write coordinator and revisions](milestone-1-engine-contract.md#write-coordinator-and-revision-semantics) | Integrate typed/dynamic/remote facade, explicit partial/WriteBatch, no-op accounting and retry status; test failures |
 | Q14 | [Bounded settings](milestone-1-engine-contract.md#initial-bounded-settings) | Implement reservations and option validation; verify exhaustion, cancellation and recovery; tune within accepted guarantees |
 | Q16 | [Native layout](milestone-1-engine-contract.md#native-layout-and-allocation), [collections](milestone-1-engine-contract.md#collections-and-strings) and [schema](milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration) | Implement selected codecs, descriptors/chunks/hash layouts and schema binding; binary/lifetime validation |
-| Q17 | [Protection and compaction](milestone-1-engine-contract.md#reader-protection-publication-and-compaction) | Implement claims/generations, bounded movement/shrink and diagnostics; verify fixed-live-data churn and read safety |
+| Q17 | [Protection and compaction](milestone-1-engine-contract.md#reader-protection-publication-and-compaction) | Epoch-protected lifetimes and bounded movement and shrink. Verify fixed-live-data churn and read safety |
 
 ## Accepted decisions
 
@@ -119,7 +119,7 @@ another list of approval questions. The implementation contract fixes their base
 | --- | --- | --- |
 | E01 | Native allocation and collections | Implement class/region free lists, descriptors/chunks, compact/hash collections and bounded shrink/compaction |
 | E02 | String storage | Implement Plain/Dictionary, immutable stable text handles, stored/prepared/index reference accounting and safe reuse |
-| E03 | Lifetime and publication | Implement database/root/catalog/text/allocator order, entry claims/generations and atomic publication/fault transitions |
+| E03 | Lifetime and publication | Verify epoch-protected readers, local writes ordering, bounded retirement and atomic publication and fault transitions |
 | E04 | Index integration | Wrap selected Arc structures, reserve growth/nodes/scratch, implement shared comparison and budgeted live traversal |
 | E05 | Schema/bindings | Compile stable IDs/layouts, typed/generated/dynamic bindings, versioned formats and explicit eager migration |
 | E06 | PostgreSQL provider | Implement independent base/256-byte units, journal/applier/recovery, durable admission/results and bounded retirement |
