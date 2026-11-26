@@ -50,7 +50,9 @@ internal sealed class KeyPassProgress(TimeProvider time)
 
             try
             {
-                await Task.WhenAny(worker, advanced).WaitAsync(remaining, time);
+                // WaitAsync truncates to whole milliseconds. A positive remainder must arm a timer.
+                var delay = TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds));
+                await Task.WhenAny(worker, advanced).WaitAsync(delay, time);
             }
             catch (TimeoutException)
             {

@@ -51,6 +51,7 @@ public sealed class ReturnedKeysPagesTests
         var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
         var progress = new KeyPassProgress(time);
+        var realTimeProgress = new KeyPassProgress(TimeProvider.System);
         var reached = new TaskCompletionSource[3];
         var released = new TaskCompletionSource[3];
 
@@ -63,6 +64,7 @@ public sealed class ReturnedKeysPagesTests
         var worker = OwnThread.Run(() => RememberAndFind("Int64", completed =>
         {
             progress.Report(completed);
+            realTimeProgress.Report(completed);
             var checkpoint = completed / ProgressChunk - 1;
 
             if (checkpoint < reached.Length)
@@ -75,10 +77,12 @@ public sealed class ReturnedKeysPagesTests
             }
         }));
 
+        Task<(int FoundBefore, int Lost, int FoundNever)> watching;
+
         try
         {
             await reached[0].Task.WaitAsync(Bound);
-            var watching = progress.WaitForCompletionAsync(worker);
+            watching = progress.WaitForCompletionAsync(worker);
             await timerArmed.Task.WaitAsync(Bound);
             var absoluteWait = worker.WaitAsync(Bound, time);
 
@@ -108,12 +112,6 @@ public sealed class ReturnedKeysPagesTests
             Assert.True(absoluteWait.IsCompleted);
             await Assert.ThrowsAsync<TimeoutException>(() => absoluteWait);
             Assert.False(worker.IsCompleted);
-
-            if (keepProgress)
-            {
-                released[^1].SetResult();
-                Assert.Equal((0, 0, 0), await watching.WaitAsync(Bound));
-            }
         }
         finally
         {
@@ -122,8 +120,36 @@ public sealed class ReturnedKeysPagesTests
                 release.TrySetResult();
             }
 
-            Assert.Equal((0, 0, 0), await worker.WaitAsync(Bound));
+            Assert.Equal((0, 0, 0), await realTimeProgress.WaitForCompletionAsync(worker));
         }
+
+        if (keepProgress)
+        {
+            Assert.Equal((0, 0, 0), await watching.WaitAsync(Bound));
+        }
+    }
+
+    [Fact]
+    public async Task A_progress_wait_arms_a_timer_with_less_than_a_millisecond_left()
+    {
+        var timerArmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = new PositionWaitTime(afterFirstTimer: timerArmed.SetResult);
+        var progress = new KeyPassProgress(time);
+        var work = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        time.Advance(Bound - TimeSpan.FromTicks(1));
+        var watching = OwnThread.Run(() => progress.WaitForCompletionAsync(work.Task)).Unwrap();
+
+        try
+        {
+            await timerArmed.Task.WaitAsync(Bound);
+            Assert.False(watching.IsCompleted);
+        }
+        finally
+        {
+            work.SetResult(42);
+        }
+
+        Assert.Equal(42, await watching.WaitAsync(Bound));
     }
 
     [Fact]
