@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Collections;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -8,7 +7,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
-using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
@@ -561,17 +559,8 @@ public sealed class RelocatedCollectionMatrixTests(ITestOutputHelper output)
         }
     }
 
-    private static byte[] Export(ILatticeSet items, MatrixCase row, Location location)
-    {
-        Assert.True(items.TryView(row.Key, _ =>
-        {
-            var output = new ArrayBufferWriter<byte>();
-            BlockExport.Write(output, location.Arena, location.Layout, location.Address);
-            Assert.Equal(output.WrittenCount, BlockExport.Length(location.Arena, location.Layout, location.Address));
-            return output.WrittenSpan.ToArray();
-        }, out var body));
-        return body;
-    }
+    private static byte[] Export(ILatticeSet items, MatrixCase row, Location location) =>
+        ProtectedExport.Capture(items, row.Key, location.Arena, location.Layout, location.Address);
 
     private static LatticeRecord Record(EngineDatabase node, MatrixCase row, int stamp, int salt) =>
         new(node.Set(row.Entity).EntityType)

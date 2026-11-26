@@ -32,6 +32,8 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     // How many pieces of memory were obtained and not returned.
     public int Outstanding => _outstanding.Count;
 
+    public IReadOnlyCollection<nint> OutstandingAddresses => _outstanding;
+
     public bool FailNextAllocation { get; set; }
 
     // How many requests were made, failed ones included.

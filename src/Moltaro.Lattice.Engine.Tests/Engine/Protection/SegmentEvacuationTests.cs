@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Maintenance;
@@ -219,7 +218,7 @@ public sealed class SegmentEvacuationTests
             Assert.Equal(returned, allocator.Returned);
             Assert.Contains(sourceNative, Outstanding(allocator));
             Assert.Contains(reserveNative, Outstanding(allocator));
-            Assert.Equal(0, Segments(arenaStorage)[reserve.Segment]!.RegionsInUse);
+            Assert.Equal(0, SegmentAt(arenaStorage, reserve.Segment).RegionsInUse);
             Assert.All(samples, sample => Assert.Equal(0, sample.SlotBytes));
             CheckStamps(stamped);
 
@@ -253,7 +252,7 @@ public sealed class SegmentEvacuationTests
         Assert.Equal(segmentCount - 1, allocator.Outstanding);
         Assert.DoesNotContain(sourceNative, Outstanding(allocator));
         Assert.Contains(reserveNative, Outstanding(allocator));
-        Assert.Equal(0, Segments(arenaStorage)[reserve.Segment]!.RegionsInUse);
+        Assert.Equal(0, SegmentAt(arenaStorage, reserve.Segment).RegionsInUse);
         Assert.Equal(1, node.Counters.Arena.ReservedSegments);
         Assert.Equal(arena.LiveBytes, node.Counters.Arena.LiveBytes);
         Assert.Equal(arena.ClassSlackBytes, node.Counters.Arena.ClassSlackBytes);
@@ -437,13 +436,9 @@ public sealed class SegmentEvacuationTests
         });
     }
 
-    internal static ArenaSegment SegmentAt(Arena arena, uint segment) => Segments(arena)[segment]!;
+    internal static ArenaSegment SegmentAt(Arena arena, uint segment) => ArenaSegmentTable.At(arena, segment)!;
 
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_segments")]
-    private static extern ref ArenaSegment?[] Segments(Arena arena);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_outstanding")]
-    internal static extern ref HashSet<nint> Outstanding(CountingNativeAllocator allocator);
+    internal static IReadOnlyCollection<nint> Outstanding(CountingNativeAllocator allocator) => allocator.OutstandingAddresses;
 
     internal sealed record Location(Arena Arena, RootLayout Layout, ArenaAddress Root, ArenaAddress Directory, ArenaAddress Chunk, int SlotBytes);
 

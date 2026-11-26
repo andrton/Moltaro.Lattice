@@ -8,8 +8,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
 internal static class ProtectedExport
 {
-    public static byte[] Capture(ILatticeSet items, long key, Arena arena, RootLayout layout, ArenaAddress root,
+    public static byte[] Capture<TKey>(ILatticeSet items, TKey key, Arena arena, RootLayout layout, ArenaAddress root,
         bool checkLength = true)
+        where TKey : notnull
     {
         Assert.True(items.TryView(key, _ =>
         {
