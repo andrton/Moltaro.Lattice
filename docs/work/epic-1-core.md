@@ -14895,6 +14895,31 @@ Close returned every native segment. The strict close case kept both
 callers waiting for the readers and returned the same original exception
 after the native return. Raw checks stay outside Git.
 
+##### S23F child scratch after publishing or returning a batch
+
+A child discards oversized preparation scratch after naming more than
+1,024 keys. Replacing it at that point could allocate after publication or
+rollback. The controlled cases returned an allocation error for a coherent
+committed batch, replaced the original preparation error during rollback,
+and tried to return the same native roots twice after a real arena refusal.
+An independent mixed replace, delete and insert batch also checked the
+transferred unique-index owners and shared text references.
+
+**Acceptance.** Releasing oversized scratch leaves the published outcome
+or original preparation error intact. Native refusal returns prepared
+effects once per attempt and keeps its existing retry and refusal result.
+The next preparation obtains new scratch under the writes lock before
+acquiring native storage. A refusal there leaves the last position and
+ownership intact and permits a subsequent retry. Small batches keep room
+under the existing rule.
+
+The independent tests-first review accepted
+`4197b7e9e27c46ed3592b4e0f7532160685057fa`. Its exact parent
+`81396918cd3ef7cfc9e5c3e5ad840dffbab80b6a` produced the three expected
+red cases and two positive controls when forced. With normal skips restored,
+the tests-first solution builds, format passes, and the three S23D rollback
+tests pass.
+
 #### S24 · The memory budget
 
 **Rollback of a full root on a child (S23D).** The verified `b53fb21a`
