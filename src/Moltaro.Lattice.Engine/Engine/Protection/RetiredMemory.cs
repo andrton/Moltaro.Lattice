@@ -254,7 +254,7 @@ internal sealed class RetiredMemory
 
     // Shares one horizon across fresh heads, and carries an already safe
     // partial head without a scan. The caller holds the writes lock.
-    public int DrainStep(int workLimit)
+    public int DrainStep(int workLimit, Action? beforeRootReclamationAllocation = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
 
@@ -271,7 +271,7 @@ internal sealed class RetiredMemory
                 }
             }
 
-            if (StepHead(item))
+            if (StepHead(item, beforeRootReclamationAllocation))
             {
                 FinishHead();
             }
@@ -289,7 +289,7 @@ internal sealed class RetiredMemory
 
     // One unit belongs to the head: open its cursor, inspect one part, release
     // one slot or handle, or drop one managed table. No later item can bypass it.
-    private bool StepHead(in RetiredItem item)
+    private bool StepHead(in RetiredItem item, Action? beforeRootReclamationAllocation = null)
     {
         if (!_headActive)
         {
@@ -297,7 +297,12 @@ internal sealed class RetiredMemory
             {
                 case RetiredKindEnum.Root:
                 case RetiredKindEnum.DeletedRoot:
-                    _rootWork ??= new RootReclamation(_arena);
+                    if (_rootWork is null)
+                    {
+                        beforeRootReclamationAllocation?.Invoke();
+                        _rootWork = new RootReclamation(_arena);
+                    }
+
                     _rootWork.Start((RootLayout)item.Owner!, item.Address);
                     _headActive = true;
                     return false;

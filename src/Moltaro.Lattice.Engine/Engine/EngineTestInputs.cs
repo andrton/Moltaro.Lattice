@@ -54,6 +54,9 @@ internal sealed class EngineTestInputs
     // Under Writes, immediately before a missing destination page is allocated during text migration.
     public Action? BeforeTextMigrationPageAllocation { get; init; }
 
+    // Under Writes, just before allocating the first automatic root reclamation cursor.
+    public Action? BeforeRootReclamationAllocation { get; init; }
+
     // Lets a test drive the ordinary bounded turn without the background cadence.
     public bool DisableBackgroundMaintenance { get; init; }
 

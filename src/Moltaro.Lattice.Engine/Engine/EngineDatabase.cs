@@ -140,7 +140,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         _testInputs = testInputs;
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
-        _maintenance = new AutomaticMaintenance(testInputs?.BeforeTextMigrationPageAllocation);
+        _maintenance = new AutomaticMaintenance(
+            testInputs?.BeforeTextMigrationPageAllocation, testInputs?.BeforeRootReclamationAllocation);
         _runMaintenance = _maintenance.Run;
     }
 

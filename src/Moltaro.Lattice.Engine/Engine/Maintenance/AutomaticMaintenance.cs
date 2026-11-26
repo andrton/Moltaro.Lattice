@@ -8,7 +8,8 @@ namespace Moltaro.Lattice.Engine.Maintenance;
 // protects the cursors. A turn keeps only numeric coordinates and the expected
 // owner across unlock, and the mover verifies them against the current blocks
 // (docs/design/arena-protocol.md, "Reclamation and relocation").
-internal sealed class AutomaticMaintenance(Action? beforeTextMigrationPageAllocation = null)
+internal sealed class AutomaticMaintenance(
+    Action? beforeTextMigrationPageAllocation = null, Action? beforeRootReclamationAllocation = null)
 {
     public const int SelectionWorkLimit = 128;
 
@@ -33,7 +34,7 @@ internal sealed class AutomaticMaintenance(Action? beforeTextMigrationPageAlloca
         // Text work gets one chance even when every raw retirement unit
         // is needed. An idle text table leaves the entire allowance to the FIFO.
         var textWork = arena.Texts.MaintainBackground(1, beforeTextMigrationPageAllocation, out var deferred);
-        var reclaimed = parts.Retired.DrainStep(ReclamationWorkLimit - textWork);
+        var reclaimed = parts.Retired.DrainStep(ReclamationWorkLimit - textWork, beforeRootReclamationAllocation);
         var remaining = ReclamationWorkLimit - textWork - reclaimed;
         if (!deferred && remaining != 0)
         {
