@@ -4,7 +4,7 @@ using Moltaro.Lattice.Storage.Allocation;
 namespace Moltaro.Lattice.Engine.Maintenance;
 
 // One node's bounded maintenance. Each admitted turn drains the eligible FIFO
-// prefix before seeking an earlier slot for at most one move. The writes lock
+// prefix before seeking existing capacity for at most one move. The writes lock
 // protects the cursors. A turn keeps only numeric coordinates and the expected
 // owner across unlock, and the mover verifies them against the current blocks
 // (docs/design/arena-protocol.md, "Reclamation and relocation").
@@ -151,17 +151,27 @@ internal sealed class AutomaticMaintenance(
         sourceShape = default;
         var arena = parts.Arena;
         var bytes = SizeClasses.SizeOf(_sizeClass);
-        var earlier = arena.EarlierRelocationExtent(_source);
-        if (bytes > Arena.MaxBlockSize - parts.Retired.RelocationBytes || earlier == 0 || _destination == earlier)
+        var evacuation = _sizeClass >= SizeClasses.FirstEvacuationClass;
+        var limit = evacuation ? _extent : arena.EarlierRelocationExtent(_source);
+        if (bytes > Arena.MaxBlockSize - parts.Retired.RelocationBytes || limit == 0 || _destination == limit)
         {
             _source = default;
             return false;
         }
 
         work++;
-        var region = _destination < 0
-            ? arena.RelocationHead(_sizeClass, _source.Segment)
-            : arena.RelocationVacancyAt(_destination, _sizeClass);
+        long region;
+        if (evacuation)
+        {
+            region = arena.EvacuationVacancyAt(_destination, _sizeClass, _source.Segment);
+        }
+        else
+        {
+            region = _destination < 0
+                ? arena.RelocationHead(_sizeClass, _source.Segment)
+                : arena.RelocationVacancyAt(_destination, _sizeClass);
+        }
+
         _destination++;
         if (region == 0)
         {
