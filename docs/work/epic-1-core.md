@@ -14657,6 +14657,18 @@ assertion while its fixture isolates the periodic worker. The verified main
 passed build, Windows and ARM64. The [refactoring backlog](refactoring.md#architects-review-after-s23-26-november-2026)
 records the planner's dispositions.
 
+##### Tests first
+
+The independent tests-first gate passed at
+`41d013d4393185cc9eac9b5071f39f5155598d57`, before runtime changes.
+The Release solution built with zero warnings and errors. With the shared pending
+reason, 14 controls passed and 42 new movement cases were skipped. On S23 with the
+pending cases enabled, those 42 cases reached the intended missing-movement
+assertions. Both roles verified physical shape and the two available-region forms.
+The gate also checked actual native return, concurrent epochs, canonical transfer,
+ordinary worker cadence, shared headroom, rank and slot accounting, write
+interference, close admission, index ownership, and the 4,000-edge root.
+
 #### S24 · The memory budget
 
 **Rollback of a full root on a child.** In `ReceivedChanges.TryPrepareWrite`,
