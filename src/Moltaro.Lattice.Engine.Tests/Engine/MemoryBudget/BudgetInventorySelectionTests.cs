@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 public sealed class BudgetInventorySelectionTests
 {
-    [Fact(Skip = BudgetOwnershipCorrection.Pending)]
+    [Fact]
     public async Task The_same_seeded_indexed_and_unindexed_writes_keep_their_outcomes_and_charges_with_inventory_disabled()
     {
         var observed = await TraceAsync(observe: true);

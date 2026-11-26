@@ -140,7 +140,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     {
         _options = options;
         _testInputs = testInputs;
-        _budget = new MemoryBudget(testInputs is not null);
+        _budget = new MemoryBudget(testInputs?.ObserveBudgetBackings == true);
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
         _maintenance = new AutomaticMaintenance(

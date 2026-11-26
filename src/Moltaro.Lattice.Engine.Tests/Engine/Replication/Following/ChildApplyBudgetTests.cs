@@ -56,6 +56,7 @@ public sealed class ChildApplyBudgetTests
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, ChildLimit),
             new EngineTestInputs
             {
+                ObserveBudgetBackings = true,
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 BeforeReceivedRootListGrowth = (count, index, _, _) =>

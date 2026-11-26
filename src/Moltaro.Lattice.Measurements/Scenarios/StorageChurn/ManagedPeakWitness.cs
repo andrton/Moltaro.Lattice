@@ -177,7 +177,7 @@ internal static class ManagedPeakWitness
             Schema = schema,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             MemoryLimit = limit,
-        }, new EngineTestInputs { Allocator = ledger, DisableBackgroundMaintenance = true, IndexSeed = 0 });
+        }, new EngineTestInputs { ObserveBudgetBackings = true, Allocator = ledger, DisableBackgroundMaintenance = true, IndexSeed = 0 });
 
     private static async Task SeedAsync(ILatticeSet set, CancellationToken token)
     {

@@ -22,7 +22,7 @@ public sealed class ChildOpenBudgetTests
         var allocator = new CountingNativeAllocator();
         await using var child = EngineDatabase.Create(
             ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, 64L * Segment),
-            new EngineTestInputs { Allocator = allocator, RootPageLimit = 1 });
+            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, RootPageLimit = 1 });
         var opening = child.OpenAsync().AsTask();
         if (fits)
         {

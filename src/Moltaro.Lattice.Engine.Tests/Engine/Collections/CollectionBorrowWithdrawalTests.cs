@@ -35,7 +35,7 @@ public sealed class CollectionBorrowWithdrawalTests
         bool withdraw, bool queuedCancellation)
     {
         var storage = new HeldPersistence(holding: false);
-        await using var pair = await OpenAsync(false, false, Full, duplicateTarget: true, persistence: storage);
+        await using var pair = await OpenAsync(false, false, Full, duplicateTarget: true, persistence: storage, observeBudgetBackings: true);
         var origin = await pair.ResizeAsync(Full, Small);
         pair.TurnAll();
         var node = pair.Nodes[0];

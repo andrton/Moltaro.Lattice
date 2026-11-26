@@ -32,7 +32,7 @@ public sealed class BatchAdditionBudgetTests
         var childAllocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, Limit),
-            new EngineTestInputs { Allocator = childAllocator, DisableBackgroundMaintenance = true });
+            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = childAllocator, DisableBackgroundMaintenance = true });
         var acting = onChild ? child : master;
         var allocator = onChild ? childAllocator : sourceAllocator;
 

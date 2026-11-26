@@ -113,7 +113,7 @@ public sealed class PreparedSparseCommandsBudgetTests
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             ListenUri = MasterAndChild.Loopback,
             MemoryLimit = Limit,
-        }, new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, Persistence = storage });
+        }, new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, DisableBackgroundMaintenance = true, Persistence = storage });
         await master.OpenAsync();
         var source = master.Set(ItemSchema.EntityTypeName);
         var seed = await source.InsertAsync(new LatticeRecord(source.EntityType)
@@ -215,6 +215,7 @@ public sealed class PreparedSparseCommandsBudgetTests
             MemoryLimit = Limit,
         }, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             Persistence = storage,
@@ -235,6 +236,7 @@ public sealed class PreparedSparseCommandsBudgetTests
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, Limit), new EngineTestInputs
             {
+                ObserveBudgetBackings = true,
                 Allocator = childAllocator,
                 DisableBackgroundMaintenance = true,
                 BeforeChildPreparationMember = _ =>

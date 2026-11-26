@@ -27,6 +27,7 @@ public sealed class PreparedDictionaryGrowthTests
         var persistence = new HeldPersistence(holding: true);
         await using var node = await ReplicationNodes.OpenMasterAsync(TextSchema.Utf8, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             IndexSeed = Seed,
             Allocator = allocator,
             Persistence = persistence,

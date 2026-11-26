@@ -34,7 +34,7 @@ internal sealed class CollectionShrinkPair(
     public string FieldPath => flattened ? "Holder.Values" : "Values";
 
     public static async Task<CollectionShrinkPair> OpenAsync(bool set, bool flattened, int count, bool duplicateTarget = false,
-        int fillerCount = 0, bool includeStamp = false, IPersistence? persistence = null)
+        int fillerCount = 0, bool includeStamp = false, IPersistence? persistence = null, bool observeBudgetBackings = false)
     {
         var declaration = set
             ? """ "Type": "Set", "Element": { "Type": "Int32" } """
@@ -59,7 +59,7 @@ internal sealed class CollectionShrinkPair(
         var time = new CollectionMaintenanceTime();
         var left = new CountingNativeAllocator();
         var right = new CountingNativeAllocator();
-        var master = await ReplicationNodes.OpenMasterAsync(schema, Inputs(left, 31, time, persistence));
+        var master = await ReplicationNodes.OpenMasterAsync(schema, Inputs(left, 31, time, persistence, observeBudgetBackings));
         try
         {
             var masterItems = master.Set("Item");
@@ -251,10 +251,11 @@ internal sealed class CollectionShrinkPair(
         }
     }
 
-    private static EngineTestInputs Inputs(CountingNativeAllocator allocator, ulong seed, TimeProvider time, IPersistence? persistence = null) => new()
+    private static EngineTestInputs Inputs(CountingNativeAllocator allocator, ulong seed, TimeProvider time, IPersistence? persistence = null, bool observeBudgetBackings = false) => new()
     {
         Arena = new ArenaOptions { MemoryLimit = 32 * 1024 * 1024, SegmentSize = WholeChunk, ReservedSegments = 0 },
         Allocator = allocator,
+        ObserveBudgetBackings = observeBudgetBackings,
         IndexSeed = seed,
         DisableBackgroundMaintenance = true,
         MaintenanceTimeProvider = time,

@@ -83,6 +83,7 @@ public sealed class WorkspaceWithdrawalTests
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, limit), new EngineTestInputs
             {
+                ObserveBudgetBackings = true,
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 ObserveChildPressure = sample => paused.TrySetResult(sample),

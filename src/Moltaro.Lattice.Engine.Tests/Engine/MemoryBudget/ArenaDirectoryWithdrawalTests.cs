@@ -24,6 +24,7 @@ public sealed class ArenaDirectoryWithdrawalTests
         var storage = new HeldPersistence(holding: false);
         await using var node = await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Arena = new ArenaOptions { SegmentSize = grant, MemoryLimit = 128L * grant, ReservedSegments = 0 },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,

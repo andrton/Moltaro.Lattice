@@ -99,6 +99,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         var childAllocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
         {
+            ObserveBudgetBackings = true,
             Allocator = childAllocator,
             DisableBackgroundMaintenance = true,
             IndexSeed = 91,
@@ -165,7 +166,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         var allocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
-            new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = sample => pressure.TrySetResult(sample) });
+            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = sample => pressure.TrySetResult(sample) });
         var mirror = child.Set("Item");
         Assert.True(mirror.TryGet(first, out _, out var revision));
         var taken = await MaintenanceStep.RunAfterAdmissionAsync(child, parts =>

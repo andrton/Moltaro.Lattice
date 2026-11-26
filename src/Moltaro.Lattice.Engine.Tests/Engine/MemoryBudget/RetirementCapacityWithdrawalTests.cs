@@ -169,6 +169,7 @@ public sealed class RetirementCapacityWithdrawalTests
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, Limit), new EngineTestInputs
             {
+                ObserveBudgetBackings = true,
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 ObserveChildPressure = sample => pause.TrySetResult(sample),
