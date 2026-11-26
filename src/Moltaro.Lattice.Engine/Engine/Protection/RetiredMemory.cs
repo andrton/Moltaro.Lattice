@@ -128,9 +128,7 @@ internal sealed class RetiredMemory
     // Growth for reservations stays provisional until actual retirements need it.
     // Earlier arrays hold no items: a withdrawal copies the current FIFO into
     // the smallest backing still needed by the published or prepared work.
-    private int _publishedCapacity;
-
-    private BackingHistory<RetiredItem[]>? _earlier;
+    private WorkspaceCapacity<RetiredItem> _backing;
 
     // The places reserved for things that writes prepared and not published yet will retire: while a
     // group is in the persistence step, later writes are prepared and published after it, in their order
@@ -234,33 +232,20 @@ internal sealed class RetiredMemory
 
         if (_arena.Budget is not { } budget)
         {
-            _publishedCapacity = _capacity = _items.EnsureCapacity(needed);
+            _capacity = _items.EnsureCapacity(needed);
             return;
         }
 
         var previous = BudgetCollections.Items(_items);
         var capacity = BudgetCollections.CapacityFor(_capacity, needed);
-        RetiredItem[]? replacement = null;
+        RetiredItem[] replacement;
         try
         {
-            replacement = budget.Allocate<RetiredItem>(capacity, nameof(RetiredMemory));
-            if (previous.Length != 0)
-            {
-                _earlier = BackingHistory<RetiredItem[]>.Keep(previous, _earlier, budget, nameof(RetiredMemory));
-            }
+            replacement = _backing.AllocateGrowth(previous, capacity, budget, nameof(RetiredMemory));
         }
-        catch (Exception exception)
+        catch (BudgetRefusedException)
         {
-            if (replacement is not null)
-            {
-                budget.Release(replacement);
-            }
-
-            if (exception is BudgetRefusedException)
-            {
-                _observeBackingRefusal?.Invoke(needed);
-            }
-
+            _observeBackingRefusal?.Invoke(needed);
             throw;
         }
 
@@ -271,61 +256,19 @@ internal sealed class RetiredMemory
 
     private void ReturnUnusedBacking()
     {
-        var needed = Math.Max(_publishedCapacity, _items.Count + _reserved);
-        if (needed >= _capacity || _arena.Budget is not { } budget)
+        var inUse = _items.Count + _reserved;
+        if (!_backing.CanRelease(inUse) || _arena.Budget is not { } budget)
         {
             return;
         }
 
-        RetiredItem[]? replacement = null;
-        while (_earlier is { } earlier && earlier.Backing.Length >= needed)
+        var previous = BudgetCollections.Items(_items);
+        var replacement = _backing.SelectRetained(previous, inUse, budget);
+        if (!ReferenceEquals(replacement, previous))
         {
-            if (replacement is not null)
-            {
-                budget.Release(replacement);
-            }
-
-            replacement = earlier.Backing;
-            _earlier = earlier.Drop(budget);
-        }
-
-        if (needed == 0)
-        {
-            if (replacement is not null)
-            {
-                budget.Release(replacement);
-            }
-
-            replacement = [];
-        }
-
-        if (replacement is not null)
-        {
-            var previous = BudgetCollections.Items(_items);
             _items.UseBacking(replacement);
             _capacity = replacement.Length;
             budget.Release(previous);
-        }
-    }
-
-    private void KeepPublishedCapacity()
-    {
-        var keep = _capacity;
-        ref var older = ref _earlier;
-        while (older is { } earlier && earlier.Backing.Length >= _items.Count)
-        {
-            keep = earlier.Backing.Length;
-            older = ref earlier.Earlier;
-        }
-
-        _publishedCapacity = keep;
-        if (_arena.Budget is { } budget)
-        {
-            while (older is { } earlier)
-            {
-                older = earlier.Drop(budget);
-                budget.Release(earlier.Backing);
-            }
         }
     }
 
@@ -584,7 +527,7 @@ internal sealed class RetiredMemory
         }
 
         _capacity = 0;
-        _publishedCapacity = 0;
+        _backing.Reset();
     }
 
     // For a write the arena refused, under the lock of the writes: the epoch below which the reads
@@ -638,7 +581,7 @@ internal sealed class RetiredMemory
     {
         _items.Clear();
         _reserved = 0;
-        _publishedCapacity = 0;
+        _backing.Reset();
         ReturnUnusedBacking();
         _rootWork?.Clear();
         _nodeWork = default;
@@ -663,14 +606,13 @@ internal sealed class RetiredMemory
         _newest = _epochs.Current;
         _items.Enqueue(new RetiredItem(kind, _newest, owner, address, handle, bytes));
         _reserved--;
-        if (_items.Count > _publishedCapacity)
+        if (_arena.Budget is { } budget)
         {
-            KeepPublishedCapacity();
-        }
-
-        if (_earlier is not null && _reserved == 0)
-        {
-            ReturnUnusedBacking();
+            _backing.Keep(_items.Count, budget);
+            if (_backing.HasEarlier && _reserved == 0)
+            {
+                ReturnUnusedBacking();
+            }
         }
 
         _itemsSinceLook++;
