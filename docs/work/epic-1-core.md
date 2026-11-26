@@ -14910,8 +14910,9 @@ or original preparation error intact. Native refusal returns prepared
 effects once per attempt and keeps its existing retry and refusal result.
 The next preparation obtains new scratch under the writes lock before
 acquiring native storage. A refusal there leaves the last position and
-ownership intact and permits a subsequent retry. Small batches keep room
-under the existing rule.
+ownership intact. The receiver can prepare the same input on a later
+invocation. The live follower ends the connection when application of a
+batch actually fails. Small batches keep room under the existing rule.
 
 The independent tests-first review accepted
 `4197b7e9e27c46ed3592b4e0f7532160685057fa`. Its exact parent
@@ -14919,6 +14920,21 @@ The independent tests-first review accepted
 red cases and two positive controls when forced. With normal skips restored,
 the tests-first solution builds, format passes, and the three S23D rollback
 tests pass.
+
+The source review approved `313a24a733fb9a9cfbf5ea9ee09c7fce57714c66`.
+The five scratch cases and the three full-root rollback cases passed in
+Debug and Release. The associated load, transaction, following and protection
+cases passed in both configurations.
+
+An independent 1,025-member mixed-batch control verified committed payloads,
+revisions and transferred unique owners, the original preparation error, and
+unchanged position, index, text and native state after a refused recreation.
+Retry on the same receiver advanced one position. After the ordinary
+quiescent drain, the ledger showed each native segment returned once at close.
+Both independent cases passed on Windows x64 in Debug and Release. The
+fixture SHA-256 is
+`f8961758599f1e0b805eb50cf219aa80d8faa20097869afea05da3c6e28099ba`.
+Raw results stay outside Git.
 
 #### S24 · The memory budget
 

@@ -562,8 +562,14 @@ earlier lifetime; roots inserted outside the fence arrive through the tail. A tr
 is applied whole: one of its effects can be skipped while another is applied, and a
 transaction is never skipped whole by the sequence of one effect. Before placing
 a full root, the child makes room to record it for rollback. A failed list growth
-therefore leaves no unrecorded root or handle. The clock of a loading child starts at S; no reads are enabled until the complete state and local indexes cover
-R, and the child is Ready when it has applied R. Live changes after R continue through
+therefore leaves no unrecorded root or handle. Publication and rollback discard
+oversized preparation containers without allocating. A later preparation
+recreates them under the writes lock before taking ownership of roots or
+reservations. The allocation belongs to that later attempt.
+
+The clock of a loading child starts at S. Reads are enabled once the complete
+state and local indexes cover R, and the child is Ready when it has applied R.
+Live changes after R continue through
 the same ordered application path. A Write of the stream whose root does not carry the
 sequence of its transaction is refused with its whole transaction. The bootstrap
 experiment tested the earlier state-selection model with deletion watermarks, which the
