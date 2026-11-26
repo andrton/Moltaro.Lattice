@@ -299,10 +299,12 @@ internal sealed unsafe class Arena : IDisposable
             return false;
         }
 
-        ref readonly var metadata = ref entry.Regions[region];
-        return metadata.SizeClass == sizeClass && metadata.Allocated > 0 &&
-            metadata.Allocated < ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
+        return HasAssignedVacancy(entry.Regions[region], sizeClass);
     }
+
+    private static bool HasAssignedVacancy(in ArenaRegion region, int sizeClass) =>
+        region.SizeClass == sizeClass && region.Allocated > 0 &&
+        region.Allocated < ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass);
 
     public long EvacuationVacancyAt(long coordinate, int sizeClass, uint source)
     {
@@ -328,8 +330,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         ref readonly var metadata = ref segment.Regions[RegionIndexOf(region)];
-        if (metadata.Allocated != 0 && (metadata.SizeClass != sizeClass ||
-            metadata.Allocated == ArenaSegment.RegionSize / SizeClasses.SizeOf(sizeClass)))
+        if (metadata.Allocated != 0 && !HasAssignedVacancy(metadata, sizeClass))
         {
             return false;
         }
