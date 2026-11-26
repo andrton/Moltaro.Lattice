@@ -15148,6 +15148,28 @@ committed outcome and its local position wait keep their existing semantics.
 See X6 in the [exceptions register](exceptions.md) for the wait on an unknown
 fully sent outcome.
 
+A batch's adding methods reserve local memory for their snapshot and
+workspace on either role before sending or queueing anything. A failed
+reservation synchronously reports `WriteRejected` with `Memory` and no
+`OperationIndex`. Keep the current order of input, duplicate, submitted
+and closed checks for full values and partial updates. Keep prior members,
+count, claimed identities and an unconsumed update when the reservation
+fails. The caller can try the same addition again. Budget the temporary
+export and its final single-buffer or multi-piece copy while both are
+owned. Include the real list and identity-set replacement peaks. The
+caller's original input remains outside the charge.
+
+Submitting the completed batch transfers ownership of its charged input.
+Waiting adds no new preparation reservation. Commit can independently
+be refused for execution capacity. End each charge when the library loses
+its last owner, including after cancellation or refusal. The ledger must
+allow collection of an abandoned builder and eventually return its charge
+without requiring explicit disposal. Test two batches competing for the
+remaining budget, a preserved update and prior members after refusal,
+successful retry after release, a held builder after Commit, and a local
+child refusal that sends no request. Compare the two snapshot storage
+shapes and the temporary and retained capacities independently.
+
 Undo all unused reservations and all capacity owned solely by a failed or
 cancelled preparation, including new managed backing and newly granted native
 segments. Drop abandoned managed references as part of rollback. The GC
