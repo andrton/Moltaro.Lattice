@@ -1130,6 +1130,11 @@ The ARM64 archive SHA-256 values, in order, are
 `0ba044f40eabebbee8f2879fc11a40b7ab97a0664f6567fb8a3440799b6261a2`.
 Raw measurements stay outside Git.
 
+The integrated refactoring over `f9f80c99` has eleven changed engine files.
+Each matches its respective source blob on both sides of the ARM64
+comparison. The integrated test setup also keeps the exact native address and
+the raw header witness from the evacuation fixture correction.
+
 ### Child preparation rollback exits
 
 The review of `ReceivedChanges.TryPlace` and `TryApply` considered merging

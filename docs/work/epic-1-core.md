@@ -14547,11 +14547,13 @@ local checks, canonical transfer review, ARM64 acceptance and
 the accepted measurement dispositions are recorded above.
 ###### Pre-S24 debt dispositions
 
-- Existing close and rollback defects have their own records. See
-  [S23B session admission](#fresh-session-reads-at-close),
-  [S23C final cleanup](#pre-s24-close-cleanup-investigation), and the
-  [S23D full-root rollback record in the memory inventory](#s24--the-memory-budget).
-  Waits and writes that were already admitted retain their documented outcomes.
+- The pre-S24 corrections cover [S23B session admission](#fresh-session-reads-at-close),
+  [S23C final cleanup](#pre-s24-close-cleanup-investigation),
+  [S23D full-root rollback](#s24--the-memory-budget),
+  [S23E ordinary retirement trim](#s23e-retirement-queue-upkeep-on-a-running-instance),
+  and [S23F child scratch](#s23f-child-scratch-after-publishing-or-returning-a-batch).
+  The cases preserve the documented outcomes for waits and writes that were
+  already admitted. Each correction has its own evidence.
 - The below-half trigger in S23 and the separate
   [S23A evacuation trigger](#s23a-arm64-verification) implement
   [Q66](open-questions.md#q66-may-segment-evacuation-start-without-a-sparse-occupied-region).
