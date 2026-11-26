@@ -923,7 +923,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             var roots = new RootTable();
             var retired = new RetiredMemory(_epochs, arena, roots);
             var clock = new PositionClock(history, this, _testInputs?.PositionWaitTime, _epochs,
-                isDatabaseClosed: () => _state == LatticeDatabaseStateEnum.Closed);
+                isDatabaseClosed: () => IsClosed);
             var delivery = new DeliveryTail();
             var tables = new EntityTables([.. schema.EntityTypes.Select(entityType => EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed))]);
             var changes = new ChangePublisher(arena, roots, retired, clock, tables);
@@ -1036,6 +1036,9 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
         return new ClassSet<TEntity>(parts.Operations[binding.EntityType], binding);
     }
+
+    // The public close mark is set before the position clock notifies existing waiters.
+    internal bool IsClosed => _state == LatticeDatabaseStateEnum.Closed;
 
     internal void ThrowIfNotReady()
     {

@@ -424,17 +424,8 @@ public sealed class SegmentEvacuationTests
         return bytes;
     }
 
-    internal static nint NativeOf(CountingNativeAllocator allocator, Location location)
-    {
-        var header = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref location.Arena.Header(location.Chunk), 1))
-            .ToArray();
-        var probe = new byte[BlockHeader.Size];
-        return Assert.Single(Outstanding(allocator), address =>
-        {
-            Marshal.Copy(address + (int)location.Chunk.Offset, probe, 0, probe.Length);
-            return probe.AsSpan().SequenceEqual(header);
-        });
-    }
+    internal static nint NativeOf(CountingNativeAllocator allocator, Location location) =>
+        allocator.AddressOf(SegmentAt(location.Arena, location.Chunk.Segment));
 
     internal static ArenaSegment SegmentAt(Arena arena, uint segment) => ArenaSegmentTable.At(arena, segment)!;
 

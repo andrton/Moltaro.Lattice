@@ -805,11 +805,9 @@ public sealed class AutomaticRelocationTests
                         var witness = witnesses[segmentIndex].First();
                         var header = HeaderBytes(arena, witness);
                         var probe = new byte[BlockHeader.Size];
-                        native = Assert.Single(allocator.OutstandingAddresses, address =>
-                        {
-                            Marshal.Copy(address + (int)witness.Offset, probe, 0, probe.Length);
-                            return probe.AsSpan().SequenceEqual(header);
-                        });
+                        native = allocator.AddressOf(segment);
+                        Marshal.Copy(native + (int)witness.Offset, probe, 0, probe.Length);
+                        Assert.Equal(header, probe);
                     }
 
                     for (var slot = 0; slot < Arena.MaxBlockSize / slotBytes; slot++)

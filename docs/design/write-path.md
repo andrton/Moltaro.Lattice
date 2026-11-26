@@ -267,6 +267,12 @@ also stops new submissions to the forwarder. The child's operations barrier
 stays open until after `Closed`, allowing application of the master's transactions
 to continue up to the state change.
 
+A fresh uncancelled session read that observes `Closed` reports
+`ObjectDisposedException` through its task before entering the position clock.
+The same check covers reads by key, protected views, index searches and the first
+step of an asynchronous enumeration. A reached-position check still registers
+no waiter and samples no time.
+
 After publishing `Closed`, close notifies the position waiters outside the state
 lock. A registered wait whose outcome is still undecided at `Closed` reports
 `Unavailable` even if cancellation, `Wake` or the timer resumes it before the

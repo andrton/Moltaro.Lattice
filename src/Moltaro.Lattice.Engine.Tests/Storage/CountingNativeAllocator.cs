@@ -57,6 +57,13 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     // Runs once when Free is about to return the allocator's last outstanding piece.
     public void HoldLastFree(Action hold) => Volatile.Write(ref _holdLastFree, hold);
 
+    public unsafe nint AddressOf(ArenaSegment segment)
+    {
+        var memory = (nint)segment.Memory;
+        Assert.Contains(memory, _outstanding);
+        return memory;
+    }
+
     // Fails the test unless every piece of memory obtained has been returned, exactly once: what a
     // test states once a database has closed or its open has failed.
     public void ExpectEverythingReturned()
