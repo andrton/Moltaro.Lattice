@@ -391,6 +391,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     private async ValueTask<LatticeWriteResult> ExecuteBatchAsync(DatabaseParts parts, IReadOnlyList<WriteBatchOperation> operations,
         LatticeSession? session, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         BatchMember[]? members = null;
         try
         {
@@ -979,7 +981,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         var writes = new Lock();
         var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = _budget.Limit };
         var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator(), seed, writes,
-            _testInputs?.MaintenanceTimeProvider, _budget);
+            _testInputs?.MaintenanceTimeProvider, _budget, _testInputs?.BeforePreparedTextBucketGrowth);
 
         try
         {

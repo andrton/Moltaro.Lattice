@@ -351,7 +351,7 @@ internal sealed class ChangePublisher
             {
                 if (frees + 1 > _freed.Length)
                 {
-                    _freed = GrowWorkspace(ref _freedWorkspace, _freed, frees + 1, restored => _freed = restored);
+                    _freed = GrowWorkspace(ref _freedWorkspace, _freed, frees + 1, static (publisher, restored) => publisher._freed = restored);
                 }
 
                 _freed[frees++] = change.Handle.Packed;
@@ -361,7 +361,7 @@ internal sealed class ChangePublisher
             {
                 if (claims + 1 > _claims.Length)
                 {
-                    _claims = GrowWorkspace(ref _claimWorkspace, _claims, claims + 1, restored => _claims = restored);
+                    _claims = GrowWorkspace(ref _claimWorkspace, _claims, claims + 1, static (publisher, restored) => publisher._claims = restored);
                 }
 
                 _claims[claims++] = (place, change.Root);
@@ -465,7 +465,7 @@ internal sealed class ChangePublisher
             {
                 if (count + 1 > _tablesOf.Length)
                 {
-                    _tablesOf = GrowWorkspace(ref _tableWorkspace, _tablesOf, count + 1, restored => _tablesOf = restored);
+                    _tablesOf = GrowWorkspace(ref _tableWorkspace, _tablesOf, count + 1, static (publisher, restored) => publisher._tablesOf = restored);
                 }
 
                 _tablesOf[count++] = change.Table;
@@ -480,7 +480,7 @@ internal sealed class ChangePublisher
         return _tablesOf.AsSpan(0, count);
     }
 
-    private T[] GrowWorkspace<T>(ref WorkspaceCapacity<T> workspace, T[] previous, int count, Action<T[]> restore) =>
+    private T[] GrowWorkspace<T>(ref WorkspaceCapacity<T> workspace, T[] previous, int count, Action<ChangePublisher, T[]> restore) =>
         _tracksPreparedWorkspaces
             ? workspace.Grow(previous, Math.Max(count, 2 * previous.Length), _arena.Budget!, nameof(ChangePublisher))
             : Grow(previous, count, restore);
@@ -509,7 +509,7 @@ internal sealed class ChangePublisher
 
     // A scratch array of the publisher with room for the count given; it grows, is kept for the next
     // publication up to KeptRoom, and only the holder of the lock of the writes uses it.
-    private T[] Grow<T>(T[] previous, int count, Action<T[]> restore)
+    private T[] Grow<T>(T[] previous, int count, Action<ChangePublisher, T[]> restore)
     {
         var length = Math.Max(count, 2 * previous.Length);
         var budget = _arena.Budget;
@@ -517,7 +517,7 @@ internal sealed class ChangePublisher
         try
         {
             previous.CopyTo(replacement, 0);
-            budget?.Replace(previous, replacement, restore);
+            budget?.Replace(previous, replacement, this, restore);
             return replacement;
         }
         catch

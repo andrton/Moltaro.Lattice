@@ -44,6 +44,43 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
         budget?.Release(OwnerBytes, this);
     }
 
+    public void ReleaseAll()
+    {
+        while (_pages.TryNext(0, out var number, out var page))
+        {
+            DropPage(number, page);
+        }
+
+        ReleaseBacking();
+    }
+
+    public void ResetHeads()
+    {
+        for (var next = 0u; _pages.TryNext(next, out var number, out var page); next = number + 1)
+        {
+            Array.Clear(page.Heads);
+            page.Occupied = 0;
+        }
+    }
+
+    public void ReleaseUnusedPages()
+    {
+        for (var next = 0u; _pages.TryNext(next, out var number, out var page); next = number + 1)
+        {
+            if (page.Occupied == 0)
+            {
+                DropPage(number, page);
+            }
+        }
+    }
+
+    public bool FullyBacked => _pageCount == Math.Max(1, Capacity / PageSize);
+
+    public bool HasRoomFor(uint hash) => _pages.Get((uint)Bucket(hash) >> 6) is not null;
+
+    // Parked layouts need room for the surviving entries, even when their old links are stale.
+    public void KeepPageFor(uint hash) => _pages.Get((uint)Bucket(hash) >> 6)!.Occupied = 1;
+
     public long Bytes => OwnerBytes + _pages.Bytes + PageBytes * _pageCount;
 
     public int Bucket(uint hash) => (int)((hash * Fibonacci) >> (64 - BitOperations.Log2((uint)Capacity)));

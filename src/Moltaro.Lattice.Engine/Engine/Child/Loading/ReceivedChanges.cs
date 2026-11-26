@@ -193,7 +193,7 @@ internal sealed class ReceivedChanges
         _beforeScratchAllocation = beforeScratchAllocation;
         _beforePreparationMember = beforePreparationMember;
         _import = new BlockImport(arena);
-        _keys = new PublicationKeys(0, arena.Budget, restoresPreparation: true);
+        _keys = PublicationKeys.Create(0, arena.Budget, restoresPreparation: true);
     }
 
     // Places and publishes a root of the load of the entity type of the table, whose last mutation is given
@@ -643,7 +643,7 @@ internal sealed class ReceivedChanges
         ref SequenceReader<byte> body, ref string? divergence)
     {
         var key = table.Keys.ReadKey(ref body);
-        using var decoded = _arena.Budget is { } budget ? new MemoryLease(budget) : null;
+        using var decoded = _arena.Budget is { } budget ? MemoryLease.Create(budget) : null;
         var commands = UpdateCommands.ReadEffect(table.Layout, ref body, decoded);
         return TryPrepareUpdate(table, sequence, predecessor, member, key, commands, decoded, ref divergence);
     }
@@ -815,7 +815,7 @@ internal sealed class ReceivedChanges
 
         _beforeScratchAllocation?.Invoke();
         var prepared = new List<PreparedChange>();
-        var keys = new PublicationKeys(0, _arena.Budget, restoresPreparation: true);
+        var keys = PublicationKeys.Create(0, _arena.Budget, restoresPreparation: true);
         _prepared = prepared;
         _keys = keys;
     }

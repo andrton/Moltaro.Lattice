@@ -32,7 +32,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // the fields of an entry one by one, so that the state is never read torn. The protection of reads keeps
 // a slot from being released while a read that could have found it is inside: the entry of a deleted
 // root is retired and released only after those reads have left (Engine.Protection.RetiredMemory).
-internal sealed class RootTable
+internal sealed class RootTable : MemoryBudget.PreparationChange
 {
     // The number of entries in one page.
     public const int EntriesPerPage = 4096;
@@ -51,6 +51,7 @@ internal sealed class RootTable
     // abandoned trailing page permits reuse. There is one entry per doubling, including zero.
     private readonly RootEntry[][][] _smallerDirectories;
     private int _smallerDirectoryCount;
+    private int _pagesAtGrowth = -1;
     private int _publishedExtent;
     private int _retiredPages;
 
@@ -89,7 +90,7 @@ internal sealed class RootTable
 
     public static RootTable Create(MemoryBudget budget, int? pageLimit)
     {
-        var bytes = MemoryBudget.ObjectBytes(4L * IntPtr.Size + 9 * sizeof(int) + Unsafe.SizeOf<RootTableCounts>());
+        var bytes = MemoryBudget.ObjectBytes(5L * IntPtr.Size + 10 * sizeof(int) + Unsafe.SizeOf<RootTableCounts>());
         budget.Reserve(bytes);
         try
         {
@@ -391,8 +392,21 @@ internal sealed class RootTable
 
     // Under Writes after a queued preparation has released its insert lifetimes. A capture
     // or reader can still name a page that ever held a published lifetime. Another preparation
-    // or a permanently retired generation can also hold a slot above the published fence.
-    public void WithdrawUnusedPages()
+    // or a permanently retired generation can also hold a slot above the published fence. A
+    // synchronous failed preparation only returns pages beyond the extent it started with.
+    public void WithdrawUnusedPages() => WithdrawUnusedPages(priorPages: 0);
+
+    public override void Finish(MemoryBudget budget, bool keeps)
+    {
+        var priorPages = _pagesAtGrowth;
+        _pagesAtGrowth = -1;
+        if (!keeps)
+        {
+            WithdrawUnusedPages(priorPages);
+        }
+    }
+
+    private void WithdrawUnusedPages(int priorPages)
     {
         if (_budget is not { IsPreparing: false } budget)
         {
@@ -400,7 +414,7 @@ internal sealed class RootTable
         }
 
         var keep = Pages;
-        var permanent = PermanentPages;
+        var permanent = Math.Max(PermanentPages, priorPages);
         while (keep > permanent && IsWhollyFree(_pages[keep - 1]))
         {
             keep--;
@@ -530,13 +544,11 @@ internal sealed class RootTable
 
             if (_budget is { IsPreparing: true } budget)
             {
-                budget.WhenPreparationEnds(keeps =>
+                if (_pagesAtGrowth < 0)
                 {
-                    if (!keeps)
-                    {
-                        RemoveNewPage(index, previous, directory, page);
-                    }
-                });
+                    _pagesAtGrowth = Pages;
+                    budget.WhenPreparationEnds(this);
+                }
             }
             else if (grows)
             {
@@ -567,27 +579,6 @@ internal sealed class RootTable
 
         _pages = directory;
         Pages++;
-    }
-
-    private void RemoveNewPage(int index, RootEntry[][] previous, RootEntry[][] directory, RootEntry[] page)
-    {
-        if (Pages != index + 1 || !IsWhollyFree(page))
-        {
-            return;
-        }
-
-        var first = index * EntriesPerPage;
-        RemoveFreeSlotsAtOrAbove(first);
-        _nextUnusedSlot = first;
-        Pages = index;
-        directory[index] = null!;
-        _pages = previous;
-        _budget!.Release(page);
-        if (!ReferenceEquals(directory, previous))
-        {
-            _smallerDirectories[--_smallerDirectoryCount] = null!;
-            _budget.Release(directory);
-        }
     }
 
     private void RemoveFreeSlotsAtOrAbove(int first)

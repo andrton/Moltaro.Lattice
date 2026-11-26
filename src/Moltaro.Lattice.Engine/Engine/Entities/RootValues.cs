@@ -236,7 +236,7 @@ internal static class RootValues
     public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values,
         MemoryLease? snapshot = null)
     {
-        using var working = snapshot is null ? null : new MemoryLease(snapshot.Budget);
+        using var working = snapshot is null ? null : MemoryLease.Create(snapshot.Budget);
         var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working));
 
         try
@@ -247,20 +247,21 @@ internal static class RootValues
 
             if (length > TransferBuffer.PieceSize)
             {
-                var pieces = new TransferBuffer(snapshot?.Budget);
-                snapshot?.Own(pieces.Dispose);
+                var pieces = snapshot is null ? new TransferBuffer() : TransferBuffer.ForSnapshot(snapshot);
 
                 writer.Export(pieces);
 
                 return pieces.Sequence;
             }
 
-            var bytes = new BudgetByteWriter(snapshot?.Budget, (int)length, nameof(RootValues));
-            snapshot?.Own(bytes.Dispose);
+            var bytes = working is null
+                ? new BudgetByteWriter(null, (int)length, nameof(RootValues))
+                : working.Allocate(BudgetByteWriter.OwnerBytes, nameof(RootValues),
+                    () => new BudgetByteWriter(working.Budget, (int)length, nameof(RootValues)), static (_, writer) => writer.Dispose());
 
             writer.Export(bytes);
-
-            return new ReadOnlySequence<byte>(bytes.WrittenMemory);
+            var written = snapshot is null ? bytes.WrittenMemory : bytes.Take(snapshot);
+            return new ReadOnlySequence<byte>(written);
         }
         catch
         {

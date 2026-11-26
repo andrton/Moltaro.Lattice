@@ -117,7 +117,7 @@ internal sealed unsafe class Arena : IDisposable
     // The arena of a database: its text table hashes with the seed of the instance and, in a Debug
     // build, asserts at every change of a count that the thread holds the lock of the writes given.
     internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes,
-        TimeProvider? collectionTime = null, MemoryBudget? budget = null)
+        TimeProvider? collectionTime = null, MemoryBudget? budget = null, Action? beforePreparedTextBucketGrowth = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.SegmentSize, MaxBlockSize);
@@ -152,7 +152,7 @@ internal sealed unsafe class Arena : IDisposable
 
         HashSeed = textSeed;
         budget?.Reserve(TextTable.OwnerBytes);
-        Texts = new TextTable(this, textSeed, writes);
+        Texts = new TextTable(this, textSeed, writes, beforePreparedTextBucketGrowth);
         budget?.Own(Texts, nameof(TextTable));
     }
 

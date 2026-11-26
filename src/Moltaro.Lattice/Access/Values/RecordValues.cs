@@ -57,7 +57,28 @@ internal static class RecordValues
     // write runs, or a write batch while the operation is added, and the caller keeps it unchanged
     // until then (docs/decisions/mutation-commands.md, "Stable write inputs until completion"). A
     // Binary value inside a collection or an owned value is copied with it.
-    public static object?[] Submit(LatticeEntityType entityType, object?[] values, MemoryLease? lease = null)
+    public static object?[] Submit(LatticeEntityType entityType, object?[] values)
+    {
+        CheckSubmissionBounds(entityType, values);
+        return TakeSubmitted(entityType, values, null);
+    }
+
+    public static object?[] SubmitBatch(LatticeEntityType entityType, object?[] values, MemoryBudget? budget, out MemoryLease? lease)
+    {
+        CheckSubmissionBounds(entityType, values);
+        lease = budget is null ? null : MemoryLease.Create(budget);
+        try
+        {
+            return TakeSubmitted(entityType, values, lease);
+        }
+        catch
+        {
+            lease?.Dispose();
+            throw;
+        }
+    }
+
+    private static void CheckSubmissionBounds(LatticeEntityType entityType, object?[] values)
     {
         foreach (var field in entityType.FieldsByOrdinal)
         {
@@ -66,7 +87,10 @@ internal static class RecordValues
                 throw new Place(entityType, entityType.Name, field).Fail(ValueBound.Problem);
             }
         }
+    }
 
+    private static object?[] TakeSubmitted(LatticeEntityType entityType, object?[] values, MemoryLease? lease)
+    {
         var submitted = lease?.Allocate<object?>(values.Length, nameof(RecordValues)) ?? new object?[values.Length];
         CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType, entityType.Name, lease, ofOwnedValue: false);
 

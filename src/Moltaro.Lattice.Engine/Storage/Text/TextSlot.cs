@@ -10,4 +10,5 @@ internal struct TextSlot
     public uint Id;
     public uint Previous;
     public uint Next;
+    public bool WasInOldBucket;
 }

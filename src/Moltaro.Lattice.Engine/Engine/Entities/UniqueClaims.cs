@@ -29,7 +29,7 @@ internal sealed class UniqueClaims : IDisposable
 
     // One entry for each unique index of an entity type in which a change sets a value: the table, the place
     // of the index among its indexes, and the places of the changes, sorted.
-    private readonly List<(EntityTable Table, int Index, List<int> Places)> _claims = [];
+    private readonly List<(EntityTable Table, int Index, List<int> Places)> _claims;
 
     // The root entries of the changes of a stored entity, sorted, with the place of each change.
     private readonly (ulong Handle, int Place)[] _owners;
@@ -40,15 +40,24 @@ internal sealed class UniqueClaims : IDisposable
     {
         var budget = arena.Budget;
         budget?.Reserve(OwnerBytes);
+        UniqueClaims? claims = null;
         try
         {
-            var claims = new UniqueClaims(publisher, arena, changes, count);
+            claims = new UniqueClaims(publisher, arena, changes, count);
             budget?.Own(claims, nameof(UniqueClaims));
             return claims;
         }
         catch
         {
-            budget?.Release(OwnerBytes);
+            if (claims is null)
+            {
+                budget?.Release(OwnerBytes);
+            }
+            else
+            {
+                claims.Dispose();
+            }
+
             throw;
         }
     }
@@ -59,11 +68,11 @@ internal sealed class UniqueClaims : IDisposable
         _arena = arena;
         _changes = changes;
 
-        _lease = arena.Budget is { } budget ? new MemoryLease(budget) : null;
+        _lease = arena.Budget is { } budget ? MemoryLease.Create(budget) : null;
         var owners = new List<(ulong Handle, int Place)>();
-        Keep(_claims);
         try
         {
+            _claims = MakeList<(EntityTable, int, List<int>)>();
             for (var place = 0; place < count; place++)
             {
                 ref readonly var change = ref changes[place];
@@ -192,22 +201,17 @@ internal sealed class UniqueClaims : IDisposable
             }
         }
 
-        var places = new List<int>();
+        var places = MakeList<int>();
 
         _claims.EnsureCapacity(_claims.Count + 1, _arena.Budget, nameof(UniqueClaims));
-        Keep(places);
         _claims.Add((table, index, places));
 
         return places;
     }
 
-    private void Keep<T>(List<T> values)
-    {
-        if (_lease is { } lease)
-        {
-            lease.Own(() => lease.Budget.Release(BudgetCollections.Items(values)));
-        }
-    }
+    private List<T> MakeList<T>() =>
+        _lease?.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(UniqueClaims),
+            static () => new List<T>(), static (budget, values) => budget.Release(BudgetCollections.Items(values))) ?? [];
 
     public void Dispose()
     {

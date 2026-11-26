@@ -106,13 +106,13 @@ internal sealed class ExportedValues
             return new List<byte[]>(count);
         }
 
-        var pieces = new List<byte[]>();
-        lease.Own(() =>
-        {
-            lease.Budget.Release(BudgetCollections.Items(pieces));
-            pieces.Clear();
-            pieces.Capacity = 0;
-        });
+        var pieces = lease.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(ExportedValues),
+            static () => new List<byte[]>(), static (budget, values) =>
+            {
+                budget.Release(BudgetCollections.Items(values));
+                values.Clear();
+                values.Capacity = 0;
+            });
         pieces.EnsureCapacity(count, lease.Budget, nameof(ExportedValues));
         return pieces;
     }

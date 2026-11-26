@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Text;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -5,6 +7,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Text;
 using Moltaro.Lattice.TestSupport.Concurrency;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
@@ -17,7 +20,7 @@ public sealed class PreparedDictionaryGrowthTests
 {
     private const ulong Seed = 6035;
 
-    [Theory(Skip = MemoryBudget.BudgetOwnershipCorrection.Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task An_atomic_batch_distributes_new_dictionary_text_before_publication_and_cancellation_preserves_prior_owners(bool existing)
@@ -134,7 +137,7 @@ public sealed class PreparedDictionaryGrowthTests
         }
     }
 
-    [Fact(Skip = MemoryBudget.BudgetOwnershipCorrection.Pending)]
+    [Fact]
     public async Task Refused_dictionary_bucket_growth_keeps_installed_mappings_and_the_same_data_can_be_retried()
     {
         const long limit = 8L * Segment;
@@ -314,6 +317,133 @@ public sealed class PreparedDictionaryGrowthTests
             Assert.Equal(512, rows.Length);
             Assert.Equal(Enumerable.Range(5, 507).Select(DistinctText), rows[4..511].Select(row => row.Area));
             OwnershipAudit.Expect(node);
+        }
+    }
+
+    [Fact]
+    public async Task A_surviving_prepared_owner_keeps_its_text_id_when_the_first_owner_withdraws()
+    {
+        Assert.Equal(32, Unsafe.SizeOf<TextSlot>());
+        var control = await PreparedSurvivorAsync(withdraw: false);
+        var withdrawal = await PreparedSurvivorAsync(withdraw: true);
+        Assert.Equal(control, withdrawal);
+    }
+
+    private static async Task<(int Heads, long Active, long Old)> PreparedSurvivorAsync(bool withdraw)
+    {
+        const int seededCount = 512;
+        var persistence = new HeldPersistence(holding: false);
+        await using var node = await ReplicationNodes.OpenMasterAsync(TextSchema.Utf8, new EngineTestInputs
+        {
+            IndexSeed = Seed,
+            Persistence = persistence,
+            DisableBackgroundMaintenance = true,
+            ObserveBudgetBackings = true,
+        });
+        var rows = node.Set<TextSchema.Depot>();
+        var seed = node.CreateWriteBatch();
+        for (var id = 1; id <= seededCount; id++)
+        {
+            seed.Insert(Depot(id, DistinctText(id)));
+        }
+
+        await seed.CommitAsync().AsTask().WaitAsync(Bound);
+        var cleanup = node.CreateWriteBatch();
+        for (var id = 2L; id <= seededCount; id++)
+        {
+            cleanup.Delete<TextSchema.Depot>(id);
+        }
+
+        await cleanup.CommitAsync().AsTask().WaitAsync(Bound);
+        node.DrainRetired();
+        var prior = node.Position;
+        var original = UnderWrites(node, parts => Backing<TextBucketSet>(parts.Arena.Texts, "_active"));
+        Assert.True(original.Capacity > 64);
+        var anchor = DistinctText(1);
+        var anchorPage = PageOf(anchor);
+        var shared = Enumerable.Range(25_000, seededCount).Select(DistinctText).First(value => PageOf(value) != anchorPage);
+        Assert.False(original.HasRoomFor(Hash(shared)));
+        var originalId = TextIds(node, "Depot", "Area", [1L])[1L];
+        persistence.Hold();
+
+        try
+        {
+            var blocker = rows.DeleteAsync(-1L).AsTask();
+            await persistence.NextAsync();
+            using var cancel = new CancellationTokenSource();
+            Task<LatticeWriteResult>? predecessor = null;
+            if (withdraw)
+            {
+                var many = node.CreateWriteBatch();
+                var ordinal = 10_000L;
+                foreach (var text in Enumerable.Range(1_000, 32 * seededCount).Select(DistinctText)
+                    .Where(value => PageOf(value) == anchorPage).Take(4 * original.Capacity - 1))
+                {
+                    many.Insert(Depot(ordinal++, text));
+                }
+
+                Assert.Equal(4 * original.Capacity - 1, many.Count);
+                many.Insert(Depot(ordinal, shared));
+                predecessor = many.CommitAsync(cancel.Token).AsTask();
+                await CountersWait.UntilAsync(node, counts => counts.QueuedWrites == 2 && counts.TextEntries == many.Count + 1,
+                    "the first owner opened a replacement bucket layout");
+                Assert.True(UnderWrites(node, parts => Backing<TextBucketSet>(parts.Arena.Texts, "_active").Capacity) > original.Capacity);
+            }
+
+            var survivor = rows.InsertAsync(Depot(2L, shared)).AsTask();
+            await CountersWait.UntilAsync(node, counts => counts.QueuedWrites == (withdraw ? 3 : 2),
+                "the surviving write holds its dictionary reference");
+            var (sharedId, references) = PendingText();
+            Assert.Equal(withdraw ? 2 : 1, references);
+            if (predecessor is not null)
+            {
+                await cancel.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => predecessor.WaitAsync(Bound));
+            }
+
+            Assert.Equal((sharedId, 1L), PendingText());
+            Assert.Equal(prior, node.Position);
+            Assert.Equal(anchor, rows.Get(1L)?.Area);
+            Assert.Null(rows.Get(2L));
+            var prepared = Capacity(node);
+            var heads = UnderWrites(node, parts => Backing<TextBucketSet>(parts.Arena.Texts, "_active").Capacity);
+            ExpectAccounting(node, prepared);
+
+            persistence.ReleaseAll();
+            var previous = await blocker.WaitAsync(Bound);
+            var written = await survivor.WaitAsync(Bound);
+            Assert.Equal(previous.Position.Sequence + 1, written.Position.Sequence);
+            Assert.Equal(written.Position, node.Position);
+            var ids = TextIds(node, "Depot", "Area", [1L, 2L]);
+            Assert.Equal(originalId, ids[1L]);
+            Assert.Equal(sharedId, ids[2L]);
+            Assert.Equal(shared, rows.Get(2L)?.Area);
+            OwnershipAudit.Expect(node);
+            return (heads, Bytes(prepared.ActiveBuckets), Bytes(prepared.OldBuckets));
+        }
+        finally
+        {
+            persistence.ReleaseAll();
+        }
+
+        int PageOf(string value) => original.Bucket(Hash(value)) / 64;
+
+        (uint Id, long References) PendingText() => UnderWrites(node, parts =>
+        {
+            var texts = parts.Arena.Texts;
+            var entries = texts.References();
+            var ordinals = Backing<TextWriterSlots>(texts, "_slots");
+            var encoded = Encoding.UTF8.GetBytes(shared);
+            var offset = entries.FindIndex(entry => entry.Text.AsSpan().SequenceEqual(encoded));
+            Assert.InRange(offset, 0, entries.Count - 1);
+            return (ordinals.At((uint)offset + 1).Id, entries[offset].References);
+        });
+
+        static uint Hash(string value)
+        {
+            var hash = new Marvin(Seed);
+            hash.Append(Encoding.UTF8.GetBytes(value));
+            return hash.Finish();
         }
     }
 

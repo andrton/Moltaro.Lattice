@@ -22,7 +22,7 @@ public sealed class BatchOwnershipBudgetTests
         }
         """);
 
-    [Fact(Skip = BudgetOwnershipCorrection.Pending)]
+    [Fact]
     public async Task A_four_mebibyte_instance_counts_the_growing_objects_reachable_from_a_live_batch()
     {
         var allocator = new CountingNativeAllocator();

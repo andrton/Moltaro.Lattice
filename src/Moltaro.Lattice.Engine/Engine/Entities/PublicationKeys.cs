@@ -17,12 +17,42 @@ namespace Moltaro.Lattice.Engine.Entities;
 //   the child, and empties it for the next transaction (Clear).
 internal sealed class PublicationKeys : IDisposable
 {
-    private readonly BudgetSet<(EntityTable Table, EntityKey Key)> _keys;
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size) + BudgetSet<(EntityTable, EntityKey)>.OwnerBytes;
 
-    public PublicationKeys(int capacity, MemoryBudget? budget = null, bool restoresPreparation = false)
+    private readonly BudgetSet<(EntityTable Table, EntityKey Key)> _keys;
+    private MemoryBudget? _budget;
+
+    private PublicationKeys(MemoryBudget? budget, bool restoresPreparation)
     {
+        _budget = budget;
         _keys = new BudgetSet<(EntityTable, EntityKey)>(budget, nameof(PublicationKeys), Comparer.Instance, restoresPreparation);
-        _keys.EnsureCapacity(capacity);
+    }
+
+    public static PublicationKeys Create(int capacity, MemoryBudget? budget = null, bool restoresPreparation = false)
+    {
+        budget?.Reserve(OwnerBytes);
+        PublicationKeys? keys = null;
+        try
+        {
+            keys = new PublicationKeys(budget, restoresPreparation);
+            budget?.Own(keys, nameof(PublicationKeys));
+            budget?.Own(keys._keys, nameof(PublicationKeys));
+            keys._keys.EnsureCapacity(capacity);
+            return keys;
+        }
+        catch
+        {
+            if (keys is null)
+            {
+                budget?.Release(OwnerBytes);
+            }
+            else
+            {
+                keys.Dispose();
+            }
+
+            throw;
+        }
     }
 
     public int Count => _keys.Count;
@@ -35,7 +65,15 @@ internal sealed class PublicationKeys : IDisposable
     // Empties the set and keeps its room.
     public void Clear() => _keys.Clear();
 
-    public void Dispose() => _keys.Dispose();
+    public void Dispose()
+    {
+        _keys.Dispose();
+        if (Interlocked.Exchange(ref _budget, null) is { } budget)
+        {
+            budget.Forget(_keys);
+            budget.Release(OwnerBytes, this);
+        }
+    }
 
     // Whether the two sets hold an entity in common, looked up in the larger for each entity of the smaller.
     public bool Overlaps(PublicationKeys other)

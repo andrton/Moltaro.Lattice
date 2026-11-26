@@ -24,11 +24,7 @@ internal sealed class MessagePiece : ReadOnlySequenceSegment<byte>
         try
         {
             piece = new MessagePiece(bytes, runningIndex);
-            if (lease is not null)
-            {
-                budget!.Own(piece, nameof(MessagePiece));
-                lease.Own(() => budget.Release(capacity, piece));
-            }
+            lease?.OwnReserved(piece, capacity, nameof(MessagePiece));
 
             return piece;
         }

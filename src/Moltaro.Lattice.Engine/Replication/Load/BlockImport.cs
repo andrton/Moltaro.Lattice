@@ -458,8 +458,16 @@ internal sealed class BlockImport : IDisposable
             {
                 var replacement = budget?.Allocate<long>(structure.DescriptorCount, nameof(BlockImport)) ??
                     new long[structure.DescriptorCount];
-                budget?.Replace(previous, replacement, restore => _starts = restore);
-                _starts = replacement;
+                try
+                {
+                    budget?.Replace(previous, replacement, this, static (import, restored) => import._starts = restored);
+                    _starts = replacement;
+                }
+                catch
+                {
+                    budget?.Release(replacement);
+                    throw;
+                }
             }
         }
 

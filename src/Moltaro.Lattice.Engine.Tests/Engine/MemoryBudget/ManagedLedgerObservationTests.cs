@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Xunit.Sdk;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
@@ -74,6 +75,41 @@ public sealed class ManagedLedgerObservationTests
         }
 
         static Action Capture(byte[] backing) => () => GC.KeepAlive(backing);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Prepared_growth_charges_its_reachable_journal_record_until_it_settles(bool keeps)
+    {
+        var budget = new OwnedMemoryBudget(observesBackings: true);
+        budget.Open(Segment);
+        var list = new List<int>();
+        list.EnsureCapacity(1, budget, nameof(ManagedLedgerObservationTests));
+        var original = BudgetCollections.Items(list);
+        budget.BeginPreparation();
+
+        list.EnsureCapacity(8, budget, nameof(ManagedLedgerObservationTests), restoresPreparation: true);
+        var replacement = BudgetCollections.Items(list);
+        var journal = Backing<object>(budget, "_changes");
+        var actual = OwnedBackingGraph.Find(journal, item => ReferenceEquals(item, list));
+        Assert.Contains(journal, actual);
+        Assert.Contains(original, actual);
+        Assert.Contains(replacement, actual);
+        var recorded = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var prepared = budget.Inspect((_, backing) => recorded.Add(backing));
+        Assert.True(actual.SetEquals(recorded));
+        Assert.Equal(actual.Sum(ManagedObjectSize), prepared.Charged);
+
+        budget.EndPreparation(keeps);
+        var surviving = keeps ? replacement : original;
+        Assert.Same(surviving, BudgetCollections.Items(list));
+        recorded.Clear();
+        var settled = budget.Inspect((_, backing) => recorded.Add(backing));
+        Assert.Same(surviving, Assert.Single(recorded));
+        Assert.Equal(ManagedObjectSize(surviving), settled.Charged);
+        Assert.Equal(prepared.Charged, settled.Peak);
+        budget.Release(surviving);
     }
 
     private sealed record Probe(byte[] Current, EmbeddedBacking Older);

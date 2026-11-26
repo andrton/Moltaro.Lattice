@@ -60,18 +60,19 @@ internal static class BudgetCollections
         var bytes = MemoryBudget.ArrayBytes<T>(next);
         budget.Reserve(bytes);
 
+        T[]? replacement = null;
         try
         {
             list.Capacity = next;
-            var replacement = Items(list);
+            replacement = Items(list);
             budget.Own(replacement, owner);
             if (restoresPreparation)
             {
-                budget.Replace(previous, replacement, restored =>
+                budget.Replace(previous, replacement, list, static (owner, restored) =>
                 {
-                    list.Clear();
+                    owner.Clear();
                     Array.Clear(restored);
-                    Items(list) = restored;
+                    Items(owner) = restored;
                 });
             }
             else
@@ -82,10 +83,9 @@ internal static class BudgetCollections
         catch
         {
             Items(list) = previous;
-            budget.Release(bytes);
+            budget.Release(bytes, replacement);
             throw;
         }
-
     }
 
     public static void EnsureCapacity<T>(this Queue<T> queue, int count, MemoryBudget? budget, string owner)

@@ -42,7 +42,7 @@ internal sealed class MapForm<TKey, TValue> : MapForm
 
         var budget = lease.Budget;
         var map = lease.Allocate(BudgetDictionaries.OwnerBytes, nameof(MapForm), () => new Dictionary<TKey, TValue>(_comparer),
-            value => budget.ReleaseDictionary(value));
+            static (account, value) => account.ReleaseDictionary(value));
         map.EnsureCapacity(capacity, budget, nameof(MapForm));
         return map;
     }
