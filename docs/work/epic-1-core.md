@@ -14828,6 +14828,29 @@ admitted maintenance turn and a reader, then held the last native return.
 The two close calls still waited and both reported the first exception.
 Raw results stay outside Git.
 
+##### S23E retirement queue upkeep on a running instance
+
+A write can empty a high-water retirement queue immediately after publishing.
+An allocation refusal while reducing its empty backing faulted a master
+after returning the committed result. A child applied the same triggering
+forwarded write and returned its receipt, then lost the link and refused its
+next forwarded write. The fault was reproduced on `677d1281` with public
+writes on both roles. An independent no-transport control on the `887303f9`
+source observed the empty, unreserved queue with a capacity of 16,384 slots,
+then checked the identical strict-close outcome and final native return.
+
+**Acceptance.** For a running node, an allocation refusal solely from reducing
+the empty retirement queue leaves the reclaimed blocks free and the queue
+usable. The triggering committed and forwarded results and a subsequent write
+remain observable on both roles. Final close still joins admitted operations
+and protected readers, preserves the first cleanup error and returns the arena.
+
+The independent tests-first review accepted
+`93b34671ba3ecb6e1b4f216a6457bdd1d6dd65be`. The exact commit passed build,
+format and six focused controls. The two intended regression rows remained
+skipped until implementation. The earlier forced run reproduced both failures
+without those skips.
+
 #### S24 · The memory budget
 
 **Rollback of a full root on a child (S23D).** The verified `b53fb21a`
