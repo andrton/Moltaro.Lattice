@@ -900,9 +900,9 @@ internal sealed unsafe class Arena : IDisposable
         var grows = slot == _segments.Length;
         var nextLength = grows ? _segments.Length * 2 : 0;
         var budget = Budget;
-        var transactional = grows && budget is { IsPreparing: true };
+        var remembersPrevious = grows && budget is not null;
         var capacity = _segmentSize + ArenaSegment.MetadataBytes(_regionsPerSegment) +
-            (grows ? SegmentDirectoryBytes(nextLength) : 0) + (transactional ? SegmentDirectory.OwnerBytes : 0);
+            (grows ? SegmentDirectoryBytes(nextLength) : 0) + (remembersPrevious ? SegmentDirectory.OwnerBytes : 0);
         if ((_tally.SegmentCount + 1L) * _segmentSize > _nativeCapacityLimit ||
             (budget is not null && !budget.TryReserve(capacity)))
         {
@@ -930,7 +930,7 @@ internal sealed unsafe class Arena : IDisposable
                     OwnSegmentDirectory(budget, grown, freed, reserved);
                 }
 
-                if (transactional)
+                if (remembersPrevious)
                 {
                     previous = new SegmentDirectory(_segments, _freedSegmentSlots, _reservedSegments, _smallerDirectory);
                     budget!.Own(previous, nameof(Arena));
@@ -988,21 +988,12 @@ internal sealed unsafe class Arena : IDisposable
 
         if (grows)
         {
-            var oldSegments = _segments;
-            var oldFreed = _freedSegmentSlots;
-            var oldReserved = _reservedSegments;
             Volatile.Write(ref _segments, grown);
             _freedSegmentSlots = freed;
             _reservedSegments = reserved;
             if (previous is not null)
             {
                 _smallerDirectory = previous;
-            }
-            else if (budget is not null)
-            {
-                budget.Release(oldSegments);
-                budget.Release(oldFreed);
-                budget.Release(oldReserved);
             }
         }
 

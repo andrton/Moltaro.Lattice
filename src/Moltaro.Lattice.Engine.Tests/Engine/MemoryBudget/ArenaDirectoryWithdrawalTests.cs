@@ -1,9 +1,13 @@
+using Moltaro.Lattice.Engine.Indexes;
+using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Ordered;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -87,6 +91,47 @@ public sealed class ArenaDirectoryWithdrawalTests
             Assert.All(restored.Directory.Zip(stagedFirst.Directory), pair => Assert.Same(pair.Second, pair.First));
             Assert.Equal(stagedFirst.Segments, restored.Segments);
             Assert.Same(firstHistory, restored.History);
+
+            await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            {
+                var filler = new List<ArenaAddress>();
+                var active = Backing<ArenaSegment?[]>(arena, "_segments");
+                while (active.Skip(1).Any(segment => segment is null))
+                {
+                    Assert.True(arena.TryAllocatePrepared(ValueBlocks.ChunkPayload, BlockKindEnum.Value, new RootHandle(1, 0), out var block));
+                    Assert.InRange(block.Segment, 1u, 7u);
+                    filler.Add(block);
+                }
+
+                Assert.True(IndexSchema.Utf8.TryGetEntityType("Counted", out var type));
+                var layout = IndexLayout.Compile(Assert.Single(type.Indexes), RootLayout.Compile(type, IndexSchema.Utf8));
+                var reserve = new NodePool(layout, arena, parts.Retired);
+                var beforeTopUp = allocator.OutstandingBytes;
+                Assert.False(arena.Budget!.IsPreparing);
+                reserve.TopUp();
+                Assert.True(reserve.Count > 0);
+                Assert.Equal(8u, Backing<ArenaAddress>(reserve, "_head").Segment);
+                Assert.Equal(beforeTopUp + grant, allocator.OutstandingBytes);
+                var larger = Backing<ArenaSegment?[]>(arena, "_segments");
+                Assert.Equal(16, larger.Length);
+                var topUpHistory = Backing<object>(arena, "_smallerDirectory");
+                _ = ExpectCapacity(node, allocator, out _, [larger, topUpHistory, firstHistory, .. restored.Directory]);
+
+                reserve.GiveBackReserve();
+                Assert.Equal(0, reserve.Count);
+                Assert.Equal(beforeTopUp, allocator.OutstandingBytes);
+                Assert.Same(stagedFirst.Directory[0], Backing<ArenaSegment?[]>(arena, "_segments"));
+                Assert.Same(firstHistory, Backing<object>(arena, "_smallerDirectory"));
+                foreach (var block in filler)
+                {
+                    arena.Free(block);
+                }
+
+                return true;
+            });
+            var afterTopUp = await OwnersAsync();
+            Assert.Equal(restored.ArenaBytes, afterTopUp.ArenaBytes);
+            Assert.Equal(restored.Bytes.NativeBytes, afterTopUp.Bytes.NativeBytes);
 
             storage.ReleaseAll();
             var prior = await blocker.WaitAsync(Bound);
