@@ -87,8 +87,14 @@ internal sealed class RecordedReplies
         }
     }
 
-    public void Succeed(ulong correlationId, in LatticeWriteResult result, in UpdateBitmap updates = default) =>
-        Record(new RecordedReply(correlationId, result, null, null, updates), reserved: true);
+    public void Succeed(ulong correlationId, in LatticeWriteResult result, in UpdateBitmap updates = default)
+    {
+        var reply = new RecordedReply(correlationId, result, null, null, updates);
+        if (!Record(reply, reserved: true))
+        {
+            ReleaseBody(reply);
+        }
+    }
 
     public void Refuse(ulong correlationId, LatticeException refusal, int? indexId, bool reserved = true)
     {
@@ -96,32 +102,33 @@ internal sealed class RecordedReplies
         _tail.Wake();
     }
 
-    private void Record(RecordedReply reply, bool reserved)
+    private bool Record(RecordedReply reply, bool reserved)
     {
         lock (_gate)
         {
             if (_closed)
             {
-                return;
+                return false;
             }
 
             if (reserved)
             {
                 _reserved--;
                 _replies.Enqueue(reply);
-                return;
+                return true;
             }
 
             if (_replies.Count + _reserved < _replies.EnsureCapacity(0))
             {
                 _replies.Enqueue(reply);
-                return;
+                return true;
             }
         }
 
         // No accepted write is involved. There is no room even for another refusal at the
         // connection's current pressure point, so the receiver ends the connection.
         _unableToSend?.Invoke();
+        return false;
     }
 
     public bool TryTake(out RecordedReply reply)
@@ -132,13 +139,25 @@ internal sealed class RecordedReplies
         }
     }
 
+    public void ReleaseBody(in RecordedReply reply)
+    {
+        if (reply.Updates.Bits is { } bits)
+        {
+            _budget?.Release(bits);
+        }
+    }
+
     public void Close()
     {
         lock (_gate)
         {
             _closed = true;
             _reserved = 0;
-            _replies.Clear();
+            while (_replies.TryDequeue(out var reply))
+            {
+                ReleaseBody(reply);
+            }
+
             if (_budget is { } budget)
             {
                 var array = BudgetCollections.Items(_replies);

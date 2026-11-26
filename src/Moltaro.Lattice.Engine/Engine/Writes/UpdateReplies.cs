@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication.Forwarding;
 
 namespace Moltaro.Lattice.Engine.Writes;
@@ -40,17 +41,25 @@ internal sealed class UpdateReplies
         return updates is null ? null : new UpdateReplies([.. updates], commands, updates.Count == members.Length);
     }
 
-    public UpdateBitmap Pack()
+    public UpdateBitmap Pack(MemoryBudget? budget)
     {
-        var bits = UpdateOutcome.BitsFor(Count);
-        var offset = 0;
-        foreach (var (outcome, count) in _updates)
+        var bits = budget?.Allocate<byte>(UpdateOutcome.BitmapLength(Count), nameof(UpdateReplies)) ?? UpdateOutcome.BitsFor(Count);
+        try
         {
-            Copy(outcome.PreparedBits, 0, bits, offset, count);
-            offset += count;
-        }
+            var offset = 0;
+            foreach (var (outcome, count) in _updates)
+            {
+                Copy(outcome.PreparedBits, 0, bits, offset, count);
+                offset += count;
+            }
 
-        return new UpdateBitmap(Count, bits);
+            return new UpdateBitmap(Count, bits);
+        }
+        catch
+        {
+            budget?.Release(bits);
+            throw;
+        }
     }
 
     public void Apply(ReadOnlySpan<byte> bits)

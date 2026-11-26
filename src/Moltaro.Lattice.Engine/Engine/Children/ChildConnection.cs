@@ -397,7 +397,27 @@ internal sealed class ChildConnection
                 continue;
             }
 
-            using var body = new OutgoingMessage(_writes.Budget);
+            var correlationId = reply.CorrelationId;
+            using var body = EncodeReply(reply);
+            reply = default;
+            for (var index = 0; index < body.FrameCount; index++)
+            {
+                _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, correlationId, body.Frame(index));
+
+                if (_connection.PendingBytes >= Protocol.MaxFrame)
+                {
+                    await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+    }
+
+    private OutgoingMessage EncodeReply(in RecordedReply reply)
+    {
+        OutgoingMessage? body = null;
+        try
+        {
+            body = new OutgoingMessage(_writes.Budget);
             if (reply.Refusal is { } refusal)
             {
                 ForwardEncoding.WriteReply(body, refusal, reply.IndexId);
@@ -408,15 +428,16 @@ internal sealed class ChildConnection
             }
 
             body.Complete();
-            for (var index = 0; index < body.FrameCount; index++)
-            {
-                _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, reply.CorrelationId, body.Frame(index));
-
-                if (_connection.PendingBytes >= Protocol.MaxFrame)
-                {
-                    await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
-                }
-            }
+            return body;
+        }
+        catch
+        {
+            body?.Dispose();
+            throw;
+        }
+        finally
+        {
+            _replies.ReleaseBody(reply);
         }
     }
 

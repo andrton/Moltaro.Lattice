@@ -298,7 +298,7 @@ internal sealed class WriteExecutor
 
                 if (member.Update is { } input)
                 {
-                    var update = PlanUpdate(table, replaced, input, place);
+                    using var update = PlanUpdate(table, replaced, input, place);
                     updates ??= new PreparedUpdates(_arena.Budget);
                     if (!update.Changed)
                     {
@@ -535,7 +535,7 @@ internal sealed class WriteExecutor
     private ReservationEnum TryPrepareUpdate(PendingWrite write, UpdateInput input, RootHandle handle,
         ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
     {
-        var update = PlanUpdate(write.Table, replaced, input);
+        using var update = PlanUpdate(write.Table, replaced, input);
         var updates = new PreparedUpdates(_arena.Budget);
         prepared = null;
         try
@@ -802,7 +802,7 @@ internal sealed class WriteExecutor
         if (write.Forwarded is { } forwarded)
         {
             forwarded.Succeed(new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity),
-                prepared.Updates?.Reply ?? default);
+                prepared.Updates?.TakeReply() ?? default);
         }
 
         if (delivers)

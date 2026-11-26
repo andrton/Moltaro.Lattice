@@ -1,11 +1,16 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Children;
+using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.TestSupport.Replication;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -15,6 +20,90 @@ public sealed class PreparedSparseCommandsBudgetTests
 {
     private const int Commands = 4_096;
     private const long Limit = 16L * Segment;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_forwarded_outcome_keeps_its_actual_bitmap_until_sender_take_or_close(bool closes)
+    {
+        var allocator = new CountingNativeAllocator();
+        var received = new TaskCompletionSource<RequestReceiver>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var beforeDrain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var master = EngineDatabase.Create(new LatticeDatabaseOptions
+        {
+            Schema = PieceSchema.Schema,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            ListenUri = MasterAndChild.Loopback,
+            MemoryLimit = Limit,
+        }, new EngineTestInputs
+        {
+            Allocator = allocator,
+            DisableBackgroundMaintenance = true,
+            ObserveMasterRequestFrame = receiver => received.TrySetResult(receiver),
+            BeforeMasterReplyDrain = async stop =>
+            {
+                beforeDrain.TrySetResult();
+                await release.Task.WaitAsync(Bound, stop);
+            },
+        });
+        await master.OpenAsync();
+        var source = master.Set("Holder");
+        var seed = await source.InsertAsync(Empty(source, 1L));
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(relay.Address), new EngineTestInputs());
+        var local = child.Set("Holder");
+        var sending = Update(local, 1L).CommitAsync().AsTask();
+        try
+        {
+            var receiver = await received.Task.WaitAsync(Bound);
+            var replies = Backing<RecordedReplies>(receiver, "_replies");
+            var pending = Backing<Queue<RecordedReply>>(replies, "_replies");
+            await beforeDrain.Task.WaitAsync(Bound);
+            var recorded = Assert.Single(pending);
+            Assert.Equal(Commands, recorded.Updates.Count);
+            var bitmap = Assert.IsType<byte[]>(recorded.Updates.Bits);
+            Assert.Equal(Commands / 8, bitmap.Length);
+            Assert.All(bitmap, word => Assert.Equal(byte.MaxValue, word));
+            _ = ExpectCapacity(master, allocator, out _, bitmap, Backing<Array>(pending, "_array"));
+            Assert.Equal(seed.Position, child.Position);
+            Assert.Equal(recorded.Result.Position, master.Position);
+            Assert.DoesNotContain(relay.ToChild, frame => frame.Kind == FrameKindEnum.WriteReply);
+
+            if (closes)
+            {
+                await child.CloseAsync().AsTask().WaitAsync(Bound);
+                var failure = await Assert.ThrowsAsync<LatticeException>(() => sending.WaitAsync(Bound));
+                Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, failure.Error);
+            }
+            else
+            {
+                release.TrySetResult();
+                var applied = await sending.WaitAsync(Bound);
+                Assert.Equal(recorded.Result.Position, applied.Position);
+                Assert.True(applied.Changed);
+                Assert.True(local.TryGet(1L, out _, out var revision));
+                ExpectMap(local, 1L, Commands, revision);
+            }
+
+            await CountersWait.UntilAsync(master, _ => !StillCharged(), "the actual reply bitmap has no connection owner");
+            Assert.Empty(pending);
+            ExpectCapacity(master, allocator);
+            Assert.True(source.TryGet(1L, out _, out var masterRevision));
+            ExpectMap(source, 1L, Commands, masterRevision);
+
+            bool StillCharged()
+            {
+                var charged = false;
+                master.InspectBudget((_, backing) => charged |= ReferenceEquals(bitmap, backing));
+                return charged;
+            }
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+    }
 
     [Fact]
     public async Task Sparse_command_backings_are_charged_until_publication_and_released_on_refusal_or_withdrawal()

@@ -1,5 +1,6 @@
 using System.Collections;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -7,24 +8,24 @@ namespace Moltaro.Lattice.Storage.Roots.Edits;
 
 // An edit starts with the stored entries or with the whole value a command
 // assigned. Each effective operation advances the local lookup form.
-internal sealed class EditedCollection
+internal sealed class EditedCollection : IDisposable
 {
     private readonly EditedList? _list;
     private readonly EditedAssociation? _association;
     private bool _hashed;
 
-    public EditedCollection(StructureLayout element, StoredCollection? stored, object? assigned)
+    public EditedCollection(StructureLayout element, StoredCollection? stored, object? assigned, MemoryBudget? budget)
     {
         Stored = stored;
         Changed = assigned is not null;
         var count = stored?.Count ?? element.CountEntries(assigned!);
         if (element.Collection!.Type == LatticeFieldTypeEnum.List)
         {
-            _list = new EditedList(count, (IList?)assigned);
+            _list = new EditedList(count, (IList?)assigned, budget);
         }
         else
         {
-            _association = new EditedAssociation(element, stored, assigned);
+            _association = new EditedAssociation(element, stored, assigned, budget);
             _hashed = stored?.Hashed ?? !CollectionLookup.IsCompact(count);
         }
     }
@@ -73,6 +74,12 @@ internal sealed class EditedCollection
     }
 
     public IEnumerator<EditedEntry> OpenEntries() => (_list?.Entries() ?? _association!.Entries()).GetEnumerator();
+
+    public void Dispose()
+    {
+        _list?.Dispose();
+        _association?.Dispose();
+    }
 
     public void Place(ref ValueHolder holder, StructureLayout structure, int target, bool reuseTail)
     {

@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Roots.Edits;
@@ -61,11 +62,11 @@ internal static class UpdateCommands
         }
     }
 
-    public static UpdateCommand[] ReadRequest(RootLayout root, ref SequenceReader<byte> input)
+    public static UpdateCommand[] ReadRequest(RootLayout root, ref SequenceReader<byte> input, MemoryLease? lease = null)
     {
         var count = Count(ref input);
-        var scalars = new HashSet<int>();
-        var commands = new UpdateCommand[count];
+        using var scalars = new BudgetSet<int>(lease?.Budget, nameof(UpdateCommands), EqualityComparer<int>.Default);
+        var commands = lease?.Allocate<UpdateCommand>(count, nameof(UpdateCommands)) ?? new UpdateCommand[count];
         for (var index = 0; index < commands.Length; index++)
         {
             commands[index] = Read(root, ref input, scalars, resolved: false).Command;
@@ -75,18 +76,26 @@ internal static class UpdateCommands
         return commands;
     }
 
-    public static ResolvedCommand[] ReadEffect(RootLayout root, ref SequenceReader<byte> input)
+    public static ResolvedCommand[] ReadEffect(RootLayout root, ref SequenceReader<byte> input, MemoryBudget? budget = null)
     {
         var count = Count(ref input);
-        var scalars = new HashSet<int>();
-        var commands = new ResolvedCommand[count];
-        for (var index = 0; index < commands.Length; index++)
+        using var scalars = new BudgetSet<int>(budget, nameof(UpdateCommands), EqualityComparer<int>.Default);
+        var commands = budget?.Allocate<ResolvedCommand>(count, nameof(UpdateCommands)) ?? new ResolvedCommand[count];
+        try
         {
-            commands[index] = Read(root, ref input, scalars, resolved: true);
-        }
+            for (var index = 0; index < commands.Length; index++)
+            {
+                commands[index] = Read(root, ref input, scalars, resolved: true);
+            }
 
-        ExpectEnd(input);
-        return commands;
+            ExpectEnd(input);
+            return commands;
+        }
+        catch
+        {
+            budget?.Release(commands);
+            throw;
+        }
     }
 
     private static int Count(ref SequenceReader<byte> input)
@@ -109,7 +118,7 @@ internal static class UpdateCommands
         }
     }
 
-    private static ResolvedCommand Read(RootLayout root, ref SequenceReader<byte> input, HashSet<int> scalars, bool resolved)
+    private static ResolvedCommand Read(RootLayout root, ref SequenceReader<byte> input, BudgetSet<int> scalars, bool resolved)
     {
         if (!input.TryRead(out var opcode))
         {

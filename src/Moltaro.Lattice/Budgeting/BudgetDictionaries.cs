@@ -9,13 +9,14 @@ internal static class BudgetDictionaries
 {
     public static long OwnerBytes => MemoryBudget.ObjectBytes(5L * IntPtr.Size + sizeof(ulong) + 4 * sizeof(int));
 
-    public static Dictionary<TKey, TValue> Create<TKey, TValue>(MemoryBudget? budget, string owner)
+    public static Dictionary<TKey, TValue> Create<TKey, TValue>(MemoryBudget? budget, string owner,
+        IEqualityComparer<TKey>? comparer = null)
         where TKey : notnull
     {
         budget?.Reserve(OwnerBytes);
         try
         {
-            var dictionary = new Dictionary<TKey, TValue>();
+            var dictionary = new Dictionary<TKey, TValue>(comparer);
             budget?.Own(dictionary, owner);
             return dictionary;
         }

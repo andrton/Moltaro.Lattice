@@ -12,7 +12,7 @@ internal sealed class PreparedUpdates(MemoryBudget? budget) : IDisposable
 {
     private Dictionary<uint, SparseChange>? _effects;
 
-    public UpdateBitmap Reply { get; private set; }
+    private UpdateBitmap _reply;
 
     public void Add(uint member, ulong predecessor, StructureLayout layout, ReadOnlySpan<ResolvedCommand> commands)
     {
@@ -35,10 +35,23 @@ internal sealed class PreparedUpdates(MemoryBudget? budget) : IDisposable
     public SparseChange? EffectOf(uint member) =>
         _effects is { } effects && effects.TryGetValue(member, out var effect) ? effect : null;
 
-    public void SetReply(UpdateReplies? replies) => Reply = replies?.Pack() ?? default;
+    public void SetReply(UpdateReplies? replies) => _reply = replies?.Pack(budget) ?? default;
+
+    // Recording the reply transfers its already charged buffer to the connection.
+    public UpdateBitmap TakeReply()
+    {
+        var reply = _reply;
+        _reply = default;
+        return reply;
+    }
 
     public void Dispose()
     {
+        if (TakeReply().Bits is { } bits)
+        {
+            budget?.Release(bits);
+        }
+
         var effects = _effects;
         _effects = null;
         if (effects is not null && budget is not null)

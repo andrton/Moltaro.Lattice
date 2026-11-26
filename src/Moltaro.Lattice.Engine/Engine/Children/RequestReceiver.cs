@@ -155,7 +155,7 @@ internal sealed class RequestReceiver : IDisposable
         var request = ForwardEncoding.ReadRequestHead(ref reader);
         var table = TableOf(request.TypeId);
         var key = table.Keys.ReadKey(ref reader);
-        var update = UpdateOf(table, request.Kind, ref reader);
+        var update = UpdateOf(table, request.Kind, ref reader, lease);
         var root = update is null ? RootOf(table, request, key, ref reader) : default;
 
         ForwardEncoding.ExpectEnd(reader);
@@ -180,7 +180,7 @@ internal sealed class RequestReceiver : IDisposable
             var member = ForwardEncoding.ReadMemberHead(ref reader);
             var table = TableOf(member.TypeId);
             var key = table.Keys.ReadKey(ref reader);
-            var update = UpdateOf(table, member.Kind, ref reader);
+            var update = UpdateOf(table, member.Kind, ref reader, lease);
             var root = update is null ? RootOf(table, member, key, ref reader) : default;
             commands += update?.Commands.Length ?? 0;
             if (commands > int.MaxValue)
@@ -202,7 +202,7 @@ internal sealed class RequestReceiver : IDisposable
         _writes.Coordinator.Forward(members, keys, new ForwardedOrigin(_replies, correlationId, entityTypes, lease), SessionOf(minimumPosition));
     }
 
-    private static UpdateInput? UpdateOf(EntityTable table, WriteKindEnum kind, ref SequenceReader<byte> reader)
+    private static UpdateInput? UpdateOf(EntityTable table, WriteKindEnum kind, ref SequenceReader<byte> reader, MemoryLease? lease)
     {
         if (kind != WriteKindEnum.Update)
         {
@@ -210,7 +210,7 @@ internal sealed class RequestReceiver : IDisposable
         }
 
         var commands = new SequenceReader<byte>(ForwardEncoding.ReadRoot(ref reader));
-        return new UpdateInput(UpdateCommands.ReadRequest(table.Layout, ref commands), new UpdateOutcome());
+        return UpdateInput.Create(UpdateCommands.ReadRequest(table.Layout, ref commands, lease), new UpdateOutcome(), lease);
     }
 
     // The table of an entity type the master stores.

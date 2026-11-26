@@ -643,7 +643,21 @@ internal sealed class ReceivedChanges
         ref SequenceReader<byte> body, ref string? divergence)
     {
         var key = table.Keys.ReadKey(ref body);
-        var commands = UpdateCommands.ReadEffect(table.Layout, ref body);
+        var budget = _arena.Budget;
+        var commands = UpdateCommands.ReadEffect(table.Layout, ref body, budget);
+        try
+        {
+            return TryPrepareUpdate(table, sequence, predecessor, member, key, commands, ref divergence);
+        }
+        finally
+        {
+            budget?.Release(commands);
+        }
+    }
+
+    private bool TryPrepareUpdate(EntityTable table, ulong sequence, ulong predecessor, uint member,
+        in EntityKey key, ResolvedCommand[] commands, ref string? divergence)
+    {
         NameOnce(table, key);
         if (divergence is not null)
         {
@@ -685,16 +699,19 @@ internal sealed class ReceivedChanges
             return true;
         }
 
-        var prepared = _prepared!;
-        prepared.EnsureCapacity(prepared.Count + 1, _arena.Budget, nameof(ReceivedChanges), restoresPreparation: true);
-        var root = RootValues.Place(_arena, table.Layout, handle, values: null, out _, out _, plan);
-        if (root.IsNull)
+        using (plan)
         {
-            return false;
-        }
+            var prepared = _prepared!;
+            prepared.EnsureCapacity(prepared.Count + 1, _arena.Budget, nameof(ReceivedChanges), restoresPreparation: true);
+            var root = RootValues.Place(_arena, table.Layout, handle, values: null, out _, out _, plan);
+            if (root.IsNull)
+            {
+                return false;
+            }
 
-        prepared.Add(new PreparedChange(ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
-        return true;
+            prepared.Add(new PreparedChange(ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
+            return true;
+        }
     }
 
     private void Diverge(ref string? divergence, string reason)
