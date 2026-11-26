@@ -15387,6 +15387,26 @@ format check, ran all 18 examples, and ran the full Windows x64 Release
 suite. It reported 4,691 passes and 169 expected skips. The corrected
 tests-first SHA is the acceptance reference for implementation.
 
+##### Architecture review after S24
+
+The next coordinator starts a fresh independent architect on the exact
+squash revision of `main` after its push CI is green and before product
+work on S25. Use `gpt-6.2-astra` at `xhigh` in a read-only role. The
+architect must be new to S24 and to the planner's review of cancellation.
+
+Review the completed and tested budget across preparation, publication and
+withdrawal on the master and child. Follow shared backing through each
+owner, including the reader that delays release. Look for duplicated rules,
+states that can be removed and work repeated across paths. Review test
+and measurement scaffolding separately, and preserve its independent
+accounting. For each finding give the location, a simpler form, its risk
+and a specific check for unchanged behavior and cost.
+
+Record accepted items in a separate S24R before S25, using the refactoring
+track. Keep existing test assertions and repeat paired measurements on
+each affected measured path. If the review proposes no changes to take,
+record its reasoning and close it. See [the architect's review](process.md#the-architects-review).
+
 #### S25 · Reference fixture, managed reference and the memory gate
 
 **Track:** full, verification · **Needs:** S24 · **Decisions:** O11, D6 · **Closes:** G1
