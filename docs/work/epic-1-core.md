@@ -15201,17 +15201,17 @@ that case.
 `EngineDatabase.HoldBudgetBacking(int length)` provides a real charged
 array with an idempotent `IDisposable` release to align independent test
 events. Actual native and root slots provide separate reuse and
-reclamation controls. `EngineTestInputs.RootPageLimit` and the internal
-`RootTable(int maximumPages)` control limit the count of real 4,096-entry
-pages for tests. A null option uses production geometry.
+reclamation controls. `EngineTestInputs.RootPageLimit` limits the count of
+real 4,096-entry pages for tests. A null option uses production geometry.
 
 `EngineTestInputs.ObserveChildPressure` takes an `Action<ChildPressureSample>`
 with `Sequence`, `Limit`, `DuringReceive` and `ReceivedFrames`. Notify after
 rollback at the actual Ready pause outside the writes lock. The frame count
 excludes the refused frame. `BeforeChildTransactionFrame` is a test-only
-`Action<ulong, int>` before a valid frame is admitted, outside the writes
-lock. `BeforeChildPreparationMember` is a test-only `Action<uint>` under
-the writes lock before a replay effect is prepared. The tests use the
+`Action<ulong, int>` outside the writes lock before each attempted
+admission of a valid frame, including retries. `BeforeChildPreparationMember`
+is a test-only `Action<uint>` under the writes lock before each attempt to
+prepare a replay effect. Count attempts from these points. The tests use the
 existing maintenance, growth, publication and allocator controls where
 those already expose the required distinction.
 
