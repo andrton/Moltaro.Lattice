@@ -210,7 +210,9 @@ internal sealed class RequestReceiver : IDisposable
         }
 
         var commands = new SequenceReader<byte>(ForwardEncoding.ReadRoot(ref reader));
-        return UpdateInput.Create(UpdateCommands.ReadRequest(table.Layout, ref commands, lease), new UpdateOutcome(), lease);
+        var decoded = UpdateCommands.ReadRequest(table.Layout, ref commands, lease);
+        var outcome = lease?.Allocate(MemoryBudget.ObjectBytes(2L * IntPtr.Size), nameof(UpdateOutcome), static () => new UpdateOutcome()) ?? new();
+        return UpdateInput.Create(decoded, outcome, lease);
     }
 
     // The table of an entity type the master stores.

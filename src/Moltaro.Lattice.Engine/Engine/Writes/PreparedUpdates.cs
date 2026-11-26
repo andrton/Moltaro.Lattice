@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage.Roots;
@@ -13,6 +14,30 @@ internal sealed class PreparedUpdates(MemoryBudget? budget) : IDisposable
     private Dictionary<uint, SparseChange>? _effects;
 
     private UpdateBitmap _reply;
+    private MemoryLease? _work;
+    private bool _keepsCallerResults;
+
+    public MemoryLease? Work => budget is null ? null : _work ??= new MemoryLease(budget);
+
+    public byte[] ResultBits(UpdateInput input)
+    {
+        if (Work is not { } owner)
+        {
+            return UpdateOutcome.BitsFor(input.Commands.Length);
+        }
+
+        var bits = owner.Allocate<byte>(UpdateOutcome.BitmapLength(input.Commands.Length), nameof(PreparedUpdates));
+        owner.Own(() =>
+        {
+            if (!_keepsCallerResults)
+            {
+                input.Outcome.ClearBits(bits);
+            }
+        });
+        return bits;
+    }
+
+    public void PublishCallerResults() => _keepsCallerResults = true;
 
     public void Add(uint member, ulong predecessor, StructureLayout layout, ReadOnlySpan<ResolvedCommand> commands)
     {
@@ -61,7 +86,12 @@ internal sealed class PreparedUpdates(MemoryBudget? budget) : IDisposable
                 budget.Release(effect.Commands);
             }
 
+            effects.Clear();
             budget.ReleaseDictionary(effects, includesOwner: true);
         }
+
+        var work = _work;
+        _work = null;
+        work?.Dispose();
     }
 }

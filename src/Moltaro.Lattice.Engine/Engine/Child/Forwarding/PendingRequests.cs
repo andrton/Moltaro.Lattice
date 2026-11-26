@@ -106,7 +106,8 @@ internal sealed class PendingRequests
             throw Protocol.Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
         }
 
-        var reply = ForwardEncoding.ReadReply(body, call.Updates?.Count ?? 0, call.Updates?.OnlyUpdates ?? false);
+        var updates = call.Updates;
+        var reply = ForwardEncoding.ReadReply(body, updates?.Count ?? 0, updates?.OnlyUpdates ?? false, updates?.ReceiveBuffer);
         if (reply.Result is { } result)
         {
             if (result.Position.History != _history)

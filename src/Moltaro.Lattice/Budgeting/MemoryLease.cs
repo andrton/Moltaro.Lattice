@@ -62,6 +62,21 @@ internal sealed class MemoryLease(MemoryBudget budget) : IDisposable
     public object Box<T>(T value, string owner) where T : struct =>
         Allocate(MemoryBudget.ObjectBytes(System.Runtime.CompilerServices.Unsafe.SizeOf<T>()), owner, () => (object)value);
 
+    // The caller reserved space before creating an object from stack-held bytes.
+    public void OwnReserved(object item, long capacity, string owner)
+    {
+        Budget.Own(item, owner);
+        try
+        {
+            Own(() => Budget.Release(capacity, item), item);
+        }
+        catch
+        {
+            Budget.Forget(item);
+            throw;
+        }
+    }
+
     public void Own(Action release) => Own(release, null);
 
     private void Own(Action release, object? item)

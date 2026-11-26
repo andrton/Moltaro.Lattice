@@ -81,6 +81,7 @@ internal sealed class MemoryBudget(bool observesBackings)
     public static long ArrayBytes<T>(int length) => AlignedBytes(3L * IntPtr.Size + (long)Unsafe.SizeOf<T>() * length);
 
     public static long ObjectBytes(long fields) => AlignedBytes(2L * IntPtr.Size + fields);
+    public static long StringBytes(int characters) => ObjectBytes(sizeof(int) + (characters + 1L) * sizeof(char));
 
     private static long AlignedBytes(long bytes) => (bytes + IntPtr.Size - 1) & -IntPtr.Size;
 

@@ -14,24 +14,26 @@ internal sealed class RootUpdate : IDisposable
     private readonly Arena _arena;
     private readonly RootLayout _layout;
     private readonly ArenaAddress _source;
+    private readonly MemoryLease? _work;
     private Dictionary<int, object?> _changes;
 
     private readonly List<ResolvedCommand> _effects = [];
 
-    private RootUpdate(Arena arena, RootLayout layout, ArenaAddress source)
+    private RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, MemoryLease? work)
     {
         _arena = arena;
         _layout = layout;
         _source = source;
+        _work = work;
         _changes = BudgetDictionaries.Create<int, object?>(arena.Budget, nameof(RootUpdate));
     }
 
-    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, UpdateCommand[] commands)
-        : this(arena, layout, source)
+    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, UpdateCommand[] commands, byte[] bits, MemoryLease? work)
+        : this(arena, layout, source, work)
     {
         try
         {
-            Bits = UpdateOutcome.BitsFor(commands.Length);
+            Bits = bits;
 
             for (var index = 0; index < commands.Length; index++)
             {
@@ -53,8 +55,8 @@ internal sealed class RootUpdate : IDisposable
 
     // Replay uses the same edits but verifies each resolved action against the
     // exact predecessor. A failed plan owns no arena slots.
-    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, ReadOnlySpan<ResolvedCommand> commands)
-        : this(arena, layout, source)
+    public RootUpdate(Arena arena, RootLayout layout, ArenaAddress source, ReadOnlySpan<ResolvedCommand> commands, MemoryLease? work)
+        : this(arena, layout, source, work)
     {
         try
         {
@@ -137,7 +139,7 @@ internal sealed class RootUpdate : IDisposable
             var descriptor = ResidentDescriptor.Read(payload[(place.Offset - BlockHeader.Size)..]);
             var stored = new StoredCollection(_arena, element, _layout.StringEncoding, _source, descriptor);
             _changes.EnsureCapacity(_changes.Count + 1, _arena.Budget, nameof(RootUpdate));
-            staged = new EditedCollection(element, stored, assigned: null, _arena.Budget);
+            staged = new EditedCollection(element, stored, assigned: null, _arena.Budget, _work);
         }
         else if (staged is null)
         {
@@ -145,7 +147,7 @@ internal sealed class RootUpdate : IDisposable
         }
         else if (staged is not EditedCollection)
         {
-            staged = new EditedCollection(element, stored: null, staged, _arena.Budget);
+            staged = new EditedCollection(element, stored: null, staged, _arena.Budget, _work);
         }
 
         var collection = (EditedCollection)staged;

@@ -60,7 +60,11 @@ internal static class InstanceBudget
         ExpectCapacity(node, allocator, out _);
 
     public static BudgetCapacitySample ExpectCapacity(EngineDatabase node, CountingNativeAllocator allocator,
-        out long independentlyOwned, params object[] backings)
+        out long independentlyOwned, params object[] backings) =>
+        ExpectCapacity(node, allocator, null, out independentlyOwned, backings);
+
+    public static BudgetCapacitySample ExpectCapacity(EngineDatabase node, CountingNativeAllocator allocator,
+        long? knownLimit, out long independentlyOwned, params object[] backings)
     {
         var managed = 0L;
         var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -79,7 +83,7 @@ internal static class InstanceBudget
         Assert.Equal(allocator.OutstandingBytes, sample.NativeBytes);
         independentlyOwned = allocator.OutstandingBytes + managed;
         Assert.Equal(independentlyOwned, sample.ChargedBytes);
-        Assert.InRange(sample.PeakBytes, sample.ChargedBytes, node.Counters.MemoryLimit);
+        Assert.InRange(sample.PeakBytes, sample.ChargedBytes, knownLimit ?? node.Counters.MemoryLimit);
         return sample;
     }
 

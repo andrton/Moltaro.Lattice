@@ -130,15 +130,18 @@ internal sealed class Forwarder
     {
         ChildSender sender;
         ForwardedCall call;
+        MemoryLease? retained = null;
 
         try
         {
             sender = Begin(session, cancellationToken);
-            call = new ForwardedCall(Request(table, kind, key, values, update, expectedRevision, session?.MinPosition),
-                table.EntityType, UpdateReplies.Of(update));
+            retained = update is not null && _budget is not null ? new MemoryLease(_budget) : null;
+            var replies = UpdateReplies.Of(update, retained, receives: true);
+            call = new ForwardedCall(Request(table, kind, key, values, update, expectedRevision, session?.MinPosition), table.EntityType, replies, retained);
         }
         catch (Exception exception)
         {
+            retained?.Dispose();
             return Refused(exception, cancellationToken);
         }
 
@@ -153,14 +156,19 @@ internal sealed class Forwarder
     {
         ChildSender sender;
         ForwardedCall call;
+        MemoryLease? retained = null;
 
         try
         {
             sender = Begin(session, cancellationToken);
-            call = new ForwardedCall(BatchRequest(members, session?.MinPosition), EntityTypesOf(members), UpdateReplies.Of(members));
+            retained = _budget is null ? null : new MemoryLease(_budget);
+            var entityTypes = EntityTypesOf(members, retained);
+            var replies = UpdateReplies.Of(members, retained, receives: true);
+            call = new ForwardedCall(BatchRequest(members, session?.MinPosition), entityTypes, replies, retained);
         }
         catch (Exception exception)
         {
+            retained?.Dispose();
             return Refused(exception, cancellationToken);
         }
 
@@ -202,6 +210,7 @@ internal sealed class Forwarder
     // has applied the position of a write its master committed.
     private async ValueTask<LatticeWriteResult> ForwardAsync(ChildSender sender, ForwardedCall call, LatticeSession? session, CancellationToken cancellationToken)
     {
+        using var lifetime = call;
         call.WithdrawOn(cancellationToken);
 
         // The sender ended since it was read: the call ends here, and its registration with it.
@@ -238,7 +247,7 @@ internal sealed class Forwarder
             session?.Advance(result.Position);
         }
 
-        call.Updates?.Apply(reply.Bits);
+        call.Updates?.Apply(reply.Bits!);
         return result;
     }
 
@@ -345,9 +354,9 @@ internal sealed class Forwarder
     }
 
     // The entity types of the members, in their order, in which a refusal of the batch names its unique index.
-    private static LatticeEntityType[] EntityTypesOf(BatchMember[] members)
+    private static LatticeEntityType[] EntityTypesOf(BatchMember[] members, MemoryLease? retained)
     {
-        var entityTypes = new LatticeEntityType[members.Length];
+        var entityTypes = retained?.Allocate<LatticeEntityType>(members.Length, nameof(ForwardedCall)) ?? new LatticeEntityType[members.Length];
 
         for (var place = 0; place < members.Length; place++)
         {

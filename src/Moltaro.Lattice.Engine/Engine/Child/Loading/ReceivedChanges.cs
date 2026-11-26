@@ -643,20 +643,13 @@ internal sealed class ReceivedChanges
         ref SequenceReader<byte> body, ref string? divergence)
     {
         var key = table.Keys.ReadKey(ref body);
-        var budget = _arena.Budget;
-        var commands = UpdateCommands.ReadEffect(table.Layout, ref body, budget);
-        try
-        {
-            return TryPrepareUpdate(table, sequence, predecessor, member, key, commands, ref divergence);
-        }
-        finally
-        {
-            budget?.Release(commands);
-        }
+        using var decoded = _arena.Budget is { } budget ? new MemoryLease(budget) : null;
+        var commands = UpdateCommands.ReadEffect(table.Layout, ref body, decoded);
+        return TryPrepareUpdate(table, sequence, predecessor, member, key, commands, decoded, ref divergence);
     }
 
     private bool TryPrepareUpdate(EntityTable table, ulong sequence, ulong predecessor, uint member,
-        in EntityKey key, ResolvedCommand[] commands, ref string? divergence)
+        in EntityKey key, ResolvedCommand[] commands, MemoryLease? decoded, ref string? divergence)
     {
         NameOnce(table, key);
         if (divergence is not null)
@@ -691,7 +684,7 @@ internal sealed class ReceivedChanges
         RootUpdate plan;
         try
         {
-            plan = new RootUpdate(_arena, table.Layout, replaced, commands.AsSpan());
+            plan = new RootUpdate(_arena, table.Layout, replaced, commands.AsSpan(), decoded);
         }
         catch (LatticeException exception) when (exception.Error is LatticeErrorEnum.UpdateTargetMissing or LatticeErrorEnum.ValidationFailed)
         {

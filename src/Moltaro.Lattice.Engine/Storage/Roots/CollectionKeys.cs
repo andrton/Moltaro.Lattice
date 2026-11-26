@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -123,11 +124,11 @@ internal readonly ref struct CollectionKeys : ICollectionKeySource
     }
 
     // The spelling of a key that the lookup found by the schema comparison.
-    public string Spelling(int ordinal)
+    public string Spelling(int ordinal, MemoryLease? lease = null)
     {
         var payload = RecordPayload(ordinal, out var start);
         var text = ResidentDescriptor.Read(payload[(start + Key.Offset)..]);
-        return StoredText.Read(_arena, text, payload, _encoding);
+        return StoredText.Read(_arena, text, payload, _encoding, lease);
     }
 
     public ReadOnlySpan<byte> EntryParts(int ordinal, out ReadOnlySpan<byte> tail, out int start)

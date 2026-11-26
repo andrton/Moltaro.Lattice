@@ -13,14 +13,16 @@ internal sealed class EditedAssociation : IDisposable
 
     private readonly StoredCollection? _stored;
     private readonly MemoryBudget? _budget;
+    private readonly MemoryLease? _work;
     private Dictionary<int, EditedEntry> _changed;
     private readonly List<EditedEntry> _added = [];
     private Dictionary<object, int> _newKeys = null!;
 
-    public EditedAssociation(StructureLayout element, StoredCollection? stored, object? assigned, MemoryBudget? budget)
+    public EditedAssociation(StructureLayout element, StoredCollection? stored, object? assigned, MemoryBudget? budget, MemoryLease? work)
     {
         _stored = stored;
         _budget = budget;
+        _work = work;
         Count = stored?.Count ?? 0;
         var declaration = element.DeclarationOf(0);
         _changed = BudgetDictionaries.Create<int, EditedEntry>(budget, nameof(EditedAssociation));
@@ -72,7 +74,7 @@ internal sealed class EditedAssociation : IDisposable
 
             if (key is string)
             {
-                resolved = new ResolvedCommand(command with { First = _stored!.Value.Spelling(original) }, setsValue);
+                resolved = new ResolvedCommand(command with { First = _stored!.Value.Spelling(original, _work) }, setsValue);
             }
             else if (setsValue)
             {

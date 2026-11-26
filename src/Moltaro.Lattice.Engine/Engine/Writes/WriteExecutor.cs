@@ -297,8 +297,8 @@ internal sealed class WriteExecutor
 
                 if (member.Update is { } input)
                 {
-                    using var update = PlanUpdate(table, replaced, input, place);
                     updates ??= new PreparedUpdates(_arena.Budget);
+                    using var update = PlanUpdate(table, replaced, input, updates, place);
                     if (!update.Changed)
                     {
                         continue;
@@ -356,7 +356,8 @@ internal sealed class WriteExecutor
 
             if (updates is not null && write.Forwarded is not null)
             {
-                updates.SetReply(UpdateReplies.Of(members));
+                using var replyWork = Budget is { } budget ? new MemoryLease(budget) : null;
+                updates.SetReply(UpdateReplies.Of(members, replyWork));
             }
 
             var reservation = _changes.TryReserve(changes[..count], checksUnique: true, out taken);
@@ -534,14 +535,15 @@ internal sealed class WriteExecutor
     private ReservationEnum TryPrepareUpdate(PendingWrite write, UpdateInput input, RootHandle handle,
         ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
     {
-        using var update = PlanUpdate(write.Table, replaced, input);
         var updates = new PreparedUpdates(_arena.Budget);
         prepared = null;
         try
         {
+            using var update = PlanUpdate(write.Table, replaced, input, updates);
             if (write.Forwarded is not null)
             {
-                updates.SetReply(UpdateReplies.Of(input));
+                using var replyWork = Budget is { } budget ? new MemoryLease(budget) : null;
+                updates.SetReply(UpdateReplies.Of(input, replyWork));
             }
 
             if (!update.Changed)
@@ -569,11 +571,11 @@ internal sealed class WriteExecutor
         }
     }
 
-    private RootUpdate PlanUpdate(EntityTable table, ArenaAddress replaced, UpdateInput input, int? operation = null)
+    private RootUpdate PlanUpdate(EntityTable table, ArenaAddress replaced, UpdateInput input, PreparedUpdates updates, int? operation = null)
     {
         try
         {
-            var update = new RootUpdate(_arena, table.Layout, replaced, input.Commands);
+            var update = new RootUpdate(_arena, table.Layout, replaced, input.Commands, updates.ResultBits(input), updates.Work);
             // The command results can see these bits only after the submission's task succeeds.
             // If the coordinator retries admission it replaces them with those of the last attempt.
             input.Outcome.SetBits(update.Bits);
@@ -795,6 +797,10 @@ internal sealed class WriteExecutor
 
         _changes.PublishPositionAndAfter(changes, sequence, publishesPosition: true);
         FinishWorkspace(prepared, published: true);
+        if (write.Forwarded is null)
+        {
+            prepared.Updates?.PublishCallerResults();
+        }
 
         // The reply of a write a child forwarded, before its transaction is appended, so that the child
         // takes the reply first (Delivery.RecordedReplies).

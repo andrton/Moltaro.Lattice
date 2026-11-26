@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
@@ -20,7 +21,7 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 // before that. The outcome is set once: by the reply, which the receiver of the follower hands over, or by
 // the end of the connection or the cancellation, whichever comes first; the others find it set. Its
 // continuations run on the thread pool, never on a thread of the engine.
-internal sealed class ForwardedCall
+internal sealed class ForwardedCall : IDisposable
 {
     private readonly TaskCompletionSource<ForwardedReply> _outcome = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -34,27 +35,39 @@ internal sealed class ForwardedCall
     private readonly LatticeEntityType? _entityType;
 
     // The entity types of the members of a batch, in their order; null for one write.
-    private readonly LatticeEntityType[]? _memberTypes;
+    private LatticeEntityType[]? _memberTypes;
+    private MemoryLease? _replyLease;
 
-    public ForwardedCall(OutgoingMessage request, LatticeEntityType entityType, UpdateReplies? updates = null)
+    public ForwardedCall(OutgoingMessage request, LatticeEntityType entityType, UpdateReplies? updates = null, MemoryLease? replyLease = null)
     {
         Request = request;
         _entityType = entityType;
         Updates = updates;
+        _replyLease = replyLease;
     }
 
     // The call of a write batch, with the entity types of its members, in their order.
-    public ForwardedCall(OutgoingMessage request, LatticeEntityType[] memberTypes, UpdateReplies? updates = null)
+    public ForwardedCall(OutgoingMessage request, LatticeEntityType[] memberTypes, UpdateReplies? updates = null, MemoryLease? replyLease = null)
     {
         Request = request;
         _memberTypes = memberTypes;
         Updates = updates;
+        _replyLease = replyLease;
     }
 
     // The request, complete.
     public OutgoingMessage Request { get; }
 
-    public UpdateReplies? Updates { get; }
+    public UpdateReplies? Updates { get; private set; }
+
+    // After the real outcome reaches the caller, the receive task has already finished
+    // consulting these fields. The request has its separate send/withdrawal lifetime.
+    public void Dispose()
+    {
+        Updates = null;
+        _memberTypes = null;
+        Interlocked.Exchange(ref _replyLease, null)?.Dispose();
+    }
 
     // The id of the request on its connection, which the sender gives it when it takes it.
     public ulong CorrelationId { get; set; }

@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Values;
@@ -32,6 +33,47 @@ internal static class StoredText
     public static string Read(Arena arena, in ValueDescriptor resident, ReadOnlySpan<byte> rootPayload, LatticeStringEncodingEnum encoding)
     {
         var descriptor = ValueBlocks.ResolveText(arena, resident);
+        return ReadResolved(arena, descriptor, rootPayload, encoding, characters: -1);
+    }
+
+    public static string Read(Arena arena, in ValueDescriptor resident, ReadOnlySpan<byte> rootPayload,
+        LatticeStringEncodingEnum encoding, MemoryLease? lease)
+    {
+        if (lease is null)
+        {
+            return Read(arena, resident, rootPayload, encoding);
+        }
+
+        var descriptor = ValueBlocks.ResolveText(arena, resident);
+        if (descriptor.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var characters = encoding == LatticeStringEncodingEnum.Utf16 ? (int)descriptor.Length / 2 : Utf8Length(arena, descriptor, rootPayload);
+        var capacity = MemoryBudget.StringBytes(characters);
+        lease.Budget.Reserve(capacity);
+        try
+        {
+            var result = ReadResolved(arena, descriptor, rootPayload, encoding, characters);
+            lease.OwnReserved(result, capacity, nameof(StoredText));
+            return result;
+        }
+        catch
+        {
+            lease.Budget.Release(capacity);
+            throw;
+        }
+    }
+
+    private static int Utf8Length(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> payload) =>
+        ValueBlocks.LiesInChunks(descriptor)
+            ? DecodeChunks(arena, ValueBlocks.Directory(arena, descriptor), [])
+            : Encoding.UTF8.GetCharCount(ValueBlocks.Contiguous(arena, descriptor, payload));
+
+    private static string ReadResolved(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload,
+        LatticeStringEncodingEnum encoding, int characters)
+    {
         if (descriptor.Length == 0)
         {
             return string.Empty;
@@ -62,10 +104,9 @@ internal static class StoredText
                 ValueBlocks.CopyTo(value.arena, value.descriptor, default, MemoryMarshal.AsBytes(units)));
         }
 
-        var entries = ValueBlocks.Directory(arena, descriptor);
-
-        return string.Create(DecodeChunks(arena, entries, []), (arena, descriptor), static (characters, value) =>
-            DecodeChunks(value.arena, ValueBlocks.Directory(value.arena, value.descriptor), characters));
+        var length = characters < 0 ? DecodeChunks(arena, ValueBlocks.Directory(arena, descriptor), []) : characters;
+        return string.Create(length, (arena, descriptor), static (destination, value) =>
+            DecodeChunks(value.arena, ValueBlocks.Directory(value.arena, value.descriptor), destination));
     }
 
     // The bytes of the UTF-8 character that begins with this lead byte: 1 to 4.

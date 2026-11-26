@@ -14,7 +14,7 @@ internal sealed class EditedCollection : IDisposable
     private readonly EditedAssociation? _association;
     private bool _hashed;
 
-    public EditedCollection(StructureLayout element, StoredCollection? stored, object? assigned, MemoryBudget? budget)
+    public EditedCollection(StructureLayout element, StoredCollection? stored, object? assigned, MemoryBudget? budget, MemoryLease? work)
     {
         Stored = stored;
         Changed = assigned is not null;
@@ -25,7 +25,7 @@ internal sealed class EditedCollection : IDisposable
         }
         else
         {
-            _association = new EditedAssociation(element, stored, assigned, budget);
+            _association = new EditedAssociation(element, stored, assigned, budget, work);
             _hashed = stored?.Hashed ?? !CollectionLookup.IsCompact(count);
         }
     }
