@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access;
@@ -40,12 +41,20 @@ public sealed class LatticeOwnedValue
     /// position of that owned type in a record.
     /// </summary>
     /// <param name="ownedType">The owned type, taken from the database schema.</param>
-    public LatticeOwnedValue(LatticeOwnedType ownedType)
+    public LatticeOwnedValue(LatticeOwnedType ownedType) : this(ownedType, null)
+    {
+    }
+
+    private LatticeOwnedValue(LatticeOwnedType ownedType, MemoryLease? lease)
     {
         ArgumentNullException.ThrowIfNull(ownedType);
         OwnedType = ownedType;
-        Values = new object?[ownedType.FieldsByOrdinal.Length];
+        var count = ownedType.FieldsByOrdinal.Length;
+        Values = lease?.Allocate<object?>(count, nameof(LatticeOwnedValue)) ?? new object?[count];
     }
+
+    internal static LatticeOwnedValue Snapshot(LatticeOwnedType type, MemoryLease? lease) =>
+        lease?.Allocate(MemoryBudget.ObjectBytes(2L * IntPtr.Size), nameof(LatticeOwnedValue), () => new LatticeOwnedValue(type, lease)) ?? new(type);
 
     /// <summary>The owned type the value belongs to.</summary>
     public LatticeOwnedType OwnedType { get; }

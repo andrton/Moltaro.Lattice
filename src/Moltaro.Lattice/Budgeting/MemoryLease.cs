@@ -25,6 +25,40 @@ internal sealed class MemoryLease(MemoryBudget budget) : IDisposable
         }
     }
 
+    public T Allocate<T>(long bytes, string owner, Func<T> create, Action<T>? release = null) where T : class
+    {
+        Budget.Reserve(bytes);
+        T? backing = null;
+        try
+        {
+            backing = create();
+            Budget.Own(backing, owner);
+            Own(() =>
+            {
+                release?.Invoke(backing);
+                Budget.Release(bytes, backing);
+            });
+            return backing;
+        }
+        catch
+        {
+            if (backing is not null)
+            {
+                Budget.Forget(backing);
+            }
+
+            Budget.Release(bytes);
+            throw;
+        }
+    }
+
+    public byte[] Copy(byte[] original, string owner)
+    {
+        var copy = Allocate<byte>(original.Length, owner);
+        original.CopyTo(copy, 0);
+        return copy;
+    }
+
     public void Own(Action release)
     {
         var backing = new Backing(release, _first);

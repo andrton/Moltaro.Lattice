@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Values;
@@ -56,7 +57,7 @@ internal static class RecordValues
     // write runs, or a write batch while the operation is added, and the caller keeps it unchanged
     // until then (docs/decisions/mutation-commands.md, "Stable write inputs until completion"). A
     // Binary value inside a collection or an owned value is copied with it.
-    public static object?[] Submit(LatticeEntityType entityType, object?[] values)
+    public static object?[] Submit(LatticeEntityType entityType, object?[] values, MemoryLease? lease = null)
     {
         foreach (var field in entityType.FieldsByOrdinal)
         {
@@ -66,8 +67,8 @@ internal static class RecordValues
             }
         }
 
-        var submitted = new object?[values.Length];
-        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType, entityType.Name, ofOwnedValue: false);
+        var submitted = lease?.Allocate<object?>(values.Length, nameof(RecordValues)) ?? new object?[values.Length];
+        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType, entityType.Name, lease, ofOwnedValue: false);
 
         return submitted;
     }
@@ -108,7 +109,13 @@ internal static class RecordValues
             throw place.Fail(NotAccepted(declaration, value));
         }
 
-        return copy ? ((byte[])value).Clone() : value;
+        if (!copy)
+        {
+            return value;
+        }
+
+        var bytes = (byte[])value;
+        return place.Lease is { } lease ? lease.Copy(bytes, nameof(RecordValues)) : bytes.Clone();
     }
 
     // An owned value is copied field by field, as if each field were set again, so what it
@@ -121,8 +128,8 @@ internal static class RecordValues
             throw place.Fail($"holds owned values of '{ownedType.Name}'; {given} cannot be used for it.");
         }
 
-        var copy = new LatticeOwnedValue(ownedType);
-        CopyFields(ownedType.FieldsByOrdinal, source.Values, copy.Values, place.EntityType, ownedType.Name, ofOwnedValue: true);
+        var copy = LatticeOwnedValue.Snapshot(ownedType, place.Lease);
+        CopyFields(ownedType.FieldsByOrdinal, source.Values, copy.Values, place.EntityType, ownedType.Name, place.Lease, ofOwnedValue: true);
 
         return copy;
     }
@@ -133,11 +140,12 @@ internal static class RecordValues
     // is copied, and one of the entity taken as the record holds it; and a String or Binary value of an
     // owned value is checked against the bound of one value here, where Submit checked those of the
     // entity before.
-    private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, LatticeEntityType? entityType, string owner, bool ofOwnedValue)
+    private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, LatticeEntityType? entityType,
+        string owner, MemoryLease? lease, bool ofOwnedValue)
     {
         foreach (var field in fields)
         {
-            var place = new Place(entityType, owner, field);
+            var place = new Place(entityType, owner, field, lease);
             var value = values[field.Ordinal];
             if (value is not null)
             {
@@ -167,12 +175,12 @@ internal static class RecordValues
 
         var element = declaration.Element!;
         var bounded = ValueBound.Applies(element);
-        var copy = form.Create();
+        var copy = form.Create(lease: place.Lease);
         foreach (var item in form.Elements(value))
         {
             if (item is null)
             {
-                form.Add(copy, Null(element, place));
+                form.Add(copy, Null(element, place), place.Lease);
 
                 continue;
             }
@@ -182,7 +190,7 @@ internal static class RecordValues
                 ThrowIfAboveTheBound(element, item, place);
             }
 
-            form.Add(copy, Copy(element, item, place));
+            form.Add(copy, Copy(element, item, place), place.Lease);
         }
 
         return copy;
@@ -214,7 +222,7 @@ internal static class RecordValues
         var valueDeclaration = declaration.Value!;
         var boundedKey = place.IsWrite && ValueBound.Applies(keyDeclaration);
         var boundedValue = place.IsWrite && ValueBound.Applies(valueDeclaration);
-        var copy = form.Create();
+        var copy = form.Create(lease: place.Lease);
         foreach (var (key, item) in form.Entries(value))
         {
             if (key is null)
@@ -234,7 +242,7 @@ internal static class RecordValues
 
             var copiedKey = Copy(keyDeclaration, key, place);
             var copiedItem = item is null ? Null(valueDeclaration, place) : Copy(valueDeclaration, item, place);
-            if (!form.TryAdd(copy, copiedKey, copiedItem))
+            if (!form.TryAdd(copy, copiedKey, copiedItem, place.Lease))
             {
                 throw place.Fail($"has the key '{key}' twice, as its key declaration compares keys.");
             }
@@ -303,7 +311,7 @@ internal static class RecordValues
     // Where a value is: the field of an entity type or of an owned type that holds it, and,
     // for a write, the entity type that is written, whose encoding of text the bound of one value
     // counts in. The message is made only on a failure.
-    private readonly record struct Place(LatticeEntityType? EntityType, string Owner, LatticeField Field)
+    private readonly record struct Place(LatticeEntityType? EntityType, string Owner, LatticeField Field, MemoryLease? Lease = null)
     {
         // Whether the value is submitted by a write, which names the entity type it writes, rather
         // than set into a record.

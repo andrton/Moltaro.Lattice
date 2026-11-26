@@ -11,6 +11,9 @@ namespace Moltaro.Lattice.Access.Batches;
 // execution of the batch once it is committed.
 internal interface IWriteBatchExecutor
 {
+    // Once closed, batch validation still runs in its original order before the closed result.
+    bool IsClosed => false;
+
     // The root of the values of a complete entity of the entity type, as the engine places it when it
     // executes the batch. The batch keeps it as it is. Empty for a delete, whose values are null.
     // Called for every operation added, so that each Add after the close of the database is

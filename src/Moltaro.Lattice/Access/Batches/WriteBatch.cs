@@ -110,7 +110,15 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         ArgumentNullException.ThrowIfNull(entity);
 
         var binding = EntityBinding<TEntity>.For(_schema);
-        Add(kind, binding.EntityType, binding.ValuesForWrite(entity), expectedRevision);
+        using var snapshot = OpenSnapshot();
+        try
+        {
+            Add(kind, binding.EntityType, binding.ValuesForWrite(entity, snapshot), expectedRevision);
+        }
+        catch (BudgetRefusedException exception)
+        {
+            throw SnapshotRefusal(exception);
+        }
     }
 
     private void Save(WriteKindEnum kind, LatticeRecord record, LatticeRevision? expectedRevision)
@@ -121,7 +129,15 @@ internal sealed class WriteBatch : ILatticeWriteBatch
             throw new ArgumentException($"The record is a '{record.EntityType.Name}' of another schema, not of this database.", nameof(record));
         }
 
-        Add(kind, entityType, record.ValuesForWrite(), expectedRevision);
+        using var snapshot = OpenSnapshot();
+        try
+        {
+            Add(kind, entityType, record.ValuesForWrite(snapshot), expectedRevision);
+        }
+        catch (BudgetRefusedException exception)
+        {
+            throw SnapshotRefusal(exception);
+        }
     }
 
     private void Add(WriteKindEnum kind, LatticeEntityType entityType, object?[] values, LatticeRevision? expectedRevision) =>
@@ -169,20 +185,15 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         }
 
         update.ThrowIfEmpty();
-        var input = update.ValidateContent();
-        var entityType = update.EntityType;
-        var key = update.Key;
-        var entity = CheckIdentity(entityType, key);
-        _executor.CheckUpdate(entityType, input);
-
         // Finish any fallible allocation before changing either builder.
-        using var addition = _budget is null ? null : new MemoryLease(_budget);
+        using var addition = OpenSnapshot();
         try
         {
-            if (addition is not null)
-            {
-                addition.AdoptArray(input.Commands, nameof(WriteBatch));
-            }
+            var input = update.ValidateContent(addition);
+            var entityType = update.EntityType;
+            var key = update.Key;
+            var entity = CheckIdentity(entityType, key);
+            _executor.CheckUpdate(entityType, input);
 
             PrepareCapacity();
             Keep(entity, new WriteBatchOperation(WriteKindEnum.Update, entityType, key, expectedRevision, default, input));
@@ -196,8 +207,16 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         }
         catch (BudgetRefusedException exception)
         {
-            throw exception.WriteRejected();
+            throw SnapshotRefusal(exception);
         }
+    }
+
+    private MemoryLease? OpenSnapshot() => _budget is not null && !_executor.IsClosed ? new MemoryLease(_budget) : null;
+
+    private LatticeException SnapshotRefusal(BudgetRefusedException exception)
+    {
+        ObjectDisposedException.ThrowIf(_executor.IsClosed, _executor);
+        return exception.WriteRejected();
     }
 
     private void PrepareCapacity()

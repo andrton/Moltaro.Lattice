@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Budgeting;
+
 namespace Moltaro.Lattice.Schema;
 
 // See SequenceForm. T is the type of the element position.
@@ -34,9 +36,50 @@ internal sealed class SequenceForm<T> : SequenceForm
         }
     }
 
-    public override object Create(int capacity = 0) => _isSet ? new HashSet<T>(capacity, _comparer) : new List<T>(capacity);
+    public override object Create(int capacity = 0, MemoryLease? lease = null)
+    {
+        if (lease is null)
+        {
+            return _isSet ? new HashSet<T>(capacity, _comparer) : new List<T>(capacity);
+        }
+
+        var budget = lease.Budget;
+        if (_isSet)
+        {
+            var set = lease.Allocate(BudgetHashSets.OwnerBytes, nameof(SequenceForm), () => new HashSet<T>(_comparer), budget.ReleaseSet);
+            set.EnsureCapacity(capacity, budget, nameof(SequenceForm));
+            return set;
+        }
+
+        var list = lease.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(SequenceForm),
+            static () => new List<T>(), value => budget.Release(BudgetCollections.Items(value)));
+        list.EnsureCapacity(capacity, budget, nameof(SequenceForm));
+        return list;
+    }
 
     public override int Count(object collection) => ((ICollection<T>)collection).Count;
 
-    public override void Add(object collection, object? element) => ((ICollection<T>)collection).Add((T)element!);
+    public override void Add(object collection, object? element, MemoryLease? lease = null)
+    {
+        var value = (T)element!;
+        if (lease is not null)
+        {
+            if (collection is List<T> list)
+            {
+                list.EnsureCapacity(list.Count + 1, lease.Budget, nameof(SequenceForm));
+            }
+            else
+            {
+                var set = (HashSet<T>)collection;
+                if (set.Contains(value))
+                {
+                    return;
+                }
+
+                set.EnsureCapacity(set.Count + 1, lease.Budget, nameof(SequenceForm));
+            }
+        }
+
+        ((ICollection<T>)collection).Add(value);
+    }
 }

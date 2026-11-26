@@ -340,6 +340,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // as it is before a single write is submitted (RootValues.CheckCollectionBounds). A delete carries
     // an empty root body.
     // ObjectDisposedException once the database is closed, for every kind of member.
+    bool IWriteBatchExecutor.IsClosed => IsClosed;
+
     ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values) =>
         EncodeBatchRoot(entityType, values, null);
 

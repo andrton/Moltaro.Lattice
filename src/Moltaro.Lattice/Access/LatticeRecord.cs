@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access;
@@ -123,7 +124,7 @@ public sealed class LatticeRecord
 
     // Record -> values to store, checked against the schema at every depth. It shares the byte arrays of
     // the fields of the entity, which the engine reads while the write runs (RecordValues.Submit).
-    internal object?[] ValuesForWrite() => RecordValues.Submit(EntityType, _values);
+    internal object?[] ValuesForWrite(MemoryLease? lease = null) => RecordValues.Submit(EntityType, _values, lease);
 
     // The values the record holds, by LatticeField.Ordinal, for a read that fills a new record in
     // place: the engine, which puts into it values it has made for this record alone, each in the

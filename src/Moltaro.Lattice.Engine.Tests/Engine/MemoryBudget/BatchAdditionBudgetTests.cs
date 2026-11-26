@@ -41,9 +41,10 @@ public sealed class BatchAdditionBudgetTests
         var update = acting.Set<PieceSchema.Piece>().CreateUpdate(1L);
         var command = update.Assign("Data", new byte[LongValue]);
         var before = ExpectCapacity(acting, allocator);
-        using (acting.HoldBudgetBacking(checked((int)(Limit - before.ChargedBytes - 64))))
+        using (LeaveRoom(acting, before, SmallSnapshotRoom))
         {
             var held = ExpectCapacity(acting, allocator);
+            Assert.Equal(SmallSnapshotRoom, Limit - held.ChargedBytes);
             Assert.Throws<ArgumentException>(() => batch.Insert(PieceSchema.Of(2, 21)));
             AssertMemoryRefusal(() => batch.Insert(PieceSchema.Of(3, 8, data: LongValue)));
             AssertMemoryRefusal(() => batch.Update(update));
@@ -212,7 +213,7 @@ public sealed class BatchAdditionBudgetTests
         Assert.Equal(1, valid.Count);
     }
 
-    [Fact(Skip = BatchSnapshotAdmissionTests.SnapshotPending)]
+    [Fact]
     public async Task An_earlier_snapshot_allocation_can_refuse_before_checking_batch_identity_or_submission()
     {
         var allocator = new CountingNativeAllocator();

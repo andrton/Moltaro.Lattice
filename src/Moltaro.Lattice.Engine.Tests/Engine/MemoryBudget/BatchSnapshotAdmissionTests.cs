@@ -12,7 +12,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 public sealed class BatchSnapshotAdmissionTests
 {
-    internal const string SnapshotPending = "Batch input snapshots do not reserve their memory before copying.";
     private const long Limit = 8L * Segment;
     private const int WorkingRoom = 512;
     private static readonly LatticeSchema Schema = LatticeSchema.Compile($$"""
@@ -29,7 +28,7 @@ public sealed class BatchSnapshotAdmissionTests
         }
         """);
 
-    [Theory(Skip = SnapshotPending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_required_snapshot_stops_at_the_memory_boundary_before_reading_a_later_field(bool onChild)
