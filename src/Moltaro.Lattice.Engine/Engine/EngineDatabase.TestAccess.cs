@@ -182,10 +182,12 @@ internal sealed partial class EngineDatabase
     // Frees every retired thing no read in progress can reach — an old root with its blocks, a replaced table
     // of the primary index, the entry of a deleted root — and returns. It does not wait and takes no timeout:
     // with no read in progress it leaves nothing retired, and what a read in progress can still reach stays
-    // retired until a later drain. It is what a test calls before it counts; a write under memory pressure
-    // and a close drain in the same way (RetiredMemory.Drain, FreeAfterOperationsAsync). Unavailable before
-    // the open and once Faulted, ObjectDisposedException after the close. It runs under the lock of the
-    // writes, between two changes of the engine, because only that thread frees (RetiredMemory).
+    // retired until a later drain. A test calls it before counting. Memory recovery and close share
+    // the reclamation work. The test drain and memory recovery treat shrinking the empty queue as
+    // best-effort. Close reports a trim failure (RetiredMemory.Drain, RetiredMemory.DrainAtClose).
+    // Unavailable before the open and once Faulted, ObjectDisposedException after the close. It runs
+    // under the lock of the writes, between two changes of the engine, because only that thread frees
+    // (RetiredMemory).
     public void DrainRetired() => InTestWriteLock<object?>(static parts =>
     {
         parts.Retired.Drain();
