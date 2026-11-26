@@ -1,8 +1,10 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Text;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.Engine.Tests.Engine.Text.TextMetadataTestAccess;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -59,10 +61,21 @@ public sealed class TextMetadataShapeTests
 
     [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
-    public async Task A_reader_local_keeps_one_old_leaf_after_its_smaller_replacement_is_published(string encoding)
+    public Task A_reader_local_keeps_one_old_leaf_after_its_smaller_replacement_is_published(string encoding) =>
+        LocatorReplacementAsync(encoding, inspectBudget: false);
+
+    [Theory(Skip = Pending)]
+    [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
+    public Task Managed_text_capacity_charges_both_bucket_generations_and_only_the_owned_locator_leaf(string encoding) =>
+        LocatorReplacementAsync(encoding, inspectBudget: true);
+
+    private static async Task LocatorReplacementAsync(string encoding, bool inspectBudget)
     {
         var schema = TextSchema.Of(encoding);
-        await using var node = await EngineMaster.OpenAsync(schema, Inputs(101));
+        var allocator = new CountingNativeAllocator();
+        await using var node = inspectBudget
+            ? await OpenAsync(64L * Segment, allocator, schema: schema)
+            : await EngineMaster.OpenAsync(schema, Inputs(101));
         var values = Enumerable.Range(1, IdsPerLeaf - 1).Select(Depot).ToArray();
         await PutAsync(node, values);
         var dense = Settle(node);
@@ -70,6 +83,10 @@ public sealed class TextMetadataShapeTests
         var id = TextIds(node, "Depot", "Area", [keeper.Id])[keeper.Id];
         var before = CaptureLeaf(node, id);
         Assert.Equal(Bytes(dense.LocatorLeaves), Bytes(before.Select(allocation => allocation.Shape).ToArray()));
+        if (inspectBudget)
+        {
+            _ = ExpectCapacity(node, allocator, out _, before.Select(allocation => allocation.Identity).ToArray());
+        }
 
         var delete = node.CreateWriteBatch();
         foreach (var other in values[1..])
@@ -78,6 +95,23 @@ public sealed class TextMetadataShapeTests
         }
 
         await delete.CommitAsync().AsTask().WaitAsync(Bound);
+        if (inspectBudget)
+        {
+            node.DrainRetired();
+            Assert.Equal(1, Maintain(node, 1));
+            var buckets = UnderWrites(node, parts =>
+            {
+                var texts = parts.Arena.Texts;
+                var old = Assert.IsType<TextBucketSet>(Backing<TextBucketSet?>(texts, "_old"));
+                var active = Backing<TextBucketSet>(texts, "_active");
+                return new[] { old, active };
+            });
+            var migrating = Capacity(node);
+            Assert.NotEmpty(migrating.OldBuckets);
+            Assert.NotEmpty(migrating.ActiveBuckets);
+            _ = ExpectCapacity(node, allocator, out _, buckets.SelectMany(BucketObjects).ToArray());
+        }
+
         var sparse = Settle(node);
         var current = CaptureLeaf(node, id);
         var currentObjects = current.Select(allocation => allocation.Identity).ToHashSet(ReferenceEqualityComparer.Instance);
@@ -92,7 +126,52 @@ public sealed class TextMetadataShapeTests
         ExpectAccounting(node, sparse);
         Assert.Empty(sparse.RetiredLocator);
         Assert.Equal(keeper.Area, node.Set<TextSchema.Depot>().Get(keeper.Id)?.Area);
+        if (inspectBudget)
+        {
+            _ = ExpectCapacity(node, allocator, out _, currentObjects.ToArray());
+            _ = node.InspectBudget((_, backing) =>
+            {
+                foreach (var former in before.Where(allocation => !currentObjects.Contains(allocation.Identity)))
+                {
+                    Assert.NotSame(former.Identity, backing);
+                }
+            });
+        }
+
         GC.KeepAlive(before);
+    }
+
+    internal static IEnumerable<object> BucketObjects(TextBucketSet set)
+    {
+        yield return set;
+        var pages = Backing<object>(set, "_pages");
+        yield return pages;
+        foreach (var owner in TreeObjects(Backing<object?>(pages, "_root")))
+        {
+            yield return owner;
+        }
+
+        static IEnumerable<object> TreeObjects(object? root)
+        {
+            if (root is null)
+            {
+                yield break;
+            }
+
+            yield return root;
+            if (root.GetType().GetField("Heads") is { } field)
+            {
+                yield return field.GetValue(root)!;
+                yield break;
+            }
+
+            var children = Backing<object?[]>(root, "Children");
+            yield return children;
+            foreach (var child in children.SelectMany(TreeObjects))
+            {
+                yield return child;
+            }
+        }
     }
 
     private static IReadOnlyList<TextLocatorAllocation> CaptureLeaf(EngineDatabase node, uint id) =>

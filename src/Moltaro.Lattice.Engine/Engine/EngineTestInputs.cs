@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Maintenance;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
@@ -86,4 +87,24 @@ internal sealed class EngineTestInputs
     // Invoked after the fault is marked under the lock of the writes and that lock is released,
     // before the database finishes marking the fault and notifying position waiters.
     public Action? BeforeFaultNotification { get; init; }
+
+    // Bounds the number of real pages in tests of the address limit. Null uses the production
+    // limit. A full page has the production number and representation of slots.
+    public int? RootPageLimit { get; init; }
+
+    // Tests observe this after preparation has rolled back and the follower is pausing, outside
+    // the writes lock. ReceivedFrames counts frames already consumed from the transaction.
+    public Action<ChildPressureSample>? ObserveChildPressure { get; init; }
+
+    // Outside Writes, before each admission attempt for a valid transaction frame, including
+    // retries. Tests can hold budgeted backing this connection did not need until that frame.
+    public Action<ulong, int>? BeforeChildTransactionFrame { get; init; }
+
+    // Under Writes, before preparing a transaction member. Tests align the return of a
+    // real backing with the rollback of an already prepared transaction prefix.
+    public Action<uint>? BeforeChildPreparationMember { get; init; }
+
+    // On the receiving task, after a structurally valid forwarded frame has been
+    // accepted and before its completed request, if any, is handed to the writer.
+    public Action<RequestReceiver>? ObserveMasterRequestFrame { get; init; }
 }
