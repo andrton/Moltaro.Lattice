@@ -123,7 +123,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
 
     // Registered at Ready under the state lock. Only admitted turns touch the parts; close
     // joins the cadence outside that lock before returning the arena.
-    private readonly AutomaticMaintenance _maintenance = new();
+    private readonly AutomaticMaintenance _maintenance;
 
     private readonly Action<DatabaseParts> _runMaintenance;
 
@@ -140,6 +140,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         _testInputs = testInputs;
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
+        _maintenance = new AutomaticMaintenance(testInputs?.BeforeTextMigrationPageAllocation);
         _runMaintenance = _maintenance.Run;
     }
 

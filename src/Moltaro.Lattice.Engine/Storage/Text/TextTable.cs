@@ -32,7 +32,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
 
     public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
-    public int Maintain(int workLimit)
+    public int Maintain(int workLimit, Action? beforeMigrationPageAllocation = null)
     {
         AssertWrites();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
@@ -41,7 +41,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         {
             if (_old is { } old)
             {
-                Migrate(old);
+                Migrate(old, beforeMigrationPageAllocation);
             }
             else if (NeededHeads() is var needed && needed != _active.Capacity)
             {
@@ -318,7 +318,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         }
     }
 
-    private void Migrate(TextBucketSet old)
+    private void Migrate(TextBucketSet old, Action? beforePageAllocation)
     {
         if (!old.TryPage(_bucketCursor, out var bucket))
         {
@@ -335,7 +335,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         }
 
         var destination = _active.Bucket(_slots.At(reference).Hash);
-        _active.Reserve(destination);
+        _active.Reserve(destination, beforePageAllocation);
         Unlink(old, reference);
         Link(_active, destination, reference);
     }

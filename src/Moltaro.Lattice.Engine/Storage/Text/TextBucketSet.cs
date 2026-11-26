@@ -23,11 +23,12 @@ internal sealed class TextBucketSet(int capacity, uint tag)
 
     public uint Head(int bucket) => _pages.Get((uint)bucket >> 6)?.Heads[bucket & 63] ?? 0;
 
-    public void Reserve(int bucket)
+    public void Reserve(int bucket, Action? beforePageAllocation = null)
     {
         var page = (uint)bucket >> 6;
         if (_pages.Get(page) is null)
         {
+            beforePageAllocation?.Invoke();
             _pages.Set(page, new Page(PageHeads));
             _pageCount++;
         }

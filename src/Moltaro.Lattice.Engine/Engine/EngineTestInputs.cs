@@ -51,6 +51,9 @@ internal sealed class EngineTestInputs
     // and before trying the lock of the writes. Tests can hold an attempt that close may overtake.
     public Action? BeforeMaintenanceWrites { get; init; }
 
+    // Under Writes, immediately before a missing destination page is allocated during text migration.
+    public Action? BeforeTextMigrationPageAllocation { get; init; }
+
     // Lets a test drive the ordinary bounded turn without the background cadence.
     public bool DisableBackgroundMaintenance { get; init; }
 
