@@ -78,8 +78,11 @@ public sealed class MixedSegmentEvacuationWorkspaceTests
             await DeleteAsync(master, [fullAnchor]);
             await child.WaitForPositionAsync(master.Position, Bound);
             var deletePosition = node.Position;
+
+            // Advance past the anchor's retirement tag while the first view still protects it.
+            // The next view can retain the later relocation without retaining the deleted anchor.
+            node.DrainRetired();
             Assert.True(node.Counters.Arena.RetiredBytes >= RegionBytes);
-            // The newer epoch cannot see the deleted anchor but can still see both source chunks.
             second = HoldLarge(items, fullSource, expected, secondPause);
             await secondPause.EnteredAsync(second);
             Assert.False(arena.TryReadLiveHeader(largeTarget.Chunk, out _));
