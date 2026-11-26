@@ -119,6 +119,7 @@ public sealed class RootSlotBudgetTests
     public async Task An_addressable_second_page_is_admitted_at_its_byte_boundary(int difference)
     {
         long required;
+        long steady;
         var reference = new CountingNativeAllocator();
         await using (var control = await OpenAsync(Room, reference))
         {
@@ -129,7 +130,13 @@ public sealed class RootSlotBudgetTests
             Assert.Single(directory);
             Assert.Equal(PageSlots, directory[0].Length);
             _ = ExpectCapacity(control, reference, out var baseline, directory, directory[0]);
-            required = baseline + ManagedObjectSize(new RootEntry[PageSlots]) + ManagedObjectSize(new RootEntry[2][]);
+            var layout = RootLayout.Compile(control.Set<PieceSchema.Piece>().EntityType, control.Schema);
+            var placement = ManagedObjectSize(new byte[layout.ImageCapacity + (layout.FieldCount + 7) / 8]);
+            Assert.Equal(312, placement);
+            var expansion = ManagedObjectSize(new RootEntry[PageSlots]) + ManagedObjectSize(new RootEntry[2][]);
+            // The old directory and the placement image both remain owned through the new root.
+            required = baseline + expansion + placement;
+            steady = baseline + expansion - ManagedObjectSize(directory);
 
             await control.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(PageSlots + 1, 8));
             var grown = await MaintenanceStep.RunAfterAdmissionAsync(control, parts =>
@@ -139,6 +146,7 @@ public sealed class RootSlotBudgetTests
             Assert.Equal(PageSlots, grown[1].Length);
             var after = ExpectCapacity(control, reference, out _, grown, grown[0], grown[1]);
             Assert.Equal(required, after.PeakBytes);
+            Assert.Equal(steady, after.ChargedBytes);
             Assert.True(after.ChargedBytes < required);
         }
 
@@ -148,6 +156,7 @@ public sealed class RootSlotBudgetTests
         await FillAsync(node, PageSlots);
         var pieces = node.Set<PieceSchema.Piece>();
         var before = ExpectCapacity(node, allocator);
+        var requests = allocator.Requests;
         var oldPosition = node.Position;
         var future = pieces.InsertAsync(PieceSchema.Of(PageSlots + 1, 8)).AsTask();
         if (difference < 0)
@@ -162,8 +171,12 @@ public sealed class RootSlotBudgetTests
             var committed = await future.WaitAsync(Bound);
             Assert.Equal(committed.Position, node.Position);
             Assert.Equal((long)PageSlots + 1, pieces.Get((long)PageSlots + 1)?.Id);
-            Assert.Equal(required, ExpectCapacity(node, allocator).PeakBytes);
+            var after = ExpectCapacity(node, allocator);
+            Assert.Equal(required, after.PeakBytes);
+            Assert.Equal(steady, after.ChargedBytes);
         }
+
+        Assert.Equal(requests, allocator.Requests);
     }
 
     [Theory]

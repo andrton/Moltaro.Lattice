@@ -45,8 +45,16 @@ public sealed class OwnedSnapshotBackingsTests
         var callerKey = Backing<object?[]>(byName, "_values")[pieces.EntityType.Key.Ordinal];
         batch.Insert(byName);
         Assert.Same(callerKey, operations[2].Key);
-        _ = ExpectCapacity(node, allocator, out _, key, input);
+        object preciseKey = 5L;
+        batch.Delete<PieceSchema.Piece>(4);
+        batch.Delete<PieceSchema.Piece>(preciseKey);
+        var convertedKey = operations[3].Key;
+        Assert.Equal(4L, Assert.IsType<long>(convertedKey));
+        Assert.Equal(24, ManagedObjectSize(convertedKey));
+        Assert.Same(preciseKey, operations[4].Key);
+        _ = ExpectCapacity(node, allocator, out _, key, input, convertedKey);
         node.InspectBudget((_, backing) => Assert.NotSame(callerKey, backing));
+        node.InspectBudget((_, backing) => Assert.NotSame(preciseKey, backing));
         var committed = await batch.CommitAsync();
         Assert.Equal(committed.Position, node.Position);
         Assert.Equal("updated", pieces.Get(1L)?.Name);
@@ -57,6 +65,7 @@ public sealed class OwnedSnapshotBackingsTests
         {
             Assert.NotSame(key, backing);
             Assert.NotSame(input, backing);
+            Assert.NotSame(convertedKey, backing);
         });
     }
 }

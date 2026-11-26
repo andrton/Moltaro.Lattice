@@ -146,7 +146,15 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     private void Delete(LatticeEntityType entityType, object key, LatticeRevision? expectedRevision)
     {
         ArgumentNullException.ThrowIfNull(key);
-        Add(WriteKindEnum.Delete, entityType, FieldValues.NormalizeKey(entityType, key), null, expectedRevision);
+        using var snapshot = OpenSnapshot();
+        try
+        {
+            Add(WriteKindEnum.Delete, entityType, FieldValues.NormalizeKey(entityType, key, snapshot), null, expectedRevision, snapshot);
+        }
+        catch (BudgetRefusedException exception)
+        {
+            throw SnapshotRefusal(exception);
+        }
     }
 
     // Checked before anything is kept, and encoded before the operation is kept: a refused operation leaves

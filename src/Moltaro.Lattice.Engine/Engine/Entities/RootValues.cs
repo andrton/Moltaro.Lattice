@@ -237,7 +237,7 @@ internal static class RootValues
         MemoryLease? snapshot = null)
     {
         using var working = snapshot is null ? null : new MemoryLease(snapshot.Budget);
-        var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working), working);
+        var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working));
 
         try
         {

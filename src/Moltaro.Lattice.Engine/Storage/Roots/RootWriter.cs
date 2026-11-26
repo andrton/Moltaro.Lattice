@@ -145,12 +145,13 @@ internal ref struct RootWriter
 
     // Starts a root of the entity type of the layout for a forwarded write (see the class), whose values
     // out of line the given store keeps. Refuses a null layout or store with ArgumentNullException.
-    public RootWriter(RootLayout layout, ExportedValues exported, MemoryLease? working = null)
+    public RootWriter(RootLayout layout, ExportedValues exported)
     {
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(exported);
 
         _layout = layout;
+        var working = exported.Lease;
         _rented = working is null;
         var length = layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount);
         _scratch = working?.Allocate<byte>(length, nameof(RootWriter)) ?? ArrayPool<byte>.Shared.Rent(length);
@@ -656,6 +657,7 @@ internal ref struct RootWriter
     {
         var scratch = _scratch!;
         _scratch = null;
+        _values.Bytes = default;
         if (_rented)
         {
             ArrayPool<byte>.Shared.Return(scratch);
