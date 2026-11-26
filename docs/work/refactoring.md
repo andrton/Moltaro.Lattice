@@ -850,7 +850,9 @@ distinct traversal patterns.
   did not establish a build cost or a simpler form.
   Declined for S22R. Revisit either finding if a consumer build measures the cost.
 
-The S34 pending-target index and the S24 accounting and rollback keep their placements.
+The proposed S34 pending-target index and S24 budget accounting keep their placements.
+The existing full-root rollback defect was corrected in
+[S23D](epic-1-core.md#s24--the-memory-budget).
 
 ## Found while building S18, 24 November 2026
 
