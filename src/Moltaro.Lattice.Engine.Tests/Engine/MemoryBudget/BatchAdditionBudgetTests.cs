@@ -16,7 +16,7 @@ public sealed class BatchAdditionBudgetTests
     private const int LongValue = 250_000;
     private const int CompetingRoom = 650_000;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Local_budget_refusal_preserves_the_other_members_and_update_and_allows_retry(bool onChild)
@@ -64,7 +64,7 @@ public sealed class BatchAdditionBudgetTests
         GC.KeepAlive(batch);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_waiting_batch_prevents_another_from_spending_its_bytes_until_a_cancelled_commit_releases_them()
     {
         var allocator = new CountingNativeAllocator();
@@ -91,7 +91,7 @@ public sealed class BatchAdditionBudgetTests
         GC.KeepAlive(first);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Collection_of_an_abandoned_batch_releases_its_charge_without_disposal()
     {
         var allocator = new CountingNativeAllocator();
@@ -110,7 +110,7 @@ public sealed class BatchAdditionBudgetTests
         Assert.Equal(1, next.Count);
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(3)]
     [InlineData(4)]
     public async Task A_batch_growth_must_fit_both_actual_generations_of_its_backing(int entries)
@@ -160,7 +160,7 @@ public sealed class BatchAdditionBudgetTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Full_and_partial_adds_keep_their_validation_duplicate_submitted_and_closed_precedence_under_pressure()
     {
         var allocator = new CountingNativeAllocator();
@@ -204,7 +204,7 @@ public sealed class BatchAdditionBudgetTests
         Assert.Equal(1, valid.Count);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_queued_batch_keeps_the_same_charged_input_and_takes_no_preparation_until_its_conflict_finishes()
     {
         var persistence = new HeldPersistence(holding: false);

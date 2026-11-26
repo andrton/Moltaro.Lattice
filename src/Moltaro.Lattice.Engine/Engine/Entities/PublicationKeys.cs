@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -14,13 +15,14 @@ namespace Moltaro.Lattice.Engine.Entities;
 // - The set of a child: the keys the effects of the transaction being applied name, so that it names each
 //   once (Child.Loading.ReceivedChanges). Only the thread that applies uses it, under the lock of the writes of
 //   the child, and empties it for the next transaction (Clear).
-internal sealed class PublicationKeys
+internal sealed class PublicationKeys : IDisposable
 {
-    private readonly HashSet<(EntityTable Table, EntityKey Key)> _keys;
+    private readonly BudgetSet<(EntityTable Table, EntityKey Key)> _keys;
 
-    public PublicationKeys(int capacity)
+    public PublicationKeys(int capacity, MemoryBudget? budget = null, bool restoresPreparation = false)
     {
-        _keys = new HashSet<(EntityTable, EntityKey)>(capacity, Comparer.Instance);
+        _keys = new BudgetSet<(EntityTable, EntityKey)>(budget, nameof(PublicationKeys), Comparer.Instance, restoresPreparation);
+        _keys.EnsureCapacity(capacity);
     }
 
     public int Count => _keys.Count;
@@ -32,6 +34,8 @@ internal sealed class PublicationKeys
 
     // Empties the set and keeps its room.
     public void Clear() => _keys.Clear();
+
+    public void Dispose() => _keys.Dispose();
 
     // Whether the two sets hold an entity in common, looked up in the larger for each entity of the smaller.
     public bool Overlaps(PublicationKeys other)

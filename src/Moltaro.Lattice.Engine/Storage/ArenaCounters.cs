@@ -35,7 +35,7 @@ namespace Moltaro.Lattice.Storage;
 // ArenaOptions.ReservedSegments.
 //
 // Segments: the native segments the arena holds, the reserved ones included. Times the segment
-// size, this is the native capacity that ArenaOptions.MemoryLimit bounds.
+// size, this is the native capacity charged to the instance budget.
 internal readonly record struct ArenaCounters(
     long LiveBytes, long ClassSlackBytes, long PreparedBytes, long RetiredBytes,
     int FreeRegions, int ReservedSegments, int Segments);

@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -36,6 +37,7 @@ internal sealed class PreparedWrite
     // The changes of a write batch and how many of them hold a change (see the class); null for a single
     // write.
     private PreparedChange[]? _batch;
+    private MemoryBudget? _batchBudget;
 
     private int _batchCount;
 
@@ -104,13 +106,19 @@ internal sealed class PreparedWrite
     // For a write batch being prepared: room for the changes of its members, which its preparation writes
     // in place, as WriteChange writes the change of a single write, and reserves from there; made once for
     // the batch, and written again by each try of its preparation.
-    public Span<PreparedChange> BatchChanges(int members)
+    public Span<PreparedChange> BatchChanges(int members, MemoryBudget? budget)
     {
         Debug.Assert(!ChangesEntity, "The record of a write batch is written while it holds changes.");
 
         if (_batch is null || _batch.Length < members)
         {
-            _batch = new PreparedChange[members];
+            var previous = _batch;
+            _batch = budget?.Allocate<PreparedChange>(members, nameof(PreparedWrite)) ?? new PreparedChange[members];
+            _batchBudget = budget;
+            if (previous is not null)
+            {
+                budget?.Release(previous);
+            }
         }
 
         return _batch;
@@ -126,6 +134,7 @@ internal sealed class PreparedWrite
     {
         Debug.Assert(count <= _batch!.Length, "A write batch holds more changes than its array.");
 
+        _claims?.Dispose();
         _claims = null;
         _batchCount = count;
         ChangesEntity = count > 0;
@@ -150,7 +159,9 @@ internal sealed class PreparedWrite
     public void Withdraw()
     {
         ChangesEntity = false;
+        DropBatch();
         _batchCount = 0;
+        _claims?.Dispose();
         _claims = null;
         Updates = null;
     }
@@ -175,9 +186,21 @@ internal sealed class PreparedWrite
         ChangesEntity = false;
         _change.Table = null!;
         _change.Key = default;
-        _batch = null;
+        DropBatch();
         _batchCount = 0;
+        _claims?.Dispose();
         _claims = null;
         Updates = null;
     }
+
+    private void DropBatch()
+    {
+        if (_batch is { } batch)
+        {
+            _batch = null;
+            _batchBudget?.Release(batch);
+            _batchBudget = null;
+        }
+    }
+
 }

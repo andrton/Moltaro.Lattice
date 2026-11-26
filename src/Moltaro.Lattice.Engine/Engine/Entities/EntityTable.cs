@@ -98,7 +98,7 @@ internal sealed class EntityTable
         _roots = roots;
         _epochs = epochs;
         _clock = clock;
-        _index = new PrimaryIndex(retired);
+        _index = new PrimaryIndex(retired, arena.Budget);
         _indexes = [.. entityType.Indexes.Select(index => SecondaryIndex.Open(index, layout, arena, retired))];
         HasUniqueIndex = _indexes.Any(index => index.IsUnique);
     }
@@ -151,6 +151,8 @@ internal sealed class EntityTable
     // for the count of roots the master announced (Indexes.PrimaryIndex.Presize). Under the lock of the
     // writes.
     public void Presize(long count) => _index.Presize(count);
+
+    public long PresizeCapacity(long count) => _index.PresizeCapacity(count);
 
     // The table of an entity type of the schema, when the database opens, whose primary index hashes
     // with the seed of the instance. The root layout and the layout of each secondary index are compiled

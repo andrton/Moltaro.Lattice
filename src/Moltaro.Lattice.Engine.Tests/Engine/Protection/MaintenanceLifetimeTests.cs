@@ -41,7 +41,11 @@ public sealed class MaintenanceLifetimeTests
         EngineDatabase? observed = null;
         var inputs = new EngineTestInputs
         {
-            Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = Arena.MaxBlockSize },
+            // Exactly one native region can participate in the maintenance and close race.
+            Arena = new ArenaOptions
+            {
+                SegmentSize = Arena.MaxBlockSize, MemoryLimit = 4L * 1024 * 1024, NativeCapacityLimit = Arena.MaxBlockSize,
+            },
             Allocator = allocator,
             BeforeMaintenanceWrites = () => Interlocked.Increment(ref attempts),
             BeforeMaintenanceWait = token =>
@@ -111,7 +115,11 @@ public sealed class MaintenanceLifetimeTests
         var observations = 0;
         var inputs = new EngineTestInputs
         {
-            Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = Arena.MaxBlockSize, ReservedSegments = 0 },
+            // Keep the child framing and root page affordable while it returns its one native grant.
+            Arena = new ArenaOptions
+            {
+                SegmentSize = Arena.MaxBlockSize, MemoryLimit = 4L * 1024 * 1024, NativeCapacityLimit = Arena.MaxBlockSize, ReservedSegments = 0,
+            },
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             BeforeMaintenanceWrites = () =>

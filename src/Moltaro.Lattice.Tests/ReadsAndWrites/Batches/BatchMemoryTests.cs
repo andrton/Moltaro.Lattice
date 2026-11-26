@@ -4,7 +4,8 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // the document model, "Added by the owner on 15 November 2026"; the remarks of ILatticeWriteBatch,
 // "Executing"): WriteRejected with Limit Memory and no number of a member, since the batch as a whole does
 // not fit. No entity, no entry of an index and no position of it is left, and a batch that fits is executed
-// after it. Each member alone would fit: four Settings of 3 MiB under a budget of 8 MiB.
+// after it. The limit holds each member and all four snapshots, but cannot also hold the
+// four prepared Settings of 3 MiB.
 public sealed class BatchMemoryTests
 {
     private const int Mebibyte = 1024 * 1024;
@@ -16,7 +17,7 @@ public sealed class BatchMemoryTests
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
-            MemoryLimit = 8L * Mebibyte,
+            MemoryLimit = 21L * Mebibyte,
         });
         var settings = database.Set("Setting");
         await settings.InsertAsync(SettingOf(settings, "small", priority: 1, payload: Mebibyte));

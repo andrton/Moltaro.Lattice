@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Replication.Load;
 
@@ -17,7 +18,7 @@ namespace Moltaro.Lattice.Replication.Load;
 // A root waits in the buffer its capture filled (TransferBuffer) while its frames are sent, and each
 // frame is sent before the next is made, so the sender holds one root and one frame at a time outside
 // the arena. The frame being filled is sent when the next root does not fit it, and by FlushAsync.
-internal sealed class RootFramer
+internal sealed class RootFramer : IDisposable
 {
     private const int CountSize = sizeof(uint);
 
@@ -25,17 +26,28 @@ internal sealed class RootFramer
 
     private readonly FrameConnection _connection;
 
+    private readonly MemoryBudget? _budget;
+
     // The payload of the frame being filled; reused for every frame.
-    private readonly byte[] _payload = new byte[Protocol.MaxDataPayload];
+    private byte[] _payload;
 
     // Its bytes in use, the count included, and its roots; 0 and 0 while no frame is being filled.
     private int _used;
 
     private uint _count;
 
-    public RootFramer(FrameConnection connection)
+    public RootFramer(FrameConnection connection, MemoryBudget? budget = null)
     {
         _connection = connection;
+        _budget = budget;
+        _payload = budget?.Allocate<byte>(Protocol.MaxDataPayload, nameof(RootFramer)) ?? new byte[Protocol.MaxDataPayload];
+    }
+
+    public void Dispose()
+    {
+        var payload = _payload;
+        _payload = [];
+        _budget?.Release(payload);
     }
 
     // The roots added so far: the count LoadEnd announces.

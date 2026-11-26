@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // decision on write admission, as amended). These are the cases of one refused write beside retired
 // memory, reads and earlier writes; those of later writes, of two refused writes and of many rounds
 // are stated by RefusalResolutionTests. The database is opened with an arena of two segments of the
-// default size, 8 MiB (EngineTestInputs, exception X3), and a piece holds a Binary value of 3 MiB: two
+// default size with room for backing metadata (EngineTestInputs, exception X3), and a piece holds a Binary value of 3 MiB: two
 // states of it fit, three do not. A replace retires the state it replaced, which stays retired: a look
 // of the writer comes only after a segment of retired bytes or a table's worth of retired things. So:
 // - A replace whose new state fits only once the retired one is freed, which no read holds, succeeds.
@@ -43,7 +43,7 @@ public sealed class RefusedWriteTests
 
     private static readonly int Segment = new ArenaOptions().SegmentSize;
 
-    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * Segment };
+    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * Segment + 1024 * 1024 };
 
     [Fact]
     public async Task Replace_that_the_arena_holds_only_once_retired_memory_no_read_holds_is_freed_succeeds()

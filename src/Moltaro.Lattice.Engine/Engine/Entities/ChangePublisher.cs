@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Budgeting;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
@@ -343,13 +344,21 @@ internal sealed class ChangePublisher
 
             if (Frees(change, index))
             {
-                Grow(ref _freed, frees + 1);
+                if (frees + 1 > _freed.Length)
+                {
+                    _freed = Grow(_freed, frees + 1, restored => _freed = restored);
+                }
+
                 _freed[frees++] = change.Handle.Packed;
             }
 
             if (SetsValue(change, index) && !unique.Layout.HasNull(new RootReader(_arena, layout, change.Root)))
             {
-                Grow(ref _claims, claims + 1);
+                if (claims + 1 > _claims.Length)
+                {
+                    _claims = Grow(_claims, claims + 1, restored => _claims = restored);
+                }
+
                 _claims[claims++] = (place, change.Root);
             }
         }
@@ -410,7 +419,11 @@ internal sealed class ChangePublisher
         {
             if (_tablesOf.AsSpan(0, count).IndexOf(change.Table) < 0)
             {
-                Grow(ref _tablesOf, count + 1);
+                if (count + 1 > _tablesOf.Length)
+                {
+                    _tablesOf = Grow(_tablesOf, count + 1, restored => _tablesOf = restored);
+                }
+
                 _tablesOf[count++] = change.Table;
             }
         }
@@ -442,11 +455,21 @@ internal sealed class ChangePublisher
 
     // A scratch array of the publisher with room for the count given; it grows, is kept for the next
     // publication up to KeptRoom, and only the holder of the lock of the writes uses it.
-    private static void Grow<T>(ref T[] scratch, int count)
+    private T[] Grow<T>(T[] previous, int count, Action<T[]> restore)
     {
-        if (scratch.Length < count)
+        var length = Math.Max(count, 2 * previous.Length);
+        var budget = _arena.Budget;
+        var replacement = budget?.Allocate<T>(length, nameof(ChangePublisher)) ?? new T[length];
+        try
         {
-            Array.Resize(ref scratch, Math.Max(count, 2 * scratch.Length));
+            previous.CopyTo(replacement, 0);
+            budget?.Replace(previous, replacement, restore);
+            return replacement;
+        }
+        catch
+        {
+            budget?.Release(replacement);
+            throw;
         }
     }
 
@@ -487,7 +510,7 @@ internal sealed class ChangePublisher
 
     // Under the lock of the writes, for the changes of a write batch prepared and not published: what they
     // claim and free in the unique indexes, sorted, for the questions of later writes (UniqueClaims).
-    public UniqueClaims ClaimsOf(PreparedChange[] changes, int count) => new(this, _arena, changes, count);
+    public UniqueClaims ClaimsOf(PreparedChange[] changes, int count) => UniqueClaims.Create(this, _arena, changes, count);
 
     // Whether the change puts a value into the index at the place given: an insert, or a replace that
     // moves its key there, as the change records it.
@@ -762,6 +785,8 @@ internal sealed class ChangePublisher
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void LetGoOfScratch()
     {
+        _arena.Budget?.Release(_claims);
+        _arena.Budget?.Release(_freed);
         _claims = [];
         _freed = [];
     }

@@ -1,14 +1,15 @@
 using System.Numerics;
+using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Text;
 
 // Heads are paged, so a new table is started without allocating its whole
 // capacity. Writes owns both sets and their links, including page removal.
-internal sealed class TextBucketSet(int capacity, uint tag)
+internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget)
 {
     private const int PageSize = 64;
     private const ulong Fibonacci = 0x9E3779B97F4A7C15;
-    private readonly TextPages<Page> _pages = new();
+    private readonly TextPages<Page> _pages = TextPages<Page>.Create(budget);
     private int _pageCount;
 
     public int Capacity { get; } = capacity;
@@ -17,7 +18,33 @@ internal sealed class TextBucketSet(int capacity, uint tag)
 
     private int PageHeads => Math.Min(Capacity, PageSize);
 
-    public long Bytes => 40 + _pages.Bytes + (56L + ((4L * PageHeads + 7) & ~7L)) * _pageCount;
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 3 * sizeof(int));
+    private long PageBytes => MemoryBudget.ObjectBytes(IntPtr.Size + sizeof(int)) + MemoryBudget.ArrayBytes<uint>(PageHeads);
+
+    public static TextBucketSet Create(int capacity, uint tag, MemoryBudget? budget)
+    {
+        budget?.Reserve(OwnerBytes);
+        try
+        {
+            var buckets = new TextBucketSet(capacity, tag, budget);
+            budget?.Own(buckets, nameof(TextBucketSet));
+            return buckets;
+        }
+        catch
+        {
+            budget?.Release(OwnerBytes);
+            throw;
+        }
+    }
+
+    public void ReleaseBacking()
+    {
+        System.Diagnostics.Debug.Assert(_pageCount == 0);
+        _pages.ReleaseBacking();
+        budget?.Release(OwnerBytes, this);
+    }
+
+    public long Bytes => OwnerBytes + _pages.Bytes + PageBytes * _pageCount;
 
     public int Bucket(uint hash) => (int)((hash * Fibonacci) >> (64 - BitOperations.Log2((uint)Capacity)));
 
@@ -29,18 +56,44 @@ internal sealed class TextBucketSet(int capacity, uint tag)
         if (_pages.Get(page) is null)
         {
             beforePageAllocation?.Invoke();
-            _pages.Set(page, new Page(PageHeads));
-            _pageCount++;
+            budget?.Reserve(PageBytes);
+            Page? added = null;
+            try
+            {
+                added = new Page(PageHeads);
+                if (budget is not null)
+                {
+                    budget.Own(added, nameof(TextBucketSet));
+                    budget.Own(added.Heads, nameof(TextBucketSet));
+                }
+
+                _pages.Set(page, added);
+                _pageCount++;
+            }
+            catch
+            {
+                if (budget is not null)
+                {
+                    if (added is not null)
+                    {
+                        budget.Forget(added.Heads);
+                        budget.Forget(added);
+                    }
+
+                    budget.Release(PageBytes);
+                }
+
+                throw;
+            }
         }
     }
 
     public void ReleaseReservation(int bucket)
     {
         var number = (uint)bucket >> 6;
-        if (_pages.Get(number) is { Occupied: 0 })
+        if (_pages.Get(number) is { Occupied: 0 } page)
         {
-            _pages.Set(number, null);
-            _pageCount--;
+            DropPage(number, page);
         }
     }
 
@@ -62,8 +115,18 @@ internal sealed class TextBucketSet(int capacity, uint tag)
         slot = head;
         if (page.Occupied == 0)
         {
-            _pages.Set(number, null);
-            _pageCount--;
+            DropPage(number, page);
+        }
+    }
+
+    private void DropPage(uint number, Page page)
+    {
+        _pages.Set(number, null);
+        _pageCount--;
+        if (budget is not null)
+        {
+            budget.Forget(page.Heads);
+            budget.Release(PageBytes, page);
         }
     }
 
@@ -82,7 +145,7 @@ internal sealed class TextBucketSet(int capacity, uint tag)
 
     public void Measure(List<TextAllocationShape> groups)
     {
-        groups.Add(new TextAllocationShape(1, 24, 0, 0));
+        groups.Add(new TextAllocationShape(1, (int)(OwnerBytes - 2 * IntPtr.Size), 0, 0));
         _pages.Measure(groups);
         if (_pageCount != 0)
         {

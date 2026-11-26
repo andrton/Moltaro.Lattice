@@ -1,4 +1,6 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Indexes;
@@ -48,9 +50,13 @@ internal sealed class PrimaryIndex
     // The first table: two main buckets and a page of one overflow bucket.
     private const int FirstBucketBits = 1;
 
-    private readonly RetiredMemory _retired;
+    public static long FirstCapacity => IndexTable.LeastCapacity(FirstBucketBits);
 
-    private IndexTable _table = new(FirstBucketBits, version: 0);
+    private readonly RetiredMemory _retired;
+    private readonly MemoryBudget? _budget;
+
+    private IndexTable _table;
+    private int _version;
 
     // The bytes of the table being built while the index grows, 0 otherwise. Written by the writer
     // and read by the counters, both under the lock of the writes.
@@ -65,9 +71,12 @@ internal sealed class PrimaryIndex
     // no test armed it, which is all a growth pays: one load of a field nothing else writes.
     private Action? _growthSwitch;
 
-    public PrimaryIndex(RetiredMemory retired)
+    public PrimaryIndex(RetiredMemory retired, MemoryBudget? budget = null)
     {
         _retired = retired;
+        _budget = budget;
+        _table = new IndexTable(FirstBucketBits, version: 0, budget);
+        _table.Published();
     }
 
     // The bytes of the current table. For the writer and the counters.
@@ -130,17 +139,32 @@ internal sealed class PrimaryIndex
             throw new InvalidOperationException("Only an empty primary index is sized for a load.");
         }
 
-        var bits = FirstBucketBits;
+        var bits = BitsFor(count);
+        if (bits != _table.BucketBits)
+        {
+            var previous = _table;
+            var table = new IndexTable(bits, version: 0, _budget);
+            table.Published();
+            Volatile.Write(ref _table, table);
+            previous.ReleaseBacking();
+        }
+    }
 
+    public long PresizeCapacity(long count)
+    {
+        var bits = BitsFor(count);
+        return bits == _table.BucketBits ? 0 : IndexTable.LeastCapacity(bits);
+    }
+
+    private static int BitsFor(long count)
+    {
+        var bits = FirstBucketBits;
         while (bits < IndexTable.MostBucketBits && ((long)IndexTable.MostEntriesPerBucket << bits) < count)
         {
             bits++;
         }
 
-        if (bits != _table.BucketBits)
-        {
-            Volatile.Write(ref _table, new IndexTable(bits, version: 0));
-        }
+        return bits;
     }
 
     // Adds the entry of a key that the index does not hold, after Reserve, and ends that reservation;
@@ -166,25 +190,33 @@ internal sealed class PrimaryIndex
         // while the new table is built gives the place back and leaves the current table in place.
         _retired.Reserve();
 
-        IndexTable grown;
+        IndexTable? grown = null;
+        var transactional = _budget is { IsPreparing: true };
 
         try
         {
-            grown = new IndexTable(current.BucketBits + 1, current.Version + 1);
+            grown = new IndexTable(current.BucketBits + 1, _version + 1, _budget);
             _replacementBytes = grown.Bytes;
             current.CopyInto(grown);
             _replacementBytes = grown.Bytes;
+            if (transactional)
+            {
+                _budget!.WhenPreparationEnds(keeps => FinishGrowth(current, grown, keeps));
+            }
         }
         catch
         {
             _replacementBytes = 0;
             _retired.Release();
+            grown?.ReleaseBacking();
             throw;
         }
 
         // The release of this store publishes the new table with its version and every entry written
         // into it: a reader that reads the new table (Find, TableAndVersion) sees them all. A reader
         // that still has the old one finds the same entries in it, unchanged.
+        _version = grown.Version;
+        grown.Published();
         Volatile.Write(ref _table, grown);
 
         // The switch of the tests, after the store that publishes the grown table and before the old
@@ -195,6 +227,23 @@ internal sealed class PrimaryIndex
         }
 
         _replacementBytes = 0;
-        _retired.RetireTable(current, current.Bytes);
+        if (!transactional)
+        {
+            FinishGrowth(current, grown, keeps: true);
+        }
+    }
+
+    private void FinishGrowth(IndexTable previous, IndexTable grown, bool keeps)
+    {
+        if (!keeps)
+        {
+            // A read can already have captured the replacement. Keep it until that read leaves.
+            Volatile.Write(ref _table, previous);
+            _retired.RetireTable(grown, grown.Bytes);
+        }
+        else
+        {
+            _retired.RetireTable(previous, previous.Bytes);
+        }
     }
 }

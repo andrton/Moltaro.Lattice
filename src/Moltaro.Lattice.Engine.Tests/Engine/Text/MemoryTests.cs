@@ -15,7 +15,7 @@ public sealed class MemoryTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
+    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize + Mebibyte };
 
     [Fact]
     public async Task Write_of_a_new_text_the_arena_cannot_hold_is_WriteRejected_with_Limit_Memory_and_leaves_no_entry()

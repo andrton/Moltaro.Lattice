@@ -29,7 +29,7 @@ public sealed class AbandonedIndexChangesTests
 
     public static IEnumerable<TheoryDataRow<string>> Changes => [new("one root"), new("two roots in one transaction")];
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [MemberData(nameof(Changes))]
     public async Task Child_that_cannot_hold_a_received_change_gives_back_the_nodes_and_references_of_its_indexes_and_pauses(string change)
     {

@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Budgeting;
+
 namespace Moltaro.Lattice.Storage.Roots;
 
 // The control entries of the roots of one database, in managed pages of EntriesPerPage entries
@@ -10,8 +12,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // one. A slot released at generation uint.MaxValue is retired for good.
 //
 // The table holds at most MostPages pages, 2^31 - 4,096 slots, because Count and the slot numbers
-// are counted in an int. Add that would need one more page throws InvalidOperationException, and
-// the table stays as it was.
+// are counted in an int. A refusal for a new address or its backing leaves the table as it was.
 //
 // The table takes no lock; its owner says who may call what at the same time. In the database Add
 // and Release, which change the list of free slots, are called only by the thread that holds the
@@ -37,6 +38,9 @@ internal sealed class RootTable
     // The most pages the table holds: as many whole pages as an int can count slots of.
     private const int MostPages = int.MaxValue / EntriesPerPage;
 
+    private readonly MemoryBudget? _budget;
+    private readonly int _pageLimit;
+
     // The pages in the order they were added; the directory holds references to them, and growing
     // the directory copies those references, never an entry. Only the first Pages are pages.
     private RootEntry[][] _pages = [];
@@ -54,11 +58,19 @@ internal sealed class RootTable
     // With the count, on lines of their own (RootTableCounts).
     private RootTableCounts _counts;
 
+    public RootTable(MemoryBudget? budget = null, int? pageLimit = null)
+    {
+        _budget = budget;
+        _pageLimit = pageLimit ?? MostPages;
+        ArgumentOutOfRangeException.ThrowIfLessThan(_pageLimit, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(_pageLimit, MostPages);
+    }
+
     // Takes a free slot for a new lifetime of a root of the entity type typeId and returns its
     // handle, which carries the slot's next generation. When no slot is free, the table adds a
     // page; adding a page copies no existing entry. The entry gets the generation and typeId,
     // every other field zero, and the state Prepared: it belongs to a write that has not published
-    // it yet. InvalidOperationException when the table would need more than MostPages pages.
+    // it yet. A new page can be refused for slot address space or for its backing.
     public RootHandle Add(uint typeId)
     {
         uint slot;
@@ -158,6 +170,7 @@ internal sealed class RootTable
             entry.State = RootStateEnum.Free;
             entry.TypeId = _counts.FreeSlots;
             _counts.FreeSlots = handle.Slot + 1;
+            _budget?.ReusableSpace();
         }
 
         _counts.Count--;
@@ -175,6 +188,10 @@ internal sealed class RootTable
 
     // How many pages the table has. Times EntriesPerPage, this is the number of its slots.
     public int Pages { get; private set; }
+
+    public static long PageBytes => MemoryBudget.ArrayBytes<RootEntry>(EntriesPerPage);
+
+    public long AddressableSlots => (long)_pageLimit * EntriesPerPage;
 
     private ref RootEntry EntryAt(uint slot) =>
         ref _pages[slot / EntriesPerPage][slot % EntriesPerPage];
@@ -194,19 +211,97 @@ internal sealed class RootTable
     // leaves the table as it was.
     private void AddPage()
     {
-        if (Pages == MostPages)
+        if (Pages == _pageLimit)
         {
-            throw new InvalidOperationException($"The root table holds its most slots, {MostPages * EntriesPerPage}.");
+            throw new BudgetRefusedException(LatticeLimitEnum.RootSlots);
         }
 
-        var page = new RootEntry[EntriesPerPage];
+        var previous = _pages;
+        var grows = Pages == previous.Length;
+        var length = grows ? Math.Min(_pageLimit, Math.Max(1, previous.Length * 2)) : previous.Length;
+        var bytes = PageBytes + (grows ? MemoryBudget.ArrayBytes<RootEntry[]>(length) : 0);
+        _budget?.Reserve(bytes);
 
-        if (Pages == _pages.Length)
+        var directory = previous;
+        var index = Pages;
+        RootEntry[]? page = null;
+        try
         {
-            Array.Resize(ref _pages, Math.Max(1, _pages.Length * 2));
+            page = new RootEntry[EntriesPerPage];
+            _budget?.Own(page, nameof(RootTable));
+            if (grows)
+            {
+                directory = new RootEntry[length][];
+                Array.Copy(previous, directory, previous.Length);
+                _budget?.Own(directory, nameof(RootTable));
+            }
+
+            if (_budget is { IsPreparing: true } budget)
+            {
+                budget.WhenPreparationEnds(keeps =>
+                {
+                    if (!keeps)
+                    {
+                        RemoveNewPage(index, previous, directory, page);
+                    }
+                    else if (grows)
+                    {
+                        budget.Release(previous);
+                    }
+                });
+            }
+            else if (grows)
+            {
+                _budget?.Release(previous);
+            }
+        }
+        catch
+        {
+            if (page is not null)
+            {
+                _budget?.Forget(page);
+            }
+
+            if (!ReferenceEquals(directory, previous))
+            {
+                _budget?.Forget(directory);
+            }
+
+            _budget?.Release(bytes);
+            throw;
         }
 
-        _pages[Pages] = page;
+        directory[Pages] = page;
+        _pages = directory;
         Pages++;
+    }
+
+    private void RemoveNewPage(int index, RootEntry[][] previous, RootEntry[][] directory, RootEntry[] page)
+    {
+        var first = index * EntriesPerPage;
+        ref var link = ref _counts.FreeSlots;
+        while (link != 0)
+        {
+            var slot = link - 1;
+            ref var next = ref EntryAt(slot).TypeId;
+            if (slot >= first)
+            {
+                link = next;
+            }
+            else
+            {
+                link = ref next;
+            }
+        }
+
+        _nextUnusedSlot = first;
+        Pages = index;
+        directory[index] = null!;
+        _pages = previous;
+        _budget!.Release(page);
+        if (!ReferenceEquals(directory, previous))
+        {
+            _budget.Release(directory);
+        }
     }
 }

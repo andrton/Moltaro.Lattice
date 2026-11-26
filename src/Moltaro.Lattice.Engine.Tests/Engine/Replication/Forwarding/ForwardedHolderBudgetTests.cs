@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Delivery;
@@ -14,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
 public sealed class ForwardedHolderBudgetTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Master_charges_received_pieces_import_workspace_and_a_reply_still_held_for_a_blocked_sender()
     {
         var allocator = new CountingNativeAllocator();
@@ -68,14 +67,13 @@ public sealed class ForwardedHolderBudgetTests
         {
             var (receiver, workspace) = await received.Task.WaitAsync(Bound);
             var replies = Backing<RecordedReplies>(receiver, "_replies");
-            var pending = Backing<ConcurrentQueue<RecordedReply>>(replies, "_replies");
+            var pending = Backing<Queue<RecordedReply>>(replies, "_replies");
             await beforeDrain.Task.WaitAsync(Bound);
             var answer = Assert.Single(pending);
             Assert.True(answer.Result.Changed);
             Assert.Equal(ready.Position.Sequence + 1, answer.Result.Position.Sequence);
             Assert.Equal(answer.Result.Position, master.Position);
-            var queue = Backing<object>(pending, "_head");
-            var slots = Backing<Array>(queue, "_slots");
+            var slots = Backing<Array>(pending, "_array");
             Assert.NotEmpty(slots);
             _ = ExpectCapacity(master, allocator, out _, [.. workspace, slots]);
             Assert.DoesNotContain(link.ToChild, frame => frame.Kind == FrameKindEnum.WriteReply);

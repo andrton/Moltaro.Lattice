@@ -27,7 +27,8 @@ public sealed class SegmentEvacuationCadenceTests
         var waiting = false;
         var inputs = new EngineTestInputs
         {
-            Arena = new ArenaOptions { MemoryLimit = 3L * SegmentBytes },
+            // The third grant is the last native destination while replay owns its assembly.
+            Arena = new ArenaOptions { MemoryLimit = 7L * SegmentBytes, NativeCapacityLimit = 3L * SegmentBytes },
             Allocator = allocator,
             BeforeMaintenanceWait = _ =>
             {

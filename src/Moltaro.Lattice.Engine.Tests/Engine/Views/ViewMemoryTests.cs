@@ -68,7 +68,11 @@ public sealed class ViewMemoryTests
         await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: ChildValue));
         var options = ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound,
             memoryLimit: InstanceBudget.OneSegmentWithReceive);
-        await using var child = await ReplicationNodes.OpenChildAsync(options, new EngineTestInputs());
+        var pressure = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var child = await ReplicationNodes.OpenChildAsync(options, new EngineTestInputs
+        {
+            ObserveChildPressure = observed => pressure.TrySetResult(observed),
+        });
         var recordSet = child.Set("Piece");
         using var pause = new ViewerPause();
         var reading = ReadPiece(1L, recordSet, pause);
@@ -94,6 +98,9 @@ public sealed class ViewMemoryTests
             applying.Dispose();
             await child.WaitForPositionAsync(deleted.Position, Bound);
             await waiting.WaitAsync(Bound);
+            var first = await pressure.Task.WaitAsync(Bound);
+            Assert.Equal(LatticeLimitEnum.Memory, first.Limit);
+            Assert.False(first.DuringReceive);
 
             Assert.Null(recordSet.Get(1L));
             Assert.Equal(deleted.Position, child.Position);

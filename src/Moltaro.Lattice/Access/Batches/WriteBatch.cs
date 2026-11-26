@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Batches;
@@ -21,14 +22,31 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     // The entities the batch already addresses, told apart as the schema compares their keys
     // (WriteBatchEntity). A key is normalized to the key type of its entity type before it is
     // added, so an integer key is one entity in whatever width it was given.
-    private HashSet<WriteBatchEntity> _identities = [];
+    private readonly BudgetSet<WriteBatchEntity> _identities;
+    private readonly MemoryBudget? _budget;
+    private MemoryLease? _lease;
     private bool _submitted;
     private bool _hasUpdates;
 
-    public WriteBatch(LatticeSchema schema, IWriteBatchExecutor executor)
+    public WriteBatch(LatticeSchema schema, IWriteBatchExecutor executor, MemoryBudget? budget = null)
     {
         _schema = schema;
         _executor = executor;
+        _budget = budget;
+        _identities = new BudgetSet<WriteBatchEntity>(budget, nameof(WriteBatch), EqualityComparer<WriteBatchEntity>.Default);
+        if (budget is not null)
+        {
+            var operations = _operations;
+            var identities = _identities;
+            _lease = new MemoryLease(budget);
+            _lease.Own(() =>
+            {
+                budget.Release(BudgetCollections.Items(operations));
+                operations.Clear();
+                operations.Capacity = 0;
+                identities.Dispose();
+            });
+        }
     }
 
     public int Count { get; private set; }
@@ -124,8 +142,21 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     private void Add(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision)
     {
         var entity = CheckIdentity(entityType, key);
-        var root = _executor.EncodeRoot(entityType, values);
-        Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
+        using var addition = _budget is null ? null : new MemoryLease(_budget);
+        try
+        {
+            var root = _executor.EncodeRoot(entityType, values, addition);
+            PrepareCapacity();
+            Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
+            if (addition is not null)
+            {
+                _lease!.Take(addition);
+            }
+        }
+        catch (BudgetRefusedException exception)
+        {
+            throw exception.WriteRejected();
+        }
     }
 
     private void AddUpdate(LatticeUpdate update, LatticeRevision? expectedRevision)
@@ -145,10 +176,63 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         _executor.CheckUpdate(entityType, input);
 
         // Finish any fallible allocation before changing either builder.
-        _operations.EnsureCapacity(Count + 1);
-        Keep(entity, new WriteBatchOperation(WriteKindEnum.Update, entityType, key, expectedRevision, default, input));
-        _hasUpdates = true;
-        update.Consume();
+        using var addition = _budget is null ? null : new MemoryLease(_budget);
+        try
+        {
+            if (addition is not null)
+            {
+                addition.AdoptArray(input.Commands, nameof(WriteBatch));
+            }
+
+            PrepareCapacity();
+            Keep(entity, new WriteBatchOperation(WriteKindEnum.Update, entityType, key, expectedRevision, default, input));
+            if (addition is not null)
+            {
+                _lease!.Take(addition);
+            }
+
+            _hasUpdates = true;
+            update.Consume();
+        }
+        catch (BudgetRefusedException exception)
+        {
+            throw exception.WriteRejected();
+        }
+    }
+
+    private void PrepareCapacity()
+    {
+        var needed = Count + 1;
+        if (_budget is null)
+        {
+            _operations.EnsureCapacity(needed);
+            _identities.EnsureCapacity(needed);
+            return;
+        }
+
+        if (needed <= _operations.Capacity)
+        {
+            _identities.EnsureCapacity(needed);
+            return;
+        }
+
+        // Prepare both replacements before installing either list capacity or a new member.
+        // The list's old array is still owned while the identity set is also growing.
+        var previous = BudgetCollections.Items(_operations);
+        var expanded = _budget.Allocate<WriteBatchOperation>(BudgetCollections.CapacityFor(previous.Length, needed), nameof(WriteBatch));
+        try
+        {
+            previous.AsSpan(0, Count).CopyTo(expanded);
+            _identities.EnsureCapacity(needed);
+        }
+        catch
+        {
+            _budget.Release(expanded);
+            throw;
+        }
+
+        BudgetCollections.Items(_operations) = expanded;
+        _budget.Release(previous);
     }
 
     private WriteBatchEntity CheckIdentity(LatticeEntityType entityType, object key)
@@ -191,25 +275,41 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         }
 
         _submitted = true;
-
         var operations = _operations;
-
+        var lease = _lease;
+        _lease = null;
         _operations = [];
-        _identities = [];
+        _identities.Dispose();
 
-        var result = _executor.ExecuteAsync(operations, session, cancellationToken);
-        if (!_hasUpdates)
+        try
         {
-            return result;
-        }
+            var result = _executor.ExecuteAsync(operations, session, cancellationToken);
+            if (_hasUpdates)
+            {
+                var completion = result.AsTask();
+                foreach (var operation in operations)
+                {
+                    operation.Update?.Outcome.Attach(completion);
+                }
 
-        var completion = result.AsTask();
-        foreach (var operation in operations)
+                result = new ValueTask<LatticeWriteResult>(completion);
+            }
+
+            return lease is null ? result : ReleaseAfterAsync(result, lease);
+        }
+        catch
         {
-            operation.Update?.Outcome.Attach(completion);
+            lease?.Dispose();
+            throw;
         }
+    }
 
-        return new ValueTask<LatticeWriteResult>(completion);
+    private static async ValueTask<LatticeWriteResult> ReleaseAfterAsync(ValueTask<LatticeWriteResult> result, MemoryLease lease)
+    {
+        using (lease)
+        {
+            return await result.ConfigureAwait(false);
+        }
     }
 
     private void ThrowIfSubmitted()

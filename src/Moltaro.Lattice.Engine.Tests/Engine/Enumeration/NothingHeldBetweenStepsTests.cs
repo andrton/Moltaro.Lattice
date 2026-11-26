@@ -26,7 +26,7 @@ public sealed class NothingHeldBetweenStepsTests
 
     private const int Large = 3 * 1024 * 1024;
 
-    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
+    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize + 1024 * 1024 };
 
     public static IEnumerable<TheoryDataRow<string>> Forms => EnumerationForms.All.Select(form => new TheoryDataRow<string>(form));
 

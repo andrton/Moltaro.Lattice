@@ -1,20 +1,39 @@
 using System.Diagnostics;
 using System.Numerics;
+using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Text;
 
 // An ID selects an immutable leaf mapping, then one acquired address.
 // Native epochs protect the address. The managed local keeps that particular
 // leaf alive through the load. No retired leaf list holds pages for other readers.
-internal sealed class TextLocator
+internal sealed class TextLocator(MemoryBudget? budget)
 {
     public const uint MostId = int.MaxValue;
-    private readonly TextPages<Leaf> _pages = new();
+    private readonly TextPages<Leaf> _pages = TextPages<Leaf>.Create(budget);
     private long _leafBytes;
     private uint _trimFrom;
     private bool _trimming;
 
-    public long Bytes => 40 + _pages.Bytes + _leafBytes;
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + sizeof(long) + sizeof(uint) + 1);
+
+    public static TextLocator Create(MemoryBudget? budget)
+    {
+        budget?.Reserve(OwnerBytes);
+        try
+        {
+            var locator = new TextLocator(budget);
+            budget?.Own(locator, nameof(TextLocator));
+            return locator;
+        }
+        catch
+        {
+            budget?.Release(OwnerBytes);
+            throw;
+        }
+    }
+
+    public long Bytes => OwnerBytes + _pages.Bytes + _leafBytes;
 
     public ArenaAddress Address(uint id)
     {
@@ -142,7 +161,7 @@ internal sealed class TextLocator
 
     public void Measure(List<TextAllocationShape> directory, List<TextAllocationShape> leaves)
     {
-        directory.Add(new TextAllocationShape(1, 24, 0, 0));
+        directory.Add(new TextAllocationShape(1, (int)(OwnerBytes - 2 * IntPtr.Size), 0, 0));
         _pages.Measure(directory);
 
         for (var cursor = 0u; _pages.TryNext(cursor, out var page, out var leaf); cursor = page + 1)
@@ -172,12 +191,60 @@ internal sealed class TextLocator
 
     private void Replace(uint page, Leaf? old, Leaf? current)
     {
-        var reserved = page == 0 ? 1UL : 0;
-        _pages.Set(page, current, current is not null && (current.Taken | reserved) == ulong.MaxValue);
+        try
+        {
+            SetLeaf(page, current);
+        }
+        catch
+        {
+            Release(current);
+            throw;
+        }
+
         _leafBytes += (current?.Bytes ?? 0) - (old?.Bytes ?? 0);
+        if (old is not null && current is not null && budget is { IsPreparing: true })
+        {
+            budget.WhenPreparationEnds(keeps =>
+            {
+                if (!keeps && ReferenceEquals(_pages.Get(page), current))
+                {
+                    // Owner changes were already undone. Copy the surviving IDs into the old
+                    // mapping before publishing it again, and leave new, released IDs absent.
+                    old.Taken = current.Taken & old.Allocated;
+                    CopyEntries(current, old, old.Taken);
+                    SetLeaf(page, old);
+                    _leafBytes += old.Bytes - current.Bytes;
+                    Release(current);
+                }
+                else
+                {
+                    Release(old);
+                }
+            });
+        }
+        else
+        {
+            Release(old);
+        }
     }
 
-    private static Leaf Copy(Leaf? old, ulong taken)
+    private void SetLeaf(uint page, Leaf? leaf)
+    {
+        var reserved = page == 0 ? 1UL : 0;
+        _pages.Set(page, leaf, leaf is not null && (leaf.Taken | reserved) == ulong.MaxValue);
+    }
+
+    private void Release(Leaf? leaf)
+    {
+        if (leaf is not null && budget is not null)
+        {
+            budget.Forget(leaf.Addresses);
+            budget.Forget(leaf.Ordinals);
+            budget.Release(leaf.Bytes, leaf);
+        }
+    }
+
+    private Leaf Copy(Leaf? old, ulong taken)
     {
         var capacity = CapacityFor(taken);
         var allocated = taken;
@@ -186,19 +253,52 @@ internal sealed class TextLocator
             allocated |= 1UL << BitOperations.TrailingZeroCount(~allocated);
         }
 
-        var expanded = new Leaf(allocated, taken, capacity);
-        var carried = taken & (old?.Taken ?? 0);
-        while (carried != 0)
+        var bytes = Leaf.BytesFor(capacity);
+        budget?.Reserve(bytes);
+        Leaf? expanded = null;
+        try
         {
-            var low = (uint)BitOperations.TrailingZeroCount(carried);
-            var previous = old!.IndexOf(low);
-            var next = expanded.IndexOf(low);
-            expanded.Addresses[next] = old.Addresses[previous];
-            expanded.Ordinals[next] = old.Ordinals[previous];
-            carried &= carried - 1;
+            expanded = new Leaf(allocated, taken, capacity);
+            if (budget is not null)
+            {
+                budget.Own(expanded, nameof(TextLocator));
+                budget.Own(expanded.Addresses, nameof(TextLocator));
+                budget.Own(expanded.Ordinals, nameof(TextLocator));
+            }
+        }
+        catch
+        {
+            if (expanded is not null)
+            {
+                Release(expanded);
+            }
+            else
+            {
+                budget?.Release(bytes);
+            }
+
+            throw;
+        }
+
+        if (old is not null)
+        {
+            CopyEntries(old, expanded, taken & old.Taken);
         }
 
         return expanded;
+    }
+
+    private static void CopyEntries(Leaf source, Leaf destination, ulong ids)
+    {
+        while (ids != 0)
+        {
+            var low = (uint)BitOperations.TrailingZeroCount(ids);
+            var from = source.IndexOf(low);
+            var to = destination.IndexOf(low);
+            destination.Addresses[to] = source.Addresses[from];
+            destination.Ordinals[to] = source.Ordinals[from];
+            ids &= ids - 1;
+        }
     }
 
     private static int CapacityFor(ulong taken) => (int)BitOperations.RoundUpToPowerOf2((uint)BitOperations.PopCount(taken));
@@ -214,7 +314,10 @@ internal sealed class TextLocator
 
         public int Capacity => Addresses.Length;
 
-        public long Bytes => 96 + (8L * Capacity) + ((4L * Capacity + 7) & ~7L);
+        public long Bytes => BytesFor(Capacity);
+
+        public static long BytesFor(int capacity) => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 2 * sizeof(ulong)) +
+            MemoryBudget.ArrayBytes<long>(capacity) + MemoryBudget.ArrayBytes<int>(capacity);
 
         public int IndexOf(uint id)
         {

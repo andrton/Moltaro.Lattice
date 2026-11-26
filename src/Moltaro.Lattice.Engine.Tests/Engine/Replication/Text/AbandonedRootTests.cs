@@ -29,7 +29,7 @@ public sealed class AbandonedRootTests
 
     public static IEnumerable<TheoryDataRow<string>> Changes => [new("one root"), new("two roots in one transaction")];
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [MemberData(nameof(Changes))]
     public async Task Child_that_cannot_hold_a_received_root_after_it_placed_its_texts_gives_back_every_reference_and_pauses(string change)
     {

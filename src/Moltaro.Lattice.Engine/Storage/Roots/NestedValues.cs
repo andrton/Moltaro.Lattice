@@ -619,10 +619,11 @@ internal static class NestedValues
         for (var first = 0; first < count; first += element.RecordsPerChunk)
         {
             var records = Math.Min(element.RecordsPerChunk, count - first);
-            var block = new byte[source.BlockLength(element, first, records)];
+            var exported = holder.Exported!;
+            var block = exported.NewBlock(source.BlockLength(element, first, records));
             var holderOfBlock = new ValueHolder(null!, holder.Layout, default, block, BlockHeader.Size, default, BlockHeader.Size + (records * element.Size))
             {
-                Exported = ExportedValues.OfRecords(element, records),
+                Exported = ExportedValues.OfRecords(element, records, exported.Lease),
             };
 
             source.Fill(ref holderOfBlock, element, first, records);

@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
 public sealed class ChildReusableCapacityTests
 {
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeLimitEnum.Memory, false)]
     [InlineData(LatticeLimitEnum.RootSlots, false)]
     [InlineData(LatticeLimitEnum.Memory, true)]
@@ -23,7 +23,15 @@ public sealed class ChildReusableCapacityTests
         var count = slots ? RootSlotBudgetTests.PageSlots - 1 : 1;
         var masterAllocator = new CountingNativeAllocator();
         await using var master = await OpenAsync(64L * Segment, masterAllocator, listen: true);
-        await RootSlotBudgetTests.FillAsync(master, count);
+        if (!slots && !returnsSegment)
+        {
+            // Keep a compatible Binary directory class in use before the large slots fill the arena.
+            await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, 8, data: 64_000));
+        }
+        else
+        {
+            await RootSlotBudgetTests.FillAsync(master, count);
+        }
         await using var relay = FrameRelay.Start(master.ListenUri!);
         var allocator = new CountingNativeAllocator();
         var paused = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);

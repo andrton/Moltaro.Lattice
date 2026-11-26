@@ -30,8 +30,8 @@ internal sealed class MapCollectionMatrixProfile<TKey, TValue>(string profile, s
         }
     }
 
-    public override LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt) => count > 0
-        ? [update.MapSet("Values", keyAt(count - 1, salt - 1), valueAt(count, salt))]
+    public override LatticeCommandResult[] Edit(LatticeUpdate update, int count, int salt, int predecessorSalt) => count > 0
+        ? [update.MapSet("Values", keyAt(count - 1, predecessorSalt), valueAt(count, salt))]
         : [];
 
     public override LatticeCommandResult Remove(LatticeUpdate update, int ordinal, int salt) =>

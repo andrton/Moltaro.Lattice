@@ -124,7 +124,7 @@ public sealed class WaiterTests
     public async Task Waiter_made_ready_while_a_refused_write_is_resolved_is_deferred_and_runs_after_the_resolution()
     {
         var storage = new HeldPersistence(holding: false);
-        var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
+        var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize + 1024 * 1024 };
         var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = storage, Arena = arena });
         var accounts = database.Set<UniqueSchema.Account>();
 

@@ -25,7 +25,7 @@ public sealed class BatchClaimsTests
     public Task Write_of_a_value_a_large_prepared_batch_claims_or_frees_waits_for_it_wherever_the_value_lies_in_its_order() =>
         AssertBatchClaimsAsync(inspectBudget: false);
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public Task Publication_scratch_and_the_deferred_claims_of_a_waiting_batch_are_charged_for_their_actual_lifetimes() =>
         AssertBatchClaimsAsync(inspectBudget: true);
 

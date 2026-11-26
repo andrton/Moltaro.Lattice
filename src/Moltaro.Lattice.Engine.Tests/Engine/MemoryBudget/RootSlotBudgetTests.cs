@@ -1,5 +1,6 @@
 using System.Reflection;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
@@ -24,7 +25,7 @@ public sealed class RootSlotBudgetTests
         Assert.Equal(2_147_479_552, pages * RootTable.EntriesPerPage);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task On_a_full_page_an_insert_waits_for_a_deleted_slot_and_then_reuses_its_next_generation()
     {
         var allocator = new CountingNativeAllocator();
@@ -35,13 +36,18 @@ public sealed class RootSlotBudgetTests
         var pieces = node.Set<PieceSchema.Piece>();
         await pieces.InsertAsync(PieceSchema.Of(PageSlots, 8));
         Assert.Equal(PageSlots, node.Counters.RootEntries);
+        // The full-page baseline excludes unrelated, reader-free primary generations.
+        node.DrainRetired();
         var full = ExpectCapacity(node, allocator);
         var current = node.Position;
         await RefusedAsync(pieces.InsertAsync(PieceSchema.Of(PageSlots + 1, 8)).AsTask(), LatticeLimitEnum.RootSlots);
         Assert.Equal(current, node.Position);
         Assert.Equal(full.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
 
-        using var held = await HeldRead.StartAsync(node, () => pieces.Get(1L)?.Count);
+        var heldHandle = HandleOf(node, 1);
+        using var pause = new ViewerPause();
+        var held = HoldPieceView(node, pause);
+        await pause.EnteredAsync(held);
         await pieces.DeleteAsync(1L);
         Assert.Equal(PageSlots, node.Counters.RootEntries);
         var deletedAt = node.Position;
@@ -53,19 +59,20 @@ public sealed class RootSlotBudgetTests
         Assert.Equal(deletedAt, node.Position);
         Assert.Null(pieces.Get(1L));
 
-        Assert.Equal(1L, await held.ReleaseAsync());
+        pause.Release();
+        Assert.Equal(1, (await held.WaitAsync(Bound)).Count);
         await waiting.WaitAsync(Bound);
         node.DrainRetired();
         var actual = HandleOf(node, 1);
-        Assert.Equal(held.Handle.Slot, actual.Slot);
-        Assert.Equal(held.Handle.Generation + 1, actual.Generation);
+        Assert.Equal(heldHandle.Slot, actual.Slot);
+        Assert.Equal(heldHandle.Generation + 1, actual.Generation);
         Assert.Equal(PageSlots, node.Counters.RootEntries);
         Assert.Null(pieces.Get(PageSlots + 1L));
         Assert.Equal(full.NativeBytes, ExpectCapacity(node, allocator).NativeBytes);
         Assert.Equal(full.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_final_generation_cannot_supply_a_reusable_address_from_a_full_page()
     {
         var allocator = new CountingNativeAllocator();
@@ -105,7 +112,7 @@ public sealed class RootSlotBudgetTests
         });
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(0)]
     [InlineData(1)]
@@ -115,6 +122,7 @@ public sealed class RootSlotBudgetTests
         var reference = new CountingNativeAllocator();
         await using (var control = await OpenAsync(Room, reference))
         {
+            await PreparePrimaryAsync(control);
             await FillAsync(control, PageSlots);
             var directory = await MaintenanceStep.RunAfterAdmissionAsync(control, parts =>
                 Backing<RootEntry[][]>(parts.Roots, "_pages"));
@@ -136,6 +144,7 @@ public sealed class RootSlotBudgetTests
 
         var allocator = new CountingNativeAllocator();
         await using var node = await OpenAsync(required + difference, allocator);
+        await PreparePrimaryAsync(node);
         await FillAsync(node, PageSlots);
         var pieces = node.Set<PieceSchema.Piece>();
         var before = ExpectCapacity(node, allocator);
@@ -157,7 +166,7 @@ public sealed class RootSlotBudgetTests
         }
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeLimitEnum.Memory)]
     [InlineData(LatticeLimitEnum.RootSlots)]
     public async Task A_resource_refused_forwarded_batch_names_no_member_and_leaves_values_revisions_and_positions_unchanged(LatticeLimitEnum limit)
@@ -218,6 +227,13 @@ public sealed class RootSlotBudgetTests
             await pieces.InsertAsync(PieceSchema.Of(key, 8));
         }
     }
+
+    private static Task<bool> PreparePrimaryAsync(EngineDatabase node) =>
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            parts.Tables.Stored(1).Presize(PageSlots + 1);
+            return true;
+        });
 
     private static RootHandle HandleOf(EngineDatabase node, long key)
     {

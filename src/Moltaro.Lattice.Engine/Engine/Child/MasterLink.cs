@@ -2,11 +2,13 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Child;
 
@@ -38,12 +40,14 @@ internal sealed class MasterLink : IDisposable
     private readonly FrameConnection _connection;
 
     private readonly TimeSpan _openTimeout;
+    private readonly MemoryBudget _budget;
 
-    private MasterLink(FrameConnection connection, HelloBody master, TimeSpan openTimeout)
+    private MasterLink(FrameConnection connection, HelloBody master, TimeSpan openTimeout, MemoryBudget budget)
     {
         _connection = connection;
         Master = master;
         _openTimeout = openTimeout;
+        _budget = budget;
     }
 
     // The Hello of the master: its database, its history and the fingerprint of its schema.
@@ -53,7 +57,8 @@ internal sealed class MasterLink : IDisposable
     // could not be reached within OpenTimeout, when it refused the child, or when the child cannot load
     // from it, also when it accepted the connection and replied nothing within the time left;
     // ValidationFailed for a reply that is not valid; OperationCanceledException for the token.
-    public static async Task<MasterLink> ConnectAsync(Uri masterUri, TimeSpan openTimeout, HelloBody hello, CancellationToken cancellationToken)
+    public static async Task<MasterLink> ConnectAsync(Uri masterUri, TimeSpan openTimeout, HelloBody hello, MemoryBudget budget,
+        CancellationToken cancellationToken)
     {
         var endPoint = EndPointOf(masterUri);
         var started = Stopwatch.GetTimestamp();
@@ -79,7 +84,7 @@ internal sealed class MasterLink : IDisposable
                     await socket.ConnectAsync(endPoint, deadline.Token).ConfigureAwait(false);
                 }
 
-                connection = new FrameConnection(socket);
+                connection = new FrameConnection(socket, budget);
                 connection.AddHello(FrameKindEnum.Hello, hello);
                 await connection.SendAsync(cancellationToken).ConfigureAwait(false);
 
@@ -93,7 +98,7 @@ internal sealed class MasterLink : IDisposable
                 var reply = await connection.ReceiveAsync(accepting, cancellationToken).ConfigureAwait(false);
                 var master = MasterOf(reply, hello, masterUri);
 
-                return new MasterLink(connection, master, openTimeout);
+                return new MasterLink(connection, master, openTimeout, budget);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -135,7 +140,7 @@ internal sealed class MasterLink : IDisposable
     // take for its database cannot be held: Unavailable with the reason.
     public async Task<(LatticeSchema Schema, long[] Counts)> ReceiveSchemaAsync(long memoryLimit, CancellationToken cancellationToken)
     {
-        var bytes = new TransferBuffer();
+        using var bytes = new TransferBuffer(_budget);
 
         while (true)
         {
@@ -155,7 +160,7 @@ internal sealed class MasterLink : IDisposable
 
             if (frame.EndsABody)
             {
-                return SchemaTransfer.Read(bytes.Sequence);
+                return SchemaTransfer.Read(bytes.Sequence, _budget);
             }
         }
     }
@@ -165,36 +170,46 @@ internal sealed class MasterLink : IDisposable
     // database cannot be held: Unavailable with the reason.
     public async Task<LoadEndBody> ReceiveRootsAsync(RootPlacement placement, long memoryLimit, CancellationToken cancellationToken)
     {
-        var assembler = new RootAssembler(memoryLimit);
+        using var assembler = new RootAssembler(memoryLimit, _budget);
         var completed = new List<ReadOnlySequence<byte>>();
 
-        while (true)
+        try
         {
-            var frame = await _connection.ReceiveAsync(_openTimeout, cancellationToken).ConfigureAwait(false);
-
-            switch (frame.Kind)
+            while (true)
             {
-                case FrameKindEnum.Blocks:
-                    assembler.Accept(frame, completed);
+                var frame = await _connection.ReceiveAsync(_openTimeout, cancellationToken).ConfigureAwait(false);
 
-                    foreach (var root in completed)
-                    {
-                        placement.Place(root);
-                    }
+                switch (frame.Kind)
+                {
+                    case FrameKindEnum.Blocks:
+                        assembler.Accept(frame, completed);
 
-                    completed.Clear();
-                    break;
+                        foreach (var root in completed)
+                        {
+                            placement.Place(root);
+                        }
 
-                case FrameKindEnum.LoadEnd when !assembler.InProgress:
-                    var end = LoadEndBody.Read(frame.Payload.Span);
+                        completed.Clear();
+                        break;
 
-                    placement.End(end);
+                    case FrameKindEnum.LoadEnd when !assembler.InProgress:
+                        var end = LoadEndBody.Read(frame.Payload.Span);
 
-                    return end;
+                        placement.End(end);
 
-                default:
-                    throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The master sent a {frame.Kind} frame in the middle of the roots of its load.");
+                        return end;
+
+                    default:
+                        throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The master sent a {frame.Kind} frame in the middle of the roots of its load.");
+                }
             }
+        }
+        finally
+        {
+            var backing = BudgetCollections.Items(completed);
+            completed.Clear();
+            completed.Capacity = 0;
+            _budget.Release(backing);
         }
     }
 
@@ -228,6 +243,8 @@ internal sealed class MasterLink : IDisposable
 
     // Ends the connection in order. The master sees the child go, and holds nothing for it afterwards.
     public void Dispose() => _connection.Dispose();
+
+    public void ReleaseBacking() => _connection.ReleaseBacking();
 
     // The address of the master: an IP address, or a name that the system resolves when it connects.
     private static EndPoint EndPointOf(Uri masterUri) =>
@@ -268,6 +285,7 @@ internal sealed class MasterLink : IDisposable
         if (connection is not null)
         {
             connection.Reset();
+            connection.ReleaseBacking();
         }
         else
         {

@@ -83,6 +83,7 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
     private long _appendedBytes;
 
     private long _releasedBytes;
+    private long _capacityBytes;
 
     private int _captures;
 
@@ -113,6 +114,8 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
 
     // The bytes of the transactions appended and not released (EngineCounters.PendingDeliveryBytes).
     public long PendingBytes => _appendedBytes - _releasedBytes;
+
+    public long CapacityBytes => Volatile.Read(ref _capacityBytes);
 
     // Begins the transaction of the sequence, whose effects take the bytes given: its bytes are written
     // through GetSpan and Advance, its header first, and appended by Commit.
@@ -298,7 +301,11 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
     // A block to write into: the spare, emptied when it was let go of, or a new one.
     private DeliveryBlock Take()
     {
-        var block = _spare ?? new DeliveryBlock(BlockSize);
+        if (_spare is not { } block)
+        {
+            block = new DeliveryBlock(BlockSize);
+            Volatile.Write(ref _capacityBytes, _capacityBytes + DeliveryBlock.CapacityBytes);
+        }
 
         _spare = null;
 
@@ -334,6 +341,8 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
             _released = null;
             _spare = null;
             _taken = null;
+            _writing = null;
+            Volatile.Write(ref _capacityBytes, 0);
 
             return;
         }
@@ -371,7 +380,14 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
 
             // No sender reads it, none can reach it again, and emptied it links no later block.
             passed.Reset();
-            _spare ??= passed;
+            if (_spare is null)
+            {
+                _spare = passed;
+            }
+            else
+            {
+                Volatile.Write(ref _capacityBytes, _capacityBytes - DeliveryBlock.CapacityBytes);
+            }
         }
     }
 

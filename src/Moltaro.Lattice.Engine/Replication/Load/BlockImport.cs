@@ -1,4 +1,5 @@
 using System.Buffers;
+using Moltaro.Lattice.Budgeting;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -26,24 +27,24 @@ namespace Moltaro.Lattice.Replication.Load;
 // The caller holds its node's writes lock through checking and placement. The layout, transfer
 // checks and pending rule are in docs/design/arena-protocol.md, "Stored structures and root
 // transfer."
-internal sealed class BlockImport
+internal sealed class BlockImport : IDisposable
 {
     private readonly Arena _arena;
 
     // The root payload as received, checked here before any of it reaches the arena: at most the
     // payload of one block. Reused for every root, so a checked root is valid until the next check.
-    private readonly byte[] _payload = new byte[Arena.MaxBlockSize - BlockHeader.Size];
+    private byte[] _payload = [];
 
     // One record of a collection, or the bits of one packed record, as received, while it is
     // checked: at most the payload of one chunk, by the rule of the schema language that a record fits one.
-    private readonly byte[] _record = new byte[ValueBlocks.ChunkPayload];
+    private byte[] _record = [];
 
     // The values inline of the structures checked together, the root or the records of one block, each as its
     // location shifted by 7 bits and its length, at most 64, which a location of at most Arena.MaxBlockSize
     // leaves room for: as many as one block holds descriptors, the most such a group has by the layout (a root
     // fits one block; the records of a block of records hold 64 bytes of room for each of their descriptors in
     // one chunk). Sorted, they are in the order of their locations (CheckInline).
-    private readonly uint[] _inline = new uint[ValueBlocks.ChunkPayload / ValueBlocks.DescriptorSize];
+    private uint[] _inline = [];
 
     private int _inlineCount;
 
@@ -56,6 +57,50 @@ internal sealed class BlockImport
         ArgumentNullException.ThrowIfNull(arena);
 
         _arena = arena;
+        var budget = arena.Budget;
+        const int payload = Arena.MaxBlockSize - BlockHeader.Size;
+        const int record = ValueBlocks.ChunkPayload;
+        const int inline = ValueBlocks.ChunkPayload / ValueBlocks.DescriptorSize;
+        var charge = MemoryBudget.ArrayBytes<byte>(payload) + MemoryBudget.ArrayBytes<byte>(record) +
+            MemoryBudget.ArrayBytes<uint>(inline);
+        budget?.Reserve(charge);
+        try
+        {
+            _payload = new byte[payload];
+            _record = new byte[record];
+            _inline = new uint[inline];
+            if (budget is not null)
+            {
+                budget.Own(_payload, nameof(BlockImport));
+                budget.Own(_record, nameof(BlockImport));
+                budget.Own(_inline, nameof(BlockImport));
+            }
+        }
+        catch
+        {
+            if (budget is not null)
+            {
+                budget.Forget(_payload);
+                budget.Forget(_record);
+                budget.Forget(_inline);
+                budget.Release(charge);
+            }
+
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        var budget = _arena.Budget;
+        budget?.Release(_payload);
+        budget?.Release(_record);
+        budget?.Release(_inline);
+        budget?.Release(_starts);
+        _payload = [];
+        _record = [];
+        _inline = [];
+        _starts = [];
     }
 
     // Checks the root of the layout that the rest of the input holds, and nothing more (see the class),
@@ -378,7 +423,12 @@ internal sealed class BlockImport
 
         if (_starts.Length < structure.DescriptorCount)
         {
-            _starts = new long[structure.DescriptorCount];
+            var previous = _starts;
+            var budget = _arena.Budget;
+            var replacement = budget?.Allocate<long>(structure.DescriptorCount, nameof(BlockImport)) ??
+                new long[structure.DescriptorCount];
+            budget?.Replace(previous, replacement, restore => _starts = restore);
+            _starts = replacement;
         }
 
         var block = new ReadOnlySequence<byte>(_payload, 0, payloadLength);

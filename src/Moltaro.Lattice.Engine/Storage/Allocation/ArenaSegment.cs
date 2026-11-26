@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Numerics;
 
+using Moltaro.Lattice.Budgeting;
+
 namespace Moltaro.Lattice.Storage.Allocation;
 
 // One native segment of the arena and the allocator metadata of its regions. The segment is
@@ -29,6 +31,11 @@ internal sealed unsafe class ArenaSegment
     // of the smallest class. Every region has as many, whatever class it serves, so that a region
     // takes another class without metadata of another size.
     public const int SlotWordsPerRegion = RegionSize / SizeClasses.Smallest / 64;
+
+    public static long MetadataBytes(int regions) =>
+        MemoryBudget.ObjectBytes(5L * IntPtr.Size + 3 * sizeof(int) + 1) +
+        MemoryBudget.ArrayBytes<ArenaRegion>(regions) +
+        3 * MemoryBudget.ArrayBytes<ulong>(regions * SlotWordsPerRegion);
 
     // One bit per slot, SlotWordsPerRegion words for each region in the order of the regions: set
     // while the slot holds an allocated block. Every bit of a region that serves no class is clear,
@@ -73,6 +80,28 @@ internal sealed unsafe class ArenaSegment
 
     // Prepared and retired index nodes also prevent returning this segment.
     public int AllocatedIndexNodes { get; set; }
+
+    // An empty grant used only by unpublished preparations is returned even when the
+    // ordinary reserve has room. Multiple preparations can use it before it is published.
+    public bool ReturnWhenEmpty { get; set; }
+
+    public void RecordBacking(MemoryBudget budget)
+    {
+        budget.Own(this, nameof(ArenaSegment));
+        budget.Own(Regions, nameof(ArenaSegment));
+        budget.Own(_slotBits, nameof(ArenaSegment));
+        budget.Own(_preparedBits, nameof(ArenaSegment));
+        budget.Own(_retiredBits, nameof(ArenaSegment));
+    }
+
+    public void DropBacking(MemoryBudget budget)
+    {
+        budget.Forget(this);
+        budget.Forget(Regions);
+        budget.Forget(_slotBits);
+        budget.Forget(_preparedBits);
+        budget.Forget(_retiredBits);
+    }
 
     // Marks the lowest free slot among the first slotCount slots of the region as allocated and
     // returns its index. The arena calls this only for a region that has a free slot; a region of

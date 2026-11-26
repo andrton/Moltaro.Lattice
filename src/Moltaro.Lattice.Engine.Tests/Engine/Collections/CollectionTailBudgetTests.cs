@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
 
 public sealed class CollectionTailBudgetTests
 {
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, true)]
     public async Task The_tail_owner_preparation_and_borrowed_capacity_stays_charged_while_a_collection_is_prepared(
@@ -44,6 +44,8 @@ public sealed class CollectionTailBudgetTests
             Assert.Empty(node.LeaseSnapshot());
             var retained = await OwnersAsync(borrowed: false);
             _ = ExpectCapacity(database, node.Allocator, out _, retained);
+            // Background maintenance is disabled and the independent partition enumerates live roots.
+            database.DrainRetired();
             node.ExpectNativeLedger();
         }
         finally

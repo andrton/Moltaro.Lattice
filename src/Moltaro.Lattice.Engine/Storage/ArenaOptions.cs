@@ -4,11 +4,12 @@ namespace Moltaro.Lattice.Storage;
 // values of the milestone contract; they are internal tuning, not measured optima.
 internal sealed class ArenaOptions
 {
-    // The most native capacity, in bytes, that the arena may obtain: Segments times SegmentSize,
-    // the reserve included. An allocation that would need more fails (Arena.TryAllocatePrepared). The
-    // limit is required: nothing means "unlimited", and a limit smaller than one segment, the
-    // default 0 among them, is refused.
+    // The instance limit, or the native grant limit when testing an arena in isolation.
     public long MemoryLimit { get; init; }
+
+    // A fixture for physical allocator topology can bound the number of native segments
+    // independently while all native and managed capacity remains subject to the instance budget.
+    public long? NativeCapacityLimit { get; init; }
 
     // The size of one native segment in bytes: the unit in which the arena obtains memory from the
     // native allocator and returns it. At least MaxBlockSize, and a whole multiple of it, because

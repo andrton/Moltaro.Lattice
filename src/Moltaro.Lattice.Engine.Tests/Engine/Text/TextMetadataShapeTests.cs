@@ -64,7 +64,7 @@ public sealed class TextMetadataShapeTests
     public Task A_reader_local_keeps_one_old_leaf_after_its_smaller_replacement_is_published(string encoding) =>
         LocatorReplacementAsync(encoding, inspectBudget: false);
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [MemberData(nameof(TextSchema.Encodings), MemberType = typeof(TextSchema))]
     public Task Managed_text_capacity_charges_both_bucket_generations_and_only_the_owned_locator_leaf(string encoding) =>
         LocatorReplacementAsync(encoding, inspectBudget: true);

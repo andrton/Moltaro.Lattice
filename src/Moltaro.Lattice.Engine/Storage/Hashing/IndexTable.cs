@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 
+using Moltaro.Lattice.Budgeting;
+
 namespace Moltaro.Lattice.Storage.Hashing;
 
 // Adapted from Garnet/Tsavorite (https://github.com/microsoft/garnet): the hash bucket and its
@@ -120,6 +122,7 @@ internal sealed class IndexTable
     private readonly int _mainBuckets;
 
     private readonly OverflowBuckets _overflow;
+    private readonly MemoryBudget? _budget;
 
     // The entries the table holds, on lines of their own (IndexTableCounts).
     private IndexTableCounts _counts;
@@ -127,17 +130,55 @@ internal sealed class IndexTable
     // A table of 2^bucketBits main buckets, empty, with overflow pages of a sixteenth of them, at
     // least one bucket, of the version given. bucketBits is 1 to MostBucketBits. The arrays are
     // allocated before anything else, so an OutOfMemoryException leaves nothing behind.
-    public IndexTable(int bucketBits, int version)
+    public IndexTable(int bucketBits, int version, MemoryBudget? budget = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(bucketBits, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(bucketBits, MostBucketBits);
 
         Version = version;
         _mainBuckets = 1 << bucketBits;
-        _words = GC.AllocateArray<long>((_mainBuckets * WordsPerBucket) + (LineBytes / sizeof(long)) - 1, pinned: true);
+        _budget = budget;
+        var capacity = LeastCapacity(bucketBits);
+        budget?.Reserve(capacity);
+        try
+        {
+            _words = GC.AllocateArray<long>(MainWords(bucketBits), pinned: true);
+            _overflow = new OverflowBuckets(Math.Max(0, bucketBits - 4), budget);
+            if (budget is not null)
+            {
+                budget.Own(this, nameof(IndexTable));
+                budget.Own(_words, nameof(IndexTable));
+                _overflow.OwnFirst();
+            }
+        }
+        catch
+        {
+            budget?.Release(capacity);
+            throw;
+        }
+
         _first = FirstOnLine(_words);
         _shift = 64 - bucketBits;
-        _overflow = new OverflowBuckets(Math.Max(0, bucketBits - 4));
+    }
+
+    private static int MainWords(int bucketBits) => ((1 << bucketBits) * WordsPerBucket) + LineBytes / sizeof(long) - 1;
+
+    private static long OwnerBytes =>
+        MemoryBudget.ObjectBytes(3L * IntPtr.Size + 4 * sizeof(int) + Unsafe.SizeOf<IndexTableCounts>());
+
+    public static long LeastCapacity(int bucketBits) => OwnerBytes + MemoryBudget.ArrayBytes<long>(MainWords(bucketBits)) +
+        OverflowBuckets.FirstCapacity(Math.Max(0, bucketBits - 4));
+
+    public void Published() => _overflow.Published();
+
+    public void ReleaseBacking()
+    {
+        _overflow.ReleaseBacking();
+        if (_budget is { } budget)
+        {
+            budget.Release(_words);
+            budget.Release(OwnerBytes, this);
+        }
     }
 
     public int BucketBits => 64 - _shift;

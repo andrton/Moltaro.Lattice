@@ -1,57 +1,38 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Replication.Transactions;
 
-// Puts the transactions a child receives together from their Transaction frames (TransactionFormat), one
-// at a time, and hands out each whole: its sequence and its effects. Whether the sequence follows the one
-// before, and what the effects hold, is the applier's (Engine.Child.Following).
-//
-// What it checks of a frame, before any of it is used:
-// - While no transaction is in progress, the frame begins one: its sequence and the length of its
-//   effects, at least one byte, then the first bytes of its effects, no more than the length announces.
-//   The frame carries Protocol.EndsABody exactly when it holds all of them.
-// - While one is in progress, the frame holds only its next bytes: no more than it still announces, and
-//   the flag exactly when they complete it (AnnouncedBody).
-// Each failure is a LatticeException with ValidationFailed. A transaction announced larger than the
-// memory the child may take for its database cannot be held by it, whatever arrives after: that is a
-// LatticeException with Unavailable and the reason, before anything is taken for it.
-//
-// A transaction of one frame is handed out where it lies, in the payload of its frame, so it is valid only
-// until the next frame is received. One of several frames is collected in a TransferBuffer, which takes
-// the pieces it needs as its bytes arrive and keeps them for the next large one: a child holds one
-// transaction at a time outside its arena.
-internal sealed class TransactionAssembler
+// The receiving task puts together one transaction at a time. It validates each frame against a
+// copy of the framing state and reserves any additional pieces before accepting any of its bytes.
+// A refused frame leaves the accepted prefix intact. A single-frame body borrows the frame buffer;
+// a multi-frame body borrows the pieces, which remain charged and reusable between bodies.
+internal sealed class TransactionAssembler(long largest, MemoryBudget? budget = null) : IDisposable
 {
-    private readonly TransferBuffer _large = new();
-
-    // The most bytes the effects of one transaction may announce: the memory the child may take for its
-    // database.
-    private readonly long _largest;
-
-    // The transaction in progress: its sequence, and its effects, whose bytes are still to arrive.
+    private readonly TransferBuffer _large = new(budget);
     private ulong _sequence;
-
     private AnnouncedBody _effects;
 
-    public TransactionAssembler(long largest)
-    {
-        _largest = largest;
-    }
-
-    // Whether a transaction is in progress: the next frame continues it, rather than beginning one.
     public bool InProgress => _effects.InProgress;
 
-    // Reads one Transaction frame (see the class): true with the sequence and the effects of the
-    // transaction it completes; false while the transaction needs more frames.
-    public bool Accept(in ReceivedFrame frame, out ulong sequence, out ReadOnlySequence<byte> effects)
+    public bool Accept(in ReceivedFrame frame, out ulong sequence, out ReadOnlySequence<byte> effects,
+        Action<ulong, int>? beforeAttempt = null, int receivedFrames = 0, ulong? expected = null)
     {
         var payload = frame.Payload;
-
-        if (_effects.InProgress)
+        var progress = _effects;
+        if (progress.InProgress)
         {
-            return Continue(frame, out sequence, out effects);
+            sequence = _sequence;
+            var finished = progress.Continue(frame, payload.Length, "transaction", sequence);
+            beforeAttempt?.Invoke(sequence, receivedFrames);
+            _large.PrepareAppend(payload.Length);
+            _large.Write(payload.Span);
+            _effects = progress;
+            effects = finished ? _large.Sequence : default;
+            return finished;
         }
 
         if (payload.Length < TransactionFormat.HeaderSize)
@@ -60,55 +41,51 @@ internal sealed class TransactionAssembler
         }
 
         sequence = BinaryPrimitives.ReadUInt64LittleEndian(payload.Span);
+        if (expected is { } next && sequence != next)
+        {
+            throw Protocol.Invalid($"The master sent the transaction {sequence} where {next} was expected: a transaction is missing or repeated.");
+        }
 
         var announced = BinaryPrimitives.ReadUInt64LittleEndian(payload.Span[sizeof(ulong)..]);
-        var held = (ulong)(payload.Length - TransactionFormat.HeaderSize);
-
+        var bytes = payload[TransactionFormat.HeaderSize..];
         if (announced == 0)
         {
             throw Protocol.Invalid($"The transaction {sequence} announces no effect.");
         }
 
-        if (announced > (ulong)_largest)
+        var complete = progress.Begin(frame, announced, (ulong)bytes.Length, "transaction", sequence);
+        beforeAttempt?.Invoke(sequence, receivedFrames);
+        if (announced > (ulong)largest)
         {
-            throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master sends the transaction {sequence} of {announced} bytes, more than the memory limit of this child, {_largest} bytes, can hold.");
+            if (budget is not null)
+            {
+                throw new BudgetRefusedException(LatticeLimitEnum.Memory);
+            }
+
+            throw new LatticeException(LatticeErrorEnum.Unavailable,
+                $"The master sends the transaction {sequence} of {announced} bytes, more than the memory limit of this child, {largest} bytes, can hold.");
         }
 
-        if (_effects.Begin(frame, announced, held, "transaction", sequence))
+        if (complete)
         {
-            effects = new ReadOnlySequence<byte>(payload[TransactionFormat.HeaderSize..]);
-
+            effects = new ReadOnlySequence<byte>(bytes);
             return true;
         }
 
+        _large.PrepareAppend(bytes.Length, fromStart: true);
         _large.Clear();
-        _large.Write(payload.Span[TransactionFormat.HeaderSize..]);
+        _large.Write(bytes.Span);
         _sequence = sequence;
+        _effects = progress;
         effects = default;
-
         return false;
     }
 
-    // Forgets the transaction in progress, when the connection it arrived on has ended: nothing of it is
-    // applied.
     public void Reset()
     {
         _large.Clear();
         _effects.Reset();
     }
 
-    // The next bytes of the transaction in progress.
-    private bool Continue(in ReceivedFrame frame, out ulong sequence, out ReadOnlySequence<byte> effects)
-    {
-        var payload = frame.Payload.Span;
-
-        sequence = _sequence;
-
-        var complete = _effects.Continue(frame, payload.Length, "transaction", _sequence);
-
-        _large.Write(payload);
-        effects = complete ? _large.Sequence : default;
-
-        return complete;
-    }
+    public void Dispose() => _large.Dispose();
 }

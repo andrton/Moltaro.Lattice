@@ -73,7 +73,9 @@ public sealed class OwnershipOfIndexesAfterChurnTests
     {
         var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs
         {
-            Arena = new ArenaOptions { MemoryLimit = 3L * 4 * 1024 * 1024 },
+            // Let each builder snapshot the generated roots. The native topology retains
+            // the three-grant pressure that exercises both single and batch rollback.
+            Arena = new ArenaOptions { MemoryLimit = 64L * 1024 * 1024, NativeCapacityLimit = 3L * 4 * 1024 * 1024 },
         });
         var random = new Random(18);
         var outcomes = new Dictionary<string, int>();

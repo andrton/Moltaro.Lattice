@@ -1,4 +1,7 @@
 using System.Buffers;
+using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Schema;
 
@@ -26,21 +29,24 @@ internal sealed class ForwardedOrigin
     private readonly LatticeEntityType? _entityType;
 
     // The entity types of the members of a batch, in their order; null for one write.
-    private readonly LatticeEntityType[]? _memberTypes;
+    private LatticeEntityType[]? _memberTypes;
+    private MemoryLease? _lease;
 
-    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, ReadOnlySequence<byte> root, LatticeEntityType entityType)
+    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, ReadOnlySequence<byte> root, LatticeEntityType entityType, MemoryLease? lease = null)
     {
         Replies = replies;
         CorrelationId = correlationId;
+        _lease = lease;
         Root = root;
         _entityType = entityType;
     }
 
     // The origin of a write batch, with the entity types of its members, in their order.
-    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, LatticeEntityType[] memberTypes)
+    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, LatticeEntityType[] memberTypes, MemoryLease? lease = null)
     {
         Replies = replies;
         CorrelationId = correlationId;
+        _lease = lease;
         Root = ReadOnlySequence<byte>.Empty;
         _memberTypes = memberTypes;
     }
@@ -51,7 +57,7 @@ internal sealed class ForwardedOrigin
 
     // The root after its envelope: its layout version, its root payload and its values out of line
     // (Replication.Load.BlockImport); empty for a delete and for a batch.
-    public ReadOnlySequence<byte> Root { get; }
+    public ReadOnlySequence<byte> Root { get; private set; }
 
     // Outside the lock of the writes, before the write leaves the barrier of the close: records the
     // refusal of the write as its reply (WriteCoordinator, "Forwarded writes"). A LatticeException as it
@@ -62,7 +68,27 @@ internal sealed class ForwardedOrigin
     {
         var refusal = RefusalOf(exception);
 
-        Replies.Refuse(CorrelationId, refusal, refusal.IndexName is { } name && EntityTypeOf(refusal.OperationIndex).TryGetIndex(name, out var index) ? index.Id : null);
+        try
+        {
+            Replies.Refuse(CorrelationId, refusal, refusal.IndexName is { } name &&
+                EntityTypeOf(refusal.OperationIndex).TryGetIndex(name, out var index) ? index.Id : null);
+        }
+        finally
+        {
+            ReleaseInput();
+        }
+    }
+
+    public void Succeed(in LatticeWriteResult result, in UpdateBitmap updates)
+    {
+        Replies.Succeed(CorrelationId, result, updates);
+    }
+
+    public void ReleaseInput()
+    {
+        Root = default;
+        _memberTypes = null;
+        Interlocked.Exchange(ref _lease, null)?.Dispose();
     }
 
     private static LatticeException RefusalOf(Exception exception) => exception switch

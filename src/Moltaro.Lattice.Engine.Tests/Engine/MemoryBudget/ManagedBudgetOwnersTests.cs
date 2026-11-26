@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 public sealed class ManagedBudgetOwnersTests
 {
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(10_000, false)]
     [InlineData(200_000, true)]
     public async Task A_batch_charges_the_two_export_generations_and_releases_the_final_pieces_after_commit(int length, bool multiplePieces)
@@ -50,7 +50,7 @@ public sealed class ManagedBudgetOwnersTests
         GC.KeepAlive(batch);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_connected_peer_owns_charged_frame_buffers_before_it_sends_hello_and_returns_them_on_close()
     {
         var allocator = new CountingNativeAllocator();
@@ -99,7 +99,7 @@ public sealed class ManagedBudgetOwnersTests
         Assert.InRange(after.ChargedBytes, before.ChargedBytes, before.ChargedBytes + 1_024);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Both_nodes_charge_owned_publication_and_text_capacity_and_the_child_charges_its_transfer_storage()
     {
         var masterAllocator = new CountingNativeAllocator();
@@ -152,6 +152,14 @@ public sealed class ManagedBudgetOwnersTests
         }
 
         _ = ExpectCapacity(child, childAllocator, out _, [.. retained]);
+
+        // The original batch predated the child. A live batch exercises publication scratch
+        // on the child, distinct from its singleton load and transfer paths above.
+        var liveBatch = master.CreateWriteBatch();
+        liveBatch.Insert(new IndexSchema.Ranked { Id = 41, Number = 41, Region = "New", Login = "forty-one" });
+        liveBatch.Insert(new IndexSchema.Ranked { Id = 42, Number = 42, Region = "New", Login = "forty-two" });
+        var replay = await liveBatch.CommitAsync().AsTask().WaitAsync(Bound);
+        await child.WaitForPositionAsync(replay.Position, Bound);
 
         foreach (var (node, allocator) in new[] { (master, masterAllocator), (child, childAllocator) })
         {

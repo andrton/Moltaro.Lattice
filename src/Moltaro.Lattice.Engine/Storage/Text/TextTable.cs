@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.Numerics;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Values;
@@ -20,15 +21,18 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
     private readonly Arena _arena = arena;
     private readonly ulong _seed = seed;
     private readonly Lock? _writes = writes;
-    private readonly TextLocator _locator = new();
-    private readonly TextWriterSlots _slots = new();
-    private TextBucketSet _active = new(2, 0);
+    private readonly TextLocator _locator = TextLocator.Create(arena.Budget);
+    private readonly TextWriterSlots _slots = TextWriterSlots.Create(arena.Budget);
+    private TextBucketSet _active = TextBucketSet.Create(2, 0, arena.Budget);
     private TextBucketSet? _old;
     private int _bucketCursor;
+    private int _deferredWork;
+
+    public static long OwnerBytes => MemoryBudget.ObjectBytes(7L * IntPtr.Size + 2 * sizeof(int));
 
     public int Count => _slots.Count;
 
-    public long Bytes => 80 + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
+    public long Bytes => OwnerBytes + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
 
     public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
@@ -55,7 +59,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
                 }
                 else if (NeededHeads() is var needed && needed != _active.Capacity)
                 {
-                    var replacement = new TextBucketSet(needed, _active.Tag ^ Tag);
+                    var replacement = TextBucketSet.Create(needed, _active.Tag ^ Tag, _arena.Budget);
                     _old = _active;
                     _active = replacement;
                     _bucketCursor = 0;
@@ -65,7 +69,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
                     break;
                 }
             }
-            catch (OutOfMemoryException) when (deferAllocationFailure)
+            catch (Exception exception) when (deferAllocationFailure && exception is OutOfMemoryException or BudgetRefusedException)
             {
                 // Allocating steps reserve replacements before changing the published shape or cursor.
                 deferred = true;
@@ -76,13 +80,25 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         return work;
     }
 
+    // A failed preparation must keep the previous bucket layout and locator capacity. Work on
+    // existing text can resume after preparation succeeds and its entries are retained.
+    public void EndPreparation(bool keeps)
+    {
+        var work = _deferredWork;
+        _deferredWork = 0;
+        if (keeps && work != 0)
+        {
+            Maintain(work, null, deferAllocationFailure: true, releaseWriterPage: false, out _);
+        }
+    }
+
     public TextCapacitySnapshot MeasureCapacity()
     {
         AssertWrites();
         var directory = new List<TextAllocationShape>();
         var leaves = new List<TextAllocationShape>();
         _locator.Measure(directory, leaves);
-        var slots = new List<TextAllocationShape> { new(1, 64, 0, 0) };
+        var slots = new List<TextAllocationShape> { new(1, (int)(OwnerBytes - 2 * IntPtr.Size), 0, 0) };
         _slots.Measure(slots);
         var active = new List<TextAllocationShape>();
         var old = new List<TextAllocationShape>();
@@ -293,7 +309,14 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         {
             // Catch up on placement without returning the empty page this
             // write can reuse. The automatic turn can return it later.
-            Maintain(2, null, deferAllocationFailure: false, releaseWriterPage: false, out _);
+            if (_arena.Budget is { IsPreparing: true })
+            {
+                _deferredWork += 2;
+            }
+            else
+            {
+                Maintain(2, null, deferAllocationFailure: false, releaseWriterPage: false, out _);
+            }
         }
 
         if (!_locator.TryTake(out var id))
@@ -338,6 +361,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         if (!old.TryPage(_bucketCursor, out var bucket))
         {
             _old = null;
+            old.ReleaseBacking();
             return;
         }
 

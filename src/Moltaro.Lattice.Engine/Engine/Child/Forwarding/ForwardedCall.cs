@@ -92,7 +92,11 @@ internal sealed class ForwardedCall
     }
 
     // For the sender: the socket has accepted the last frame of the request.
-    public void MarkSent() => Volatile.Write(ref _state, (int)ForwardedCallStateEnum.Sent);
+    public void MarkSent()
+    {
+        Request.Dispose();
+        Volatile.Write(ref _state, (int)ForwardedCallStateEnum.Sent);
+    }
 
     // The connection ended before the request was sent whole: the master did not execute it. False when
     // the call was withdrawn, sent whole or ended before.
@@ -107,6 +111,7 @@ internal sealed class ForwardedCall
             if (found == state)
             {
                 _registration.Unregister();
+                Request.Dispose();
 
                 return true;
             }
@@ -160,6 +165,7 @@ internal sealed class ForwardedCall
     {
         if (Interlocked.CompareExchange(ref _state, (int)ForwardedCallStateEnum.Withdrawn, (int)ForwardedCallStateEnum.Queued) == (int)ForwardedCallStateEnum.Queued)
         {
+            Request.Dispose();
             _outcome.TrySetCanceled(_token);
         }
     }

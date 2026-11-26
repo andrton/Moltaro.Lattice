@@ -1,4 +1,6 @@
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
 
@@ -160,7 +162,8 @@ internal sealed class RetiredMemory
     // managed heap cannot hold the room.
     public void Reserve(int places)
     {
-        _capacity = _items.EnsureCapacity(_items.Count + _reserved + places);
+        _items.EnsureCapacity(_items.Count + _reserved + places, _arena.Budget, nameof(RetiredMemory));
+        _capacity = _items.EnsureCapacity(0);
         _reserved += places;
     }
 
@@ -177,9 +180,10 @@ internal sealed class RetiredMemory
         {
             try
             {
-                _capacity = _items.EnsureCapacity(RelocationSeed);
+                _items.EnsureCapacity(RelocationSeed, _arena.Budget, nameof(RetiredMemory));
+                _capacity = _items.EnsureCapacity(0);
             }
-            catch (OutOfMemoryException)
+            catch (Exception exception) when (exception is OutOfMemoryException or BudgetRefusedException)
             {
                 return false;
             }
@@ -454,7 +458,13 @@ internal sealed class RetiredMemory
 
     private void TrimEmptyQueue()
     {
+        var backing = _arena.Budget is null ? null : BudgetCollections.Items(_items);
         _items.TrimExcess();
+        if (backing is not null)
+        {
+            _arena.Budget!.Release(backing);
+        }
+
         _capacity = 0;
     }
 
@@ -465,13 +475,26 @@ internal sealed class RetiredMemory
     // drain after it frees everything retired up to now.
     public long ReadsToWaitFor()
     {
-        if (_arena.Counters.RetiredBytes == 0)
+        if (_items.Count == 0)
         {
             return 0;
         }
 
         // A read that enters from now on announces an epoch after the newest tag.
         return _epochs.Advance() < _newest ? _newest + 1 : 0;
+    }
+
+    public bool HasReusableRootSlot()
+    {
+        foreach (var item in _items)
+        {
+            if (item.Kind == RetiredKindEnum.DeletedRoot && item.Handle.Generation < uint.MaxValue)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Arms the switch of the tests for a refused write (_waitSwitch): the next one runs the action once,
@@ -546,6 +569,7 @@ internal sealed class RetiredMemory
                 break;
 
             default:
+                (item.Owner as IndexTable)?.ReleaseBacking();
                 IndexBytes -= item.Bytes;
                 break;
         }

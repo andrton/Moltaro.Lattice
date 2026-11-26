@@ -30,7 +30,11 @@ public sealed class FailedNodeAllocationTests
 
     private const int Regions = 5;
 
-    private static readonly ArenaOptions Options = new() { SegmentSize = Region, MemoryLimit = Regions * (long)Region, ReservedSegments = 0 };
+    // Leave a fifth physical region for the injected allocation failure after the root fits.
+    private static readonly ArenaOptions Options = new()
+    {
+        SegmentSize = Region, MemoryLimit = 4L * 1024 * 1024, NativeCapacityLimit = Regions * (long)Region, ReservedSegments = 0,
+    };
 
     [Fact]
     public async Task Replace_and_insert_whose_later_index_meets_a_failed_native_allocation_give_back_what_the_earlier_index_reserved_and_leave_the_instance_Ready()

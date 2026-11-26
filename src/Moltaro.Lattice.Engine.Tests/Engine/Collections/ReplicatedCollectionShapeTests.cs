@@ -80,7 +80,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
             rows.Select(row => row.Item3).Distinct().Order());
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [MemberData(nameof(BudgetCases))]
     public async Task Capacity_and_ownership_reconcile_across_inline_and_external_load_full_sparse_and_delete_effects(
         LatticeFieldTypeEnum keyType, string encoding, string profileName)
@@ -118,7 +118,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
 
         var update = mirror.CreateUpdate(externalKey);
         update.Assign("Stamp", Edited);
-        var commands = profile.Edit(update, externalCount, Edited);
+        var commands = profile.Edit(update, externalCount, Edited, Initial);
         var sparse = await update.CommitAsync();
         Assert.Equal(sparse.Position, child.Position);
         Assert.All(commands, command => Assert.True(command.Changed));
@@ -141,7 +141,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         }
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeFieldTypeEnum.Int8, "Utf8", "PackedList", false)]
     [InlineData(LatticeFieldTypeEnum.String, "Utf16", "RecordList", true)]
     [InlineData(LatticeFieldTypeEnum.UInt32, "Utf8", "PackedMap", true)]
@@ -335,7 +335,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
 
             var update = replica.CreateUpdate(key);
             var stamp = update.Assign("Stamp", Edited);
-            var commands = profile.Edit(update, nextCount, Edited);
+            var commands = profile.Edit(update, nextCount, Edited, Replaced);
             foreach (var command in commands)
             {
                 Assert.Throws<InvalidOperationException>(() => command.Changed);

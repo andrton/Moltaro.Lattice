@@ -5,9 +5,11 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.TestSupport.Replication;
+using Moltaro.Lattice.TestSupport.Concurrency;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
@@ -86,6 +88,19 @@ internal static class InstanceBudget
         Assert.Null(failure.OperationIndex);
         return failure;
     }
+
+    public static Task<(long Id, int Count)> HoldPieceView(EngineDatabase node, ViewerPause pause) =>
+        OwnThread.Run(() =>
+        {
+            Assert.True(node.Set("Piece").TryView(1L, view =>
+            {
+                var original = (view["Id"].Get<long>(), view["Count"].Get<int>());
+                pause.Hold();
+                Assert.Equal(original, (view["Id"].Get<long>(), view["Count"].Get<int>()));
+                return original;
+            }, out var value));
+            return value;
+        });
 
     // The tests run on the .NET 10 64-bit hosts. Size the actual arrays by lengths and element
     // widths, independently of the reservation. Typed allocation gives the size of an owned

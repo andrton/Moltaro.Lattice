@@ -90,7 +90,7 @@ internal sealed class Capture
 
     // Registers the capture of a child, in one hold of the lock of the writes, and returns what it starts
     // from (see the class). Unavailable once the database faulted.
-    public CaptureStart Register()
+    public CaptureStart Register(out long[] counts)
     {
         lock (_writes)
         {
@@ -100,8 +100,22 @@ internal sealed class Capture
             }
 
             var captureStart = _clock.Sequence;
+            var tables = _tables.InSchemaOrder;
+            counts = _arena.Budget?.Allocate<long>(tables.Count, nameof(Capture)) ?? new long[tables.Count];
+            try
+            {
+                for (var index = 0; index < tables.Count; index++)
+                {
+                    counts[index] = tables[index].Count;
+                }
 
-            return new CaptureStart(captureStart, _roots.SlotExtent, [.. _tables.InSchemaOrder.Select(table => (long)table.Count)], Tail.Subscribe(captureStart));
+                return new CaptureStart(captureStart, _roots.SlotExtent, Tail.Subscribe(captureStart));
+            }
+            catch
+            {
+                _arena.Budget?.Release(counts);
+                throw;
+            }
         }
     }
 

@@ -27,10 +27,17 @@ internal readonly struct WriteBatchEntity : IEquatable<WriteBatchEntity>
 
     public bool Equals(WriteBatchEntity other) =>
         ReferenceEquals(_entityType, other._entityType)
-        && (TextComparison is { } text ? text.Equals((string)_key, (string)other._key) : _key.Equals(other._key));
+        && (_entityType is null || (TextComparison is { } text ? text.Equals((string)_key, (string)other._key) : _key.Equals(other._key)));
 
     public override bool Equals(object? obj) => obj is WriteBatchEntity other && Equals(other);
 
-    public override int GetHashCode() =>
-        HashCode.Combine(_entityType, TextComparison is { } text ? text.GetHashCode((string)_key) : _key.GetHashCode());
+    public override int GetHashCode()
+    {
+        if (_entityType is null)
+        {
+            return 0;
+        }
+
+        return HashCode.Combine(_entityType, TextComparison is { } text ? text.GetHashCode((string)_key) : _key.GetHashCode());
+    }
 }

@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 
+using Moltaro.Lattice.Budgeting;
+
 namespace Moltaro.Lattice.Storage.Hashing;
 
 // Adapted from Garnet/Tsavorite (https://github.com/microsoft/garnet): the allocator of the overflow
@@ -50,6 +52,8 @@ internal sealed class OverflowBuckets
     // The pages in the order they were added, published by Volatile.Write when the directory is
     // replaced by a larger copy; only the first _pageCount are pages.
     private OverflowPage[] _pages;
+    private readonly MemoryBudget? _budget;
+    private bool _published;
 
     private int _pageCount;
 
@@ -62,11 +66,47 @@ internal sealed class OverflowBuckets
     // Overflow buckets of pages of 2^pageBits buckets, with the first page allocated, so that a table
     // has one page of overflow buckets, a sixteenth of its main buckets and at least one, from the
     // moment it is made.
-    public OverflowBuckets(int pageBits)
+    public OverflowBuckets(int pageBits, MemoryBudget? budget = null)
     {
         _pageBits = pageBits;
+        _budget = budget;
         _pages = new OverflowPage[1];
-        AddPage();
+        var words = GC.AllocateArray<long>(WordsInPage(pageBits), pinned: true);
+        _pages[0] = new OverflowPage(words, IndexTable.FirstOnLine(words));
+        _pageCount = 1;
+    }
+
+    private static int WordsInPage(int bits) => (WordsPerBucket << bits) + LineBytes / sizeof(long) - 1;
+
+    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + sizeof(long) + 2 * sizeof(int) + 1);
+
+    public static long FirstCapacity(int bits) => OwnerBytes + MemoryBudget.ArrayBytes<OverflowPage>(1) +
+        MemoryBudget.ArrayBytes<long>(WordsInPage(bits));
+
+    public void OwnFirst()
+    {
+        if (_budget is { } budget)
+        {
+            budget.Own(this, nameof(OverflowBuckets));
+            budget.Own(_pages, nameof(OverflowBuckets));
+            budget.Own(_pages[0].Words, nameof(OverflowBuckets));
+        }
+    }
+
+    public void Published() => _published = true;
+
+    public void ReleaseBacking()
+    {
+        if (_budget is { } budget)
+        {
+            for (var i = 0; i < _pageCount; i++)
+            {
+                budget.Release(_pages[i].Words);
+            }
+
+            budget.Release(_pages);
+            budget.Release(OwnerBytes, this);
+        }
     }
 
     // The buckets given out, for a walk over all of them: the copy into a larger table and an
@@ -128,25 +168,77 @@ internal sealed class OverflowBuckets
     // changes. The directory is published before any bucket of the page is linked.
     private void AddPage()
     {
-        var words = GC.AllocateArray<long>((WordsPerBucket << _pageBits) + (LineBytes / sizeof(long)) - 1, pinned: true);
-        var page = new OverflowPage(words, IndexTable.FirstOnLine(words));
+        var previous = _pages;
+        var index = _pageCount;
+        var grows = index == previous.Length;
+        var length = grows ? previous.Length * 2 : previous.Length;
+        var wordsLength = WordsInPage(_pageBits);
+        var bytes = MemoryBudget.ArrayBytes<long>(wordsLength) + (grows ? MemoryBudget.ArrayBytes<OverflowPage>(length) : 0);
+        _budget?.Reserve(bytes);
 
-        if (_pageCount == _pages.Length)
+        var directory = previous;
+        long[]? words = null;
+        try
         {
-            var grown = new OverflowPage[_pages.Length * 2];
+            words = GC.AllocateArray<long>(wordsLength, pinned: true);
+            _budget?.Own(words, nameof(OverflowBuckets));
+            if (grows)
+            {
+                directory = new OverflowPage[length];
+                Array.Copy(previous, directory, index);
+                _budget?.Own(directory, nameof(OverflowBuckets));
+            }
 
-            Array.Copy(_pages, grown, _pageCount);
-            grown[_pageCount] = page;
-            Volatile.Write(ref _pages, grown);
+            if (_published && _budget is { IsPreparing: true } budget)
+            {
+                budget.WhenPreparationEnds(keeps =>
+                {
+                    if (keeps)
+                    {
+                        if (grows)
+                        {
+                            budget.Release(previous);
+                        }
+                    }
+                    else
+                    {
+                        directory[index] = default;
+                        if (grows)
+                        {
+                            Volatile.Write(ref _pages, previous);
+                            budget.Release(directory);
+                        }
+
+                        _pageCount = index;
+                        budget.Release(words);
+                    }
+                });
+            }
+            else if (grows)
+            {
+                _budget?.Release(previous);
+            }
         }
-        else
+        catch
         {
-            // A page is two fields, which no single store publishes. No reader reads this place before
-            // it has loaded, with acquire semantics, a store with release semantics that comes after
-            // this one: Taken once a bucket of the page is taken (Take), or a link to such a bucket
-            // (IndexTable.Add). The place is written once and never changed, so such a reader reads
-            // the page whole.
-            _pages[_pageCount] = page;
+            if (words is not null)
+            {
+                _budget?.Forget(words);
+            }
+
+            if (!ReferenceEquals(directory, previous))
+            {
+                _budget?.Forget(directory);
+            }
+
+            _budget?.Release(bytes);
+            throw;
+        }
+
+        directory[index] = new OverflowPage(words, IndexTable.FirstOnLine(words));
+        if (grows)
+        {
+            Volatile.Write(ref _pages, directory);
         }
 
         _pageCount++;

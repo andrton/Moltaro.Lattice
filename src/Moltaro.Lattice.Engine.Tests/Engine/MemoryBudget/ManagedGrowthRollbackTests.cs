@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 public sealed class ManagedGrowthRollbackTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_batch_refused_after_text_publication_workspace_and_primary_growth_reconciles_all_retained_backing()
     {
         const long limit = 8L * Segment;

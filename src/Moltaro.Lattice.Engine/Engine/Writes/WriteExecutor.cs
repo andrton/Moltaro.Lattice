@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Updates;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -103,6 +104,10 @@ internal sealed class WriteExecutor
 
     private readonly DeliveryTail _delivery;
 
+    public MemoryBudget? Budget => _arena.Budget;
+
+    public void EndPreparation(bool keeps) => _arena.Texts.EndPreparation(keeps);
+
     // Places the roots that children forward; made by the first of them, since only a master with
     // children receives one, and used under the lock of the writes alone.
     private BlockImport? _import;
@@ -182,7 +187,7 @@ internal sealed class WriteExecutor
     {
         var members = write.Members!;
         var record = write.Record;
-        var changes = record.BatchChanges(members.Length);
+        var changes = record.BatchChanges(members.Length, _arena.Budget);
         PreparedUpdates? updates = null;
         record.Updates = null;
         var count = 0;
@@ -299,6 +304,7 @@ internal sealed class WriteExecutor
             if (prepared is null)
             {
                 _changes.GiveBack(changes[..count]);
+                record.Withdraw();
             }
         }
     }
@@ -595,7 +601,7 @@ internal sealed class WriteExecutor
     private ArenaAddress Place(EntityTable table, RootHandle handle, in ReadOnlySequence<byte> bytes, bool replaces, out long size, out LatticeException? refusal)
     {
         var layout = table.Layout;
-        var import = _import ??= new BlockImport(_arena);
+        var import = _import ?? CreateImport();
         var reader = new SequenceReader<byte>(bytes);
         var received = import.Check(ref reader, layout);
 
@@ -618,6 +624,25 @@ internal sealed class WriteExecutor
 
     // Whether the entity of the handle stores its String key, compared without case, in another spelling
     // than the root received.
+    private BlockImport CreateImport()
+    {
+        var import = new BlockImport(_arena);
+        if (_arena.Budget is { IsPreparing: true } budget)
+        {
+            budget.WhenPreparationEnds(keeps =>
+            {
+                if (!keeps)
+                {
+                    _import = null;
+                    import.Dispose();
+                }
+            });
+        }
+
+        _import = import;
+        return import;
+    }
+
     private bool KeepsAnotherSpelling(EntityTable table, RootHandle handle, BlockImport import, in ReceivedRoot received)
     {
         var key = table.EntityType.Key;
@@ -695,7 +720,7 @@ internal sealed class WriteExecutor
         // takes the reply first (Delivery.RecordedReplies).
         if (write.Forwarded is { } forwarded)
         {
-            forwarded.Replies.Succeed(forwarded.CorrelationId, new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity),
+            forwarded.Succeed(new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity),
                 prepared.Updates?.Reply ?? default);
         }
 

@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
@@ -12,7 +13,7 @@ public sealed class BudgetWithdrawalTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_late_batch_failure_returns_all_grants_and_handles_it_acquired_before_commit(bool allocationFails)
@@ -65,7 +66,7 @@ public sealed class BudgetWithdrawalTests
         Assert.Null(pieces.Get(3L));
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Cancellation_before_dispatch_releases_a_writes_real_backing_while_an_earlier_commit_remains_held()
     {
         var storage = new HeldPersistence(holding: false);
@@ -121,7 +122,7 @@ public sealed class BudgetWithdrawalTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Cancellation_while_resolving_memory_refusal_keeps_the_refused_write_from_running_after_reclamation()
     {
         var allocator = new CountingNativeAllocator();
@@ -129,7 +130,9 @@ public sealed class BudgetWithdrawalTests
         var pieces = node.Set<PieceSchema.Piece>();
         var size = 5 * Mebibyte / 2;
         await pieces.InsertAsync(PieceSchema.Of(1, 8, data: size));
-        using var held = await HeldRead.StartAsync(node, () => pieces.Get(1L)?.Id);
+        using var pause = new ViewerPause();
+        var held = HoldPieceView(node, pause);
+        await pause.EnteredAsync(held);
         var deleted = await pieces.DeleteAsync(1L);
         var waits = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         node.ArmWaitSwitch(() => waits.TrySetResult());
@@ -141,7 +144,8 @@ public sealed class BudgetWithdrawalTests
         Assert.Equal(deleted.Position, node.Position);
         Assert.Equal(0, node.Counters.Arena.PreparedBytes);
         Assert.True(ExpectCapacity(node, allocator).NativeBytes > 0);
-        Assert.Equal(1L, await held.ReleaseAsync());
+        pause.Release();
+        Assert.Equal(1L, (await held.WaitAsync(Bound)).Id);
         node.DrainRetired();
 
         var following = await pieces.InsertAsync(PieceSchema.Of(3, 8, data: size)).AsTask().WaitAsync(Bound);

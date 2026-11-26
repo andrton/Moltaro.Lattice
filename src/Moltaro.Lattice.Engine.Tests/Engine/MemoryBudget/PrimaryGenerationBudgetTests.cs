@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 public sealed class PrimaryGenerationBudgetTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Index_growth_holds_both_main_and_overflow_backings_until_the_reader_leaves()
     {
         var allocator = new CountingNativeAllocator();
@@ -67,7 +67,7 @@ public sealed class PrimaryGenerationBudgetTests
         Assert.Equal(keys.Order(), set.Enumerate().Select(piece => piece.Id).Order());
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_budget_that_fits_the_net_primary_growth_can_still_refuse_its_overlapping_generations()
     {
         var keys = CollidingKeys.Of(9);

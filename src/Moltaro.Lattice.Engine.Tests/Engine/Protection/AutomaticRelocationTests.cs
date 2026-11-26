@@ -1055,7 +1055,12 @@ public sealed class AutomaticRelocationTests
         Action<MaintenanceTurnSample>? observe = null, int maxSegments = 32, Action<CancellationToken>? beforeWait = null) =>
         new()
         {
-            Arena = new ArenaOptions { SegmentSize = regions * Arena.MaxBlockSize, MemoryLimit = (long)maxSegments * Arena.MaxBlockSize, ReservedSegments = reserve },
+            // The relocation strategy is compared against this exact native geometry.
+            Arena = new ArenaOptions
+            {
+                SegmentSize = regions * Arena.MaxBlockSize, MemoryLimit = 32L * 1024 * 1024,
+                NativeCapacityLimit = (long)maxSegments * Arena.MaxBlockSize, ReservedSegments = reserve,
+            },
             Allocator = allocator,
             DisableBackgroundMaintenance = beforeWait is null,
             BeforeMaintenanceWait = beforeWait,

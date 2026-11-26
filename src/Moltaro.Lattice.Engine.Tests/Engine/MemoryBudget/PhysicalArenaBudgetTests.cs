@@ -15,7 +15,7 @@ public sealed class PhysicalArenaBudgetTests
     private const int Payload = 3_200;
     private static readonly RootHandle Owner = new(1, 1);
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_minimum_option_opens_a_small_master_and_cannot_fund_its_first_segment()
     {
         var allocator = new CountingNativeAllocator();
@@ -26,7 +26,7 @@ public sealed class PhysicalArenaBudgetTests
         Assert.Equal(0, ExpectCapacity(node, allocator).NativeBytes);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Idle_slots_and_region_tails_are_already_charged_and_the_reserve_keeps_the_whole_grant()
     {
         var allocator = new CountingNativeAllocator();
@@ -107,7 +107,7 @@ public sealed class PhysicalArenaBudgetTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(0)]
     [InlineData(1)]
@@ -167,6 +167,95 @@ public sealed class PhysicalArenaBudgetTests
         }
 
         allocator.ExpectEverythingReturned();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Failed_preparation_drops_its_segment_directory_only_if_the_new_slots_are_empty(bool occupied)
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(32L * Segment, allocator);
+        await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+        {
+            var arena = parts.Arena;
+            var regions = Segment / Region;
+            var addresses = new ArenaAddress[3 * regions];
+            for (var index = 0; index < addresses.Length; index++)
+            {
+                Assert.True(arena.TryAllocatePrepared(Region - 32, BlockKindEnum.Value, Owner, out addresses[index]));
+                arena.Payload(addresses[index])[0] = (byte)index;
+                arena.Publish(addresses[index]);
+            }
+
+            var old = DirectoryBackings(arena);
+            var originalSegments = Backing<ArenaSegment?[]>(arena, "_segments");
+            var live = originalSegments.Skip(1).ToArray();
+            var before = ExpectCapacity(node, allocator, out _, old);
+            Assert.Equal(3L * Segment, before.NativeBytes);
+
+            var budget = arena.Budget!;
+            var next = default(ArenaAddress);
+            object[] expanded = [];
+            ArenaSegment? added = null;
+            budget.BeginPreparation();
+            try
+            {
+                Assert.True(arena.TryAllocatePrepared(Region - 32, BlockKindEnum.Value, Owner, out next));
+                Assert.Equal(4u, next.Segment);
+                arena.Payload(next)[0] = 211;
+                expanded = DirectoryBackings(arena);
+                added = Assert.IsType<ArenaSegment>(Backing<ArenaSegment?[]>(arena, "_segments")[4]);
+                Assert.All(expanded.Zip(old), pair => Assert.NotSame(pair.First, pair.Second));
+                _ = ExpectCapacity(node, allocator, out _, [.. old, .. expanded]);
+
+                if (occupied)
+                {
+                    arena.Publish(next);
+                }
+                else
+                {
+                    arena.Free(next);
+                }
+            }
+            finally
+            {
+                budget.EndPreparation(keepsCapacity: false);
+            }
+
+            object[] installed = DirectoryBackings(arena);
+            Assert.Equal(64L, expanded.Sum(ManagedObjectSize) - old.Sum(ManagedObjectSize));
+            Assert.All(installed.Zip(occupied ? expanded : old), pair => Assert.Same(pair.Second, pair.First));
+            var directory = Backing<ArenaSegment?[]>(arena, "_segments");
+            for (var index = 0; index < live.Length; index++)
+            {
+                Assert.Same(live[index], directory[index + 1]);
+            }
+
+            for (var index = 0; index < addresses.Length; index++)
+            {
+                Assert.Equal((byte)index, arena.Payload(addresses[index])[0]);
+            }
+
+            var after = ExpectCapacity(node, allocator, out _, installed);
+            if (occupied)
+            {
+                Assert.Same(added, directory[4]);
+                Assert.Equal((byte)211, arena.Payload(next)[0]);
+                Assert.Equal(before.NativeBytes + Segment, after.NativeBytes);
+            }
+            else
+            {
+                Assert.Equal(1, allocator.Returned);
+                Assert.Equal(before.NativeBytes, after.NativeBytes);
+                Assert.Equal(before.ChargedBytes, after.ChargedBytes);
+            }
+
+            return true;
+        });
+
+        static object[] DirectoryBackings(Arena arena) =>
+            [Backing<Array>(arena, "_segments"), Backing<Array>(arena, "_freedSegmentSlots"), Backing<Array>(arena, "_reservedSegments")];
     }
 
     internal static Task<ArenaAddress> AllocateAsync(EngineDatabase node) =>

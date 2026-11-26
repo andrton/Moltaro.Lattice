@@ -18,7 +18,7 @@ public sealed class ChildReceiveBudgetTests
     private const long ChildLimit = 4L * Segment;
     private const int BinaryLength = 170_000;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(0, "resume")]
     [InlineData(1, "resume")]
     [InlineData(2, "resume")]
@@ -239,7 +239,7 @@ public sealed class ChildReceiveBudgetTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_next_message_can_reuse_its_existing_pieces_when_one_new_piece_would_not_fit()
     {
         var masterAllocator = new CountingNativeAllocator();
@@ -299,7 +299,7 @@ public sealed class ChildReceiveBudgetTests
         }
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task An_oversized_valid_announcement_pauses_and_an_invalid_announcement_ends_the_connection(bool invalid)

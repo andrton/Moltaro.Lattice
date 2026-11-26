@@ -27,7 +27,7 @@ public sealed class ForwardedTextTests
     // The fixed part of a Code: the header and a descriptor of 16 bytes for each of its two Strings.
     private const int CodeFixedSize = 32 + (2 * 16);
 
-    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
+    private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 15L * Mebibyte };
 
     // Code, bound to the class Code: the key Name, a String with Dictionary storage compared without case,
     // and Body, a String with Dictionary storage.

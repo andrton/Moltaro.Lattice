@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
 public sealed class ChildOpenBudgetTests
 {
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(4_096, true)]
     [InlineData(4_097, false)]
     public async Task The_initial_capture_must_fit_the_childs_addressable_root_slots(int count, bool fits)
@@ -42,7 +42,7 @@ public sealed class ChildOpenBudgetTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_announced_index_and_least_root_bytes_are_checked_before_accepting_any_root_frames()
     {
         const int count = 40_000;
@@ -71,7 +71,7 @@ public sealed class ChildOpenBudgetTests
         await NothingRegistered.ExpectAsync(master, 100);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Pressure_during_a_full_root_load_returns_the_new_lifetime_and_blocks_before_open_fails()
     {
         var masterAllocator = new CountingNativeAllocator();
@@ -116,7 +116,7 @@ public sealed class ChildOpenBudgetTests
         Assert.Equal(large.Data, witness.Set<PieceSchema.Piece>().Get(2L)?.Data);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_child_cannot_become_ready_if_a_real_catch_up_transaction_does_not_fit()
     {
         const int length = 6 * 1024 * 1024;
