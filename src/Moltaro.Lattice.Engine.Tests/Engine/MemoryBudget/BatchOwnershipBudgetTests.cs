@@ -64,6 +64,43 @@ public sealed class BatchOwnershipBudgetTests
         GC.KeepAlive(batch);
     }
 
+    [Fact(Skip = "A completed export currently masks refusal of the ownership handoff.")]
+    public async Task Refusing_the_completed_export_handoff_leaves_the_batch_unchanged_and_retryable()
+    {
+        const int handoffRoom = 1_008;
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(Segment, allocator);
+        var position = node.Position;
+        var batch = node.CreateWriteBatch();
+        batch.Insert(PieceSchema.Of(1, 8));
+        batch.Insert(PieceSchema.Of(2, 8));
+        var members = Backing<List<WriteBatchOperation>>(batch, "_operations");
+        var earlier = members.ToArray();
+        var before = ExpectCapacity(node, allocator);
+        var holdLength = checked((int)(Segment - before.ChargedBytes - handoffRoom - ManagedObjectSize(Array.Empty<byte>())));
+        using var holder = node.HoldBudgetBacking(holdLength);
+        var held = ExpectCapacity(node, allocator);
+        Assert.Equal(handoffRoom, Segment - held.ChargedBytes);
+
+        node.ResetBudgetPeak();
+        var third = PieceSchema.Of(3, 8);
+        ExpectMemory(Assert.Throws<LatticeException>(() => batch.Insert(third)));
+        var refused = ExpectCapacity(node, allocator);
+        Assert.Equal(held.ChargedBytes, refused.ChargedBytes);
+        Assert.Equal(held.ChargedBytes + 944, refused.PeakBytes);
+        Assert.Equal(0, refused.NativeBytes);
+        Assert.Equal(position, node.Position);
+        Assert.Equal(2, batch.Count);
+        Assert.Equal(earlier, members);
+
+        holder.Dispose();
+        Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
+        batch.Insert(third);
+        Assert.Equal(3, batch.Count);
+        Assert.Equal(earlier, members.Take(earlier.Length));
+        Assert.Equal(position, node.Position);
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference[] CaptureGrowth(EngineDatabase node, ILatticeWriteBatch batch, HashSet<object> original)
     {
