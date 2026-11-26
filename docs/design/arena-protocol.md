@@ -635,10 +635,10 @@ If allocating the empty backing or the first root cursor is refused, the
 worker charges one unit and leaves that work for a later turn. Cursor
 allocation precedes any change to the FIFO head or its storage.
 
-Close waits for admitted operations and protected readers before taking the
-writes lock for the final drain. If a cleanup step fails, close still attempts
-each remaining cleanup step, including disposing the arena. The shared close
-task reports the first failure after cleanup.
+After admitted operations and protected readers have left, close takes the
+writes lock, attempts the final drain, clears retired state and disposes the
+arena. A failure in either retirement step still allows arena disposal. The
+shared close task reports the first failure.
 
 The mover checks the live owner and each backlink it follows before publication.
 A release operation changes one root address, owning descriptor location, lookup
