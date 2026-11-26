@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Engine.Writes;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -81,15 +82,30 @@ public sealed class BudgetWithdrawalTests
             var written = node.Position;
 
             using var stop = new CancellationTokenSource();
-            var pending = pieces.InsertAsync(PieceSchema.Of(3, 8, data: 5 * Mebibyte), stop.Token).AsTask();
+            var batch = node.CreateWriteBatch();
+            batch.Insert(PieceSchema.Of(3, 8, data: 5 * Mebibyte));
+            batch.Insert(PieceSchema.Of(4, 8));
+            var pending = batch.CommitAsync(stop.Token).AsTask();
             await CountersWait.UntilAsync(node, counters => counters.QueuedWrites == 2 && counters.Arena.PreparedBytes > Segment,
                 "the later write holds real prepared backing");
-            var prepared = ExpectCapacity(node, allocator);
+            var record = await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            {
+                var queue = Backing<object>(parts.Coordinator, "_prepared");
+                var queued = Assert.IsType<PendingWrite>(queue.GetType().GetProperty("First")!.GetValue(queue));
+                return Assert.IsType<PreparedWrite>(queued.Prepared);
+            });
+            var changes = Backing<Array>(record, "_batch");
+            Assert.True(changes.Length >= 2);
+            var prepared = ExpectCapacity(node, allocator, out _, changes);
             Assert.True(prepared.NativeBytes > before.NativeBytes);
+            Assert.True(prepared.ChargedBytes - before.ChargedBytes >=
+                prepared.NativeBytes - before.NativeBytes + ManagedObjectSize(changes));
             await stop.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(Bound));
             Assert.Equal(written, node.Position);
             Assert.Null(pieces.Get(3L));
+            Assert.Null(Backing<Array?>(record, "_batch"));
+            _ = node.InspectBudget((_, backing) => Assert.NotSame(changes, backing));
             Assert.Equal(before.NativeBytes, ExpectCapacity(node, allocator).NativeBytes);
 
             storage.ReleaseAll();

@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Delivery;
+using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.TestSupport.Replication;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
@@ -17,6 +19,8 @@ public sealed class ForwardedHolderBudgetTests
     {
         var allocator = new CountingNativeAllocator();
         var received = new TaskCompletionSource<(RequestReceiver Receiver, object[] Import)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var beforeDrain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDrain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         EngineDatabase? accepting = null;
         await using var master = EngineDatabase.Create(new LatticeDatabaseOptions
         {
@@ -28,6 +32,11 @@ public sealed class ForwardedHolderBudgetTests
         {
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
+            BeforeMasterReplyDrain = async closing =>
+            {
+                beforeDrain.TrySetResult();
+                await releaseDrain.Task.WaitAsync(Bound, closing);
+            },
             ObserveMasterRequestFrame = receiver =>
             {
                 var assembler = Backing<MessageAssembler>(receiver, "_requests");
@@ -49,32 +58,31 @@ public sealed class ForwardedHolderBudgetTests
         await master.OpenAsync().AsTask().WaitAsync(Bound);
         var source = master.Set<PieceSchema.Piece>();
         var ready = await source.InsertAsync(PieceSchema.Of(1, 8));
-        await using var link = HeldLink.Start(master.ListenUri!);
+        await using var link = FrameRelay.Start(master.ListenUri!);
         await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(link.Address), new EngineTestInputs());
         var local = child.Set<PieceSchema.Piece>();
         Assert.Equal(ready.Position, child.Position);
 
-        var large = await source.InsertAsync(PieceSchema.Of(2, 8, data: 32 * 1024 * 1024)).AsTask().WaitAsync(Bound);
-        await link.HeldAsync();
         var writing = local.InsertAsync(PieceSchema.Of(3, 8, data: 170_000)).AsTask();
         try
         {
             var (receiver, workspace) = await received.Task.WaitAsync(Bound);
             var replies = Backing<RecordedReplies>(receiver, "_replies");
             var pending = Backing<ConcurrentQueue<RecordedReply>>(replies, "_replies");
-            await Eventually.HoldsAsync(() => pending.Count == 1, "The master did not retain the actual reply while its sender was blocked.");
+            await beforeDrain.Task.WaitAsync(Bound);
             var answer = Assert.Single(pending);
             Assert.True(answer.Result.Changed);
-            Assert.Equal(large.Position.Sequence + 1, answer.Result.Position.Sequence);
+            Assert.Equal(ready.Position.Sequence + 1, answer.Result.Position.Sequence);
             Assert.Equal(answer.Result.Position, master.Position);
             var queue = Backing<object>(pending, "_head");
             var slots = Backing<Array>(queue, "_slots");
             Assert.NotEmpty(slots);
             _ = ExpectCapacity(master, allocator, out _, [.. workspace, slots]);
+            Assert.DoesNotContain(link.ToChild, frame => frame.Kind == FrameKindEnum.WriteReply);
             Assert.False(writing.IsCompleted);
             Assert.Equal(ready.Position, child.Position);
 
-            link.Release();
+            releaseDrain.TrySetResult();
             var applied = await writing.WaitAsync(Bound);
             Assert.Equal(answer.Result.Position, applied.Position);
             Assert.Equal(170_000, local.Get(3L)?.Data?.Length);
@@ -82,7 +90,7 @@ public sealed class ForwardedHolderBudgetTests
         }
         finally
         {
-            link.Release();
+            releaseDrain.TrySetResult();
         }
     }
 }

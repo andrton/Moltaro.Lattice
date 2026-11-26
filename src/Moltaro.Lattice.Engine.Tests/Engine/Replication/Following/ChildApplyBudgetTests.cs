@@ -20,24 +20,31 @@ public sealed class ChildApplyBudgetTests
     private const int ExistingKey = 1;
 
     [Theory(Skip = Pending)]
-    [InlineData(5, "insert", false)]
-    [InlineData(5, "replace", true)]
-    [InlineData(1_025, "insert", false)]
-    [InlineData(1_025, "replace", false)]
-    [InlineData(1_025, "sparse", false)]
-    [InlineData(1_025, "delete", false)]
-    [InlineData(1_026, "oversized", false)]
+    [InlineData(5, "insert", "resume")]
+    [InlineData(5, "replace", "close")]
+    [InlineData(1_025, "insert", "resume")]
+    [InlineData(1_025, "replace", "resume")]
+    [InlineData(1_025, "sparse", "resume")]
+    [InlineData(1_025, "delete", "resume")]
+    [InlineData(1_026, "oversized", "resume")]
+    [InlineData(1_026, "oversized", "disconnect")]
     public async Task Refusal_while_preparing_a_late_member_keeps_no_prepared_root_or_index_entry(
-        int member, string effect, bool closes)
+        int member, string effect, string end)
     {
         var masterAllocator = new CountingNativeAllocator();
         await using var master = await OpenAsync(64L * Segment, masterAllocator, listen: true, schema: IndexSchema.Utf8);
         var rows = master.Set<IndexSchema.Counted>();
         var readiness = await rows.InsertAsync(new IndexSchema.Counted { Id = ExistingKey, Number = 7 });
+        var requestRoom = end == "disconnect"
+            ? 2 * await ChildReceiveBudgetTests.ShortRequestRoomAsync(master.ListenUri!, new IndexSchema.Counted { Id = ExistingKey, Number = 7 })
+            : 64;
+        Assert.InRange(requestRoom, 64, Segment - 1);
         await using var relay = FrameRelay.Start(master.ListenUri!);
         var allocator = new CountingNativeAllocator();
         var pause = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
         var refusals = 0;
+        var applyAttempts = 0;
+        var lastMemberAttempts = 0;
         EngineDatabase? receiving = null;
         IDisposable? held = null;
         (int Handles, long Blocks, long Native)? prefix = null;
@@ -61,6 +68,16 @@ public sealed class ChildApplyBudgetTests
                 },
                 BeforeChildPreparationMember = index =>
                 {
+                    if (index == 1)
+                    {
+                        Interlocked.Increment(ref applyAttempts);
+                    }
+
+                    if (index == member)
+                    {
+                        Interlocked.Increment(ref lastMemberAttempts);
+                    }
+
                     if (!fullRoot && index == member)
                     {
                         if (oversized)
@@ -170,12 +187,50 @@ public sealed class ChildApplyBudgetTests
             await cancellation.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(Bound));
             await Task.Delay(TimeSpan.FromMilliseconds(100));
+            Assert.InRange(Volatile.Read(ref applyAttempts), 1, 128);
+            Assert.InRange(Volatile.Read(ref lastMemberAttempts), 1, Volatile.Read(ref applyAttempts));
             Assert.InRange(Volatile.Read(ref refusals), 1, 128);
-            if (closes)
+            if (end == "close")
             {
                 await child.CloseAsync().AsTask().WaitAsync(Bound);
                 Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
                 allocator.ExpectEverythingReturned();
+                await NothingRegistered.ExpectAsync(master, async () =>
+                    await rows.UpsertAsync(new IndexSchema.Counted { Id = 1_000, Number = 3 }));
+                return;
+            }
+
+            if (end == "disconnect")
+            {
+                var physical = ChildReceiveBudgetTests.ReceiveBackings(child);
+                Assert.NotEmpty(physical.Pieces);
+                var pendingCharge = ExpectCapacity(child, allocator, out _, [physical.Receive, .. physical.Pieces]);
+                var followingTask = Backing<Task>(child, "_following");
+                relay.Cut();
+                // The sender has room to start this short request and observes the
+                // broken socket even though the follower still holds the transaction.
+                var signal = local.InsertAsync(new IndexSchema.Counted { Id = 45_000, Number = 7 }).AsTask();
+                await followingTask.WaitAsync(Bound);
+                var ended = await Assert.ThrowsAsync<LatticeException>(() => signal.WaitAsync(Bound));
+                Assert.Contains(ended.Error, new[] { LatticeErrorEnum.Unavailable, LatticeErrorEnum.IndeterminateOutcome });
+                Assert.Null(rows.Get(45_000L));
+                Assert.Equal(readiness.Position, child.Position);
+                Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+                Assert.Equal(1, child.Counters.RootEntries);
+                Assert.Null(child.Set<IndexSchema.Ranked>().Get(17L));
+                Assert.DoesNotContain(ChildReceiveBudgetTests.Acknowledged(relay), sequence => sequence >= blocked);
+                var follower = Backing<Follower?>(child, "_follower");
+                if (follower is not null && Backing<object?>(follower, "_assembler") is { } assembler &&
+                    Backing<object?>(assembler, "_large") is { } transfer)
+                {
+                    Assert.Empty(Backing<System.Collections.IList>(transfer, "_pieces"));
+                }
+
+                var released = ExpectCapacity(child, allocator);
+                Assert.Equal(loaded.NativeBytes, released.NativeBytes);
+                Assert.True(pendingCharge.ChargedBytes - released.ChargedBytes >= physical.Pieces.Sum(ManagedObjectSize));
+                _ = child.InspectBudget((_, backing) => Assert.DoesNotContain(backing, physical.Pieces, ReferenceEqualityComparer.Instance));
+                OwnershipAudit.Expect(child);
                 await NothingRegistered.ExpectAsync(master, async () =>
                     await rows.UpsertAsync(new IndexSchema.Counted { Id = 1_000, Number = 3 }));
                 return;
@@ -211,7 +266,7 @@ public sealed class ChildApplyBudgetTests
             var counters = node.Counters;
             prefix = (counters.RootEntries, counters.Arena.PreparedBytes, allocator.OutstandingBytes);
             var remaining = ChildLimit - node.InspectBudget().ChargedBytes;
-            held = node.HoldBudgetBacking(checked((int)remaining - 64));
+            held = node.HoldBudgetBacking(checked((int)(remaining - requestRoom)));
         }
     }
 

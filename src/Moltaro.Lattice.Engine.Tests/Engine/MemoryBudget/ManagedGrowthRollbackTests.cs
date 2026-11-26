@@ -86,7 +86,11 @@ public sealed class ManagedGrowthRollbackTests
         node.DrainRetired();
         Assert.Same(previous, primary.TableAndVersion(out _));
         Assert.Same(otherBefore, other.TableAndVersion(out _));
-        _ = ExpectCapacity(node, allocator, out _, oldOwners);
+        var rolledBack = Owners().ToHashSet(ReferenceEqualityComparer.Instance);
+        Assert.True(rolledBack.SetEquals(oldOwners), "Rollback changed the real holders of the original backing.");
+        Assert.All(laterOwners!, added => Assert.DoesNotContain(added, rolledBack));
+        Assert.Equal(oldOwners.Sum(ManagedObjectSize), rolledBack.Sum(ManagedObjectSize));
+        _ = ExpectCapacity(node, allocator, out _, rolledBack.ToArray());
         _ = node.InspectBudget((_, backing) => Assert.DoesNotContain(backing, laterOwners!, ReferenceEqualityComparer.Instance));
         var admitted = await ranked.InsertAsync(Rank(9)).AsTask().WaitAsync(Bound);
         Assert.Equal(admitted.Position, node.Position);

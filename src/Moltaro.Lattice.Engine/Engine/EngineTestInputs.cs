@@ -107,4 +107,8 @@ internal sealed class EngineTestInputs
     // On the receiving task, after a structurally valid forwarded frame has been
     // accepted and before its completed request, if any, is handed to the writer.
     public Action<RequestReceiver>? ObserveMasterRequestFrame { get; init; }
+
+    // On the master sender, once per nonempty reply drain, outside the storage and
+    // queue locks and before the first recorded reply can be taken.
+    public Func<CancellationToken, ValueTask>? BeforeMasterReplyDrain { get; init; }
 }

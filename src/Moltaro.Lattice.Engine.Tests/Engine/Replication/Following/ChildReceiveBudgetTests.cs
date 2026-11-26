@@ -1,10 +1,12 @@
 using System.Buffers.Binary;
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -29,12 +31,17 @@ public sealed class ChildReceiveBudgetTests
         await using var master = await OpenAsync(64L * Segment, masterAllocator, listen: true);
         var source = master.Set<PieceSchema.Piece>();
         var readiness = await source.InsertAsync(PieceSchema.Of(1, 8));
+        var lowerBound = await ShortRequestRoomAsync(master.ListenUri!, PieceSchema.Of(1, 21));
+        var pieceBytes = ManagedObjectSize(new byte[TransferBuffer.PieceSize]);
+        var shortRoom = checked((int)(2 * lowerBound));
+        Assert.InRange(shortRoom, lowerBound + 32, pieceBytes - 1);
         ulong blocked = PositionSequence.Of(readiness.Position) + 1;
         await using var relay = FrameRelay.Start(master.ListenUri!);
 
         var allocator = new CountingNativeAllocator();
         var paused = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
         IDisposable? held = null;
+        (byte[] Receive, byte[][] Pieces, byte[] Prefix)? atFrame = null;
         var attempts = 0;
         var options = new LatticeDatabaseOptions
         {
@@ -58,7 +65,9 @@ public sealed class ChildReceiveBudgetTests
                     {
                         var node = receiving!;
                         var room = ChildLimit - ExpectCapacity(node, allocator).ChargedBytes;
-                        held = node.HoldBudgetBacking(checked((int)room - 64));
+                        atFrame = ReceiveBackings(node);
+                        held = node.HoldBudgetBacking(checked((int)room - shortRoom));
+                        Assert.InRange(ChildLimit - node.InspectBudget().ChargedBytes, lowerBound, pieceBytes - 1);
                     }
                 }
             },
@@ -76,9 +85,20 @@ public sealed class ChildReceiveBudgetTests
             Assert.Equal(new ChildPressureSample(blocked, LatticeLimitEnum.Memory, true, acceptedFrames), pause);
             var second = local.InsertAsync(PieceSchema.Of(3, 21)).AsTask();
             await Eventually.HoldsAsync(() => source.Get(3L) is not null, "The master did not finish a later forwarded write.");
-            await Eventually.HoldsAsync(() => relay.ToChild.Count(frame => frame.Kind == FrameKindEnum.WriteReply) >= 2,
-                "The master did not send the two actual replies.");
-            var passed = relay.ToChild;
+            IReadOnlyList<WireFrame> passed = [];
+            await Eventually.HoldsAsync(() =>
+            {
+                // Both replies can arrive before the last frame of the first transaction.
+                var snapshot = relay.ToChild;
+                var frames = snapshot.Where(frame => frame.Kind == FrameKindEnum.Transaction).Take(3).ToArray();
+                if (snapshot.Count(frame => frame.Kind == FrameKindEnum.WriteReply) < 2 || frames.Length != 3 || !frames[2].EndsABody)
+                {
+                    return false;
+                }
+
+                passed = snapshot;
+                return true;
+            }, "The master did not pass the two actual replies and the whole three-frame transaction.");
             var transaction = passed.Where(frame => frame.Kind == FrameKindEnum.Transaction).ToArray();
             Assert.True(transaction.Length >= 3);
             Assert.Equal(blocked, TransactionPayload.SequenceOf(transaction[0]));
@@ -89,6 +109,23 @@ public sealed class ChildReceiveBudgetTests
             Assert.Single(passed.TakeWhile(frame => !ReferenceEquals(frame, transaction[acceptedFrames])),
                 frame => frame.Kind == FrameKindEnum.WriteReply);
             Assert.NotEqual(replies[0].CorrelationId, replies[1].CorrelationId);
+            var prepared = Assert.IsType<ValueTuple<byte[], byte[][], byte[]>>(atFrame);
+            var retained = ReceiveBackings(child);
+            Assert.Same(prepared.Item1, retained.Receive);
+            Assert.Equal(prepared.Item2.Length, retained.Pieces.Length);
+            for (var piece = 0; piece < retained.Pieces.Length; piece++)
+            {
+                Assert.Same(prepared.Item2[piece], retained.Pieces[piece]);
+                Assert.NotSame(retained.Receive, retained.Pieces[piece]);
+            }
+
+            Assert.Equal(retained.Pieces.Length, retained.Pieces.Distinct(ReferenceEqualityComparer.Instance).Count());
+            Assert.True(retained.Receive.AsSpan().IndexOf(transaction[acceptedFrames].Bytes) >= 0);
+            var prefix = transaction.Take(acceptedFrames)
+                .SelectMany((frame, index) => index == 0 ? frame.Payload[TransactionPayload.HeaderSize..] : frame.Payload).ToArray();
+            Assert.Equal(prefix, prepared.Item3);
+            Assert.Equal(prefix, retained.Prefix);
+            _ = ExpectCapacity(child, allocator, out _, [retained.Receive, .. retained.Pieces]);
 
             const int laterBytes = 2 * 1024 * 1024 + 64;
             var later = await source.InsertAsync(PieceSchema.Of(4, 8, data: laterBytes)).AsTask().WaitAsync(Bound);
@@ -320,6 +357,64 @@ public sealed class ChildReceiveBudgetTests
     internal static ulong[] Acknowledged(FrameRelay relay) =>
         [.. relay.FromChild.Where(frame => frame.Kind == FrameKindEnum.Applied)
             .Select(frame => BinaryPrimitives.ReadUInt64LittleEndian(frame.Payload))];
+
+    internal static async Task<long> ShortRequestRoomAsync<TEntity>(Uri master, TEntity existing)
+        where TEntity : class
+    {
+        var hasReply = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var relay = FrameRelay.Start(master, frame =>
+        {
+            if (frame.Kind == FrameKindEnum.WriteReply)
+            {
+                hasReply.TrySetResult();
+                release.Task.Wait(Bound);
+            }
+
+            return [frame];
+        });
+        await using var control = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var set = control.Set<TEntity>();
+        // The duplicate check happens on the master. This sends a complete short
+        // request without changing the real master's starting position.
+        var measured = GC.GetAllocatedBytesForCurrentThread();
+        var writing = set.InsertAsync(existing).AsTask();
+        var encodingAndCall = GC.GetAllocatedBytesForCurrentThread() - measured;
+        long forwardingBytes;
+        try
+        {
+            await hasReply.Task.WaitAsync(Bound);
+            Assert.False(writing.IsCompleted);
+            Assert.True(encodingAndCall > 512);
+            var follower = Backing<Follower>(control, "_follower");
+            var pending = Backing<object>(follower, "_pending");
+            var sender = Backing<object>(follower, "_sender");
+            var calls = DictionaryArrays(Backing<object>(pending, "_calls"));
+            var offers = Backing<Array>(Backing<object>(sender, "_queue"), "_array");
+            Assert.NotEmpty(calls);
+            // Include the actual sender-side backing even when the measured
+            // caller already paid for some of it while queueing the request.
+            forwardingBytes = encodingAndCall + ManagedObjectSize(offers) + calls.Sum(ManagedObjectSize);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        var reply = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
+        Assert.Equal(LatticeErrorEnum.DuplicateKey, reply.Error);
+        return forwardingBytes;
+    }
+
+    internal static (byte[] Receive, byte[][] Pieces, byte[] Prefix) ReceiveBackings(EngineDatabase child)
+    {
+        var follower = Backing<Follower>(child, "_follower");
+        var connection = Backing<object>(Backing<object>(follower, "_link"), "_connection");
+        var receive = Backing<byte[]>(connection, "_received");
+        var pieces = PiecesOf(child).Cast<TransferPiece>().ToArray();
+        return (receive, pieces.Select(piece => piece.Bytes).ToArray(),
+            pieces.SelectMany(piece => piece.Bytes.Take(piece.Used)).ToArray());
+    }
 
     private static object[] PiecesOf(EngineDatabase child)
     {
