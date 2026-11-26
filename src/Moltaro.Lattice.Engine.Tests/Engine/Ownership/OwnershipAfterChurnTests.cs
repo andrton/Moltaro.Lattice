@@ -78,25 +78,28 @@ public sealed class OwnershipAfterChurnTests
 
     private static async Task ExpectBatchExecutionAsync(bool binds)
     {
-        const long limit = 18L * 1024 * 1024;
+        const long limit = 8L * Segment;
         const long roomForPreparation = 2L * 1024 * 1024;
         var allocator = new CountingNativeAllocator();
         await using var database = await OpenAsync(limit, allocator, schema: TreeSchema.Schema);
         var items = database.Set("Item");
         var seed = await items.InsertAsync(TreeSchema.RecordOf(items, 1, shape: 1, number: 9001));
         Assert.True(items.TryGet(1L, out _, out var initialRevision));
+        database.ResetBudgetPeak();
         var batch = database.CreateWriteBatch();
         batch.Insert(TreeSchema.RecordOf(items, 2, shape: 1, number: 9002));
         batch.Insert(TreeSchema.RecordOf(items, 3, shape: 3, number: 9003));
         Assert.Equal(2, batch.Count);
         var built = ExpectCapacity(database, allocator);
         Assert.Equal(Segment, built.NativeBytes);
+        Assert.True(built.PeakBytes > built.ChargedBytes);
 
         if (binds)
         {
-            using var withheld = database.HoldBudgetBacking(checked((int)(limit - built.ChargedBytes - roomForPreparation)));
+            using var withheld = database.HoldBudgetBacking(checked((int)(limit - built.ChargedBytes - roomForPreparation -
+                ManagedObjectSize(Array.Empty<byte>()))));
             var afterHold = ExpectCapacity(database, allocator);
-            Assert.InRange(limit - afterHold.ChargedBytes, 1024 * 1024, Segment - 1);
+            Assert.Equal(roomForPreparation, limit - afterHold.ChargedBytes);
 
             await RefusedAsync(batch.CommitAsync().AsTask(), LatticeLimitEnum.Memory);
             Assert.Equal(seed.Position, database.Position);

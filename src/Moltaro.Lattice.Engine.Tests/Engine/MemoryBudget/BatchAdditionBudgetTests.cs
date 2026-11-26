@@ -314,6 +314,51 @@ public sealed class BatchAdditionBudgetTests
     private static void ExpectValidation(Action add) =>
         Assert.Equal(LatticeErrorEnum.ValidationFailed, Assert.Throws<LatticeException>(add).Error);
 
+    [Fact]
+    public async Task An_owned_empty_binary_operand_returns_its_actual_backing_after_a_refusal_and_a_commit()
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(Limit, allocator);
+        var pieces = node.Set<PieceSchema.Piece>();
+        var seed = await pieces.InsertAsync(PieceSchema.Of(1, 8));
+        var batch = node.CreateWriteBatch();
+        var malformed = pieces.CreateUpdate(1L);
+        malformed.Assign("Data", Array.Empty<byte>());
+        malformed.Assign("Name", new string((char)0xD800, 1));
+        var abandoned = EmptyOperand(malformed);
+        var before = ExpectCapacity(node, allocator);
+        node.ResetBudgetPeak();
+        ExpectValidation(() => batch.Update(malformed));
+        var refused = ExpectCapacity(node, allocator);
+        Assert.Equal(before.ChargedBytes, refused.ChargedBytes);
+        Assert.True(refused.PeakBytes >= before.ChargedBytes + ManagedObjectSize(abandoned));
+        Assert.Same(abandoned, EmptyOperand(malformed));
+        Assert.Equal(2, malformed.Count);
+        Assert.Equal(0, batch.Count);
+        Assert.Equal(seed.Position, node.Position);
+        node.InspectBudget((_, backing) => Assert.NotSame(abandoned, backing));
+
+        var update = pieces.CreateUpdate(1L);
+        var changed = update.Assign("Data", Array.Empty<byte>());
+        var adopted = EmptyOperand(update);
+        batch.Update(update);
+        _ = ExpectCapacity(node, allocator, out _, adopted);
+        var committed = await batch.CommitAsync();
+        Assert.True(changed.Changed);
+        Assert.Equal(committed.Position, node.Position);
+        Assert.Empty(Assert.IsType<byte[]>(pieces.Get(1L)?.Data));
+        _ = ExpectCapacity(node, allocator);
+        node.InspectBudget((_, backing) => Assert.NotSame(adopted, backing));
+
+        static byte[] EmptyOperand(LatticeUpdate update)
+        {
+            var operand = Assert.IsType<byte[]>(Backing<List<UpdateCommand>>(update, "_commands")[0].First);
+            Assert.Empty(operand);
+            Assert.NotSame(Array.Empty<byte>(), operand);
+            return operand;
+        }
+    }
+
     private static IDisposable LeaveRoom(EngineDatabase node, BudgetCapacitySample before, int bytes) =>
         node.HoldBudgetBacking(checked((int)(Limit - before.ChargedBytes - bytes - ManagedObjectSize(Array.Empty<byte>()))));
 

@@ -113,7 +113,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         using var snapshot = OpenSnapshot();
         try
         {
-            Add(kind, binding.EntityType, binding.ValuesForWrite(entity, snapshot), expectedRevision);
+            Add(kind, binding.EntityType, binding.ValuesForWrite(entity, snapshot), expectedRevision, snapshot);
         }
         catch (BudgetRefusedException exception)
         {
@@ -132,7 +132,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         using var snapshot = OpenSnapshot();
         try
         {
-            Add(kind, entityType, record.ValuesForWrite(snapshot), expectedRevision);
+            Add(kind, entityType, record.ValuesForWrite(snapshot), expectedRevision, snapshot);
         }
         catch (BudgetRefusedException exception)
         {
@@ -140,8 +140,8 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         }
     }
 
-    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object?[] values, LatticeRevision? expectedRevision) =>
-        Add(kind, entityType, values[entityType.Key.Ordinal]!, values, expectedRevision);
+    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object?[] values, LatticeRevision? expectedRevision, MemoryLease? snapshot) =>
+        Add(kind, entityType, values[entityType.Key.Ordinal]!, values, expectedRevision, snapshot);
 
     private void Delete(LatticeEntityType entityType, object key, LatticeRevision? expectedRevision)
     {
@@ -155,7 +155,8 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     // then a batch already submitted, InvalidOperationException; then an operation for an entity the
     // batch already addresses; then, as the engine encodes the root (IWriteBatchExecutor.EncodeRoot), a
     // database that was closed, ObjectDisposedException, and a List above its bound.
-    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision)
+    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision,
+        MemoryLease? snapshot = null)
     {
         var entity = CheckIdentity(entityType, key);
         using var addition = _budget is null ? null : new MemoryLease(_budget);
@@ -166,6 +167,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
             Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
             if (addition is not null)
             {
+                snapshot?.Transfer(key, addition);
                 _lease!.Take(addition);
             }
         }

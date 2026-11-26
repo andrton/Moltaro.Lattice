@@ -104,7 +104,7 @@ internal static class UpdateValues
         {
             foreach (var property in properties)
             {
-                if (property.Get(value) is { } child)
+                if (property.Get(value, null) is { } child)
                 {
                     owned.Values[property.Field.Ordinal] = CaptureExact(property.Field.Declaration, child, property.Update, property.Field.Name);
                 }

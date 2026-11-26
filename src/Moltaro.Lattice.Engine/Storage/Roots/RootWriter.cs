@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots.Edits;
 using Moltaro.Lattice.Storage.Values;
@@ -110,6 +111,8 @@ internal ref struct RootWriter
     // index into it; after them, one bit for each field, by LatticeField.Ordinal, set once the field
     // was set.
     private byte[]? _scratch;
+    private readonly bool _rented;
+    private readonly MemoryBudget? _scratchBudget;
 
     // The image of the root as the block its values are placed into (ValueHolder): the arena and the root,
     // the values out of line of a root for a forwarded write, the bytes of the root block so far as
@@ -132,20 +135,25 @@ internal ref struct RootWriter
         ArgumentNullException.ThrowIfNull(layout);
 
         _layout = layout;
-        _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
+        _scratchBudget = arena.Budget;
+        _rented = _scratchBudget is null;
+        var length = layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount);
+        _scratch = _scratchBudget?.Allocate<byte>(length, nameof(RootWriter)) ?? ArrayPool<byte>.Shared.Rent(length);
         _values = new ValueHolder(arena, layout, root, Image, origin: 0, address: default, layout.FixedSize);
         Start();
     }
 
     // Starts a root of the entity type of the layout for a forwarded write (see the class), whose values
     // out of line the given store keeps. Refuses a null layout or store with ArgumentNullException.
-    public RootWriter(RootLayout layout, ExportedValues exported)
+    public RootWriter(RootLayout layout, ExportedValues exported, MemoryLease? working = null)
     {
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(exported);
 
         _layout = layout;
-        _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
+        _rented = working is null;
+        var length = layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount);
+        _scratch = working?.Allocate<byte>(length, nameof(RootWriter)) ?? ArrayPool<byte>.Shared.Rent(length);
         _values = new ValueHolder(null!, layout, default, Image, origin: 0, address: default, layout.FixedSize) { Exported = exported };
         Start();
     }
@@ -642,11 +650,21 @@ internal ref struct RootWriter
             Limit = LatticeLimitEnum.Memory,
         };
 
-    // Returns the image to the pool; nothing reads or writes it afterwards.
+    // Returns the image when this writer had its own backing; an export's workspace
+    // lease releases the image together with the other export work.
     private void End(WriterStateEnum state)
     {
-        ArrayPool<byte>.Shared.Return(_scratch!);
+        var scratch = _scratch!;
         _scratch = null;
+        if (_rented)
+        {
+            ArrayPool<byte>.Shared.Return(scratch);
+        }
+        else
+        {
+            _scratchBudget?.Release(scratch);
+        }
+
         _state = state;
     }
 

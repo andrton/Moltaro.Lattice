@@ -82,10 +82,40 @@ internal sealed class ClassBinder
         // The get accessor is called virtually, as C# calls it: an override of a derived class of the
         // bound one is the one that runs.
         var instance = Expression.Parameter(typeof(object), "instance");
-        var read = Expression.Convert(Expression.Call(Expression.Convert(instance, type), getAccessor), typeof(object));
-        var get = Expression.Lambda<Func<object, object?>>(read, instance).Compile();
+        var lease = Expression.Parameter(typeof(MemoryLease), "lease");
+        var read = Expression.Call(Expression.Convert(instance, type), getAccessor);
+        Expression result = Expression.Convert(read, typeof(object));
+        if (read.Type.IsValueType)
+        {
+            result = Expression.Condition(Expression.ReferenceEqual(lease, Expression.Constant(null, lease.Type)),
+                result, BoxSnapshot(read, lease));
+        }
+
+        var get = Expression.Lambda<Func<object, MemoryLease?, object?>>(result, instance, lease).Compile();
 
         return new BoundProperty(field, property, getAccessor, setAccessor, get, conversion.ToRecord, take, conversion.FromRecord, conversion.Update);
+    }
+
+    private static Expression BoxSnapshot(Expression read, ParameterExpression lease)
+    {
+        var value = Expression.Variable(read.Type, "propertyValue");
+        var nullable = Nullable.GetUnderlyingType(read.Type);
+        var type = nullable ?? read.Type;
+        Expression scalar = nullable is null ? value : Expression.Property(value, "Value");
+        if (type.IsEnum)
+        {
+            type = Enum.GetUnderlyingType(type);
+            scalar = Expression.Convert(scalar, type);
+        }
+
+        var box = typeof(MemoryLease).GetMethod(nameof(MemoryLease.Box))!.MakeGenericMethod(type);
+        Expression result = Expression.Call(lease, box, scalar, Expression.Constant(nameof(ClassBinder)));
+        if (nullable is not null)
+        {
+            result = Expression.Condition(Expression.Property(value, "HasValue"), result, Expression.Constant(null, typeof(object)));
+        }
+
+        return Expression.Block([value], Expression.Assign(value, read), result);
     }
 
     private static ClassMember<PropertyInfo, MethodInfo>[] DeclaredMembers(Type type, string name)
@@ -207,7 +237,7 @@ internal sealed class ClassBinder
         var cast = Expression.Convert(Expression.Convert(Expression.Convert(integer, stored), dotNetEnum), typeof(object));
         var toEnum = Expression.Lambda<Func<object, object>>(cast, integer).Compile();
 
-        object ToInteger(object value) => Convert.ChangeType(value, stored, CultureInfo.InvariantCulture);
+        object ToInteger(object value) => value.GetType() == stored ? value : Convert.ChangeType(value, stored, CultureInfo.InvariantCulture);
 
         var update = new UpdateValueBinding(ValueType: dotNetEnum, EnumToInteger: ToInteger,
             NullableEnumType: declaration.IsNullable ? type : null);
@@ -236,7 +266,7 @@ internal sealed class ClassBinder
             var owned = LatticeOwnedValue.Snapshot(ownedType, lease);
             foreach (var property in properties)
             {
-                var fieldValue = property.Get(value);
+                var fieldValue = property.Get(value, lease);
                 if (fieldValue is not null)
                 {
                     if (!ValueBound.Holds(property.Field.Declaration, fieldValue, encoding))

@@ -72,7 +72,7 @@ internal sealed class EntityBinding<TEntity>
         var values = lease?.Allocate<object?>(_properties.Length, nameof(EntityBinding<TEntity>)) ?? new object?[_properties.Length];
         foreach (var property in _properties)
         {
-            var value = property.Get(entity);
+            var value = property.Get(entity, lease);
             if (value is not null)
             {
                 if (!ValueBound.Holds(property.Field.Declaration, value, EntityType.StringEncoding))

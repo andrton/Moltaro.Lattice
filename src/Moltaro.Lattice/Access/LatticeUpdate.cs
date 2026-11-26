@@ -362,7 +362,7 @@ public sealed class LatticeUpdate
             validated[index] = command with { First = first, Second = second };
         }
 
-        return new UpdateInput(validated, _outcome);
+        return UpdateInput.Create(validated, _outcome, lease);
     }
 
     private ValueTask<LatticeWriteResult> Commit(LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
