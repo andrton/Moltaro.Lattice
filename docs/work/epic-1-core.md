@@ -15773,6 +15773,33 @@ another owner and a failed dictionary growth with a live reader or child.
 Close on reviewed corrections, the full repository checks, and disposition of
 the original performance finding. Raw runs stay outside Git.
 
+##### Tests-first gate
+
+The Windows x64 baseline at `895651e3` passed Debug and Release builds, both
+test suites (4,818 passed and 129 expected skips each), format verification and
+all 18 Release samples.
+
+The tests were committed before implementation in `67b88bc8`. The independent
+review required a real foreground dictionary growth refusal, FIFO changes
+between growth and withdrawal while another reservation survives, and a direct
+ownership walk independent of the ledger. `7275fe62` added the refusal and
+interleaving witnesses. `658c4b95f5bee4ffed0db199ae1b5af7906b38f7` extended the
+ownership walk into embedded values and captured targets, then verified that it
+finds deliberately unregistered backings.
+
+The independent reviewer accepted that exact tests-first head after three
+rounds with all three P2 findings closed. The coordinator built every review
+head in Release. The full Release suite at the first head passed 4,821 tests
+with 136 expected skips, and all 18 samples ran. The frozen head passed 26
+focused Release checks with 8 planned skips. The implementer independently
+verified the Debug build and formatting of the frozen head.
+
+The optional test inputs select backing observation without changing admission,
+exercise the foreground dictionary acquisition boundary, and identify a real
+FIFO backing refusal. The last two controls attach to acquisition or refusal
+alone. The maintenance and published trim controls keep their existing
+boundaries.
+
 #### S25 · Reference fixture, managed reference, the memory gate
 
 **Track:** full, verification · **Needs:** S24A · **Decisions:** O11, D6 · **Closes:** G1
