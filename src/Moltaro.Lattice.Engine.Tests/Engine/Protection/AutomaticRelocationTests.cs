@@ -805,11 +805,9 @@ public sealed class AutomaticRelocationTests
                         var witness = witnesses[segmentIndex].First();
                         var header = HeaderBytes(arena, witness);
                         var probe = new byte[BlockHeader.Size];
-                        native = Assert.Single(NativeSegments(allocator), address =>
-                        {
-                            Marshal.Copy(address + (int)witness.Offset, probe, 0, probe.Length);
-                            return probe.AsSpan().SequenceEqual(header);
-                        });
+                        native = allocator.AddressOf(segment);
+                        Marshal.Copy(native + (int)witness.Offset, probe, 0, probe.Length);
+                        Assert.Equal(header, probe);
                     }
 
                     for (var slot = 0; slot < Arena.MaxBlockSize / slotBytes; slot++)
@@ -1096,9 +1094,6 @@ public sealed class AutomaticRelocationTests
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
     private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_outstanding")]
-    private static extern ref HashSet<nint> NativeSegments(CountingNativeAllocator allocator);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_segments")]
     private static extern ref ArenaSegment?[] ArenaSegments(Arena arena);

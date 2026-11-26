@@ -14789,6 +14789,22 @@ overruns and warmed results for S23A. The milestone sets the approximate
 1 ms target. The [scope decision and implementation links](open-questions.md#q66-may-segment-evacuation-start-without-a-sparse-occupied-region)
 tie the original S23 rule to this separately verified implementation.
 
+##### Post-merge segment identity in tests
+
+On `4a797c23`, the ARM64 child workspace test found two outstanding native
+segments with identical header bytes at the sampled offset. The fixture selected
+a native address by searching headers, which could mistake stale or unused
+bytes for the live header. [Exact ARM64 failure](https://github.com/andrton/Moltaro.Lattice/actions/runs/45775872221/job/139759269913)
+
+An isolated reproduction copied the header into an unrelated outstanding
+allocation. It reproduced the same two-match failure in the workspace and
+earlier-vacancy fixtures on both roles. At `f8a42909` the fixtures take the
+native pointer from the actual arena segment and check it in the independent
+allocator ledger. The vacancy witness still checks the header bytes at the
+chosen pointer. All four controlled cases passed after the repair, and the
+unchanged targeted suite passed 120 tests in both Debug and Release on Windows
+x64. The product engine is unchanged. Raw controls stay outside Git.
+
 ##### Pre-S24 close cleanup investigation
 
 S23C corrects final cleanup after admitted operations and protected readers
