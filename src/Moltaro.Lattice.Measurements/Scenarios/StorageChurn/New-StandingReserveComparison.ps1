@@ -160,6 +160,7 @@ $entry = Join-Path $measurements 'Program.cs'
 [IO.File]::WriteAllText($entry, @'
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Measurements.Scenarios.StorageChurn;
 
 if (args is [StandingReserveScenario.Verify, "development-5", var lane, var limit, var revision,
@@ -182,7 +183,8 @@ if (args is [StandingReserveScenario.Preflight, "development-5", var probeLane, 
 }
 
 if (args is [StandingReserveScenario.Name, "development-5", var timedLane, var cap, var round, var sha, var diagnostic] &&
-    OperatingSystem.IsWindows() && Environment.OSVersion.Version.Build == 26300 && Environment.Version == new Version(10, 0, 15))
+    OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64 &&
+    Environment.OSVersion.Version.Build == 26300 && Environment.Version == new Version(10, 0, 15))
 {
     using var process = Process.GetCurrentProcess();
     if (process.ProcessorAffinity != 0xFF)

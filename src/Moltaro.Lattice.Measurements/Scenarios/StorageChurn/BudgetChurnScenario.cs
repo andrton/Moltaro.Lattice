@@ -155,6 +155,10 @@ internal static class BudgetChurnScenario
                 CheckNative(last);
                 long peak = last.Budget.PeakBytes;
                 ChurnAudit.Require(peak >= last.Native.PhasePeak, "The charged peak is below the independently observed native peak.");
+                var exportedReaders = readers.Export(output);
+                long writerSpill = Math.Max(0, replay.Frames[^1].Finished - replay.PlannedEnd);
+                bool lateReaders = exportedReaders.Any(reader => reader.LastReadFromEndTicks > 0);
+                string writerWindow = writerSpill > 0 ? "writer-extended" : "planned";
                 var raw = new
                 {
                     Mode = mode,
@@ -177,11 +181,11 @@ internal static class BudgetChurnScenario
                     AtOrAfterPlannedWall = replay.AtOrAfterPlannedWall,
                     WallObservationDelayTicks = replay.AtOrAfterPlannedWall.Ticks - replay.PlannedEnd,
                     TerminalReaderFenceWaitTicks = replay.ReaderFenceTicks,
-                    LateReaderDrainInPeak = replay.AtOrAfterPlannedWall.Readers.Any(reader =>
-                        reader.CompletedBursts != trace.Frames.Length),
-                    WriterSpillTicks = Math.Max(0, replay.Frames[^1].Finished - replay.PlannedEnd),
+                    LateReaderDrainInPeak = lateReaders,
+                    WriterSpillTicks = writerSpill,
                     WriterFramesCompletedByWallEnd = replay.Frames.Count(frame => frame.Finished <= replay.PlannedEnd),
-                    PeakIncludesWriterSpill = replay.Frames[^1].Finished > replay.PlannedEnd,
+                    PeakIncludesWriterSpill = writerSpill > 0,
+                    WriterWindow = writerWindow,
                     WarmCensusTicks = replay.WarmCensusTicks,
                     TerminalCensusTicks = replay.TerminalCensusTicks,
                     WarmWriterFrames = trace.WarmFrames,
@@ -195,7 +199,7 @@ internal static class BudgetChurnScenario
                     ReferenceFinalVolume = authoredVolume.Final,
                     ModelUserChecks = actualRefs,
                     Position = node.Position.ToString(),
-                    Readers = readers.Export(output),
+                    Readers = exportedReaders,
                     MeasuredCalls = new { Offered = calls.Length, Submitted = calls.Length - inapplicable, Accepted = changed, Changed = changed, Refused = refused, Inapplicable = inapplicable },
                     RefusalsByLimit = calls.Where(call => call.State == "refused").GroupBy(call => call.Reason!)
                         .ToDictionary(group => group.Key, group => group.Count()),
@@ -206,9 +210,10 @@ internal static class BudgetChurnScenario
                         / Stopwatch.GetElapsedTime(warm.Ticks, last.Ticks).TotalSeconds,
                 };
                 await WriteAsync(output, "churn.json", raw, stop);
-                report = [$"Offered {calls.Length:N0}, accepted/changed {changed:N0}, refused {refused:N0}, inapplicable {inapplicable:N0} in the measured window.",
-                    $"Peak {peak:N0} B. Warm steady {warm.IndependentBytes:N0} B ({raw.PeakOverWarm:F3}×). End steady {last.IndependentBytes:N0} B ({raw.PeakOverEnd:F3}×).",
-                    mode == Tight && refused == 0 ? "The measured window did not encounter a capacity refusal." : $"Raw outcomes with refusal reasons are in {output}."];
+                string peakWindow = lateReaders ? $"{writerWindow} window and late reader drain" : $"{writerWindow} window";
+                report = [$"Offered {calls.Length:N0}, accepted/changed {changed:N0}, refused {refused:N0}, inapplicable {inapplicable:N0} in the {writerWindow} window.",
+                    $"Peak {peak:N0} B through the {peakWindow}. Warm steady {warm.IndependentBytes:N0} B ({raw.PeakOverWarm:F3}×). End steady {last.IndependentBytes:N0} B ({raw.PeakOverEnd:F3}×).",
+                    mode == Tight && refused == 0 ? "No capacity refusal was observed in that window." : $"Raw outcomes with refusal reasons are in {output}."];
             }
         }
         finally

@@ -221,7 +221,8 @@ function ConvertTo-DiagnosticWork($Receipt) {
 
 function ConvertTo-MatchingWork($Report) {
     return [ordered]@{
-        Capacity = Get-CapacityShape $Report.Initial
+        InitialCapacity = Get-CapacityShape $Report.Initial
+        FinalCapacity = Get-CapacityShape $Report.Final
         Outcomes = @($Report.Distributions | Select-Object Name, Outcome, Offered, Accepted, Refused, Completed)
     } | ConvertTo-Json -Depth 10 -Compress -AsArray
 }
@@ -262,8 +263,9 @@ try {
             $second = Invoke-Round $order[1] $lane $round 2
             $baseReport, $candidateReport = if ($order[0].Name -eq 'base') { $first, $second } else { $second, $first }
             Assert-ManagedShape $baseReport.Initial $candidateReport.Initial $lane "round $round initial"
+            Assert-ManagedShape $baseReport.Final $candidateReport.Final $lane "round $round final"
             if ((ConvertTo-MatchingWork $first) -ne (ConvertTo-MatchingWork $second)) {
-                throw "Non-equivalent starting capacity or completed work in $lane round $round. Raw outcomes remain in $root."
+                throw "Non-equivalent starting or ending capacity or completed work in $lane round $round. Raw outcomes remain in $root."
             }
         }
     }

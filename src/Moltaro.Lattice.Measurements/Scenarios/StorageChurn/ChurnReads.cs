@@ -165,6 +165,12 @@ internal sealed class ChurnReads(ChurnReadBoundary? boundary = null)
                 }
             }
 
+            if (burst == trace.Frames.Length - 1)
+            {
+                long end = boundary is null ? _traceEnd : measuredStart + trace.MeasuredFrames * _interval;
+                reader.LastReadFromEnd = Stopwatch.GetTimestamp() - end;
+            }
+
             if (measured)
             {
                 reader.MeasuredReads += trace.ReadBurst;
@@ -179,8 +185,6 @@ internal sealed class ChurnReads(ChurnReadBoundary? boundary = null)
             Volatile.Write(ref reader.CompletedBursts, burst + 1);
         }
 
-        long end = boundary is null ? _traceEnd : measuredStart + trace.MeasuredFrames * _interval;
-        reader.LastReadFromEnd = Stopwatch.GetTimestamp() - end;
         reader.ThreadAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedAtStart;
     }
 
