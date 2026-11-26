@@ -641,6 +641,7 @@ internal sealed class ChangePublisher
     public void Release(ReadOnlySpan<PreparedChange> changes)
     {
         var tables = TablesOf(changes);
+        var releasedSlot = false;
 
         ReleaseIndexes(changes, tables, tables.Length, 0);
 
@@ -654,6 +655,7 @@ internal sealed class ChangePublisher
                     RootStorage.Free(_arena, change.Table.Layout, change.Root);
                     change.Table.ReleaseReservation();
                     _roots.Release(change.Handle);
+                    releasedSlot = true;
                     break;
 
                 case ChangeKindEnum.Replace:
@@ -665,6 +667,11 @@ internal sealed class ChangePublisher
                     _retired.Release();
                     break;
             }
+        }
+
+        if (releasedSlot)
+        {
+            _roots.WithdrawUnusedPages();
         }
     }
 
@@ -778,6 +785,8 @@ internal sealed class ChangePublisher
         {
             LetGoOfScratch();
         }
+
+        _roots.ReleasePublishedDirectory();
     }
 
     // The scratch of the values and the handles of a reservation of several changes, empty again (see
@@ -881,6 +890,7 @@ internal sealed class ChangePublisher
         entry.LastMutationSequence = sequence;
         entry.Member = member;
         entry.ReleaseState(RootStateEnum.Live);
+        _roots.NotePublished(handle);
 
         // The store that publishes the entry and the root to a read by key, with release semantics.
         table.Add(key, handle);

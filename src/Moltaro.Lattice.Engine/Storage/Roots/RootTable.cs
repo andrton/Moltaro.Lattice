@@ -45,6 +45,10 @@ internal sealed class RootTable
     // the directory copies those references, never an entry. Only the first Pages are pages.
     private RootEntry[][] _pages = [];
 
+    // A previous directory stays owned while only unpublished preparations need the extension.
+    private RootEntry[][]? _previousDirectory;
+    private int _publishedExtent;
+
     // The slots below this were given out at least once. The slots from here to the end of the last
     // page never were; their entries are as the page was allocated, Free at generation 0.
     private int _nextUnusedSlot;
@@ -186,6 +190,79 @@ internal sealed class RootTable
     // below it.
     public int SlotExtent => _nextUnusedSlot;
 
+    // A capture can only have reached a lifetime that published. A root publishing after
+    // the capture began arrives in the transaction stream, regardless of the slot it uses.
+    public int CaptureExtent => _publishedExtent;
+
+    public void NotePublished(RootHandle handle) =>
+        _publishedExtent = Math.Max(_publishedExtent, checked((int)handle.Slot + 1));
+
+    public void ReleasePublishedDirectory()
+    {
+        if (_previousDirectory is { } previous && _publishedExtent > (long)previous.Length * EntriesPerPage &&
+            _budget is { IsPreparing: false } budget)
+        {
+            _previousDirectory = null;
+            budget.Release(previous);
+        }
+    }
+
+    // Under Writes after a queued preparation has released its insert lifetimes. A capture
+    // or reader can still name a page that ever held a published lifetime. Another preparation
+    // or a permanently retired generation can also hold a slot above the published fence.
+    public void WithdrawUnusedPages()
+    {
+        if (_budget is not { IsPreparing: false } budget)
+        {
+            return;
+        }
+
+        var keep = Pages;
+        var publishedPages = (_publishedExtent + EntriesPerPage - 1) / EntriesPerPage;
+        while (keep > publishedPages && IsWhollyFree(_pages[keep - 1]))
+        {
+            keep--;
+        }
+
+        if (keep == Pages)
+        {
+            return;
+        }
+
+        RemoveFreeSlotsAtOrAbove(keep * EntriesPerPage);
+        _nextUnusedSlot = keep * EntriesPerPage;
+        while (Pages > keep)
+        {
+            var index = --Pages;
+            var page = _pages[index];
+            _pages[index] = null!;
+            budget.Release(page);
+        }
+
+        if (_previousDirectory is { } previous && keep <= previous.Length)
+        {
+            var discarded = _pages;
+            Array.Copy(discarded, previous, keep);
+            Array.Clear(previous, keep, previous.Length - keep);
+            _pages = previous;
+            _previousDirectory = null;
+            budget.Release(discarded);
+        }
+    }
+
+    private static bool IsWhollyFree(RootEntry[] page)
+    {
+        foreach (ref readonly var entry in page.AsSpan())
+        {
+            if (entry.State != RootStateEnum.Free)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // How many pages the table has. Times EntriesPerPage, this is the number of its slots.
     public int Pages { get; private set; }
 
@@ -244,7 +321,7 @@ internal sealed class RootTable
                     {
                         RemoveNewPage(index, previous, directory, page);
                     }
-                    else if (grows)
+                    else if (grows && !ReferenceEquals(previous, _previousDirectory))
                     {
                         budget.Release(previous);
                     }
@@ -272,6 +349,11 @@ internal sealed class RootTable
         }
 
         directory[Pages] = page;
+        if (grows && _budget is { IsPreparing: true })
+        {
+            _previousDirectory ??= previous;
+        }
+
         _pages = directory;
         Pages++;
     }
@@ -279,6 +361,25 @@ internal sealed class RootTable
     private void RemoveNewPage(int index, RootEntry[][] previous, RootEntry[][] directory, RootEntry[] page)
     {
         var first = index * EntriesPerPage;
+        RemoveFreeSlotsAtOrAbove(first);
+        _nextUnusedSlot = first;
+        Pages = index;
+        directory[index] = null!;
+        _pages = previous;
+        _budget!.Release(page);
+        if (!ReferenceEquals(directory, previous))
+        {
+            if (ReferenceEquals(previous, _previousDirectory))
+            {
+                _previousDirectory = null;
+            }
+
+            _budget.Release(directory);
+        }
+    }
+
+    private void RemoveFreeSlotsAtOrAbove(int first)
+    {
         ref var link = ref _counts.FreeSlots;
         while (link != 0)
         {
@@ -292,16 +393,6 @@ internal sealed class RootTable
             {
                 link = ref next;
             }
-        }
-
-        _nextUnusedSlot = first;
-        Pages = index;
-        directory[index] = null!;
-        _pages = previous;
-        _budget!.Release(page);
-        if (!ReferenceEquals(directory, previous))
-        {
-            _budget.Release(directory);
         }
     }
 }

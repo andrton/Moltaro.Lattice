@@ -448,6 +448,7 @@ internal sealed class ReceivedChanges
             finally
             {
                 budget?.EndPreparation(keeps);
+                _roots.ReleasePublishedDirectory();
                 _arena.Texts.EndPreparation(keeps);
             }
         }
@@ -519,6 +520,7 @@ internal sealed class ReceivedChanges
             finally
             {
                 budget?.EndPreparation(keeps);
+                _roots.ReleasePublishedDirectory();
                 _arena.Texts.EndPreparation(keeps);
             }
         }

@@ -109,7 +109,7 @@ internal sealed class Capture
                     counts[index] = tables[index].Count;
                 }
 
-                return new CaptureStart(captureStart, _roots.SlotExtent, Tail.Subscribe(captureStart));
+                return new CaptureStart(captureStart, _roots.CaptureExtent, Tail.Subscribe(captureStart));
             }
             catch
             {
