@@ -136,7 +136,7 @@ public sealed class CompoundRelocationTests
         var retiredBytes = initial.RetiredBytes;
         if (moveRoot)
         {
-            Assert.True(await MoveRootAsync(node, current));
+            Assert.True(await MoveRootAsync(node, current, stage.BigAnchor));
             current = Capture(node);
             detached.Add(original.Root);
             retiredBytes += BigSlotBytes;
@@ -153,7 +153,7 @@ public sealed class CompoundRelocationTests
             var expectedOwner = current;
             var rootBeforeDirectoryMove = arena.Payload(current.Root).ToArray();
             var directoryHeader = arena.Header(current.Directory);
-            Assert.True(await MoveCompoundAsync(node, current, current.Directory));
+            Assert.True(await MoveCompoundAsync(node, current, current.Directory, stage.SmallAnchor));
             current = Capture(node);
             detached.Add(original.Directory);
             retiredBytes += DirectorySlotBytes;
@@ -166,11 +166,11 @@ public sealed class CompoundRelocationTests
             Assert.Equal(canonical, Export(items, current));
         }
 
-        Assert.False(await MoveCompoundAsync(node, current, current.First));
+        Assert.False(await MoveCompoundAsync(node, current, current.First, stage.BigAnchor));
         var ownerBeforeTail = current;
         var directoryBeforeTailMove = arena.Payload(current.Directory).ToArray();
         var tailHeader = arena.Header(current.Tail);
-        Assert.True(await MoveCompoundAsync(node, current, current.Tail));
+        Assert.True(await MoveCompoundAsync(node, current, current.Tail, stage.BigAnchor));
         current = Capture(node);
         detached.Add(original.Tail);
         retiredBytes += BigSlotBytes;
@@ -332,7 +332,8 @@ public sealed class CompoundRelocationTests
             try
             {
                 var inconsistent = later;
-                Assert.True(arena.TryFindRelocationClass(source.Directory, out _));
+                var destination = Arena.RegionOf(stage.SmallAnchor);
+                Assert.True(arena.TryFindRelocationDestination(source.Directory, ref destination, out _));
                 Assert.True(RootStorage.Owns(arena,
                     ResidentDescriptor.Read(arena.Payload(source.Directory)), source.Directory, BlockHeader.Size));
                 Assert.False(RootStorage.Owns(arena,
@@ -354,7 +355,7 @@ public sealed class CompoundRelocationTests
         Assert.Equal(source, Capture(node));
         Assert.Equal(initial, node.Counters);
         Assert.Equal(position, node.Position);
-        Assert.True(await MoveCompoundAsync(node, source, source.Directory));
+        Assert.True(await MoveCompoundAsync(node, source, source.Directory, stage.SmallAnchor));
         var moved = Capture(node);
         Assert.Equal(stage.DirectoryHole, moved.Directory);
         Assert.Equal(source with { Directory = moved.Directory }, moved);
@@ -405,7 +406,8 @@ public sealed class CompoundRelocationTests
                 Assert.Equal(source.Root, arena.Header(source.Directory).Parent);
                 Assert.Equal(source.Tail, ValueBlocks.AddressOf(localEntry));
                 Assert.True(RootStorage.Owns(arena, localEntry, source.Directory, BlockHeader.Size + ValueBlocks.DescriptorSize));
-                Assert.True(arena.TryFindRelocationClass(source.Tail, out _));
+                var destination = Arena.RegionOf(stage.BigAnchor);
+                Assert.True(arena.TryFindRelocationDestination(source.Tail, ref destination, out _));
                 ExpectRefusalWithoutChanges(parts, source, source.Tail, stage.BigAnchor, stage.BigHoles);
                 Assert.Equal(incoming, ResidentDescriptor.Read(rootEdge));
                 Assert.Equal(requests, allocator.Requests);
@@ -421,7 +423,7 @@ public sealed class CompoundRelocationTests
         Assert.Equal(source, Capture(node));
         Assert.Equal(initial, node.Counters);
         Assert.Equal(position, node.Position);
-        Assert.True(await MoveCompoundAsync(node, source, source.Tail));
+        Assert.True(await MoveCompoundAsync(node, source, source.Tail, stage.BigAnchor));
         var moved = Capture(node);
         Assert.Contains(moved.Tail, stage.BigHoles);
         Assert.Equal(source with { Tail = moved.Tail }, moved);
@@ -445,7 +447,7 @@ public sealed class CompoundRelocationTests
         var rootAddress = parts.Roots.Entry(source.Handle).Root;
         var destinations = holes.Select(hole => FreeSlotHeader(arena, liveNeighbor, hole)).ToArray();
 
-        Assert.False(CompoundRelocation.TryMove(parts, source.Handle, candidate));
+        Assert.False(CompoundRelocation.TryMove(parts, source.Handle, candidate, Arena.RegionOf(liveNeighbor), out _, out _));
 
         Assert.Equal(native, arena.Counters);
         Assert.Equal(entries, queue.ToArray());
@@ -553,10 +555,10 @@ public sealed class CompoundRelocationTests
         Assert.Equal(original.Root.Segment, original.Tail.Segment);
         Assert.True(stage.DirectoryHole.Segment < original.Directory.Segment);
         Assert.All(stage.BigHoles, hole => Assert.True(hole.Segment < original.Root.Segment));
-        Assert.True(await EligibleAsync(node, original.Root));
-        Assert.True(await EligibleAsync(node, original.Directory));
-        Assert.True(await EligibleAsync(node, original.Tail));
-        Assert.False(await EligibleAsync(node, original.First));
+        Assert.True(await EligibleAsync(node, original.Root, Arena.RegionOf(stage.BigAnchor)));
+        Assert.True(await EligibleAsync(node, original.Directory, Arena.RegionOf(stage.SmallAnchor)));
+        Assert.True(await EligibleAsync(node, original.Tail, Arena.RegionOf(stage.BigAnchor)));
+        Assert.False(await EligibleAsync(node, original.First, Arena.RegionOf(stage.BigAnchor)));
         Assert.Equal(0, node.Counters.Arena.RetiredBytes);
         Assert.Equal(1, node.Counters.Arena.ReservedSegments);
     }
@@ -676,11 +678,13 @@ public sealed class CompoundRelocationTests
         return RootValues.Export(chain.Layout, type, values).ToArray();
     }
 
-    private static Task<bool> MoveRootAsync(EngineDatabase node, Chain candidate) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => RootRelocation.TryMove(parts, candidate.Handle, candidate.Root));
+    private static Task<bool> MoveRootAsync(EngineDatabase node, Chain candidate, ArenaAddress destination) =>
+        MaintenanceStep.RunAfterAdmissionAsync(node,
+            parts => RootRelocation.TryMove(parts, candidate.Handle, candidate.Root, Arena.RegionOf(destination), out _));
 
-    private static Task<bool> MoveCompoundAsync(EngineDatabase node, Chain candidate, ArenaAddress address) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => CompoundRelocation.TryMove(parts, candidate.Handle, address));
+    private static Task<bool> MoveCompoundAsync(EngineDatabase node, Chain candidate, ArenaAddress address, ArenaAddress destination) =>
+        MaintenanceStep.RunAfterAdmissionAsync(node,
+            parts => CompoundRelocation.TryMove(parts, candidate.Handle, address, Arena.RegionOf(destination), out _, out _));
 
     private static Task<(RetiredKindEnum, ArenaAddress)[]> RetirementOfAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired)
@@ -743,8 +747,8 @@ public sealed class CompoundRelocationTests
         Assert.Throws<ArgumentException>("address", () => _ = arena.Header(address));
 
 
-    private static Task<bool> EligibleAsync(EngineDatabase node, ArenaAddress address) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationClass(address, out _));
+    private static Task<bool> EligibleAsync(EngineDatabase node, ArenaAddress address, long destination) =>
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationDestination(address, ref destination, out _));
 
     private static async Task FollowAsync(EngineDatabase source, EngineDatabase? child)
     {

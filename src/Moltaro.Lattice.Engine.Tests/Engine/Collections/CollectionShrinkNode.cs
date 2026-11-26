@@ -80,11 +80,11 @@ internal sealed class CollectionShrinkNode(EngineDatabase database, CountingNati
         return result!;
     }
 
-    public bool TryMoveLookup(CollectionLookupShape shape)
+    public bool TryMoveLookup(CollectionLookupShape shape, ArenaAddress destination)
     {
         var moved = false;
         Assert.True(SpinWait.SpinUntil(() => database.TryRunMaintenanceStep(parts =>
-            moved = CompoundRelocation.TryMove(parts, shape.Handle, shape.Owner)), Bound));
+            moved = CompoundRelocation.TryMove(parts, shape.Handle, shape.Owner, Arena.RegionOf(destination), out _, out _)), Bound));
         return moved;
     }
 

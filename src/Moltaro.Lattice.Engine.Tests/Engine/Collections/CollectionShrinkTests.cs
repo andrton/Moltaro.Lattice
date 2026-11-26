@@ -377,7 +377,7 @@ public sealed class CollectionShrinkTests
             Assert.True(hole.Address.Segment < original.Address.Segment);
             Assert.False(Assert.Single(node.Observe([hole])).Allocated);
             var requests = node.Allocator.Requests;
-            Assert.True(node.TryMoveLookup(source[role]));
+            Assert.True(node.TryMoveLookup(source[role], hole.Address));
             var moved = pair.Shape(node);
             Assert.Equal(hole.Address, moved.Owner);
             Assert.Equal(source[role].Active, moved.Active);

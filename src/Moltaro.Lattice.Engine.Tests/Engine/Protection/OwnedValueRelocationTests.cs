@@ -59,6 +59,7 @@ public sealed class OwnedValueRelocationTests
         var node = child ?? master;
         var items = node.Set("Item");
         var stage = StageOf(node);
+        var destination = Arena.RegionOf(stage.Destination[0].Value);
         await RemoveAsync(master.Set("Item"), stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
         await FollowAsync(master, child);
         node.DrainRetired();
@@ -71,7 +72,7 @@ public sealed class OwnedValueRelocationTests
         var beforeBytes = before.Arena.Payload(before.Root).ToArray();
         Assert.Equal(ExpectedBody(before, OriginalCode, data), Export(items, before));
         Assert.Equal(0, node.Counters.Arena.RetiredBytes);
-        await ExpectEligibilityAsync(node, before.Value, true);
+        await ExpectEligibilityAsync(node, before.Value, destination, true);
 
         using var oldPause = new ViewerPause();
         var oldRead = HoldView(items, before, beforeRevision, OriginalCode, data, oldPause);
@@ -108,7 +109,7 @@ public sealed class OwnedValueRelocationTests
         var requests = allocator.Requests;
         using var exportPause = new ViewerPause();
         var exportBuffer = new PausedExportBuffer(body.Length, current.Arena.Payload(current.Root), exportPause);
-        var destination = current with { Value = stage.Destination[^1].Value };
+        var fresh = current with { Value = stage.Destination[^1].Value };
         var exporting = OwnThread.Run(() =>
         {
             Assert.True(items.TryView(current.Key, view =>
@@ -117,15 +118,15 @@ public sealed class OwnedValueRelocationTests
                 ExpectView(view, current, revision, ChangedCode, first, data);
                 BlockExport.Write(exportBuffer, current.Arena, current.Layout, current.Root);
                 ExpectView(view, current, revision, ChangedCode, first, data);
-                ExpectView(view, destination, revision, ChangedCode, view["Data"].GetPart(0), data);
+                ExpectView(view, fresh, revision, ChangedCode, view["Data"].GetPart(0), data);
                 return view.Revision;
             }, out var exported));
             Assert.Equal(revision, exported);
         });
         await exportPause.EnteredAsync(exporting);
 
-        await ExpectEligibilityAsync(node, current.Value, true);
-        Assert.True(await MoveAfterAdmissionAsync(node, current.Handle, current.Value));
+        await ExpectEligibilityAsync(node, current.Value, destination, true);
+        Assert.True(await MoveAfterAdmissionAsync(node, current.Handle, current.Value, destination));
         exportPause.Release();
         await exporting.WaitAsync(Bound);
         Assert.Equal(body, exportBuffer.Written.ToArray());
@@ -218,6 +219,7 @@ public sealed class OwnedValueRelocationTests
         var items = master.Set("Item");
         await InsertAsync(items, dataBytes, slotBytes);
         var stage = StageOf(master, dataBytes, slotBytes);
+        var destination = Arena.RegionOf(stage.Destination[0].Value);
         var source = stage.Source[0];
         var slotsPerRegion = Arena.MaxBlockSize / slotBytes;
         var kept = makeEarlierSlot ? (slotsPerRegion + 1) / 2 : 1;
@@ -232,8 +234,8 @@ public sealed class OwnedValueRelocationTests
         var initial = master.Counters;
         var position = master.Position;
         var requests = allocator.Requests;
-        await ExpectEligibilityAsync(master, source.Value, false);
-        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+        await ExpectEligibilityAsync(master, source.Value, destination, false);
+        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value, destination));
         Assert.Equal(source, Find(master, source.Key, dataBytes, slotBytes));
         Assert.Equal(initial, master.Counters);
         Assert.Equal(position, master.Position);
@@ -241,8 +243,8 @@ public sealed class OwnedValueRelocationTests
 
         await RemoveAsync(items, makeEarlierSlot ? stage.Source.Skip(kept - 1).Take(1) : stage.Destination.TakeLast(1));
         master.DrainRetired();
-        await ExpectEligibilityAsync(master, source.Value, true);
-        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+        await ExpectEligibilityAsync(master, source.Value, destination, true);
+        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value, destination));
         Assert.Equal(stage.Destination[^1].Value, Find(master, source.Key, dataBytes, slotBytes).Value);
         Assert.Equal(DataOf(source.Key, dataBytes), items.Get(source.Key)!.Get<byte[]>("Data"));
     }
@@ -254,18 +256,19 @@ public sealed class OwnedValueRelocationTests
         var items = master.Set("Item");
         await InsertAsync(items);
         var stage = StageOf(master);
+        var destination = Arena.RegionOf(stage.Destination[0].Value);
         await RemoveAsync(items, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
         master.DrainRetired();
 
         var source = stage.Source[0];
         var initial = master.Counters;
         var position = master.Position;
-        await ExpectEligibilityAsync(master, source.Value, true);
-        Assert.False(await MoveAfterAdmissionAsync(master, default, source.Value));
-        Assert.False(await MoveAfterAdmissionAsync(master, new RootHandle(source.Handle.Generation + 1, source.Handle.Slot), source.Value));
-        Assert.False(await MoveAfterAdmissionAsync(master, stage.Destination[0].Handle, source.Value));
-        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, default));
-        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, stage.Source[1].Value));
+        await ExpectEligibilityAsync(master, source.Value, destination, true);
+        Assert.False(await MoveAfterAdmissionAsync(master, default, source.Value, destination));
+        Assert.False(await MoveAfterAdmissionAsync(master, new RootHandle(source.Handle.Generation + 1, source.Handle.Slot), source.Value, destination));
+        Assert.False(await MoveAfterAdmissionAsync(master, stage.Destination[0].Handle, source.Value, destination));
+        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, default, destination));
+        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, stage.Source[1].Value, destination));
 
         Assert.True(master.TryRunMaintenanceStep(parts =>
         {
@@ -280,22 +283,22 @@ public sealed class OwnedValueRelocationTests
             try
             {
                 header.DescriptorOffset = (uint)label;
-                Assert.False(OwnedValueRelocation.TryMove(parts, source.Handle, source.Value));
+                Assert.False(CompoundRelocation.TryMove(parts, source.Handle, source.Value, destination, out _, out _));
 
                 header.DescriptorOffset = originalOffset + 1;
                 var betweenDescriptors = rootBytes[(DataOffset + 1 - BlockHeader.Size)..];
                 ResidentDescriptor.Write(betweenDescriptors, descriptor);
                 Assert.Equal(descriptor, ResidentDescriptor.Read(betweenDescriptors));
-                Assert.False(OwnedValueRelocation.TryMove(parts, source.Handle, source.Value));
+                Assert.False(CompoundRelocation.TryMove(parts, source.Handle, source.Value, destination, out _, out _));
                 originalBytes.CopyTo(rootBytes);
 
                 header.DescriptorOffset = originalOffset;
                 header.Parent = stage.Destination[0].Root;
-                Assert.False(OwnedValueRelocation.TryMove(parts, source.Handle, source.Value));
+                Assert.False(CompoundRelocation.TryMove(parts, source.Handle, source.Value, destination, out _, out _));
 
                 header.Parent = originalParent;
                 ResidentDescriptor.PublishLocation(rootBytes[(DataOffset - BlockHeader.Size)..], stage.Destination[0].Value);
-                Assert.False(OwnedValueRelocation.TryMove(parts, source.Handle, source.Value));
+                Assert.False(CompoundRelocation.TryMove(parts, source.Handle, source.Value, destination, out _, out _));
             }
             finally
             {
@@ -308,11 +311,11 @@ public sealed class OwnedValueRelocationTests
         Assert.Equal(source, Find(master, source.Key));
         Assert.Equal(initial, master.Counters);
         Assert.Equal(position, master.Position);
-        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value, destination));
     }
 
     [Fact]
-    public async Task A_live_records_holder_is_not_a_leaf_even_when_its_region_and_parent_are_eligible()
+    public async Task A_records_holder_keeps_its_entries_and_repairs_its_owned_child_backlink()
     {
         const int RecordsPerRoot = 128;
         const int RecordSlotBytes = 16_384;
@@ -363,6 +366,8 @@ public sealed class OwnedValueRelocationTests
             Assert.Equal((uint)RecordSlotBytes, group[1].Value.Offset - group[0].Value.Offset);
         });
         var source = groups[1][0];
+        var replacement = groups[0][^1].Value;
+        var destination = Arena.RegionOf(replacement);
         await RemoveAsync(items, groups[1].Skip(1).Append(groups[0][^1]));
         master.DrainRetired();
 
@@ -373,26 +378,35 @@ public sealed class OwnedValueRelocationTests
         var position = master.Position;
         var requests = allocator.Requests;
         var headerBefore = source.Arena.Header(source.Value);
-        await ExpectEligibilityAsync(master, source.Value, true);
+        await ExpectEligibilityAsync(master, source.Value, destination, true);
         Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(master, parts =>
         {
             ref var entry = ref parts.Roots.Entry(source.Handle);
             return entry.State == RootStateEnum.Live && entry.Root == source.Root;
         }));
 
-        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
-        Assert.Equal(initial, master.Counters);
+        var elementLayout = source.Layout.Structure.DescriptorElement(0)!;
+        var lastOffset = (RecordsPerRoot - 1) * elementLayout.Size + elementLayout.DescriptorOffset;
+        var lastChild = ValueBlocks.AddressOf(ResidentDescriptor.Read(source.Arena.Payload(source.Value)[lastOffset..]));
+        var childBefore = source.Arena.Header(lastChild);
+        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value, destination));
+        Assert.Equal(initial.Arena with { RetiredBytes = initial.Arena.RetiredBytes + RecordSlotBytes }, master.Counters.Arena);
         Assert.Equal(position, master.Position);
         Assert.Equal(requests, allocator.Requests);
         Assert.Equal(headerBefore, source.Arena.Header(source.Value));
-        Assert.Equal(body, Export(items, source));
+        Assert.Equal(headerBefore, source.Arena.Header(replacement));
+        Assert.Equal(childBefore with { Parent = replacement }, source.Arena.Header(lastChild));
+        Assert.Equal(body, Export(items, source with { Value = replacement }));
         var offsetAfter = source.Layout.StoredFieldOf(items.EntityType.GetField("Rows")).Offset - BlockHeader.Size;
         var active = ResidentDescriptor.Read(source.Arena.Payload(source.Root)[offsetAfter..]);
         Assert.Equal(DescriptorKindEnum.Records, active.Kind);
-        Assert.Equal(source.Value.Value, active.Location);
+        Assert.Equal(replacement.Value, active.Location);
         Assert.True(items.TryGet(source.Key, out var after, out var revisionAfter));
         Assert.Equal(revision, revisionAfter);
         Assert.Equal(rows, after.Get<List<string>>("Rows"));
+        master.DrainRetired();
+        ExpectFreed(source, source.Value);
+        Assert.Equal(childBefore with { Parent = replacement }, source.Arena.Header(lastChild));
     }
 
     [Theory]
@@ -405,6 +419,7 @@ public sealed class OwnedValueRelocationTests
         var items = master.Set("Item");
         await InsertAsync(items);
         var stage = StageOf(master);
+        var destination = Arena.RegionOf(stage.Destination[0].Value);
         await RemoveAsync(items, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
         master.DrainRetired();
 
@@ -425,8 +440,8 @@ public sealed class OwnedValueRelocationTests
             var position = master.Position;
             Assert.True(initial.Arena.PreparedBytes > 0);
             Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(master, parts => parts.Coordinator.HoldsPreparedMemory()));
-            await ExpectEligibilityAsync(master, source.Value, true);
-            Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+            await ExpectEligibilityAsync(master, source.Value, destination, true);
+            Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, source.Value, destination));
             Assert.Equal(source, Find(master, source.Key));
             Assert.Equal(target, Find(master, target.Key));
             Assert.Equal(initial, master.Counters);
@@ -447,8 +462,8 @@ public sealed class OwnedValueRelocationTests
         Assert.NotEqual(revision, ExpectRecord(items, changed.Key, ChangedCode, data));
         var current = Find(master, source.Key);
         Assert.Equal(source.Value, current.Value);
-        await ExpectEligibilityAsync(master, current.Value, true);
-        Assert.True(await MoveAfterAdmissionAsync(master, current.Handle, current.Value));
+        await ExpectEligibilityAsync(master, current.Value, destination, true);
+        Assert.True(await MoveAfterAdmissionAsync(master, current.Handle, current.Value, destination));
         Assert.Equal(stage.Destination[^1].Value, Find(master, source.Key).Value);
     }
 
@@ -460,6 +475,7 @@ public sealed class OwnedValueRelocationTests
         var items = master.Set("Item");
         await InsertAsync(items);
         var stage = StageOf(master);
+        var destination = Arena.RegionOf(stage.Destination[0].Value);
         await RemoveAsync(items, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
         var source = stage.Source[0];
 
@@ -479,7 +495,7 @@ public sealed class OwnedValueRelocationTests
         var empty = await QueueStateAsync(master);
         Assert.Empty(empty.Items);
         Assert.Equal(beforeFill.Capacity, empty.Capacity);
-        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, default));
+        Assert.False(await MoveAfterAdmissionAsync(master, source.Handle, default, destination));
 
         var data = DataOf(source.Key);
         var revision = ExpectRecord(items, source.Key, OriginalCode, data);
@@ -504,12 +520,12 @@ public sealed class OwnedValueRelocationTests
         var requests = allocator.Requests;
         var returned = allocator.Returned;
         var position = master.Position;
-        await ExpectEligibilityAsync(master, source.Value, true);
+        await ExpectEligibilityAsync(master, source.Value, destination, true);
 
         var attempt = await MaintenanceStep.RunAfterAdmissionAsync(master, parts =>
         {
             var started = GC.GetAllocatedBytesForCurrentThread();
-            var moved = OwnedValueRelocation.TryMove(parts, source.Handle, source.Value);
+            var moved = CompoundRelocation.TryMove(parts, source.Handle, source.Value, destination, out _, out _);
             return (Moved: moved, Allocated: GC.GetAllocatedBytesForCurrentThread() - started);
         });
         Assert.False(attempt.Moved);
@@ -530,8 +546,8 @@ public sealed class OwnedValueRelocationTests
         Assert.Equal(full.Capacity, drained.Capacity);
         Assert.Empty(drained.Items);
         Assert.Equal(0, master.Counters.Arena.RetiredBytes);
-        await ExpectEligibilityAsync(master, source.Value, true);
-        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+        await ExpectEligibilityAsync(master, source.Value, destination, true);
+        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value, destination));
         Assert.Equal(stage.Destination[^1].Value, Find(master, source.Key).Value);
         Assert.Equal(revision, ExpectRecord(items, source.Key, OriginalCode, data));
     }
@@ -544,6 +560,7 @@ public sealed class OwnedValueRelocationTests
         var items = master.Set("Item");
         await InsertAsync(items);
         var stage = StageOf(master);
+        var destination = Arena.RegionOf(stage.Destination[0].Value);
         await RemoveAsync(items, stage.Source.Skip(1).Concat(stage.Destination.TakeLast(1)));
         master.DrainRetired();
 
@@ -553,7 +570,7 @@ public sealed class OwnedValueRelocationTests
         var requests = allocator.Requests;
         Assert.True(master.TryRunMaintenanceStep(parts =>
         {
-            Assert.True(parts.Arena.TryFindRelocationClass(source.Value, out _));
+            Assert.True(parts.Arena.TryFindRelocationDestination(source.Value, ref destination, out _));
             var queue = RetiredItems(parts.Retired);
             Assert.Empty(queue);
             var capacity = queue.EnsureCapacity(0);
@@ -561,7 +578,7 @@ public sealed class OwnedValueRelocationTests
             parts.Retired.Reserve(capacity);
             try
             {
-                Assert.False(OwnedValueRelocation.TryMove(parts, source.Handle, source.Value));
+                Assert.False(CompoundRelocation.TryMove(parts, source.Handle, source.Value, destination, out _, out _));
                 Assert.Empty(queue);
                 Assert.Equal(capacity, queue.EnsureCapacity(0));
             }
@@ -575,7 +592,7 @@ public sealed class OwnedValueRelocationTests
         Assert.Equal(initial, master.Counters);
         Assert.Equal(position, master.Position);
         Assert.Equal(requests, allocator.Requests);
-        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value));
+        Assert.True(await MoveAfterAdmissionAsync(master, source.Handle, source.Value, destination));
     }
 
     private static EngineTestInputs Inputs(CountingNativeAllocator? allocator = null, HeldPersistence? persistence = null) => new()
@@ -671,11 +688,12 @@ public sealed class OwnedValueRelocationTests
     private static ArenaAddress ValueAt(Location location) =>
         ValueBlocks.AddressOf(ResidentDescriptor.Read(location.Arena.Payload(location.Root)[(DataOffset - BlockHeader.Size)..]));
 
-    private static async Task ExpectEligibilityAsync(EngineDatabase node, ArenaAddress source, bool expected) =>
-        Assert.Equal(expected, await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationClass(source, out _)));
+    private static async Task ExpectEligibilityAsync(EngineDatabase node, ArenaAddress source, long destination, bool expected) =>
+        Assert.Equal(expected, await MaintenanceStep.RunAfterAdmissionAsync(node,
+            parts => parts.Arena.TryFindRelocationDestination(source, ref destination, out _)));
 
-    private static Task<bool> MoveAfterAdmissionAsync(EngineDatabase node, RootHandle handle, ArenaAddress source) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => OwnedValueRelocation.TryMove(parts, handle, source));
+    private static Task<bool> MoveAfterAdmissionAsync(EngineDatabase node, RootHandle handle, ArenaAddress source, long destination) =>
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => CompoundRelocation.TryMove(parts, handle, source, destination, out _, out _));
 
     private static Task<RetiredItem[]> RetirementOfAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired).ToArray());

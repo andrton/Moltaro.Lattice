@@ -12,7 +12,9 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -61,7 +63,7 @@ public sealed class FixedRootRelocationTests
         using (pause)
         {
             await pause.EnteredAsync(reads);
-            Assert.True(TryMove(node, target));
+            Assert.True(TryMove(node, target, stage.Destination[0].Address));
             Assert.Equal(initial.RetiredBytes + SlotBytes, node.Counters.Arena.RetiredBytes);
             Assert.Equal(initial.Segments, node.Counters.Arena.Segments);
             Assert.Equal(initial.LiveBytes, node.Counters.Arena.LiveBytes);
@@ -110,7 +112,7 @@ public sealed class FixedRootRelocationTests
     [Theory]
     [InlineData(4, true)]
     [InlineData(1, false)]
-    public async Task A_source_at_exactly_half_or_without_an_earlier_compatible_head_is_skipped(int kept, bool makeDestination)
+    public async Task A_source_at_exactly_half_or_without_a_vacant_earlier_region_is_skipped(int kept, bool makeDestination)
     {
         var allocator = new CountingNativeAllocator();
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs(allocator));
@@ -129,7 +131,7 @@ public sealed class FixedRootRelocationTests
         var position = database.Position;
         Assert.Equal(1, initial.Arena.ReservedSegments);
 
-        Assert.False(TryMove(database, source));
+        Assert.False(TryMove(database, source, stage.Destination[0].Address));
         ExpectUnchanged(database, source, initial, position);
         Assert.Equal(requests, allocator.Requests);
 
@@ -143,11 +145,11 @@ public sealed class FixedRootRelocationTests
         }
 
         database.DrainRetired();
-        Assert.True(TryMove(database, source));
+        Assert.True(TryMove(database, source, stage.Destination[0].Address));
     }
 
     [Fact]
-    public async Task A_held_retired_slot_counts_toward_the_half_full_source_limit()
+    public async Task A_held_retired_slot_remains_readable_as_the_live_source_falls_below_half()
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
         await InsertAsync(database, 2 * SlotsPerRegion);
@@ -163,24 +165,38 @@ public sealed class FixedRootRelocationTests
         using (pause)
         {
             await pause.EnteredAsync(reads);
+            var atHalf = database.Counters;
+            var beforeDelete = database.Position;
+            Assert.False(TryMove(database, source, stage.Destination[0].Address));
+            ExpectUnchanged(database, source, atHalf, beforeDelete);
+
             await RemoveAsync(database, new[] { retired });
             Assert.Null(items.Get(retired.Key));
-            _ = retired.Arena.Header(retired.Address);
+            var retiredHeader = retired.Arena.Header(retired.Address);
             var initial = database.Counters;
             var position = database.Position;
-            Assert.False(TryMove(database, source));
-            ExpectUnchanged(database, source, initial, position);
+            Assert.True(TryMove(database, source, stage.Destination[0].Address));
+            var replacement = Find(database, source.Key);
+            Assert.Equal(stage.Destination[0].Address.Segment, replacement.Address.Segment);
+            Assert.Equal(source.Handle, replacement.Handle);
+            Assert.Equal(position, database.Position);
+            Assert.Equal(initial.Arena with { RetiredBytes = initial.Arena.RetiredBytes + SlotBytes }, database.Counters.Arena);
+            Assert.Equal(revision, ExpectRecord(items, source.Key));
+            Assert.False(TryReclaim(database));
+            Assert.Equal(retiredHeader, retired.Arena.Header(retired.Address));
+            Assert.Equal(source.Handle, source.Arena.Header(source.Address).Root);
             pause.Release();
             await reads.WaitAsync(Bound);
         }
 
         database.DrainRetired();
         ExpectFreed(retired);
-        Assert.True(TryMove(database, source));
+        ExpectFreed(source);
+        Assert.Equal(revision, ExpectRecord(items, source.Key));
     }
 
     [Fact]
-    public async Task A_later_head_does_not_cause_a_search_for_an_earlier_compatible_region()
+    public async Task A_later_compatible_region_is_refused_while_an_earlier_one_accepts_the_same_root()
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
         await InsertAsync(database, 3 * SlotsPerRegion);
@@ -193,25 +209,29 @@ public sealed class FixedRootRelocationTests
         database.DrainRetired();
         var initial = database.Counters;
         var position = database.Position;
-        Assert.False(TryMove(database, source));
+        var later = stage.Spare[0].Address;
+        Assert.True(later.Segment > source.Address.Segment);
+        Assert.True(database.TryRunMaintenanceStep(parts =>
+        {
+            var slotClass = SizeClasses.IndexFor(SlotBytes - BlockHeader.Size);
+            Assert.Equal(Arena.RegionOf(later), parts.Arena.RelocationHead(slotClass, uint.MaxValue));
+        }));
+        Assert.False(TryMove(database, source, later));
         ExpectUnchanged(database, source, initial, position);
 
-        var items = database.Set("Item");
-        const long FillerKey = 3 * SlotsPerRegion + 1;
-        await items.InsertAsync(Record(items.EntityType, FillerKey, CheckOf(FillerKey))).AsTask().WaitAsync(Bound);
-        Assert.Equal(stage.Spare[0].Address.Segment, Find(database, FillerKey).Address.Segment);
-
-        Assert.True(TryMove(database, source));
-        Assert.Equal(stage.Destination[0].Address.Segment, Find(database, source.Key).Address.Segment);
+        Assert.True(TryMove(database, source, stage.Destination[0].Address));
+        Assert.Equal(stage.Destination[^1].Address, Find(database, source.Key).Address);
+        Assert.Equal(position, database.Position);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task A_stale_handle_or_address_and_a_root_with_descriptors_are_skipped(bool withDescriptor)
+    public async Task A_stale_handle_or_address_is_refused_before_the_live_fixed_or_inline_root_moves(bool withDescriptor)
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(withDescriptor ? DescriptorSchema : Schema, Inputs());
-        await InsertAsync(database, 2 * SlotsPerRegion);
+        const string text = "inline";
+        await InsertAsync(database, 2 * SlotsPerRegion, withDescriptor ? text : null);
         var stage = StageOf(database);
         var source = stage.Source[0];
         var other = stage.Source[1];
@@ -222,23 +242,37 @@ public sealed class FixedRootRelocationTests
         var initial = database.Counters;
         var position = database.Position;
 
-        Assert.False(TryMove(database, source with { Handle = default }));
-        Assert.False(TryMove(database, source with { Handle = new RootHandle(source.Handle.Generation + 1, source.Handle.Slot) }));
-        Assert.False(TryMove(database, source with { Address = default }));
-        Assert.False(TryMove(database, source with { Address = freed.Address }));
-        Assert.False(TryMove(database, source with { Address = other.Address }));
+        Assert.False(TryMove(database, source with { Handle = default }, stage.Destination[0].Address));
+        Assert.False(TryMove(database, source with { Handle = new RootHandle(source.Handle.Generation + 1, source.Handle.Slot) }, stage.Destination[0].Address));
+        Assert.False(TryMove(database, source with { Address = default }, stage.Destination[0].Address));
+        Assert.False(TryMove(database, source with { Address = freed.Address }, stage.Destination[0].Address));
+        Assert.False(TryMove(database, source with { Address = other.Address }, stage.Destination[0].Address));
         Assert.Equal(other, Find(database, other.Key));
         ExpectUnchanged(database, source, initial, position);
 
-        Assert.Equal(!withDescriptor, TryMove(database, source));
+        var items = database.Set("Item");
+        var before = ExpectRecord(items, source.Key);
+        var canonical = Export(items, source);
         if (withDescriptor)
         {
-            ExpectUnchanged(database, source, initial, position);
+            var field = source.Layout.StoredFieldOf(items.EntityType.GetField("OptionalText"));
+            var descriptor = ResidentDescriptor.Read(source.Arena.Payload(source.Address)[(field.Offset - BlockHeader.Size)..]);
+            Assert.Equal(DescriptorKindEnum.Inline, descriptor.Kind);
+            Assert.Equal(text, items.Get(source.Key)!.Get<string>("OptionalText"));
         }
-        else
+
+        Assert.True(TryMove(database, source, stage.Destination[0].Address));
+        var moved = Find(database, source.Key);
+        Assert.Equal(stage.Destination[^1].Address, moved.Address);
+        Assert.Equal(source.Handle, moved.Handle);
+        Assert.Equal(before, ExpectRecord(items, source.Key));
+        Assert.Equal(canonical, Export(items, moved));
+        if (withDescriptor)
         {
-            Assert.False(TryMove(database, source));
+            Assert.Equal(text, items.Get(source.Key)!.Get<string>("OptionalText"));
         }
+
+        Assert.False(TryMove(database, source, stage.Destination[0].Address));
     }
 
     [Theory]
@@ -272,7 +306,7 @@ public sealed class FixedRootRelocationTests
             var stillPrepared = master.Counters;
             Assert.True(stillPrepared.Arena.PreparedBytes >= SlotBytes);
             var position = master.Position;
-            Assert.False(TryMove(master, source));
+            Assert.False(TryMove(master, source, stage.Destination[0].Address));
             ExpectUnchanged(master, source, stillPrepared, position);
 
             persistence.ReleaseAll();
@@ -280,7 +314,7 @@ public sealed class FixedRootRelocationTests
             Assert.NotEqual(before, ExpectRecord(items, replaced.Key, CheckOf(replaced.Key) + 1));
             if (replacesCandidate)
             {
-                Assert.False(TryMove(master, source));
+                Assert.False(TryMove(master, source, stage.Destination[0].Address));
             }
             else
             {
@@ -289,7 +323,7 @@ public sealed class FixedRootRelocationTests
 
             master.DrainRetired();
             var movable = replacesCandidate ? stage.Source[1] : source;
-            Assert.True(TryMove(master, movable));
+            Assert.True(TryMove(master, movable, stage.Destination[0].Address));
             Assert.Equal(stage.Destination[0].Address.Segment, Find(master, movable.Key).Address.Segment);
         }
         finally
@@ -319,7 +353,7 @@ public sealed class FixedRootRelocationTests
         var (count, capacity) = RetirementQueueOf(database);
         Assert.Equal(0, count);
         Assert.InRange(capacity, 1, FillerCount);
-        Assert.False(TryMove(database, source with { Address = default }));
+        Assert.False(TryMove(database, source with { Address = default }, stage.Destination[0].Address));
 
         var items = database.Set("Item");
         var revision = ExpectRecord(items, source.Key);
@@ -344,7 +378,7 @@ public sealed class FixedRootRelocationTests
             Assert.True(database.TryRunMaintenanceStep(parts =>
             {
                 var start = GC.GetAllocatedBytesForCurrentThread();
-                moved = RootRelocation.TryMove(parts, source.Handle, source.Address);
+                moved = RootRelocation.TryMove(parts, source.Handle, source.Address, Arena.RegionOf(stage.Destination[0].Address), out _);
                 managedBytes = GC.GetAllocatedBytesForCurrentThread() - start;
             }));
             Assert.False(moved);
@@ -360,7 +394,7 @@ public sealed class FixedRootRelocationTests
 
         database.DrainRetired();
         Assert.Equal((0, capacity), RetirementQueueOf(database));
-        Assert.True(TryMove(database, source));
+        Assert.True(TryMove(database, source, stage.Destination[0].Address));
         Assert.Equal(stage.Destination[0].Address.Segment, Find(database, source.Key).Address.Segment);
         Assert.Equal(revision, ExpectRecord(items, source.Key));
     }
@@ -383,7 +417,7 @@ public sealed class FixedRootRelocationTests
         using (firstPause)
         {
             await firstPause.EnteredAsync(firstRead);
-            Assert.True(TryMove(database, first));
+            Assert.True(TryMove(database, first, stage.Destination[0].Address));
             // The first view holds its old root, but the attempt advances the epoch
             // before the second view enters and the second root moves.
             Assert.False(TryReclaim(database));
@@ -392,7 +426,7 @@ public sealed class FixedRootRelocationTests
             using (secondPause)
             {
                 await secondPause.EnteredAsync(secondRead);
-                Assert.True(TryMove(database, second));
+                Assert.True(TryMove(database, second, stage.Destination[0].Address));
                 Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
                 Assert.False(TryReclaim(database));
 
@@ -436,8 +470,8 @@ public sealed class FixedRootRelocationTests
         using (pause)
         {
             await pause.EnteredAsync(reads);
-            Assert.True(TryMove(database, first));
-            Assert.True(TryMove(database, second));
+            Assert.True(TryMove(database, first, stage.Destination[0].Address));
+            Assert.True(TryMove(database, second, stage.Destination[0].Address));
             Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
             Assert.False(TryReclaim(database));
             Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
@@ -469,7 +503,7 @@ public sealed class FixedRootRelocationTests
     }
 
     [Fact]
-    public async Task A_reclamation_step_leaves_an_earlier_ordinary_retirement_to_the_ordinary_drain()
+    public async Task A_reclamation_unit_starts_the_earlier_ordinary_retirement_without_bypassing_it()
     {
         await using var database = await ReplicationNodes.OpenMasterAsync(Schema, Inputs());
         await InsertAsync(database, 2 * SlotsPerRegion);
@@ -487,16 +521,28 @@ public sealed class FixedRootRelocationTests
             await pause.EnteredAsync(reads);
             await items.ReplaceAsync(Record(items.EntityType, unrelated.Key, CheckOf(unrelated.Key)));
             Assert.Equal(SlotBytes, database.Counters.Arena.RetiredBytes);
-            Assert.True(TryMove(database, target));
+            Assert.True(TryMove(database, target, stage.Destination[0].Address));
             Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
             pause.Release();
             await reads.WaitAsync(Bound);
         }
 
-        Assert.False(TryReclaim(database));
+        Assert.True(TryReclaim(database));
         Assert.Equal(2L * SlotBytes, database.Counters.Arena.RetiredBytes);
         _ = target.Arena.Header(target.Address);
         _ = unrelated.Arena.Header(unrelated.Address);
+
+        // A descriptor-free ordinary root needs at most four units including
+        // the first one above: open the cursor, start and finish its record, free.
+        for (var work = 1; work < 4 && database.Counters.Arena.RetiredBytes == 2L * SlotBytes; work++)
+        {
+            Assert.True(TryReclaim(database));
+            _ = target.Arena.Header(target.Address);
+        }
+
+        ExpectFreed(unrelated);
+        Assert.Equal(SlotBytes, database.Counters.Arena.RetiredBytes);
+        _ = target.Arena.Header(target.Address);
 
         database.DrainRetired();
         ExpectFreed(target);
@@ -519,22 +565,23 @@ public sealed class FixedRootRelocationTests
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
     private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
 
-    private static bool TryMove(EngineDatabase database, Location location)
+    private static bool TryMove(EngineDatabase database, Location location, ArenaAddress destination)
     {
         var moved = false;
-        Assert.True(database.TryRunMaintenanceStep(parts => moved = RootRelocation.TryMove(parts, location.Handle, location.Address)));
+        Assert.True(database.TryRunMaintenanceStep(parts =>
+            moved = RootRelocation.TryMove(parts, location.Handle, location.Address, Arena.RegionOf(destination), out _)));
         return moved;
     }
 
     private static bool TryReclaim(EngineDatabase database)
     {
         var reclaimed = false;
-        Assert.True(database.TryRunMaintenanceStep(parts => reclaimed = parts.Retired.TryReclaimRelocated()));
+        Assert.True(database.TryRunMaintenanceStep(parts => reclaimed = parts.Retired.DrainStep(1) == 1));
         return reclaimed;
     }
 
     private static Task<bool> ReclaimAfterLoadChildAsync(EngineDatabase database) =>
-        MaintenanceStep.RunAfterAdmissionAsync(database, parts => parts.Retired.TryReclaimRelocated());
+        MaintenanceStep.RunAfterAdmissionAsync(database, parts => parts.Retired.DrainStep(1) == 1);
 
     private static Task HoldView(ILatticeSet items, Location location, LatticeRevision revision, out ViewerPause pause)
     {
@@ -613,12 +660,18 @@ public sealed class FixedRootRelocationTests
         return body;
     }
 
-    private static async Task InsertAsync(EngineDatabase database, int count)
+    private static async Task InsertAsync(EngineDatabase database, int count, string? inlineText = null)
     {
         var items = database.Set("Item");
         for (var key = 1L; key <= count; key++)
         {
-            await items.InsertAsync(Record(items.EntityType, key, CheckOf(key))).AsTask().WaitAsync(Bound);
+            var record = Record(items.EntityType, key, CheckOf(key));
+            if (inlineText is not null)
+            {
+                record["OptionalText"] = inlineText;
+            }
+
+            await items.InsertAsync(record).AsTask().WaitAsync(Bound);
         }
     }
 

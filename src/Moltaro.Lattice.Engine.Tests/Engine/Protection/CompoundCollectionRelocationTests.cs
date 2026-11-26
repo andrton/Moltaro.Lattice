@@ -133,7 +133,11 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
             full = ends.First;
             block = ends.Tail;
             await ExpectEligibleAsync(node, originalOuter, directoryHole);
-            Assert.False(await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationClass(full, out _)));
+            Assert.False(await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
+            {
+                var destination = Arena.RegionOf(recordHole);
+                return parts.Arena.TryFindRelocationDestination(full, ref destination, out _);
+            }));
             output.WriteLine($"{role}: Records directory {originalOuter} => {directoryHole}; full ordinal 0 {full}, {recordsPerChunk} records, {fullBytes} payload bytes; tail ordinal {tailOrdinal} {block} => {recordHole}, {RecordCount} records, {tailBytes} payload bytes.");
         }
 
@@ -207,7 +211,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
         var retiredBytes = 0;
         if (chunked)
         {
-            Assert.True(await MoveAsync(node, root, originalOuter), "The eligible Records directory did not move.");
+            Assert.True(await MoveAsync(node, root, originalOuter, directoryHole), "The eligible Records directory did not move.");
             currentOuter = ReadBlock(root, "Rows", DescriptorKindEnum.Records, count, SmallSlot);
             Assert.Equal(directoryHole, currentOuter);
             Assert.Equal((full, block), ReadRecordChunks(root, currentOuter, tailOrdinal, fullBytes, tailBytes));
@@ -232,7 +236,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
         Assert.Equal(position, node.Position);
         Assert.Equal(expectedWire, Export(items, root));
 
-        Assert.True(await MoveAsync(node, root, leaf), "The eligible second record value did not move through its repaired backlink.");
+        Assert.True(await MoveAsync(node, root, leaf, leafHole), "The eligible second record value did not move through its repaired backlink.");
         detached.Add(leaf);
         retiredBytes += LeafSlotSize;
         var movedLeaf = BlockAt(root, movedBlock, packedSlot, DescriptorKindEnum.Block, LeafSize, LeafSlotSize);
@@ -407,7 +411,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
         Assert.Equal(position, node.Position);
         Assert.Equal(expectedWire, Export(items, root));
 
-        Assert.True(await MoveAsync(node, root, tail), "The eligible lookup tail did not move through its repaired address-word backlink.");
+        Assert.True(await MoveAsync(node, root, tail, tailHole), "The eligible lookup tail did not move through its repaired address-word backlink.");
         Assert.Equal((first, tailHole, mapEntries), LookupChildren(root, movedHolder));
         ExpectProbeBoundary(root, movedHolder, first, tailHole, probes);
         const int tailOffset = CollectionLookup.FirstChunkOffset + sizeof(ulong);
@@ -824,19 +828,22 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
     private static async Task ExpectEligibleAsync(EngineDatabase node, ArenaAddress source, ArenaAddress destination)
     {
         Assert.True(source.Segment > destination.Segment, $"Source {source} is not later than the hole {destination}.");
-        Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationClass(source, out _)),
+        var region = Arena.RegionOf(destination);
+        Assert.True(await MaintenanceStep.RunAfterAdmissionAsync(node, parts => parts.Arena.TryFindRelocationDestination(source, ref region, out _)),
             $"Source {source} is not eligible for the available hole {destination}.");
     }
 
-    private static Task<bool> MoveAsync(EngineDatabase node, Root root, ArenaAddress source) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => CompoundRelocation.TryMove(parts, root.Handle, source));
+    private static Task<bool> MoveAsync(EngineDatabase node, Root root, ArenaAddress source, ArenaAddress hole) =>
+        MaintenanceStep.RunAfterAdmissionAsync(node,
+            parts => CompoundRelocation.TryMove(parts, root.Handle, source, Arena.RegionOf(hole), out _, out _));
 
 
     private static Task<bool> MoveAfterRefusalAsync(EngineDatabase node, Root root, ArenaAddress source, ArenaAddress hole,
         ArenaAddress neighbor, ArenaAddress[] children, int wrongOffset, ArenaAddress wrongAncestor = default) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
-            Assert.True(parts.Arena.TryFindRelocationClass(source, out _));
+            var destination = Arena.RegionOf(hole);
+            Assert.True(parts.Arena.TryFindRelocationDestination(source, ref destination, out _));
             var last = children[^1];
             var correct = root.Arena.Header(last);
             Assert.NotEqual(correct.DescriptorOffset, (uint)wrongOffset);
@@ -848,8 +855,8 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
             }
 
             Assert.Equal(correct, root.Arena.Header(last));
-            Assert.True(parts.Arena.TryFindRelocationClass(source, out _));
-            return CompoundRelocation.TryMove(parts, root.Handle, source);
+            Assert.True(parts.Arena.TryFindRelocationDestination(source, ref destination, out _));
+            return CompoundRelocation.TryMove(parts, root.Handle, source, destination, out _, out _);
         });
 
     private static void ExpectRefusal(DatabaseParts parts, Root root, ArenaAddress source, ArenaAddress hole,
@@ -874,7 +881,7 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
             var size = Arena.BlockSizeFor((int)arena.Header(source).PayloadLength);
             var beforeHole = FreeSlotBytes(arena, neighbor, hole, size);
 
-            Assert.False(CompoundRelocation.TryMove(parts, root.Handle, source));
+            Assert.False(CompoundRelocation.TryMove(parts, root.Handle, source, Arena.RegionOf(hole), out _, out _));
             Assert.Equal(root.Address, parts.Roots.Entry(root.Handle).Root);
             Assert.Equal(originalCounters, arena.Counters);
             Assert.Equal(items, queue.ToArray());
