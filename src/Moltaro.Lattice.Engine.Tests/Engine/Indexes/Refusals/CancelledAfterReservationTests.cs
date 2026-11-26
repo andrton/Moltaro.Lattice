@@ -26,7 +26,7 @@ public sealed class CancelledAfterReservationTests
     public async Task Replace_and_delete_cancelled_after_their_indexes_reserved_nodes_give_every_node_back_and_succeed_when_submitted_again()
     {
         var storage = new HeldPersistence(holding: false);
-        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { Persistence = storage });
+        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { Persistence = storage, DisableBackgroundMaintenance = true });
 
         try
         {

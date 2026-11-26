@@ -18,9 +18,9 @@ public sealed class RefusedForwardedWriteTests
     [Fact]
     public async Task Write_forwarded_through_a_child_whose_index_nodes_the_master_cannot_hold_is_refused_for_memory_on_the_child_and_succeeds_once_the_master_has_freed_memory()
     {
-        await using var master = await ReplicationNodes.OpenMasterAsync(FullArena.Schema, new EngineTestInputs { Arena = FullArena.Options });
+        await using var master = await ReplicationNodes.OpenMasterAsync(FullArena.Schema, new EngineTestInputs { Arena = FullArena.Options, DisableBackgroundMaintenance = true });
         await FullArena.FillAsync(master);
-        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs { DisableBackgroundMaintenance = true });
         var ranked = child.Set<IndexSchema.Ranked>();
 
         FullArena.ExpectFull(master);

@@ -8,7 +8,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // with its items, in the order of the walk (IndexContents). One figure may differ: the managed capacity of
 // the text table, whose bucket table a new entry may have grown before the write was refused, and which
 // keeps that room for the next one (Storage.Text.TextTable). That capacity is reported and not charged to
-// the memory budget (EngineCounters, TextTableBytes); it never shrinks for the refusal.
+// the memory budget (EngineCounters, TextTableBytes). The comparison allows the refused write
+// to leave extra managed room. Fixtures disable background maintenance so independent reclamation
+// cannot affect the comparison.
 internal sealed class HeldState
 {
     private readonly EngineCounters _counters;

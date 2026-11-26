@@ -48,10 +48,11 @@ internal static class FullArena
     // a Region that are new, whose root and text entries fit the regions First took.
     public static IndexSchema.Ranked Second => new() { Id = 2, Number = 2, Login = new string('b', 100), Region = "South" };
 
-    // Opens a master of the schema with the arena, writes First and fills the arena.
+    // Opens a master for rollback tests, writes First and fills the arena. The tests take snapshots
+    // after explicit drains and isolate them from independent maintenance.
     public static async Task<EngineDatabase> OpenAsync()
     {
-        var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { Arena = Options });
+        var database = await EngineMaster.OpenAsync(Schema, new EngineTestInputs { Arena = Options, DisableBackgroundMaintenance = true });
 
         await FillAsync(database);
 
