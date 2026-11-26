@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Samples.Limits;
 // Many callers may write at once. A write that waits for its turn is not refused for the number of
 // writes before it, and writes to one entity run in the order of their calls. A write that the
 // budget cannot hold is refused with WriteRejected, which names the Memory limit, before it has any
-// effect, and it never runs later.
+// effect, and it never runs later. A write that needs a new entity lifetime when all root
+// addresses are in use or permanently retired reports RootSlots instead.
 //
 // The budget below holds every write the sample makes, so every write completes and the catch is
 // not reached; a write that the budget cannot hold would reach it.
@@ -50,11 +51,12 @@ internal static class MemoryLimitSample
             Console.WriteLine($"All {inserts.Count + renames.Count} writes completed within the budget");
             Console.WriteLine($"User 1 after its three renames: {users.Get(1L)?.Name}");
         }
-        catch (LatticeException exception) when (exception.Error == LatticeErrorEnum.WriteRejected && exception.Limit == LatticeLimitEnum.Memory)
+        catch (LatticeException exception) when (exception.Error == LatticeErrorEnum.WriteRejected &&
+                                                 exception.Limit is LatticeLimitEnum.Memory or LatticeLimitEnum.RootSlots)
         {
             var completed = inserts.Concat(renames).Count(write => write.IsCompletedSuccessfully);
 
-            Console.WriteLine($"A write was refused, the budget cannot hold it, and it had no effect; {completed} writes completed.");
+            Console.WriteLine($"A write was refused at the {exception.Limit} limit and had no effect. {completed} writes completed.");
         }
 
         Console.WriteLine();

@@ -200,25 +200,33 @@ public sealed class LatticeDatabaseOptions
     /// writes refused.
     /// </para>
     /// <para>
-    /// The budget counts what the engine holds, not the managed heap of the application, nor what
-    /// an enumeration remembers, which <see cref="ReadMemoryLimit"/> bounds when it is set. It
-    /// counts the native memory in which the entities are stored, with the room that writes in
-    /// progress have prepared there and the memory a write replaced or removed until the reads
-    /// that could still reach it have left, the text that Dictionary storage shares included. The
-    /// indexes, the table that finds that shared text and the entries the engine keeps to find each
-    /// entity are not counted yet. The budget is not a limit on the memory of the process.
+    /// The budget counts the capacity the engine owns for storage, preparation, publication and
+    /// active connections. This includes whole native segments and their reserve, root entry
+    /// pages, both tables during index growth, shared text and the backing still held for readers.
+    /// It covers native scratch while a read uses it. Application memory, managed enumeration
+    /// workspace governed by <see cref="ReadMemoryLimit"/>, and the master's retained delivery
+    /// history are outside this budget. Process memory also includes runtime overhead and
+    /// managed memory awaiting collection.
     /// </para>
     /// <para>
     /// A write that the budget cannot hold is refused before it has any effect, with
     /// <see cref="LatticeErrorEnum.WriteRejected"/> and <see cref="LatticeLimitEnum.Memory"/>,
     /// and never runs later. Before it is refused it waits for the reads that still hold
     /// replaced memory and for the writes submitted before it, so it is refused only when the
-    /// budget cannot hold it once they are done. A write that waits for its turn holds nothing of
-    /// the budget: any number of writes may wait, and none is refused for their number.
+    /// budget cannot hold it once they are done. A write waiting for its turn takes no new
+    /// preparation reservation. A submitted batch's already-owned input stays charged while
+    /// it waits. The number of waiting writes has no limit of its own.
     /// </para>
     /// <para>
-    /// A value set smaller than 4 MiB (4,194,304 bytes), the unit in which the engine takes
-    /// memory, is refused by <see cref="Validate"/>.
+    /// A value set smaller than 4 MiB (4,194,304 bytes) is refused by <see cref="Validate"/>.
+    /// A standard native segment takes 4 MiB before its managed backing is counted.
+    /// A budget of exactly 4 MiB therefore cannot fund a standard segment and its backing.
+    /// </para>
+    /// <para>
+    /// If the budget cannot hold a child's initial state, its open fails with
+    /// <see cref="LatticeErrorEnum.Unavailable"/>. A ready child pauses incremental application
+    /// when it cannot hold the next change. It continues serving local reads at its applied
+    /// position and retries the blocked change in order when capacity becomes available.
     /// </para>
     /// </remarks>
     public long? MemoryLimit { get; init; }

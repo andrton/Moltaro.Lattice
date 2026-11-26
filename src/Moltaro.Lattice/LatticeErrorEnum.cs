@@ -46,11 +46,10 @@ public enum LatticeErrorEnum
     RevisionConflict = 6,
 
     /// <summary>
-    /// The write was refused before execution because the instance cannot hold it: within its
-    /// memory budget, or within a limit of its storage that is set, such as the limit of its
-    /// journal. It was not executed and will not execute later.
-    /// <see cref="LatticeException.Limit"/> names the limit: <see cref="LatticeLimitEnum.Memory"/>
-    /// for the memory budget, <see cref="LatticeDatabaseOptions.MemoryLimit"/>.
+    /// The write was refused before commit because the instance cannot hold it. It has no
+    /// effect and will never run later. <see cref="LatticeException.Limit"/> names the exhausted
+    /// resource, such as <see cref="LatticeLimitEnum.Memory"/> for the instance memory budget
+    /// or <see cref="LatticeLimitEnum.RootSlots"/> for the addresses of entity lifetimes.
     /// </summary>
     WriteRejected = 7,
 
@@ -85,6 +84,10 @@ public enum LatticeErrorEnum
     /// master, when the connection ended or the child was closed before the child had sent the
     /// whole write, and when a master that was closing did not execute it. In each case the
     /// write was not executed.
+    /// </para>
+    /// <para>
+    /// A child whose memory budget or root slots cannot hold its initial load reports this
+    /// error from <see cref="ILatticeDatabase.OpenAsync"/> and closes before it becomes ready.
     /// </para>
     /// <para>
     /// <b>Not implemented yet.</b> A child whose connection to its master has ended does not

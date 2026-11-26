@@ -43,7 +43,8 @@ public class LatticeException : Exception
     /// is checked against the state before the batch, in the order they were added, and the first
     /// that fails a condition of its own is named; when none does, the operation with the lowest
     /// number that would give a value of a unique index a second owner on the state the batch
-    /// would leave, with the index declared first when it does so in several. A refusal for memory
+    /// would leave, with the index declared first when it does so in several. A refusal for
+    /// <see cref="LatticeLimitEnum.Memory"/> or <see cref="LatticeLimitEnum.RootSlots"/>
     /// names no operation.
     /// </remarks>
     public int? OperationIndex { get; init; }
