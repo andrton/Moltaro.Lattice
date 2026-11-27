@@ -25,7 +25,9 @@ public sealed class BatchOwnershipBudgetTests
         ExpectMemory(Assert.Throws<LatticeException>(() => batch.Insert(piece)));
         Assert.Equal(0, batch.Count);
         Assert.Equal(position, node.Position);
-        Assert.Equal(node.Counters.MemoryLimit - left, ExpectAtRest(node, allocator).Charged);
+        var full = ExpectAtRest(node, allocator);
+        ExpectOwners(full, "HeldBudgetBacking");
+        Assert.Equal(node.Counters.MemoryLimit - left, full.Charged);
 
         holder.Dispose();
         batch.Insert(piece);

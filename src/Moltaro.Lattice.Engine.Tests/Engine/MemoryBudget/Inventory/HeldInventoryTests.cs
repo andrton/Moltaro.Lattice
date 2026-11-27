@@ -28,14 +28,15 @@ public sealed class HeldInventoryTests
 
     // The structures a load of rows with secondary indexes and Dictionary text exercises on a master,
     // with the generations of the primary tables its growth retired, and on its child, which applies
-    // a replicated replace after its load.
+    // a replicated replace after its load. The publication scratch grows with the data only through a
+    // unique index, which A_batch_through_a_unique_index… exercises.
     private static readonly string[] Loaded =
-        ["Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue", "RetiredMemory", "ChangePublisher"];
+        ["Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue", "RetiredMemory"];
 
     private static readonly string[] Followed =
     [
-        "Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue", "ChangePublisher", "FrameConnection", "ChargedSet",
-        "ReceivedChanges", "BlockImport",
+        "Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue", "FrameConnection", "ChargedSet", "ReceivedChanges",
+        "BlockImport",
     ];
 
     [Fact(Skip = Pending)]
@@ -76,6 +77,37 @@ public sealed class HeldInventoryTests
         ExpectOwners(ExpectAtRest(master, masterAllocator), [.. Loaded, "FrameConnection"]);
         ExpectOwners(ExpectAtRest(child, childAllocator), Followed);
         Assert.Equal("a new region", child.Set<IndexSchema.Ranked>().Get(7L)?.Region);
+    }
+
+    [Fact(Skip = Pending)]
+    public async Task A_batch_through_a_unique_index_is_charged_its_publication_scratch_on_the_master_and_its_child()
+    {
+        var masterAllocator = new CountingNativeAllocator();
+        await using var master = await OpenAsync(Limit, masterAllocator, listen: true, schema: UniqueSchema.Schema);
+        var seed = master.CreateWriteBatch();
+        for (var key = 1L; key <= 64; key++)
+        {
+            seed.Insert(UniqueSchema.Of(key, $"login {key}"));
+        }
+
+        await seed.CommitAsync().AsTask().WaitAsync(Bound);
+        var childAllocator = new CountingNativeAllocator();
+        await using var child = await ReplicationNodes.OpenChildAsync(
+            ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, Limit),
+            new EngineTestInputs { Allocator = childAllocator, DisableBackgroundMaintenance = true });
+
+        // Every member changes its unique value: the batch claims the new values and frees the old.
+        var renames = master.CreateWriteBatch();
+        for (var key = 1L; key <= 64; key++)
+        {
+            renames.Replace(UniqueSchema.Of(key, $"renamed {key}"));
+        }
+
+        var renamed = await renames.CommitAsync().AsTask().WaitAsync(Bound);
+        await child.WaitForPositionAsync(renamed.Position, Bound);
+        ExpectOwners(ExpectAtRest(master, masterAllocator), "ChangePublisher");
+        ExpectOwners(ExpectAtRest(child, childAllocator), "ChangePublisher");
+        Assert.Equal([64L], UniqueSchema.OwnersOf(child.Set<UniqueSchema.Account>(), "renamed 64"));
     }
 
     [Fact(Skip = Pending)]

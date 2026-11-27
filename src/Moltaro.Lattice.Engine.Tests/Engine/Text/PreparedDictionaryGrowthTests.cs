@@ -134,9 +134,10 @@ public sealed class PreparedDictionaryGrowthTests
     }
 
     // The batch places its roots and their new texts first, then reserves the room of the primary
-    // indexes in the order of its members: the full table of Depot grows, where the test holds all of
-    // the memory but a few bytes, and the room of the full table of Place, which its last member
-    // needs, is refused. The texts the batch added are given back; the buckets it grew stay.
+    // indexes in the order of its members: the full table of Depot grows once for its fourteen new
+    // rows, where the test holds all of the memory but a few bytes, and the room of the full table of
+    // Place, which its last member needs, is refused. The texts the batch added are given back; the
+    // buckets they grew stay.
     [Fact(Skip = Pending)]
     public async Task Refused_dictionary_bucket_growth_keeps_installed_mappings_and_the_same_data_can_be_retried()
     {
@@ -164,7 +165,7 @@ public sealed class PreparedDictionaryGrowthTests
         Assert.True(depots.TryGet(1L, out _, out var firstRevision));
         Assert.True(depots.TryGet(2L, out _, out var secondRevision));
         var references = node.TextReferences().Count;
-        var data = Enumerable.Range(3, 64).Select(id => Depot(id, DistinctText(id))).ToArray();
+        var data = Enumerable.Range(3, 14).Select(id => Depot(id, DistinctText(id))).ToArray();
         IDisposable? holder = null;
         var placesGrew = false;
 

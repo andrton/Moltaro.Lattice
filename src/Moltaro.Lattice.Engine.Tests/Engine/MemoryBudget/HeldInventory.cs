@@ -27,8 +27,7 @@ internal static class HeldInventory
     public static readonly IReadOnlyList<string> Structures =
     [
         "Arena", "RootTable", "PrimaryIndex", "TextTable", "CollectionTails", "ChargedSet", "RetiredQueue", "RetiredMemory",
-        "ChangePublisher", "CommitGroup", "FrameConnection", "TransferBuffer", "BlockImport", "ReceivedChanges",
-        "MessageAssembler", "OutgoingMessage", "RootAssembler",
+        "ChangePublisher", "FrameConnection", "TransferBuffer", "BlockImport", "ReceivedChanges", "MessageAssembler",
 
         // The array a test holds through EngineDatabase.HoldBudgetBacking.
         "HeldBudgetBacking",

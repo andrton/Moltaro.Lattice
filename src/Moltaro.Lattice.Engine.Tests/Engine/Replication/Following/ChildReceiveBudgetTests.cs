@@ -274,7 +274,7 @@ public sealed class ChildReceiveBudgetTests
         await child.WaitForPositionAsync(seed.Position, Bound);
         var pieces = PiecesOf(child);
         Assert.True(pieces.Length >= 3);
-        ExpectAtRest(child, allocator);
+        ExpectOwners(ExpectAtRest(child, allocator), "TransferBuffer");
         try
         {
             var repeat = await source.InsertAsync(PieceSchema.Of(3, 8, data: BinaryLength));
