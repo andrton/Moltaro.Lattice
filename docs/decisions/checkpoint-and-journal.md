@@ -92,7 +92,7 @@ window and reject retired tokens. Exact expiry/admission mechanics remain engine
 | --- | --- |
 | Durable SQL transactions and storage crash recovery | PostgreSQL WAL/recovery; Lattice waits for the accepted durable commit |
 | Physical database checkpoints | PostgreSQL; Lattice does not implement another mechanism merely to duplicate SQL durability |
-| Binary format, application replay and saved-unit updates | Lattice's PostgreSQL provider, preserving engine schema/ownership/string invariants |
+| Binary format, application replay and saved-unit updates | The Lattice engine, preserving its schema/ownership/string invariants; the provider stores what the engine writes, through the public provider contract of [Q09.6](persistence-backends.md#a-public-provider-contract-and-a-second-provider) (the owner, 27 November 2026) |
 | Restoring the useful in-memory state | Lattice loads saved state and its required tail, then prepares indexes before Ready |
 | Ordered delivery to children | Lattice distribution; its retention needs are distinct from provider recovery |
 
@@ -338,7 +338,10 @@ application uses this granularity when reconstructing and replacing affected uni
 Several units can be processed in one SQL batch and committed together with their
 applied position under the already accepted transaction rules.
 
-This is provider data granularity, not a document-size limit, journal-command size,
+This is the granularity of the saved base, which the engine compares and every provider
+stores (since the owner's decision of 27 November 2026 in
+[Q09.6](persistence-backends.md#a-public-provider-contract-and-a-second-provider)), not
+a document-size limit, journal-command size,
 SQL transaction size, native allocation segment or PostgreSQL physical page size.
 A larger document can span multiple units. Encoding, packing, addressing, headers,
 final-unit padding and mapping onto SQL rows remain E06/Q16 format work. This decision

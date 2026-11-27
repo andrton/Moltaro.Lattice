@@ -31,7 +31,8 @@ The scope is not decided in this document. The engine design was accepted on 14 
 | [Performance requirements](../../design/performance-requirements.md), [prototype evidence](../../design/prototype-evidence.md) | The targets, and what the experiments did and did not prove |
 
 **Included.** One database per instance; a master that is embedded or hosted; Durable
-persistence in PostgreSQL and explicit MemoryOnly; MemoryOnly children over TCP. The
+persistence through a public provider contract, in PostgreSQL and in SQL Server, and
+explicit MemoryOnly; MemoryOnly children over TCP. The
 accepted schema and type model with owned trees, List, Map, Set, Binary and references by
 key. Typed access and access by name, owned copies and protected read-only views. Native
 storage with bounded allocation, compaction and explicit memory-pressure outcomes. Primary
@@ -116,7 +117,7 @@ S01 ground
                                          └─ S24 memory budget ── S24A budget corrections ── S24R budget refactoring ── S24B budget by structure ── S24BR ── S25 memory gate ── S25L one lifecycle ── S26 operation identity
                                              └─ S27 provider ── S28 durable commit
                                                  └─ S29 storage failures ── S30 saved base
-                                                     └─ S31 journal limits ── S32 recovery
+                                                     └─ S31 journal limits ── S31S SQL Server provider ── S32 recovery
                                                          └─ S33 bounded delivery
                                                              └─ S34 reconnect ── S34A advisory locks ── S35 cluster
                                                                  └─ S36 restore ── S37 ── S38
@@ -141,6 +142,16 @@ Why this order:
   second half of the epic.
 - **Operation identities before PostgreSQL.** The durable commit transaction is defined
   by the receipt protocol: admission first, then effects and outcome together.
+- **One provider builds the contract; the second proves it.** By the owner's decision of
+  27 November 2026 ([Q09.6](../../decisions/persistence-backends.md#a-public-provider-contract-and-a-second-provider))
+  the engine reaches durable storage through a public provider contract and keeps the
+  format, the journal, coalescing, recovery and cleanup for itself.
+  - S27 to S31 build that contract and its conformance tests with PostgreSQL, the
+    production backend.
+  - S31S builds the SQL Server provider against the contract of S27 to S31, once.
+  - From S32 on, the shared tests of durable storage run with both providers, and S36
+    and S37, which extend the contract, extend both providers. Kills, restarts and the
+    backup with a server's own tools stay with PostgreSQL, the production backend.
 - **Migration and diagnostics last among the features.** Migration needs the saved base
   and the reload of children; diagnostics report counters that exist only when their
   mechanisms do.
@@ -200,11 +211,12 @@ Why this order:
 | [S25](sprints/s25.md) | Reference fixture, managed reference, the memory gate | Full | Not started |
 | [S25L](sprints/s25l.md) | One lifecycle of the instance | Full, critical | Not started |
 | [S26](sprints/s26.md) | Operation identity and safe retry | Full | Not started |
-| [S27](sprints/s27.md) | PostgreSQL provider and Durable open | Full | Not started |
+| [S27](sprints/s27.md) | Provider contract, PostgreSQL provider and Durable open | Full | Not started |
 | [S28](sprints/s28.md) | Durable commit | Full | Not started |
 | [S29](sprints/s29.md) | Storage failures and the loss of leadership | Full | Not started |
 | [S30](sprints/s30.md) | Saved base and background application | Full | Not started |
 | [S31](sprints/s31.md) | Journal limits, cleanup and receipt retirement | Full | Not started |
+| [S31S](sprints/s31s.md) | SQL Server provider | Full | Not started. The owner's decision of 27 November 2026 |
 | [S32](sprints/s32.md) | Recovery under failure | Full | Not started |
 | [S33](sprints/s33.md) | Bounded delivery and slow children | Full | Not started |
 | [S34](sprints/s34.md) | Reconnect, reload and a restarted master | Full | Not started |

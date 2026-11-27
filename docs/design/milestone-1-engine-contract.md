@@ -43,7 +43,8 @@ with recovery within 60 seconds at ordinary load. These remain unproven product 
 | Arena | Native segments, owned blocks, string storage, root entries and lifetime protection; depends on compiled schema |
 | Index owner | The primary hash table and the copy-on-write B+trees of the secondary indexes, both the engine's own, comparison, capacity and node reservations; depends on the arena and its text entries |
 | Mutation coordinator | Admission, per-root ordering, preparation, ordered commit/publication and results; owns reservations, never application callbacks inside publication |
-| PostgreSQL provider | Catalog, independent base units, logical journal, receipts and recovery; consumes versioned encoded effects, not native pointers |
+| Durable storage | The engine's part of durability: the encoded format, the journal and its receipts, the coalescing of the journal into the base, the comparison of saved units, the order of recovery, the policy of cleanup and retirement. It reaches a store only through the public provider contract |
+| Storage provider | The storage operations of the public provider contract, each with the guarantee the contract states, among them the leadership of a store, journal transactions with their receipts and positions, saved units with the base cursor, the streamed base, cleanup. It stores versioned encoded effects and units, never native pointers, and passes the conformance tests of the contract. PostgreSQL is the first provider and the production one, SQL Server the second ([Q09.6](../decisions/persistence-backends.md#a-public-provider-contract-and-a-second-provider), the owner, 27 November 2026) |
 | Replication session | Binary framing, initial capture and ordered application; consumes the same prepared-effect application path; no SQL dependency on children |
 | Facade/bindings | Typed copies, generated/protected views, dynamic schema access, explicit indexes and session context; delegates all mutations to coordinator |
 | Diagnostics | Read engine counters/state; host mounts DI/HTTP services; child may forward master status over the internal connection |
@@ -407,7 +408,15 @@ automatic diff or automatic retry are added.
 
 ## Independent base, journal and recovery
 
-The provider owns tables for database/catalog metadata, root directory, saved units,
+The engine does the work this section describes: encoding, background application,
+coalescing, the comparison of units, recovery and cleanup. It reaches the store through
+the public provider contract
+([Q09.6](../decisions/persistence-backends.md#a-public-provider-contract-and-a-second-provider),
+the owner, 27 November 2026). The tables and transactions named here are the content
+the PostgreSQL provider keeps for those operations. Another provider keeps the same
+content in a form of its own.
+
+The PostgreSQL provider has tables for database/catalog metadata, root directory, saved units,
 journal transactions/fragments, base-applied position and operation receipts. A root
 directory row maps `(type ID, canonical primary key)` to a provider-local Int64 stored
 root ID, layout/schema version, root revision, encoded byte length and unit count.

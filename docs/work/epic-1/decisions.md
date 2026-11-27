@@ -123,6 +123,11 @@ Identity package references only the contract. The options take the storage as a
 of the provider package, and `StorageConnectionString` is removed. *Not chosen:* the
 engine inside `Moltaro.Lattice` with `Arc.Collections` as its single dependency. Principle
 11 of `AGENTS.md` is reworded in S01 with the approved text. Shapes S01, S12, S27.
+*Changed by the owner on 27 November 2026:* a storage provider depends on the contract,
+not on the engine, and implements the public provider contract of
+[Q09.6](../../decisions/persistence-backends.md#a-public-provider-contract-and-a-second-provider);
+`Moltaro.Lattice.SqlServer` is a second provider. Principle 11 says so. Shapes S27–S32,
+S31S, S36, S37.
 
 **O2. The placeholder is frozen and leaves in S12.** Nothing new is implemented in it; a
 declaration it cannot honor is refused on write, as a unique index is today. In S12 the
@@ -184,7 +189,8 @@ holds for a master that lost its leadership session while its process lives, tak
 leadership advances a leadership number, and every transaction that changes the store —
 commit, base application, cleanup, receipt retirement, migration — commits only when
 that number is still its own. The master checks its leadership session at an interval
-that is an option of the storage, 5 seconds by default; when the session has ended it
+that is an option (of the database since S27 places what the engine applies there),
+5 seconds by default; when the session has ended it
 pauses writes and tries to take the leadership again within the storage recovery wait; it
 goes on only when it holds the lock again and the leadership number is still its own, and
 faults otherwise, so that it never continues over writes it has not seen. It is exclusion, not election: the engine appoints nobody.
