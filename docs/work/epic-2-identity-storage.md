@@ -1,6 +1,6 @@
 # Epic 2: Storage for ASP.NET Core Identity
 
-**Status:** the contract of the package exists; the stores are not implemented · 14 November 2026 · follows [Epic 1](epic-1-core.md)
+**Status:** the contract of the package exists; the stores are not implemented · 14 November 2026 · follows [Epic 1](epic-1/README.md)
 
 ## Goal
 
@@ -160,7 +160,7 @@ Making them configurable is not planned until an application needs it.
 | R13 | A write batch: several inserts, replaces and deletes, also of different entity types, with their conditions, applied atomically at one position | Deleting a user or a role with what belongs to it; several claims at once | In the contract (`ILatticeWriteBatch`); **not implemented** |
 
 R1, R2 and R13 stand between the present contract and working stores. All three are in
-the accepted scope of [Epic 1](epic-1-core.md), and each has its tests written and skipped
+the accepted scope of [Epic 1](epic-1/README.md), and each has its tests written and skipped
 in `Moltaro.Lattice.Tests`.
 
 **Not required by this epic:** a query language, joins, sorting or paging inside the
@@ -212,7 +212,7 @@ requirement of [Epic 3](epic-3-after-the-first-milestone.md).
 ## Stages
 
 1. The core delivers the index search (R2), unique indexes (R1) and the write batch (R13);
-   see [Epic 1](epic-1-core.md).
+   see [Epic 1](epic-1/README.md).
 2. The user by itself: create, read, update with the concurrency check, delete; passwords,
    lockout, stamps.
 3. Everything that belongs to a user: roles, claims, logins, tokens, the authenticator key

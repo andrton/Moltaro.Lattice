@@ -35,7 +35,7 @@ The first milestone requires PostgreSQL persistence and one database per instanc
 consumer compatibility review inside the milestone contract is preserved as historical
 context, not a dependency on a consumer's draft. The handoff separates specified
 mechanisms, consumer decisions and release evidence; milestone and sprint planning is
-tracked in [Epic 1](../work/epic-1-core.md).
+tracked in [Epic 1](../work/epic-1/README.md).
 
 | Document | Purpose |
 | --- | --- |

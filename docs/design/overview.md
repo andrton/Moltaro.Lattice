@@ -12,7 +12,7 @@ not an implemented production engine. The [repository README](../../README.md) o
 the current status of the facade and the engine. The [first-milestone implementation contract](milestone-1-engine-contract.md)
 fixes the physical baseline and the accepted unique-index contract.
 PostgreSQL persistence is mandatory; milestone planning is tracked in
-[Epic 1](../work/epic-1-core.md).
+[Epic 1](../work/epic-1/README.md).
 
 The [first production workload](performance-requirements.md#accepted-primary-workload-and-first-milestone-access-scope)
 is users, groups, roles and settings with 5–10 child replicas. A separate scenario

@@ -5,7 +5,7 @@ delivered over several sprints.
 
 | Epic | Result | Status |
 | --- | --- | --- |
-| [1. Core](epic-1-core.md) | The database engine behind the existing public contract, as the first production milestone | Planned from the accepted [engine design](../design/planning-handoff.md): 42 sprints with briefs. The owner answered its questions on 14 November 2026, and those of the first independent review; the owner answered those of the later reviews as well, and seven independent reviews followed; the last found nothing that blocks. The owner approved the plan by merging it. In progress: the epic document has the status of every sprint |
+| [1. Core](epic-1/README.md) | The database engine behind the existing public contract, as the first production milestone | Planned from the accepted [engine design](../design/planning-handoff.md): 42 sprints with briefs. The owner answered its questions on 14 November 2026, and those of the first independent review; the owner answered those of the later reviews as well, and seven independent reviews followed; the last found nothing that blocks. The owner approved the plan by merging it. In progress: the epic document has the status of every sprint |
 | [2. Storage for ASP.NET Core Identity](epic-2-identity-storage.md) | A package that keeps the users and roles of a standard ASP.NET Core Identity application in a Lattice database | The contract of the package and its tests exist; the stores wait for Epic 1 |
 | [3. After the first milestone](epic-3-after-the-first-milestone.md) | Change subscription, the lookup of referring entities, and what the first milestone left out | Outline; opened 18 November 2026. Comes after Epic 2 |
 
@@ -27,7 +27,7 @@ closes.
 
 ## How an epic document is written
 
-One file per epic, `epic-<number>-<short-name>.md`, with these parts:
+An epic starts as one file, `epic-<number>-<short-name>.md`, with these parts:
 
 1. **Goal** — the result and who it is for.
 2. **Scope** — what is included and what is deliberately left out.
@@ -38,6 +38,12 @@ One file per epic, `epic-<number>-<short-name>.md`, with these parts:
 6. **Sprints** — the order of work, without dates. An epic that is ready to be carried out
    has one brief per sprint, as the [development process](process.md#the-plan) describes,
    and the status of each sprint. Before that, an outline of stages is enough.
+
+An epic whose sprints have briefs is a folder, so that an agent reads the index and the
+brief of its sprint instead of the whole epic. Epic 1 is the folder
+[`epic-1/`](epic-1/README.md): an index with the goal, the scope, the rules of its sprints
+and the status of each, one file for each other part, and one file per sprint under
+`sprints/`. Epics 2 and 3 stay single files until they have sprints with briefs.
 
 A requirement level is one of:
 

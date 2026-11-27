@@ -32,21 +32,22 @@ producing. Nobody checks their own work.
 
 ## Models and effort by role
 
-The owner set the Claude Code assignments on 19 and 21 November 2026 and the Codex
-assignments on 24 November 2026. Use the model and effort for the tool running the
+The owner set the Claude Code assignments on 19 and 21 November 2026, the Codex
+assignments on 24 November 2026, and on 27 November 2026 gave every role that Fable
+held to Opus 5.5 at xhigh. Use the model and effort for the tool running the
 session or subagent. The highest effort goes to work that requires judgement and whose
 mistakes may survive later checks.
 
 | Role or work | Claude Code | OpenAI Codex |
 | --- | --- | --- |
-| Planner | Fable | `gpt-6.2-sol`, `ultra` |
+| Planner | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
 | Coordinator | Opus 5.5, xhigh | `gpt-6.2-sol`, `xhigh` |
-| Architect's review | Fable | `gpt-6.2-sol`, `ultra` |
+| Architect's review | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
 | Breaker | Opus 5.5, xhigh | `gpt-6.2-sol`, `xhigh` |
 | Independent reviewer of a sprint | Opus 5.5, xhigh | `gpt-6.2-sol`, `xhigh` |
 | Implementer of a critical sprint of the engine (concurrency, storage, the lifetime of memory, replication, durability) | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
-| Study before a critical sprint | Fable | `gpt-6.2-sol`, `ultra` |
-| Difficult performance investigation | Fable, xhigh for read scaling only, after three or four rounds without a cause | `gpt-6.2-sol`, `ultra` |
+| Study before a critical sprint | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
+| Difficult performance investigation | Opus 5.5, xhigh, for read scaling only, after three or four rounds without a cause | `gpt-6.2-sol`, `ultra` |
 | Implementer of any other sprint of the full track | Opus 5.5, high | `gpt-6.2-sol`, `high` |
 | Refactoring sprint: its implementer and its narrow reviewer | Opus 5.5, high | `gpt-6.2-sol`, `high` |
 | Light-track implementer (documents, samples, comments, small fixes) | Opus 5.5, high | `gpt-6.2-sol`, `high` |
@@ -58,14 +59,13 @@ Claude Code rows at high began as a trial with S15, part 2 of Epic 1, and became
 standing rule after S15 to S17 (the owner, 23 November 2026). An agent that stops on a
 usage limit is not retried in a loop. The coordinator tells the owner.
 
-For OpenAI Codex, the planner may assign GPT-6.2 Astra Extra High
-(`gpt-6.2-astra`, `xhigh`) for work within planning. The coordinator may assign it for
-work it coordinates, including work at a sprint boundary. This is an exception for a
-specific question when the agents on the assigned models have reached an impasse and a
-deeper analysis may resolve it. It can apply to an architecture review, a study, a
-diagnosis or another role suited to that question. The planner or coordinator names the
-question and the obstacle when assigning it. The assignment covers that question alone.
-The table remains the default for all roles.
+Claude Fable and GPT-6.2 Astra (`gpt-6.2-astra`) hold no role. Either is started only
+on the owner's explicit word, for a serious study or code of exceptional difficulty
+(the owner, 27 November 2026); no planner or coordinator starts one on its own. When
+the agents on the assigned models have reached an impasse and a deeper analysis may
+resolve it, the planner or the coordinator asks the owner, naming the question and the
+obstacle. His word covers that question alone. The table remains the default for all
+roles.
 
 ## New sessions at a sprint boundary
 

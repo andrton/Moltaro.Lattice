@@ -1,6 +1,6 @@
 name: Measurements
 
-# The measurement lane (docs/work/epic-1-core.md, "Test lanes"), started by hand only. It builds
+# The measurement lane (docs/work/epic-1/test-lanes.md), started by hand only. It builds
 # the measurement program and runs its scenarios to show that the program runs. It is not a
 # required check and judges no figure: a figure counts only under its manifest, on the machine the
 # manifest names, and the runner of this job is not that machine.

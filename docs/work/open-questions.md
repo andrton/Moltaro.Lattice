@@ -41,7 +41,7 @@ in the meantime.
 | **Found** | 15 November 2026, implementation of Epic 1, sprint S04 |
 | **Question** | A region is 64 KiB and serves one size class. A class that does not divide 64 KiB leaves a tail at the end of each of its regions, at most 2,304 bytes (3.5 %) for the 3,328-byte class; and the free slots of a region that still holds blocks are counted nowhere either. `ArenaCounters` tells live bytes, class slack, free regions and the reserve apart, and neither the tails nor those free slots are in any of them, so the counters do not add up to the native capacity. Do the memory budget (S24), the memory gate (S25) and diagnostics (S39) need them as counters of their own, and is 64 KiB the region size they are judged with? |
 | **Prior baseline** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
-| **Decided** | 26 November 2026, the planner. Admit the whole capacity of each actual grant at the arena segment size, including the reserve, idle slots and region tails. Charge it once until physical return. Region geometry stays 64 KiB in the standard arena. Internal decomposition reconciles with an independent native allocator ledger for the budget, memory gate and later diagnostics. S24 adds no public counter. See [S24](epic-1-core.md#contract-boundaries). |
+| **Decided** | 26 November 2026, the planner. Admit the whole capacity of each actual grant at the arena segment size, including the reserve, idle slots and region tails. Charge it once until physical return. Region geometry stays 64 KiB in the standard arena. Internal decomposition reconciles with an independent native allocator ledger for the budget, memory gate and later diagnostics. S24 adds no public counter. See [S24](epic-1/sprints/s24.md#contract-boundaries). |
 
 ### Q33. What an application sees when the table of root entries is full
 
@@ -50,7 +50,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S04 |
 | **Question** | The table of root entries ends at 2^31 − 4,096 slots, a limit of its structure and not an option. `RootTable.Add` then throws `InvalidOperationException` and leaves the table as it was. No brief says which error a write of an application gets when the engine reaches that limit, or a retired slot count that makes it nearer; the resource errors of the contract come with S08, S09, S17 and S24 |
 | **Prior baseline** | The internal exception stands on the base of S24. The production boundary would need about 96 GiB of root entry payloads. |
-| **Decided** | 26 November 2026, the planner. `WriteRejected` with `LatticeLimitEnum.RootSlots = 4` reports exhausted root addresses when no usable slot can be taken. A failed byte reservation for an addressable page or directory remains `Memory`. A released reusable slot can avoid a new reservation, and a permanently retired generation is never reused. A resource-refused batch names no member. A child fails to open with `Unavailable` under controlled pressure. A Ready child pauses with the applicable internal reason and can resume in order when a usable slot or sufficient capacity returns. See [S24](epic-1-core.md#contract-boundaries). |
+| **Decided** | 26 November 2026, the planner. `WriteRejected` with `LatticeLimitEnum.RootSlots = 4` reports exhausted root addresses when no usable slot can be taken. A failed byte reservation for an addressable page or directory remains `Memory`. A released reusable slot can avoid a new reservation, and a permanently retired generation is never reused. A resource-refused batch names no member. A child fails to open with `Unavailable` under controlled pressure. A Ready child pauses with the applicable internal reason and can resume in order when a usable slot or sufficient capacity returns. See [S24](epic-1/sprints/s24.md#contract-boundaries). |
 
 ### Q35. What the root layout of S05 leaves to later sprints
 
@@ -79,7 +79,7 @@ in the meantime.
 | **Found** | 17 November 2026, the study of Epic 1, sprint S09, part 2 |
 | **Question** | Writes are prepared one at a time under the lock of the writes, so several calling threads write less in total than one, and one write of a large entity holds the lock while it is encoded. The form that scales writers in established systems fixes the order first and lets each caller encode in parallel, which needs an arena that allocates on several threads. Does the write path need it? |
 | **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
-| **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1-core.md), "Measured results" |
+| **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1/README.md), "Measured results" |
 
 ## Answered
 
@@ -91,7 +91,7 @@ in the meantime.
 | **Question** | Three points that neither the engine contract nor Q07.3.6 decides. (1) Is a .NET enum value accepted for an Enum part? (2) Is an integer the enum type does not declare refused as a bound of a range as well as an exact value? (3) Is a null given as `string` a null with a type? |
 | **Answer** | Taken by the planner, 21 November 2026, for the owner to read at the close of the sprint. (1) No: an Enum part is given as its integer; accepting the .NET enum would need a rule of agreement at every search and can be added later. (2) Yes: the contract rejects invalid enum and Flags bits for "lookup/bound parameters" alike. (3) Yes: Q07.3.6 checks a null by its declared type, and `string` is one; a null given as `object` has none. Taken by the coordinator, 21 November 2026, after the review of the sprint, from the same rule: a null given as any other class has a type no scalar field has and is refused for every part, as a `Nullable` without a value of such a type is |
 | **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part. The [enum and bounds tests](../../src/Moltaro.Lattice.Tests/Indexes/ValueBinding/EnumAndFlagsTests.cs) and [typed null tests](../../src/Moltaro.Lattice.Tests/Indexes/ValueBinding/TypedNullTests.cs) verify the rule. |
-| **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q61. Does "stable write inputs" allow a batch and an update to take their input when it is added?
 
@@ -111,7 +111,7 @@ in the meantime.
 | **Question** | An owned value is stored inside its holder, so the fixed part of an entity can outgrow one block through its owned types; and the record of an element of a List has to fit one chunk. Until now the contract stated a size rule only in a clause of `LatticeIndex`. May a schema be refused for either? |
 | **Answer** | Taken by the planner, 24 November 2026, for the owner to read: yes, both are rules of the schema language, the same in every process, checked when a database compiles its layouts at its open (`InvalidSchema`, the entity type named) and stated in the remarks of `LatticeEntityType` and `LatticeOwnedType`; every node compiles them by the same code, so a schema means the same on every node; a schema would need thousands of fixed fields to meet them |
 | **What the code does** | The [open tests](../../src/Moltaro.Lattice.Tests/NestedValues/Bounds/SchemaRuleTests.cs) open at the limit and report `InvalidSchema` for an oversized fixed root or List element. |
-| **Where the rule lives** | The brief of S18 in the [document of Epic 1](epic-1-core.md); the remarks named above |
+| **Where the rule lives** | The brief of S18 in the [document of Epic 1](epic-1/README.md); the remarks named above |
 
 ### Q66. May segment evacuation start without a sparse occupied region?
 
@@ -120,8 +120,8 @@ in the meantime.
 | **Found** | 25 November 2026, the study of Epic 1, sprint S23 |
 | **Question** | The S23 acceptance starts a compaction pass on an occupied region below half live occupancy. A 64 KiB region has one slot for the 64 KiB class and two for the 32 KiB class. A live block can therefore keep an otherwise empty segment from being released even when another segment has a compatible destination. May a separate segment evacuation start in this case, with the same bounded steps, headroom and reserve? |
 | **Answer** | The owner, 26 November 2026. Q66 decided S23's scope. S23 shipped the below-half region trigger. S23A implements the separate segment trigger, using existing compatible space outside the source and preserving bounded work, reader protection, relocation headroom and the standing reserve. |
-| **Evidence** | In the isolated allocator probe, the strict trigger selected neither source. With an outside destination, one physical move returned 4,194,304 bytes to the native allocator and left the original 4,194,304-byte reserve in place. Without a destination the probe attempted no allocation and returned no bytes. See the [probe recipe](epic-1-core.md#q66-segment-evacuation-probe). |
-| **Implementation and verification** | [Segment selection in the arena](../../src/Moltaro.Lattice.Engine/Storage/Arena.cs#L309), the [S23A contract and implementation record](epic-1-core.md#s23a--evacuate-nearly-empty-segments), and its [ARM64 verification](epic-1-core.md#s23a-arm64-verification). [S23 closure](epic-1-core.md#s23-closure) records the earlier scope decision. |
+| **Evidence** | In the isolated allocator probe, the strict trigger selected neither source. With an outside destination, one physical move returned 4,194,304 bytes to the native allocator and left the original 4,194,304-byte reserve in place. Without a destination the probe attempted no allocation and returned no bytes. See the [probe recipe](epic-1/sprints/s23.md#q66-segment-evacuation-probe). |
+| **Implementation and verification** | [Segment selection in the arena](../../src/Moltaro.Lattice.Engine/Storage/Arena.cs#L309), the [S23A contract and implementation record](epic-1/sprints/s23a.md#s23a--evacuate-nearly-empty-segments), and its [ARM64 verification](epic-1/sprints/s23a.md#s23a-arm64-verification). [S23 closure](epic-1/sprints/s23.md#s23-closure) records the earlier scope decision. |
 
 ### Q64. When does an update validate its copied content?
 
@@ -129,7 +129,7 @@ in the meantime.
 | --- | --- |
 | **Found** | 24 November 2026, the study of S20 |
 | **Question** | The public contract separates errors of command shape from validation of copied data. When is the latter checked if the builder is submitted as a member of a batch, and who owns the update after that call refuses it? |
-| **Answer** | Taken by the planner, 24 November 2026. A separate `CommitAsync` consumes a valid nonempty submission and reports `ValidationFailed` through the returned task before database state or write conditions are checked. `batch.Update` validates the copied content synchronously, as other members do. It consumes the update only when the add succeeds. Both builders are unchanged by a refusal. The [S20 internal contract](epic-1-core.md#internal-contract-of-s20) specifies the order of competing failures. |
+| **Answer** | Taken by the planner, 24 November 2026. A separate `CommitAsync` consumes a valid nonempty submission and reports `ValidationFailed` through the returned task before database state or write conditions are checked. `batch.Update` validates the copied content synchronously, as other members do. It consumes the update only when the add succeeds. Both builders are unchanged by a refusal. The [S20 internal contract](epic-1/sprints/s20.md#internal-contract-of-s20) specifies the order of competing failures. |
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
 
@@ -138,7 +138,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
 | **Question** | The brief of S02 lets a class declare a property as a .NET enum and gives one rule, for two names of one value. It does not say what happens when the .NET enum has a name or a value the schema does not declare, or lacks one the schema declares |
 | **Answer** | The owner, 14 November 2026: it is handled exactly as a schema that does not match. The binding is refused, as it is for a class that does not agree with its entity type; nothing is guessed, mapped or tolerated |
-| **Where the rule lives** | Decision O15 and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | Decision O15 and the brief of S02 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q5. Does a layout fingerprint cover the identity of its entity type and its primary key?
 
@@ -147,7 +147,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
 | **Question** | The brief of S02 lists what the layout fingerprint of an entity type covers — the string encoding and, for every field, identity, type, nullability, string storage and the underlying type of an enum — and what it does not. The identity of the entity type and its primary key are in neither list |
 | **Answer** | The owner, 14 November 2026, through the planner's session: the primary key is covered, the identity of the entity type is not. Which field is the key decides how an entity is found in the saved base, so a change of the key field has to be seen by a migration; the fingerprints of one entity type are compared across two versions of a schema, where its identity is the same, so two entity types with the same fields and key have the same layout fingerprint. The fingerprint of the schema does not change: it covers both already |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), which extends the layout fingerprint anyway. S02 delivers the fingerprint without the key, as its brief lists it; the recorded layout value changes in S03; the recorded value of the schema fingerprint is recorded again there only if the extension of S03 changes it |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md), which extends the layout fingerprint anyway. S02 delivers the fingerprint without the key, as its brief lists it; the recorded layout value changes in S03; the recorded value of the schema fingerprint is recorded again there only if the extension of S03 changes it |
 
 ### Q7. Is a policy on a field of the wrong type an error of the descriptor?
 
@@ -156,7 +156,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
 | **Question** | The approved choice "the descriptor is closed" refuses a property the reader does not know. It does not speak of a property the reader knows in the wrong place: `Comparison` or `StringStorage` on a field that is not a String, `Enum` on a field that is not of type Enum |
 | **Answer** | The owner, 14 November 2026: yes. Each is `InvalidSchema` with the field named; a misplaced policy is never ignored |
-| **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q12. The documentation of unique indexes states the intended behavior as present
 
@@ -165,7 +165,7 @@ in the meantime.
 | **Found** | 14 November 2026, review of Epic 1, sprint S02 |
 | **Question** | `LatticeIndex.IsUnique`, `LatticeErrorEnum.UniqueConstraintViolation` and the remarks of `ILatticeSet<TEntity>` describe a unique index as enforced. Until S16 every write of an entity type that declares one is refused with `NotSupportedException`, and no XML text said so; `ILatticeIndex` does say "Not implemented yet" for search |
 | **Answer** | The owner, 14 November 2026, through the planner's session and then directly: yes, the sentence is added, and in the branch of S02 instead of a change of its own |
-| **Where the rule lives** | The XML documentation of the three members, since S02. S16 removed the sentences when it implemented unique indexes (2da3bf7): remark 8 for the coordinator in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The XML documentation of the three members, since S02. S16 removed the sentences when it implemented unique indexes (2da3bf7): remark 8 for the coordinator in the [document of Epic 1](epic-1/README.md) |
 
 ### Q8. Is a property given twice an error of the descriptor?
 
@@ -174,7 +174,7 @@ in the meantime.
 | **Found** | 14 November 2026, implementation of Epic 1, sprint S02 |
 | **Question** | JSON lets an object name a property twice, and a reader then takes one of the two values silently. Neither the brief nor a decision says what the schema reader does |
 | **Answer** | The owner, 14 November 2026: yes. It is `InvalidSchema` with the property named, at every level of the descriptor |
-| **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q13. Where does a saved compiled schema end?
 
@@ -183,7 +183,7 @@ in the meantime.
 | **Found** | 14 November 2026, review of Epic 1, sprint S02 |
 | **Question** | The fix that made the reader of a saved schema strict also decided two things nobody had asked for. `LatticeSchema.Load(path)` refuses a file that has data after the schema; before, such a file loaded. `LatticeSchema.Load(stream)` reads one schema and leaves the stream right after it, so the same bytes load through a stream. Are these the rules? |
 | **Answer** | The owner, 14 November 2026: yes, a file with data after the schema is refused. Data after a schema in its own file means damage or two files joined, and it is not passed off as a success. A stream is the caller's: one schema is read from it and what follows is left to the caller |
-| **Where the rule lives** | The documentation of `LatticeSchema.Load(string)` and `LatticeSchema.Load(Stream)`, the tests of `DamagedCompiledSchemaTests`, and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The documentation of `LatticeSchema.Load(string)` and `LatticeSchema.Load(Stream)`, the tests of `DamagedCompiledSchemaTests`, and the brief of S02 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q9. May an enum type declare no members?
 
@@ -192,7 +192,7 @@ in the meantime.
 | **Found** | 14 November 2026, review of Epic 1, sprint S02 |
 | **Question** | An enum type with `"Members": []` compiles. An ordinary enum type without members has no valid value, so a field of it that is not nullable can never be written; a Flags type without members accepts zero only. Q03.5 and the brief say nothing |
 | **Answer** | The owner, 14 November 2026, through the planner's session: no. An enum type declares at least one member, a Flags type like an ordinary one; `"Members": []` is `InvalidSchema` with the enum type named. A Flags type whose only member is zero stays valid. The check is made in S03; S02 delivers enum types as its brief has them, and an empty list compiles until then |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q10. Which catalog versions are valid?
 
@@ -201,7 +201,7 @@ in the meantime.
 | **Found** | 14 November 2026, review of Epic 1, sprint S02 |
 | **Question** | `"SchemaVersion": 0` and a negative one compile, as they did before S02. Since S02 the number is the catalog version, which the milestone contract calls monotonically increasing; nothing says where it starts or what a descriptor without it means |
 | **Answer** | The owner, 14 November 2026, through the planner's session: a catalog version is a whole number from 1; zero or below is `InvalidSchema` with the property named. A descriptor without `SchemaVersion` has version 1, as before, and the property stays optional. "Monotonically increasing" means that the target schema of a migration has a greater version than the stored one |
-| **Where the rule lives** | The range and the default: the brief of S03 in the [document of Epic 1](epic-1-core.md), which makes the check and words the documentation of `LatticeSchema.Version`. The rule that a version grows: the brief of S37 in the same document |
+| **Where the rule lives** | The range and the default: the brief of S03 in the [document of Epic 1](epic-1/README.md), which makes the check and words the documentation of `LatticeSchema.Version`. The rule that a version grows: the brief of S37 in the same document |
 
 ### Q11. Should a saved compiled schema carry a digest of itself?
 
@@ -210,7 +210,7 @@ in the meantime.
 | **Found** | 14 November 2026, fixes after the review of Epic 1, sprint S02 |
 | **Question** | A truncated or malformed saved schema is refused. A byte change that still forms a valid schema — another name, another identity — loads as another schema, because the format carries no checksum. The fingerprint does not cover names, so it does not show such a change either |
 | **Answer** | The owner, 14 November 2026, through the planner's session: yes. The binary form of a compiled schema ends with SHA-256 over every byte before it, and a load refuses a difference with `InvalidSchema` before it decodes anything of the body. It comes in S03 with the format version that sprint changes anyway; S02 delivers the form without a digest |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q6. The write batch does not document every way a class can fail to bind
 
@@ -228,7 +228,7 @@ in the meantime.
 | **Found** | 14 November 2026, review of Epic 1, sprint S01 |
 | **Question** | `Arc.Collections` is pinned as `[2.2.0]`, but the test of the engine's dependencies compares the resolved version, so it stays green when the brackets are dropped and the package could then float for a user of the engine package. Should a test hold the exact pin? |
 | **Answer** | The owner, 14 November 2026, through the planner's session: yes, a test holds the declaration itself, brackets included. It is added in S04, the first sprint that puts code into the engine |
-| **Where the rule lives** | The brief of S04 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S04 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q2. Is the squash enforced or only agreed?
 
@@ -255,7 +255,7 @@ in the meantime.
 | **Found** | 14 November 2026, review of Epic 1, sprint S02 |
 | **Question** | Binding a class reports a class that does not agree with its entity type as `BindingFailed`. Two classes escaped that: one with a static property named like a field threw `ArgumentException` from `Set<TEntity>()`, and a derived class that hides a property with one of another type threw `AmbiguousMatchException`; both also from the typed members of a write batch. The code is older than S02. Are both `BindingFailed`, with the property named? |
 | **Answer** | The owner, 14 November 2026, through the planner's session: yes. The property of a field is found as C# finds it by that name, on the most derived class that declares one; it has to be an instance property with get and set and of the type the field needs. A hiding property of that type binds; a static property, and a hiding property of another type, are `BindingFailed` with the property named |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), which fixes it with the binding it extends |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md), which fixes it with the binding it extends |
 
 ### Q15. What is the element type of a collection of owned values in a bound class?
 
@@ -264,7 +264,7 @@ in the meantime.
 | **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
 | **Question** | The brief of S03 said a List is a `List<T>` where "T is the `ValueType` of the inner declaration", and that `ValueType` of an Owned position is `LatticeOwnedValue`. It also said that in a bound class an owned value is "the class named by `ClrType` of its owned type". For a collection of owned values in a bound class the two sentences gave different T. Which one binds, and what does a class do with an owned type that names no `ClrType`? |
 | **Answer** | The planner, 14 November 2026, from the sentence of the brief on a bound class, and reported to the owner: `ValueType` says what a record holds. A bound class holds the same data in its own types, by one rule for every position: an owned value is the class of its owned type as a property, an element or a value. An owned type that names no `ClrType` has no form in a class, and neither has `LatticeOwnedValue`: both are `BindingFailed` |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md): the table "In a bound class" |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md): the table "In a bound class" |
 
 ### Q16. May an owned type contain itself?
 
@@ -273,7 +273,7 @@ in the meantime.
 | **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
 | **Question** | Nothing said whether an owned type may have a field of its own type, directly or through a List, a Map or another owned type. Q02 excludes cycles of ownership between values; a type that refers to itself through a nullable field or a collection has none in its values, but its layout and both fingerprints would have to describe a type in terms of itself |
 | **Answer** | The owner, 14 November 2026, through the planner's session: no. An owned type does not contain itself, directly or through another owned type, a List or a Map; such a declaration is `InvalidSchema` with the owned types on the way named, whether the field is nullable or not. A Reference is not containment. Allowing it would make every walk over values bear any depth and need a depth limit as a setting; the restriction can be lifted later without changing the meaning of a schema that compiles under it |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q17. The scope of an owned type's identity, name and class
 
@@ -282,7 +282,7 @@ in the meantime.
 | **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
 | **Question** | The brief gave an owned type an `Id`, a `Name` and an optional `ClrType` and did not say in which scope each is unique. May an owned type and an entity type have the same identity, the same name, or name the same .NET class? May two owned types name the same class? |
 | **Answer** | The planner, 14 November 2026, from the scopes S02 gave enum types and entity types, and reported to the owner: owned types are a scope of their own for identities and for names, so an owned type may have the identity or the name of an entity type or an enum type. A .NET class is named by at most one type of the schema: two owned types, or an owned type and an entity type, that name the same class are `InvalidSchema` |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q18. A null key value for an index part behind an absent owned value
 
@@ -291,7 +291,7 @@ in the meantime.
 | **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
 | **Question** | The check of a search key refuses null for a part whose field is not nullable. By decision P9 a part that is a path through owned values is null when an owned value on the path is absent, even when the indexed field itself is not nullable. Does the check of S03 have to know this, or does it come with S18? |
 | **Answer** | The planner, 14 November 2026, from decision P9 and the rule that a check needing no engine works from the start, and reported to the owner: the check of S03 accepts null for a part whose field is nullable or whose path has a nullable owned step, and refuses it for any other part with `ArgumentException`. That the entity is then found by a search for null stays with S18 |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q19. Which fields may be the last step of an index part?
 
@@ -300,7 +300,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
 | **Question** | The brief of S03 accepted an index part "when … the last is a field an index may have", and S02 refuses a Binary field. May a part end at an Owned field, at a Reference, or at a List, a Map or a Set? |
 | **Answer** | The planner, 14 November 2026, from Q03.4.2, confirmed by the owner: a part ends at a scalar that is not Binary, an Enum or a Reference, the types that have an equality of their own. A Reference is compared as the key of its target. A part that ends at an Owned field or a collection is `InvalidSchema` |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q20. Is an integer of another width accepted inside a collection of a record?
 
@@ -309,7 +309,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
 | **Question** | A record accepts for an integer field "an integer of another width when it fits". Is a `List<int>` accepted for a List of Int64, and an `int` key for a Map of Int64 keys? The same for an integer inside a `LatticeOwnedValue` |
 | **Answer** | The planner, 14 November 2026, from the purpose of the rule, confirmed by the owner: the element, key and value types of a collection are exact, and another one is `ArgumentException`. An integer of another width is accepted only where a value is given by itself: a field of a record, a field of a `LatticeOwnedValue`, a primary key, a part of a search key |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q21. Which comparer has a Map or a Set of references?
 
@@ -318,7 +318,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
 | **Question** | A Reference declaration has no comparison of its own. When the key of its target is a String compared without case, does a Map or a Set of references ignore case as well, and does a fingerprint cover it? |
 | **Answer** | The planner, 14 November 2026, from Q03.4.2, confirmed by the owner: a reference compares as the key of its target, comparison included, so such a Map or Set ignores case. No fingerprint gains anything: the layout fingerprint never covers a comparison, and the fingerprint of the schema already covers the comparison of the target's key and the identity of the target |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); the consequence for a migration in the brief of S37 |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md); the consequence for a migration in the brief of S37 |
 
 ### Q23. Which error comes first for an object with an invalid nested value?
 
@@ -327,7 +327,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
 | **Question** | Until S18 and S19 a write of an entity type with one of the new fields is refused with `NotSupportedException`. Through a set, does an invalid object or record get `ValidationFailed` or that refusal? |
 | **Answer** | The planner, 14 November 2026, from the rule that a check needing no engine works from the start, confirmed by the owner: validation comes first, through a set as through a write batch. An invalid value at any depth is `ValidationFailed`, and only a valid object or record ends in `NotSupportedException` |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q24. Forms of the descriptor that the brief of S03 does not mention
 
@@ -336,7 +336,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
 | **Question** | An index part written as a path of one identity, `[[2]]`; an empty path; the same part twice in one index; an owned type without fields; an empty `ClrType` on an owned type; and the sentence on Map keys and Set elements, which could be read as excluding Enum and Reference |
 | **Answer** | The planner, 14 November 2026, from what S02 does for the same things one level up and the owner's answer to Q9, confirmed by the owner: `[[2]]` and `[2]` are the same part; an empty path and the same part twice are `InvalidSchema`; an owned type declares at least one field, and its `ClrType` is not empty when given; a Map key and a Set element are a scalar that is not Binary, an Enum, or a Reference |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q25. Does validation also come before the refusals of S02?
 
@@ -345,7 +345,7 @@ in the meantime.
 | **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
 | **Question** | By the answer to Q23 an invalid object or record of an entity type with an owned value, a collection or a reference is `ValidationFailed`, and only a valid one ends in `NotSupportedException`. Is the same true of what S02 has the placeholder refuse: a unique index, a comparison that ignores case, Dictionary storage, an enum field, a schema in UTF-16? |
 | **Answer** | The planner, 14 November 2026, from what the code already does: yes, for every entity type. A write first checks its arguments and validates the entity against the schema, and only a write that passes ends in `NotSupportedException`. A check that belongs to what is not implemented is not made: whether an integer is a declared value of its enum type, and whether a unique index already holds the key |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), with the sentence for the "Not implemented yet" parts of the public documentation |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md), with the sentence for the "Not implemented yet" parts of the public documentation |
 
 ### Q22. Does a record hold an owned value it is given, or a copy of it?
 
@@ -354,7 +354,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
 | **Question** | The brief said the input of a List, a Map or a Set is copied. It did not say whether collections inside it are copied too, or whether a `LatticeOwnedValue` or a byte array that is set into a record is held as the same object or copied. The question was put on this code: `home["City"] = "Kyiv"; record["Home"] = home; home["City"] = "Lviv";` and then a write |
 | **Answer** | The owner, 14 November 2026, through the planner's session: copied; Kyiv is written. A record copies every value that is set into it, at every depth, owned values and byte arrays included, and holds nothing of the caller's. What a record returns is its own and the same object every time, and a value inside a record is edited through what the record returns. Not chosen: a record that holds an owned value and a byte array as given, and a switch that leaves the choice to the caller. A bound class is not touched: its object holds what the application assigns, and the write copies it |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); what a write and a read copy is asserted in S18, whose brief has the sentence |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md); what a write and a read copy is asserted in S18, whose brief has the sentence |
 
 ### Q26. Does an owned value return its own values, as a record does?
 
@@ -363,7 +363,7 @@ in the meantime.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
 | **Question** | By the answer to Q22 what a record returns is its own and the same object every time. The brief did not say what a `LatticeOwnedValue` returns, nor what happens to an owned value that was made invalid through a collection it returned |
 | **Answer** | The planner, 14 November 2026, as a consequence of the owner's answer to Q22, confirmed by the owner: a `LatticeOwnedValue` returns as a record does, its own collection, owned value or byte array, the same object every time. An owned value made invalid through a collection it returned is refused with `ArgumentException` and the field named when it is set into a record, into another owned value or into a collection, because setting it copies and checks what it holds |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q27. The schema names a type of the access layer
 
@@ -381,7 +381,7 @@ in the meantime.
 | **Found** | 14 November 2026, implementation of Epic 1, sprint S03 |
 | **Question** | Three bounds were in the code and in no brief: declarations nested at most 64 deep, a saved form whose body is longer than an array can hold refused as damage, and no bound on a chain of owned types that each hold the next, where the walk over a value and the binding of a class recurse as deep as the chain. Principle 9 of `AGENTS.md` makes a limit an application can observe an option. Are these limits of the model, with these values, and is the depth of owned types bounded too? |
 | **Answer** | The owner, 14 November 2026, through the planner's session: a declaration is at most 32 deep, counted through collections and owned types together; a deeper one is `InvalidSchema` with the field named, in a descriptor and in a saved schema. It is a fixed rule of the schema language and not an option: a schema is compiled by a static call outside any instance, and it has to mean the same on every node; principle 9 speaks of the limits of a running instance. 32 and not 64, because a descriptor cannot reach 64 and the bound could then not be tested exactly. The planner, on the second point: a body longer than one array can hold is damage, `InvalidSchema`, with no setting |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); the number is stated in the documentation of `LatticeValueDeclaration`. Principle 9 of `AGENTS.md` now says which limits it speaks of: the coordinator worded that sentence from the owner's reasons above and reported it to the owner. The coordinator, after review round 2 of S03: a descriptor whose text is nested deeper than 128, far deeper than any descriptor of a schema can be, is refused as a whole, `InvalidSchema`, without a field named, so that a small text never takes long to refuse. This narrows "with the field named, in a descriptor" of the answer above to a declaration the text can hold, at most 124 deep; it is the coordinator's decision, reported to the owner with the close of S03 |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1/README.md); the number is stated in the documentation of `LatticeValueDeclaration`. Principle 9 of `AGENTS.md` now says which limits it speaks of: the coordinator worded that sentence from the owner's reasons above and reported it to the owner. The coordinator, after review round 2 of S03: a descriptor whose text is nested deeper than 128, far deeper than any descriptor of a schema can be, is refused as a whole, `InvalidSchema`, without a field named, so that a small text never takes long to refuse. This narrows "with the field named, in a descriptor" of the answer above to a declaration the text can hold, at most 124 deep; it is the coordinator's decision, reported to the owner with the close of S03 |
 
 ### Q30. What the members of the arena do where the brief of S04 does not say
 
@@ -390,7 +390,7 @@ in the meantime.
 | **Found** | 15 November 2026, contract of Epic 1, sprint S04 |
 | **Question** | The brief of S04 names the types and members of the arena and leaves open what several of them do: when a root handle is current and where generations start; which state a new root entry has; what a new block holds; which exception each refusal is; what the constructor of `Arena` refuses and what the memory limit bounds; what each counter counts; in which order space is taken and when an emptied segment is freed. `RootHandle` had no constructor, so the test of an exhausted generation could not name its slot. Later sprints were touched too: what `DescriptorOffset` counts from, who moves the state of a root entry, what `LastMutationSequence` is |
 | **Answer** | The planner, 15 November 2026, from the engine contract, the arena protocol and Q17, reported to the owner in the planner's session. The readings are written out in the brief of S04; `RootHandle` gets the constructor `RootHandle(uint generation, uint slot)`. Three of them are nearest to a choice: the payload of a new block is not zeroed, the memory limit is required, and an emptied segment beyond the reserve is freed inside `Free` until S23 brings the background release. Two things wait for the contracts of their stages and are the planner's to place: in S13 a shared-text block carries the handle of its text entry in `BlockHeader.Root`, told apart by `Kind`; in S20 a member of the arena changes the length of a live block and the counters with it |
-| **Where the rule lives** | The briefs of S04, S05 and S06 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The briefs of S04, S05 and S06 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q34. What the members of the root layout do where the brief of S05 does not say
 
@@ -399,7 +399,7 @@ in the meantime.
 | **Found** | 15 November 2026, contract of Epic 1, sprint S05 |
 | **Question** | The brief of S05 names the types and members of the root layout and of the reference fixture and leaves open what the tests have to state: the formula of the fixed part, what `Compile` does with a field it cannot store yet, where a value of each size goes and what a directory holds, which member serves an Enum with an unsigned underlying type, the errors of a wrong field, of a value out of range and of reading a null, null against missing at `Complete`, the stored encoding of text and the byte order, what the size limit of an entity counts, the life of a writer, what a reader checks, what `LayoutVersion` is, and what of the fixture the engine contract does not give |
 | **Answer** | The coordinator, 15 November 2026, from the engine contract and the decisions named in the brief; the planner's session could not be reached, and the readings are reported to the owner with the close of S05. They are written out in the brief of S05. Nearest to a choice: the fixed part is packed without padding; an entity is measured as its fixed part plus the encoded bytes of its String and Binary values, and one of exactly the limit is stored; a field is set once; `Compile` refuses an entity type with a field S05 cannot store with `NotSupportedException`; `LayoutVersion` is 1 |
-| **Where the rule lives** | The brief of S05 in the [document of Epic 1](epic-1-core.md). What the readings leave to later sprints is entry Q35 |
+| **Where the rule lives** | The brief of S05 in the [document of Epic 1](epic-1/README.md). What the readings leave to later sprints is entry Q35 |
 
 ### Q32. When does S06 release the entry of a deleted root?
 
@@ -409,7 +409,7 @@ in the meantime.
 | **Question** | The brief of S06 said, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08. So the agents of S06 could not tell what S06 does with the entry of a root whose delete was published: release it at once, or keep it `Deleted` until S08 |
 | **Answer** | The planner, 15 November 2026, from the milestone contract, "Reader protection, publication and compaction": the lookup claim of a read by key belongs to S06, because a read of S06 runs while a writer replaces or deletes. The entry of a deleted root is released when no claim is held on it: at once when there is none, otherwise by the reader that drops the last one. S08 adds the claims of an enumeration |
 | **Amended** | 16 November 2026, with the owner's decision on deferred reclamation: there are no claims; the entry of a deleted root is retired and released once the reads that could see it have left. After the deletes have returned and a drain with no read in progress, the table holds no entry of a deleted entity |
-| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
+| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1/README.md), "Types and members" and Acceptance |
 
 ### Q36. Exception X3 does not name the tests of the reference fixture
 
@@ -427,7 +427,7 @@ in the meantime.
 | **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
 | **Question** | By the answer to Q14 the property of a field is "an instance property with get and set". The binding requires the get accessor to be public and accepts any set accessor: private, protected or `init`. Is a set accessor that is not public accepted, which lets an application keep its entity classes closed for writing, or is a public set required? The review of S03 found two more edges of "the property C# finds by that name": a class that overrides only the getter of a virtual property is `BindingFailed`, although C# sees a get and a set there; and a public field that hides a property of the base class is not seen, so the property of the base class binds |
 | **Answer** | The owner, 15 November 2026, through the planner's session: a property binds with a set accessor of any accessibility, and that becomes a promise of the contract. *Not chosen:* a public set, a shorter rule that would stop immutable classes and records with `init` from binding. The planner, as consequences of Q14: a class that overrides only the get accessor of a virtual property binds and is set through the accessor of its base class; a class in which a public field hides a property of its base class is `BindingFailed`. The generator of typed views (S22) reads and never sets, so nothing more follows for its contract |
-| **Where the rule lives** | The remarks of `ILatticeDatabase.Set<TEntity>()` and the brief of S06 in the [document of Epic 1](epic-1-core.md), which carries the change under decision O16 |
+| **Where the rule lives** | The remarks of `ILatticeDatabase.Set<TEntity>()` and the brief of S06 in the [document of Epic 1](epic-1/README.md), which carries the change under decision O16 |
 
 ### Q37. From which source the engine reads the memory available to the process
 
@@ -436,7 +436,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S05 |
 | **Question** | By decision O17 the default of the instance memory budget is half of the memory available to the process: the limit of its container, or the physical memory of the machine. The brief of S09 named `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as the source. Measured on .NET 10: on a host without settings it reports the physical memory; in a container limited to 1 GiB it reports 805,306,368, which is 75% of the limit, the default heap limit of the garbage collector; with `DOTNET_GCHeapHardLimit` or `GCHeapHardLimitPercent` it reports what that setting gives. So the default budget in a 1 GiB container would be 384 MiB and not 512 MiB, and a GC heap setting would scale the budget of the native arena, which the decision on write admission says it is not. Does the engine read the limit of the container itself, or does the owner accept what the runtime reports and the three sentences of O17 say so? Two smaller points of the same texts: the sentences "No numeric defaults … are selected" and "No runtime setting or numerical memory default is chosen" of the decision on write admission stand above the owner's addition and read as contradicted; and `Validate` of S09 compares `MaxEntitySize` and `WriteQueueMemoryLimit` with `MemoryLimit` without saying that it is the limit in force when `MemoryLimit` is null |
 | **Answer** | The owner, 15 November 2026, through the planner's session: the default of the instance budget is half of what the .NET runtime reports as available, `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, and the texts say plainly what that figure is — the physical memory on a machine without limits, by default three quarters of the limit in a container, less when a heap hard limit of the collector is configured. *Not chosen:* keeping the decision exact with platform code of the project's own for cgroups and job objects. The default is a convenience; production, the gates and anyone who limits the heap of the collector set the limit explicitly. The two smaller points the planner answered on the same day: the two sentences of the decision on write admission point forward to the owner's addition, and `Validate` compares with the limit in force |
-| **Where the rule lives** | Decision O17 and the brief of S09 in the [document of Epic 1](epic-1-core.md), the engine contract, "Initial bounded settings", and the decision on write admission |
+| **Where the rule lives** | Decision O17 and the brief of S09 in the [document of Epic 1](epic-1/README.md), the engine contract, "Initial bounded settings", and the decision on write admission |
 
 ### Q38. What the engine database does where the brief of S06 does not say
 
@@ -445,7 +445,7 @@ in the meantime.
 | **Found** | 15 November 2026, contract of Epic 1, sprint S06 |
 | **Question** | The brief of S06 leaves open what the tests have to state: which of the tests of the three classes run on the engine; what `Create` does with options the engine does not serve; the states of an instance; what a position and a revision are; the limits before S09 makes them options; everything the engine refuses until a later sprint and at which call; how an enumeration behaves until S08; sessions and the write batch on a master; what "the returned copy" of a read is. Two statements of the Acceptance could not be read by a test: the count of the table of root entries, and the sequence of a position, which is internal to the core |
 | **Answer** | The planner, 15 November 2026, from the engine contract, the retry protocol and the decision on mutation commands: the contract author's readings stand as proposed and are written out in the brief; `EngineCounters` gains `RootEntries` and `PublishedSequence`; what an application sees of a position is stated by a scenario test through the public API, and the numbers by a test of the engine under X3, with no friend access added. One point was not a gap but a disagreement between a test and an accepted decision and went to the owner as Q39 |
-| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
+| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1/README.md), "Types and members" and Acceptance |
 
 ### Q39. Does a delete that deleted nothing move the position?
 
@@ -454,7 +454,7 @@ in the meantime.
 | **Found** | 15 November 2026, contract of Epic 1, sprint S06 |
 | **Question** | `ConsistencyTests.Every_result_carries_a_position`, written for the placeholder before the design was transferred, asserts that a delete of an absent key returns the position the database had (`Assert.Equal(inserted.Position, nothingDeleted.Position)`), and the plan requires that test unchanged in S12. The decision on mutation commands ("assigns successful no-ops a retained result and stream position"), the engine contract ("receive a durable result and stream position") and the retry protocol say a successful no-op advances the position, and S11 has `EffectKindEnum.Unchanged`. It is a disagreement between a test of the contract and an accepted decision, which `AGENTS.md` makes a finding for the owner. The planner recommends the accepted decision: a no-op gets a position of its own and the revision of the entity stays, which changes one assertion of that test, by the test author, with the owner's word |
 | **Answer** | The owner, 15 November 2026, through the planner's session: a write that changes nothing has a position of its own, as the accepted decision says. Every accepted operation has its place in the history, a retry returns its own position, and the retry protocol stands as it was checked on PostgreSQL; the cost is an empty entry in the journal and one changed assertion. *Not chosen:* the position stays and the retry protocol is reworked for a receipt without a position. The placeholder is left as it is until S12 removes it |
-| **Where the rule lives** | The briefs of S06 and S12 in the [document of Epic 1](epic-1-core.md): the engine publishes such a write at a position of its own from S06 on, a test of it runs on the engine only until S12, and S12 changes the one assertion of `ConsistencyTests.Every_result_carries_a_position` and the documentation of `LatticeWriteResult.Position` |
+| **Where the rule lives** | The briefs of S06 and S12 in the [document of Epic 1](epic-1/README.md): the engine publishes such a write at a position of its own from S06 on, a test of it runs on the engine only until S12, and S12 changes the one assertion of `ConsistencyTests.Every_result_carries_a_position` and the documentation of `LatticeWriteResult.Position` |
 
 ### Q41. Where is text that is not well-formed refused?
 
@@ -463,7 +463,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S06 |
 | **Question** | The engine of S06 refused text that is not well-formed in its root writer, after the conditions of a write: with a stored entity and a lone surrogate in a field, an insert of the same key was `DuplicateKey`, a replace of an absent key `NotFound`, a wrong revision `RevisionConflict`, and only a write that passed them was `ValidationFailed`; for an entity type the engine does not store yet the write was `NotSupportedException` before any text was looked at. The placeholder accepted such text, and the public documentation, which lists what is `ValidationFailed` and says that validation comes first, did not mention it. Is it a validation of the contract, made by the core on both implementations, or a refusal of the engine alone? |
 | **Answer** | The planner, 15 November 2026, from rules that stand: `AGENTS.md` puts a check that needs no engine into the contract; Q25 fixes the order — arguments, validation, then the conditions and the refusal of what is not implemented; Q04.1 and R10 say malformed Unicode is refused and never replaced. The validation of the core checks it at a write and at adding to a batch, at every depth, on both implementations; the root writer keeps its own refusal as the guard of the stored form; a key given as an argument that is not well-formed is `ArgumentException` |
-| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance, and the remarks of the public documentation that list `ValidationFailed` |
+| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1/README.md), "Types and members" and Acceptance, and the remarks of the public documentation that list `ValidationFailed` |
 
 ### Q43. A large value is copied once more than it has to be on its way into the engine
 
@@ -472,7 +472,7 @@ in the meantime.
 | **Found** | 15 November 2026, implementation of Epic 1, sprint S06 |
 | **Question** | The engine copies a value once, into native memory. Before that the access layer of the core copies a Binary value again: by class the capture of an object clones the array, and by name the record copied it when it was set and the submission clones it a second time; a write of an entity with a 32 MiB Binary value allocates 32.5 MiB of managed memory that nothing keeps. Does the engine get a capture of its own without the copy, and what does the contract say of an input that is changed while its write runs? Two smaller observations of the review: an insert takes the catalog gate exclusively up to three times, and the encoding of the values runs under the lock of the writes |
 | **Answer** | The planner, 15 November 2026, from the accepted decision "Stable write inputs until completion": an application keeps the input of a write unchanged until the write completes, so the engine takes the values as the caller gave them and copies each once, into the arena, with no managed copy of a Binary value on the way; an input changed while its write runs gives a stored value that mixes the two states, never a damaged database. The write batch keeps its copy until S17. The two observations become rules of S09, checked by its reviews: the values are encoded outside the lock that orders writes, and an insert takes the catalog gate exclusively once, at publication |
-| **Where the rule lives** | The brief of S09 in the [document of Epic 1](epic-1-core.md), and from S09 the remarks of the write members |
+| **Where the rule lives** | The brief of S09 in the [document of Epic 1](epic-1/README.md), and from S09 the remarks of the write members |
 
 ### Q44. What does a running enumeration do after the database was closed?
 
@@ -481,7 +481,7 @@ in the meantime.
 | **Found** | 15 November 2026, tests of Epic 1, sprint S06 |
 | **Question** | The contract says that an operation after a close is `ObjectDisposedException`, and says nothing of an enumeration that was started before the close and is continued after it. On the engine the next step is `ObjectDisposedException`; on the placeholder the enumeration goes on from what it took when it started. Which is the contract? |
 | **Answer** | The planner, 15 November 2026: the next step fails with `ObjectDisposedException`, as every operation after a close does; an enumeration never goes on over a closed database. The placeholder is not changed, so the test runs on the engine only until S12 |
-| **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q42. Reads by key do not scale with threads
 
@@ -491,7 +491,7 @@ in the meantime.
 | **Question** | With 100,000 entities and no writer the engine of S06 reads about 2.3 million entities by key per second on one thread and 1.5 to 2.0 million in all on 8 to 16 threads. What bounds it is the shared acquisitions of the reader/writer gates: the counter of the close barrier, the catalog gate taken twice for a read, and the stripe of the root. It is the synchronization the engine contract prescribes as the initial one, and gate G2 asks for 10,000 reads per second, so no rule was broken. Does the scaling matter, and when is it dealt with? |
 | **Answer** | The owner, 15 November 2026, through the planner's session: reads by key have to scale with threads, and the work is done in S08, where the gate of the index changes anyway, not judged at S25. That more threads read less in total is a very bad signal. The implementer of S08 studies in their source how open-source databases that read fast on many threads protect a read, and repeats a solution that is proven there; how many protections there are and how fine they are is decided by those systems and by measurement, not by a stated preference. The guarantees do not move |
 | **Amended** | 16 November 2026, the owner: deferred reclamation by epochs, for reads and for the index, after a first implementation whose writer waited for the reads was stopped. The rule is in the arena protocol, "Deferred reclamation, 16 November 2026" |
-| **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md); S25 checks the read mix against what S08 reached |
+| **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1/README.md); S25 checks the read mix against what S08 reached |
 
 ### Q45. A write batch tells two spellings of one key apart
 
@@ -500,7 +500,7 @@ in the meantime.
 | **Found** | 15 November 2026, tests of Epic 1, sprint S07 |
 | **Question** | A batch takes one operation per entity and refuses a second one for the same key when it is added. It told entities apart by the key as given, so for a String key compared without case "Main" and "MAIN" were accepted as two operations on one entity. Is the second operation refused at adding, under the comparison of the key? |
 | **Answer** | The planner, 15 November 2026, from standing rules: yes. The schema is the authority and declares the comparison of the key; the contract says one operation per entity, not per spelling; and a check that needs no engine belongs to the contract. Two operations address one entity when their keys are equal as the schema compares them, an integer key by its value whatever its width |
-| **Where the rule lives** | The remarks of `ILatticeWriteBatch`, and the brief of S07 in the [document of Epic 1](epic-1-core.md), which carries the change |
+| **Where the rule lives** | The remarks of `ILatticeWriteBatch`, and the brief of S07 in the [document of Epic 1](epic-1/README.md), which carries the change |
 
 ### Q46. Which keys are equal without case depends on the globalization mode of the process
 
@@ -509,7 +509,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S07 |
 | **Question** | A String key compared without case followed `StringComparison.OrdinalIgnoreCase` of .NET, and what .NET holds equal under it differs between ICU, NLS and invariant globalization and with the version of the Unicode data. Nothing recorded the mode, so two nodes, or a saved database and the process that opens it, could hold different entities equal. Is the mode fixed and checked, or does the engine bring a case mapping of its own? |
 | **Answer** | The owner, 15 November 2026, through the planner's session: a case mapping of Lattice's own, a fixed versioned table in the core. *Not chosen:* recording the globalization mode and refusing another; leaving it until S10 |
-| **Where the rule lives** | The decision on strings, Q04, the addition of 15 November 2026; the brief of S07 in the [document of Epic 1](epic-1-core.md) carries the work |
+| **Where the rule lives** | The decision on strings, Q04, the addition of 15 November 2026; the brief of S07 in the [document of Epic 1](epic-1/README.md) carries the work |
 
 ### Q47. Does the notice of the Unicode data travel inside the package?
 
@@ -527,7 +527,7 @@ in the meantime.
 | **Found** | 16 November 2026, the planner, with the owner's decision on deferred reclamation; for Epic 1, sprint S08, part 1 |
 | **Question** | The decision on index structures selected `UnorderedMapSlim` of `Arc.Collections` and foresaw readers on the old map only during growth. The owner's decision of 16 November 2026 asks for lookups during every change. Can that map be read safely while the one writer changes it? |
 | **Answer** | No: its own remarks require external synchronization whenever a writer is present, and the planner read the code at the pinned commit to the same end. The owner, 16 November 2026, through the planner's session: the primary index becomes a hash table of the engine's own, modelled on the hash index of Garnet/Tsavorite; and where the engine can replace a package by its own structure written after an established open-source one, it does. Whether `Arc.Collections` leaves the engine altogether is settled with the ordered indexes of S14; until then the reference, the pin test of Q3 and the sentence of `AGENTS.md` stay |
-| **Where the rule lives** | The decision on index structures, the addition of 16 November 2026; the brief of S08 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The decision on index structures, the addition of 16 November 2026; the brief of S08 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q49. Does a partial update change a published root in place?
 
@@ -545,7 +545,7 @@ in the meantime.
 | **Found** | 16 November 2026, review of Epic 1, sprint S08, part 1, round 2 |
 | **Question** | The primary index hashed Int64 and Guid keys through a mixing function without a seed that can be inverted, so whoever chooses the keys could put many on one 32-bit hash: memory stayed bounded and every key was found, but a read of one of them walked the chain, 287 µs against 0.2 µs. Does the index get a seed of its own per instance? |
 | **Answer** | The planner, 16 November 2026, from standing rules: yes. The cost is one word of state and one operation per hash; nothing a node shares depends on the hash; and "nobody outside chooses the keys" is something the database cannot know of an application. Each instance draws a seed when it opens; every hash of the primary index uses it, for every key type and both comparisons; the seed is never stored, sent or shown; the order of an enumeration is unspecified |
-| **Where the rule lives** | The brief of S08, part 2 in the [document of Epic 1](epic-1-core.md), which carries the work |
+| **Where the rule lives** | The brief of S08, part 2 in the [document of Epic 1](epic-1/README.md), which carries the work |
 
 ### Q51. A read by name boxes a numeric key
 
@@ -554,7 +554,7 @@ in the meantime.
 | **Found** | 17 November 2026, an outside review of `main` after Epic 1, sprint S09 |
 | **Question** | The members of `ILatticeSet` take a primary key as `object`, so a read by name of an integer or a Guid key allocates a box on every call: 2,400,000 bytes for 100,000 reads of absent Int64 keys, against 0 through a class. The brief of S06 had left the box out of the measured read as the caller's allocation. Is that the contract? |
 | **Answer** | The planner, 17 November 2026, on the rules of `AGENTS.md`, reported to the owner: no. A signature that forces boxing per call on a read path is a defect of the contract, and access by name is not a second-class path. Every member by name that takes a primary key gets a form that takes it without a box; the shape — a generic key parameter, or overloads for the key families — is chosen by a figure in the contract step |
-| **Where the rule lives** | The brief of S09, part 2 in the [document of Epic 1](epic-1-core.md), which carries the change; the sentence of the brief of S06 is corrected |
+| **Where the rule lives** | The brief of S09, part 2 in the [document of Epic 1](epic-1/README.md), which carries the change; the sentence of the brief of S06 is corrected |
 
 ### Q53. A fresh insert found by a search before a read by key finds it
 
@@ -564,7 +564,7 @@ in the meantime.
 | **Question** | `ChangePublisher.InstallNew` installs the secondary entries of a new entity first, and `Install` stores its stamp and marks it live before the entry of the primary index. For a few instructions a search can return a fresh insert at the position of its write while a read by key of it still finds nothing, at the position before. Each answer is true at its own position, and a read in a session waits on the clock and finds it. Is this acceptable, or must a new entity become visible to every kind of read at once? |
 | **Answer** | Answered by the planner, 23 November 2026: closed by S17, part 2, point 2. The publication stores every member, an insert included, with its final stamp and publishes the position last, and a read does not accept a stamp above the position; so a search and a read by key see a fresh insert from the same position, and neither sees it before. The breaker of S17, part 2 held it on a master with single writes, and the tests of point 2 hold it on a child |
 | **What the code does** | As the brief of S17, point 2 says (`ChangePublisher`, `EntityTable`), since S17, part 2 |
-| **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md); `docs/decisions/document-model.md`, "Atomic WriteBatch within one database" |
+| **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1/README.md); `docs/decisions/document-model.md`, "Atomic WriteBatch within one database" |
 
 
 ### Q55. Should a value written by name be bound as a part of a search key is?
@@ -618,7 +618,7 @@ in the meantime.
 | **Question** | `UniqueIndexTests` assert the number of the failing member against a published owner. For two members of one batch that claim the same value no test and no document names it |
 | **Answer** | Taken by the planner, 22 and 23 November 2026, for the owner to read at the close of the sprint. A batch is judged in two phases. First each member against the state before the batch, in the batch's order: the first member that fails a condition of its own, a revision, a key that must be absent or present, is reported. Only when every member passes is the state the batch leaves judged for unique values, since that state does not exist before: the member with the lowest number among those that violate is reported, so of two members that claim one value the later, since the earlier alone would be accepted, and against a published owner that no member frees the member that claims; for one member that violates several indexes, the index declared first in its entity type. A refusal for memory is of the batch as a whole and names no member. Read and accepted by the owner, 23 November 2026 |
 | **What the code does** | As the brief of S17 says |
-| **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q63. Does a List have a bound of its own?
 
@@ -628,7 +628,7 @@ in the meantime.
 | **Question** | The stored form of S18 gives a List one directory level, so a List holds at most 268,173,376 bytes of packed elements (33,521,672 Int64) or about 3.3 million elements that hold text. The contract states no bound for a List; O19 names only String and Binary, and O20 allows a limit only where the engine cannot work without one |
 | **Answer** | Decided by the owner, 24 November 2026: the bound is stated in the contract, as the bound of a String is; a second directory level is built when an application needs a larger List. The planner reads it so for a Map and a Set, for the owner to read: their bound is the bound of a List of their entry records, and for a hashed form also of its lookup, as the study of S19 computes (a Set of String 3,348,892 members; a Map of String to String 1,674,446 entries; a Set of Guid and a Map of Int64 to Int64 16,760,836; a Set of Int64 23,465,170, bound by its lookup) |
 | **What the code does** | S18 enforces the List bound. S19 enforces the smaller of the entry layout and lookup bounds for Maps and Sets. A write above a bound fails with `ValidationFailed`, including when adding a member to a batch. |
-| **Where the rule lives** | The remarks of `LatticeFieldTypeEnum.List`, `Map` and `Set` and the briefs of S18 and S19 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The remarks of `LatticeFieldTypeEnum.List`, `Map` and `Set` and the briefs of S18 and S19 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q60. Which comparer do the `Dictionary` and the `HashSet` have that a read gives an entity class?
 
@@ -638,7 +638,7 @@ in the meantime.
 | **Question** | For a record the remarks of `LatticeValueDeclaration.ValueType` state that a Map or a Set read back has the comparer of the schema. For a class, the table of `ILatticeDatabase.Set<TEntity>` names only `Dictionary<K, V>` and `HashSet<T>`. With a key compared without case, a copy built with the default comparer finds by lookup what the database does not, or misses what it finds |
 | **Answer** | Answered by the planner, 24 November 2026, for the owner to read: the collections a read gives, to a record and to a class alike, have the comparer of the declaration of their key or element, so that a lookup in what was read finds what a lookup in the database finds. For text that is the schema's own comparison, as an `IEqualityComparer<string>` of the engine's, never `StringComparer.OrdinalIgnoreCase`, which is another comparison; the remarks say so in one sentence. `StringComparer.Ordinal` for Ordinal text only with a figure |
 | **What the code does** | Since S19 a read returns a `Dictionary` or `HashSet` sized to the collection, with equality from the declaration of its key or member. Both access forms use this rule, including for the String key of a reference. |
-| **Where the rule lives** | The brief of S19 in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The brief of S19 in the [document of Epic 1](epic-1/README.md) |
 
 ### Q65. Which properties does a view project without a schema file?
 
@@ -647,4 +647,4 @@ in the meantime.
 | **Found** | 25 November 2026, independent review of the S22 contract |
 | **Question** | A CLR class can inherit both a stored property and a UI-only property from an external assembly. `Set<TEntity>()` binds only the fields declared in a schema. The generator needs to know which properties to project when the application supplies its schema only at runtime. |
 | **Answer** | Taken by the coordinator and confirmed by the planner, 25 November 2026. A view can explicitly omit a CLR-only path. The first view still verifies that every field the database declares is projected. |
-| **Where the rule lives** | [The S22 contract](epic-1-core.md#s22--typed-protected-views) |
+| **Where the rule lives** | [The S22 contract](epic-1/sprints/s22.md#s22--typed-protected-views) |

@@ -1,6 +1,6 @@
 namespace Moltaro.Lattice.Measurements.Manifests;
 
-// The manifest a run of the measurement program is made under (docs/work/epic-1-core.md, Acceptance,
+// The manifest a run of the measurement program is made under (docs/work/epic-1/acceptance.md,
 // rules for every measurement): a committed file of this folder, named on the command line, which
 // says on what machine and with what software the figures were produced. A result without its
 // manifest is not evidence, so the program puts the whole manifest into the report of every run.

@@ -15,7 +15,7 @@ WriteBatch on 14 November 2026; see [Epic 2](../work/epic-2-identity-storage.md)
 
 ## Current discussion
 
-Milestone and sprint planning is tracked in [Epic 1](../work/epic-1-core.md). Start with the
+Milestone and sprint planning is tracked in [Epic 1](../work/epic-1/README.md). Start with the
 implementation contract, which fixes ownership, binary layout, allocation/lifetime,
 index preparation, write scheduling, PostgreSQL base/journal/results, TCP replication,
 schema migration, initial limits and the deterministic reference workload.

@@ -946,7 +946,7 @@ claim about the latest Identity implementation or plan. Keep the reasoning avail
 without treating the older model, feature selection or workaround as a current
 integration mandate.
 
-Reviewed the implementation repository's `docs/work/epic-1-core.md` and
+Reviewed the implementation repository's `docs/work/epic-1-core.md` (now `docs/work/epic-1/`) and
 `docs/work/epic-2-identity-storage.md` on 14 November 2026, read-only. Epic 2 describes
 an ASP.NET Core Identity store. Its requirements are consumer evidence, not automatic
 authorization to change accepted engine contracts.

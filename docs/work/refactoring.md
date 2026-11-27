@@ -25,7 +25,7 @@ path says otherwise.
 - **Register the follower's memory wait once** *(done in S24R)*. The ready child
   arms one signal under the budget lock after rollback. Capacity returned after
   registration signals the child, and the paced retry covers capacity returned
-  before registration. See the [S24R verification](epic-1-core.md#s24r--capacity-wait-and-ownership-cleanup).
+  before registration. See the [S24R verification](epic-1/sprints/s24r.md#s24r--capacity-wait-and-ownership-cleanup).
 - **Share the lifetime of one charged owner** *(refused in S24R)*. The stack-only
   scope lets a caller's exception filter observe the outstanding charge before it
   unwinds on a construction or registration failure. The existing catch releases
@@ -37,7 +37,7 @@ path says otherwise.
 - **Release parked bucket generations in one loop** *(done in S24R)*. Both
   publication and withdrawal use the bounded release walk. Withdrawal keeps the
   layout selected for restoration and returns the charge for that layout's
-  history wrapper when it reinstalls the layout. The [S24R work counts](epic-1-core.md#s24r--capacity-wait-and-ownership-cleanup)
+  history wrapper when it reinstalls the layout. The [S24R work counts](epic-1/sprints/s24r.md#s24r--capacity-wait-and-ownership-cleanup)
   report the equivalent work on the same input.
 - **Measure workspace retirement with a durable queue** *(joined S27)*.
   `WriteExecutor.FinishWorkspace` and `ReleaseUnusedWorkspace` can scan the
@@ -46,6 +46,109 @@ path says otherwise.
   capacity against equivalent runs with only the surviving owners. The
   ordinary single-member MemoryOnly path and immediate group do not show
   that cost.
+
+## Reviews after S24R, 27 November 2026
+
+Two read-only reviews of `main` at `2d8ff204`, started by the planner at the owner's
+request for an outside view of the work since S19: an architect's review of the code and
+the architecture, and an engineering review of the algorithms, the structures and the
+measured cost of S24. Both found the rules of `AGENTS.md` kept in the large — one type per
+file, `internal` by default, the direction of the assemblies and of Storage ← Replication
+← Engine, no new comment that cites a sprint, test projects foldered by area — and the
+mechanisms of S19 to S23 sound: reads take no lock, the epochs follow Tsavorite's
+`LightEpoch`, compaction is bounded per turn, Map and Set lookups are compact, no lock is
+held across an `await`. Both traced most of what they found to one choice of S24: byte-exact
+charges of managed objects and the return of capacity a failed preparation grew. The
+decision record [Q14](../decisions/write-admission.md) asks that a failed attempt release
+its partial preparation and reservations, and leaves exact managed accounting to
+engineering: the budget is not an exact cap. The owner
+decided on 27 November 2026 to charge memory by structure instead; that is
+[S24B](epic-1/sprints/s24b.md).
+
+Gone through by the planner the same day. Line numbers are those of `2d8ff204`, in
+`src/Moltaro.Lattice.Engine` unless a path says otherwise.
+
+**Joined (S24B)**, removed by the change of the accounting rule or carried out with it:
+
+- **Byte-exact charges of managed objects.** 49 hand-computed object-size formulas, for
+  example `Storage/Text/TextTable.cs:35`, `Storage/CollectionTails.cs:27-31`, and the
+  charge of one `WeakReference` in `Storage/Arena.cs:76,164-176`.
+- **One rule, ten implementations.** "Growth during a preparation is provisional, keep
+  the smaller predecessor, reinstate it on failure": `WorkspaceCapacity` with
+  `BackingHistory`, the journal of `src/Moltaro.Lattice/Budgeting/MemoryBudget.cs:51-97`, the segment directory of
+  `Arena.cs:1083-1147`, `Roots/RootTable.cs:52-55`, `Hashing/OverflowBuckets.cs:56,301`,
+  `Indexes/PrimaryIndex.cs:59,323`, `Text/TextTable.cs:470-570,749`,
+  `Text/TextLocator.cs:196-277`, `Text/TextWriterSlots.cs:17,219` and
+  `CollectionTails.cs:23,277`. The cold batch of 4,096 texts does about 3.6 times the work
+  of pre-S24 for it.
+- **Private members of runtime types.** `src/Moltaro.Lattice/Budgeting/BudgetCollections.cs:13-38`
+  reads `List<T>._items` and rewrites `Queue<T>._array`, `_head`, `_tail` and `_version`,
+  used by the retirement queue (`Engine/Protection/RetiredMemory.cs:262,279`), where a wrong
+  head would free native memory early; `BudgetDictionaries.cs:86-87` calls
+  `HashHelpers.GetPrime`, and `BudgetDictionaries.cs:111` and `BudgetHashSets.cs:72` mirror
+  private layouts. Not in the exceptions register.
+- **The budget's three jobs.** `MemoryBudget` is a counter, an undo journal bound to a
+  thread id (`src/Moltaro.Lattice/Budgeting/MemoryBudget.cs:20-49`, with `IsPreparing` changing behavior in `RootTable`,
+  `TextTable`, `TextLocator`, `TextWriterSlots` and `Arena`) and a test inventory
+  (`observesBackings`, `BudgetBackings`); `RootTable` inherits a journal node.
+- **A nullable budget the product never leaves null.** About 190 `budget?.` and
+  `is null` sites; `EngineDatabase.cs:143` always constructs one, and the modes differ.
+- **The root image charged and allocated per write.** `Arena.cs:181-219`,
+  `Roots/RootWriter.cs:139,665`: a reservation, a weak-slot check, `new byte[]` when the
+  width changes, a release; 704 of the 824 B of the Windows public pair.
+- **One global lock for every reservation and release**, also only to signal:
+  `src/Moltaro.Lattice/Budgeting/MemoryBudget.cs:269`, `Storage/Arena.cs:636,650`, `RootTable.cs:258`.
+- **A finalizable lease per batch addition, partial update and child transaction**
+  (`src/Moltaro.Lattice/Budgeting/MemoryLease.cs:245`, `src/Moltaro.Lattice/Access/Batches/WriteBatch.cs:102,163`, `Engine/Writes/PreparedUpdates.cs:20`,
+  `Engine/Child/Loading/ReceivedChanges.cs:646`, `Engine/Entities/UniqueClaims.cs:71`).
+- **A child's wake after a release before its registration** waits for the retry pause,
+  up to 5 s (`Engine/Child/Following/Follower.cs:358-377`, `Replication/RetryPause.cs`).
+- **No check of the balance** at run time or at close.
+- **Engine-only budgeting in the contract assembly**: what the batch builder does not
+  need moves into the engine.
+- **Tests that read private fields by name** for the budget (`Backing<T>(owner, "_field")`,
+  helper at `Moltaro.Lattice.Engine.Tests/Engine/MemoryBudget/InstanceBudget.cs:113`), as
+  S24B rewrites those tests.
+- **No design document describes the budget**; its narrative is only in the sprint records.
+
+**Taken (S24BR):**
+
+- One preparation bracket for the master and the child (`WriteCoordinator.cs:1016-1033`
+  with `WriteExecutor.cs:109-126`, against `ReceivedChanges.cs:417-453,465-525`), one
+  refusal ladder (`ReceivedChanges.cs:209-227,325-378` against
+  `WriteCoordinator.cs:975-1000`), one preparer of an update member
+  (`WriteExecutor.cs:299-323` against `:536-573`).
+- A refusal by memory reported one way: a result and `BudgetRefusedException`, caught at
+  18 sites, carry the same expected outcome.
+- Test scaffolding in shipped code in three styles (`Arm*Switch` fields,
+  `EngineFaultPointEnum`, `EngineTestInputs`, which grew from 5 members at S19 to 28, threaded
+  as `Action?` parameters); measurement-only members in `TextTable.cs:136-192,292` and four
+  snapshot types in `Storage/Text`. One hook mechanism; inspection in `TestAccess` partials.
+- The remaining test reads of private fields by name (169 in 26 files at `2d8ff204`),
+  replaced with named internal inspection members, each assertion keeping its meaning.
+- Two folder cycles: Engine.Writes ↔ Engine.Delivery (`Engine/Delivery/TransactionEncoder.cs:2,24`)
+  and Access.Binding ↔ Access.Updates (`src/Moltaro.Lattice/Access/Updates/UpdateValueBinding.cs:13`);
+  a test of the direction between folders.
+- Heads far over twenty lines (`WriteCoordinator` 235, `ReceivedChanges` 91,
+  `WriteExecutor` 74, `RetiredMemory` 67), with the narrative moved to the design
+  reference; `HeldPersistence.cs` exists in both `Moltaro.Lattice.Engine.Tests` and
+  `Moltaro.Lattice.Measurements`; `Moltaro.Lattice.Measurements/Scenarios` is a flat
+  folder of 49 files.
+
+**Planned as a sprint (S25L):** the lifecycle kept as separate marks with the precedence
+of Closed, Faulted, Lost, cancellation and timeout decided at each call site
+(`Engine/EngineDatabase.cs:96,100,134,167-177,540-561`, `Engine/Protection/ReadEpochs.cs:75-77`,
+`Engine/Positions/PositionClock.cs:43-54,183-209,248-279`, `Engine/Sets/SetOperations.cs:166`,
+`Engine/Child/Forwarding/Forwarder.cs:376`, the close barrier entered at
+`WriteCoordinator.cs:587` and left at six places); `PositionClock.Publish` takes its lock
+with no wait registered. See [S25L](epic-1/sprints/s25l.md).
+
+**Accepted:** encoding a packed Map with owned values boxes each entry through
+`KeyValuePair<object?, object?>`; it is on the write path only.
+
+**For later briefs:** S23C to S23F inject managed allocation failures at trims and at close.
+Q14 does not claim that every process-wide allocation failure can be caught safely; a
+brief asks for it only where a decision record does.
 
 ## Order
 
@@ -72,7 +175,7 @@ Gone through by the planner and the coordinator on 18 November 2026.
   S14; it replaces the order for S14R set on 18 November:
   1. **B2,** done on 20 November 2026 (merged to `main` as 19d3f6b); its series is the first item
      of the plan of the start of the machine for S14, part 2.
-  2. **S14, part 2** of the [epic](epic-1-core.md), which joins E1, E2, E4, E8 and the
+  2. **S14, part 2** of the [epic](epic-1/README.md), which joins E1, E2, E4, E8 and the
      half of E3 that is `HasKey`.
   3. **S14R,** structure only: I1 to I4 of the review of S14; the loops of E3, with I1;
      E7; E9; A9; M1; E10; F1; F4; and what was taken into it before — A3 with B4, A4 with B1 (in
@@ -130,7 +233,7 @@ Gone through by the planner and the coordinator on 18 November 2026.
      listings of the callers it names, on the workstation; its figures are owed to the start
      of S18, on `index-writes` with 3 and 6 indexes, `unique-writes` lines 1 to 3 and
      `following-children`. Done on 23 November 2026, in one round of review; its record is
-     in the [epic](epic-1-core.md).
+     in the [epic](epic-1/README.md).
   6b. **S18R,** set by the planner on 24 November 2026 after the architect's review after
      S18: Z3, Z8, Z6, Z7, Z2 (a) to (d), Z4, Z1, and Z5 last. The next work, in order (the
      planner, 24 November 2026): the fix of the state of an instance behind its fault, form
@@ -141,9 +244,9 @@ Gone through by the planner and the coordinator on 18 November 2026.
      each entry to the sprint that changes its path. See the
      [architect's review after S19](#architects-review-after-s19-24-november-2026).
   6d. **S20I** is done on 25 November 2026. See the
-     [clock correction and historical Debug controls](epic-1-core.md#s20i--investigate-the-debug-timeouts).
+     [clock correction and historical Debug controls](epic-1/sprints/s20i.md#s20i--investigate-the-debug-timeouts).
   6e. **S20R** took the bounded R2 work on packed Map copies and whole writes
-     after S20I and before S21. See the [record](epic-1-core.md#s20r--refactor-packed-map-scalar-pairs).
+     after S20I and before S21. See the [record](epic-1/sprints/s20r.md#s20r--refactor-packed-map-scalar-pairs).
      The common S21 ARM64 measurement queue takes R2 and the two R1 experiments
      after their x64 preflights.
   7. **S23,** with F8 and V2.
@@ -278,7 +381,7 @@ structure only and changes no behavior.
 The costs the reviews found — the pool of nodes topped up and trimmed on every write, both
 entries built three times for each index, what a search allocates, `CompareText` — are
 not refactoring: they change measured figures and belong to S14, part 2 of the
-[epic](epic-1-core.md).
+[epic](epic-1/README.md).
 
 ## Architect's review after S14, 19 November 2026
 
@@ -288,7 +391,7 @@ S15 and S17 all change next — the reservation in `OrderedTree`, two forms of a
 the decision a write makes for each index, which nothing keeps. Read at `main` 53b404c,
 whose line numbers these are. Gone through by the planner on the same day. An entry that
 changes a measured figure is not refactoring and is joined to S14, part 2 of the
-[epic](epic-1-core.md).
+[epic](epic-1/README.md).
 
 | # | Place | What is wrong | The simpler form | What must be shown unchanged | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -298,7 +401,7 @@ changes a measured figure is not refactoring and is joined to S14, part 2 of the
 | E4 | `Engine/Indexes/SearchKey.cs` 36, 48, 105–120 | The constructor demands the full key and copies the texts, so leading parts, bounds and a key to resume from have no form; the order of the identities is derived twice | The caller gives the bound parts and owns the texts as spans; `RootHandle` exposes its packed value once | `SearchAllocationTests`, `PausedSearchTests` | joined (S14, part 2), its (c) |
 | E5 | `src/Moltaro.Lattice.Measurements/Scenarios/IndexSearchScenario.cs` 157–257 | B2 has grown to five copies: the window of the index scenarios calls a delegate for each step | At B2 | At B2 | joined to B2, which is taken now |
 | E6 | `Engine/Entities/EntityTable.cs` 520–569, 666–693 (772 lines); `Engine/Entities/EntityPass.cs` 39–157 | The walk of S15 would land in the table | The read limits as one small type that `EntityPass` and `IndexSearch` both hold; one descent of a reader in `OrderedTree` that yields the leaf, the place and the fence in either direction — today `TryFindFirst` returns only an identity and descends twice | — | done (S15, part 1): the read limits in `ReadLimits`, which `EntityPass` and `IndexSearch` hold by value; one descent of a reader, `OrderedTree.Seek` by a search key or by a whole entry in either direction, which yields the leaf, the place and the fence on the side of travel (`TreePlace`), and `TryFindFirst` is gone |
-| E7 | `Storage/Ordered/NodeStorage.cs` 21–85; `IndexLayout.SharedTexts` 278–306 and `SharedTextSlotBytes` 311–334; `OrderedTree.PublishTexts` 964–978 | The walk over the shared keys of an entry is written several times | One member that yields the descriptors | — | done (S14R, part 1): `SharedTexts` yielded the descriptors; the references of a text stay for each node (F8). As merged it cost an insert and a delete of an index with a String part 4 to 8 %, found by the first start of the rented machine for S15, part 1, which carried the build before S14R: the `stackalloc` beside the loop of `NodeStorage.Retire` compiled it without tiering and kept it from being inlined into the retirement of a node, about 54 calls more on each insert and each delete, since a replace retires no node. Of two fixes measured on the second start, V1, the sum of the slot bytes back, came to 0.96 to 0.99 of the build before S14R on the insert-and-delete lines of `write-callers`, and V2, the shared keys of an entry walked by the ref struct `SharedKeys` with no `stackalloc`, to 1.01 to 1.08, with nothing lost on `index-long-text`; two lines whose rounds scatter for every build are not judged, readers of the other database beside one caller that inserts and deletes, and an insert and a delete with a common head of a long key. V2 is taken by the rule written before the start, in the brief of S15, part 1 (`docs/work/epic-1-core.md`), and `SharedTexts` goes with it. V2 also makes a replace that changes a long text key and an insert and a delete with distinct heads 8 to 14 % faster on that machine, as measured on those lines only. Left from its review: `SharedKeys` repeats the `HasText` check its callers make, it has an unused `using`, and a few of its comments could read better, for the next refactoring sprint; the `using` is gone (S15R, 61b647e), the check is left, since it is on the write path, where E7 shows that a small change moves what the JIT makes; and no test holds the text bytes `NodeStorage.Retire` reports, a gap older than the fix, for the next sprint that touches the retirement of a node |
+| E7 | `Storage/Ordered/NodeStorage.cs` 21–85; `IndexLayout.SharedTexts` 278–306 and `SharedTextSlotBytes` 311–334; `OrderedTree.PublishTexts` 964–978 | The walk over the shared keys of an entry is written several times | One member that yields the descriptors | — | done (S14R, part 1): `SharedTexts` yielded the descriptors; the references of a text stay for each node (F8). As merged it cost an insert and a delete of an index with a String part 4 to 8 %, found by the first start of the rented machine for S15, part 1, which carried the build before S14R: the `stackalloc` beside the loop of `NodeStorage.Retire` compiled it without tiering and kept it from being inlined into the retirement of a node, about 54 calls more on each insert and each delete, since a replace retires no node. Of two fixes measured on the second start, V1, the sum of the slot bytes back, came to 0.96 to 0.99 of the build before S14R on the insert-and-delete lines of `write-callers`, and V2, the shared keys of an entry walked by the ref struct `SharedKeys` with no `stackalloc`, to 1.01 to 1.08, with nothing lost on `index-long-text`; two lines whose rounds scatter for every build are not judged, readers of the other database beside one caller that inserts and deletes, and an insert and a delete with a common head of a long key. V2 is taken by the rule written before the start, in the brief of S15, part 1 (`docs/work/epic-1/sprints/s15.md`), and `SharedTexts` goes with it. V2 also makes a replace that changes a long text key and an insert and a delete with distinct heads 8 to 14 % faster on that machine, as measured on those lines only. Left from its review: `SharedKeys` repeats the `HasText` check its callers make, it has an unused `using`, and a few of its comments could read better, for the next refactoring sprint; the `using` is gone (S15R, 61b647e), the check is left, since it is on the write path, where E7 shows that a small change moves what the JIT makes; and no test holds the text bytes `NodeStorage.Retire` reports, a gap older than the fix, for the next sprint that touches the retirement of a node |
 | E8 | `Engine/Sets/SetIndex.cs` 63–82, 103–108, and `Engine/EngineDatabase.cs` 573–595 (`WaitForPositionAsync`, both overloads, added by the planner on 20 November 2026), against `SetOperations.ReadAsync` 62–74 | A fast path written by hand on which a failure is thrown at the call, while after a wait it comes through the task | Not refactoring, a defect of consistency: the rule `ReadAsync` keeps, a caller's mistake thrown at the call and what the database decides through the task | — | joined (S14, part 2), its (c), test first |
 | E9 | `Storage/Values/StoredScalars.cs` 96–140 | It takes the contract's `IndexValue`, and only `SearchKey` uses it | The switch moves beside `SearchKey` | `IndexPartValueTests` | done (S14R, part 1): the switch is `SearchKey.WriteFixed` |
 | E10 | `Engine/Writes/PreparedWrite.cs` (`WriteChange`, the comment at `SetNoChange`); `Engine/Writes/WriteExecutor.cs` (`TryPrepareDelete`); `Engine/Entities/ChangePublisher.cs` (the loop of `Publish`) | Two P4 of the review of the merge in S14 and two leftovers of the listings of the JIT: nothing asserts that the record `WriteChange` writes changes no entity yet; the comment at `SetNoChange` is inexact; `refusal = null` in `TryPrepareDelete` is redundant; the loop of `Publish` has a check of bounds the build before S14 did not have | The assertion; the comment corrected; the assignment removed; the check gone, as before S14 | — | done (S14R, part 1), but for the check of bounds in the loop of `Publish`: it is there before S14 too, from the `Enqueue` of the retired list, so that premise did not hold and it stays |
@@ -318,7 +421,7 @@ Taken by the planner and the coordinator on the same day.
 | F5 | `src/Moltaro.Lattice.Engine/Engine/Entities/EntityTable.cs` (`TrySearch`, the condition that the end of a run is reported at the sequence before the step only when the sequence did not move) | No test holds the check. A mutant that drops it passes every test and every probe through the public API: a lazy `Find` drops the sequences of its steps, and `FindAsync` takes the largest of them, so no public path sees the sequence of the end step alone. A probe of the engine that takes the steps itself catches the mutant in every run, but it reaches the sequence only through private fields, and no member gives it. The check guards a replace or a delete of an entity after the identity, which publishes its position before it removes the old entry | The test, written with the first consumer of that sequence, the search resumed and paged, against the member that consumer needs; the probe kept with the outputs of the review of S14, part 2, outside the repository, is its starting point: 40 of 40 runs of one second caught the mutant, none of 55 failed on correct code, and the worst run caught it by 2 ends | removed with its subject (S15, part 1): the implementer and the breaker of S15, part 1 each answered on 21 November 2026 that nothing relies on an end at exactly the reported sequence, the owner removed the sentence of the Acceptance that asked for the test, and the end a step that copies an entity sees is reported at the sequence of that step, without the check; the probes of the breaker of S14, part 2 and of S15, part 1 are kept with their outputs, outside the repository, as the evidence |
 | F6 | `src/Moltaro.Lattice.Engine/Storage/Ordered/IndexLayout.cs` (`SameEntry`), with `RootLayout.StoredFieldOf` | The decision whether a write changes an index looks up the stored field of each part four times on every write, through a call that is not inlined: two for whether it is null and two for its bytes. On the head of S14, part 2 this is about 15 ns an index on the workstation of the breakdown, the most of the 30 ns an index that a replace keeping every key costs on the rented machine, where the owner accepted 0.94 and 0.86 of the rate without indexes with three and six indexes | The stored fields of an index resolved once when its layout is compiled, so that the decision reads each part from a known offset, width and null bit, with the same rule as today and no second path beside it; then the line of index-writes measured again | done (S16, e79a710): `EntryPart.Stored` holds the stored field, resolved once with the layout of the index. In the start of S16 the head over 57be01b runs at 1.02, 1.06 and 1.10 on a replace that keeps every key with 1, 3 and 6 indexes, one caller, the gauge 0.995 to 1.01: 0.94, 0.98 and 0.93 of the rate without indexes, where the owner had accepted 0.94 and 0.86. G2 and the implementation are measured with it, in one build |
 | F7 | `src/Moltaro.Lattice.Measurements/Scenarios/WriteCallersScenario.cs` and `ReadByKeyThreadsScenario.cs` | Both work on the users of the reference fixture, a type with three indexes, so neither measures a type without indexes, though the plan of the machine for S14, part 2 named them for it; that statement rested on the lines of `index-writes` with no index, one caller | A line of `write-callers` over a type without indexes, with its callers and its readers beside them, so that a start can state on many callers and readers that a type without indexes loses nothing | done (S15, part 1): the line of `write-callers` over users without indexes, compared on the first start of S15, part 1 with the line added to the older builds as a patch; a type without indexes loses nothing, neither to S14R nor to S15, part 1 |
-| F8 | `src/Moltaro.Lattice.Engine/Storage/Ordered/NodeStorage.cs` (the references of a shared text) | Each node that holds an entry of a shared key takes a reference to its text entry, so every copy of a leaf takes one for each such entry and every free releases them. A variant that leaves the reference to the root of the entry, for each entry, measured on the rented machine with keys of 100 and 200 bytes: a replace that changes the key 1.45 to 1.51 times the head, an insert and a delete 1.9 to 2.1 with distinct heads, a search and a replace that keeps the key unchanged; its patch is kept with the outputs of the start of S14, part 2, outside the repository | The references of a shared text held for each entry. It changes who holds a reference to a shared text, a rule of the [decision on strings](../decisions/strings.md), and its safety rests on the order of retirement: the owner's question, which the planner brings | S23 kept per-node ownership as required by Q04.4. A physical text move preserves the stored reference count. The root-only variant remains an experiment. Reconsidering ownership requires a separate accepted decision. See the [index lifetime rule](../design/ordered-index.md#text-references) and the [S23 indexed-text probe](epic-1-core.md#final-arm64-acceptance-evidence). |
+| F8 | `src/Moltaro.Lattice.Engine/Storage/Ordered/NodeStorage.cs` (the references of a shared text) | Each node that holds an entry of a shared key takes a reference to its text entry, so every copy of a leaf takes one for each such entry and every free releases them. A variant that leaves the reference to the root of the entry, for each entry, measured on the rented machine with keys of 100 and 200 bytes: a replace that changes the key 1.45 to 1.51 times the head, an insert and a delete 1.9 to 2.1 with distinct heads, a search and a replace that keeps the key unchanged; its patch is kept with the outputs of the start of S14, part 2, outside the repository | The references of a shared text held for each entry. It changes who holds a reference to a shared text, a rule of the [decision on strings](../decisions/strings.md), and its safety rests on the order of retirement: the owner's question, which the planner brings | S23 kept per-node ownership as required by Q04.4. A physical text move preserves the stored reference count. The root-only variant remains an experiment. Reconsidering ownership requires a separate accepted decision. See the [index lifetime rule](../design/ordered-index.md#text-references) and the [S23 indexed-text probe](epic-1/sprints/s23.md#final-arm64-acceptance-evidence). |
 | F9 | `src/Moltaro.Lattice.Measurements/Scenarios/IndexReadByKeyScenario.cs`, the line of 0 indexes, 1 thread, alone, before and after B2 | On the same engine the harness of B2 reads that line at 0.888 of the old one, in rounds of 0.94, 0.87 and 0.89, where its gauge is a single pair at 1.066; every other judged line agrees. Until the difference has a cause, the figures of that line recorded before B2 are not compared with figures after it | The cause found by reading what the old and the new harness do for that line: the window, the warm-up and what lies inside the timed region; if reading does not show it, that start carries a series of three builds for this line | investigation complete. The [matched ARM64 comparison](#f9-index-read-by-key-driver-comparison) did not reproduce the fall. The historical cause remains unresolved and the pre-B2 line remains incomparable with later figures |
 | F10 | `src/Moltaro.Lattice.Samples/Limits/ReadLimitsSample.cs` and `MemoryLimitSample.cs` | Both samples show their limit held and never reached, so the block that catches the refusal never runs: a sample of a limit teaches half of it | The sample of the read limits shows a limit reached and the error an application sees, in S15, part 1, whose tests and sample extend those limits to a search; the sample of the memory limit shows a write refused for memory and what the application does next, in S24. Each still runs to the end: its catch block reports and the program goes on | done in part (S15, part 1): the read limits of a search, `ReadMemoryLimit` counting what the search remembers from the moment it is remembered and every entity of an answer by everything stored for it, `ReadTimeLimit` the engine time of its steps, the token looked at before a limit at every place; taken (S24), the memory limit |
 | F11 | `src/Moltaro.Lattice.TestSupport/Replication/ClosedPort.cs` and `ListeningPort.cs`, with the tests that free a port for a master to open at, `OpenTimeoutTests.Child_started_before_its_master_becomes_ready_when_the_master_opens_within_its_OpenTimeout` among them | Between freeing the port and the master binding it, any socket can take the port. The test then fails loudly, never with a false pass: it did once, AddressAlreadyInUse, in a Release run of S14R while another agent ran the suite on the same workstation | A master that takes a listener the test already holds, so that no port is ever free between the two | taken (the first sprint that touches the opening of the listener of a master; earlier if it fails once more on a machine that is not loaded) |
@@ -449,7 +552,7 @@ Left as they are, from this review:
   cannot be deterministic on the clock of the machine: a stall counts as engine time, and
   the test controls only the lower bound of a step. Making it so changes the engine and
   how the test judges, which is not refactoring: a task of S18 in the
-  [document of Epic 1](epic-1-core.md). A form that only widens its constants is not
+  [document of Epic 1](epic-1/README.md). A form that only widens its constants is not
   taken. Until then the test stays as it is, is not skipped and not loosened, and a
   failure of it under load is kept with its output and is not a finding of the sprint
   that met it.
@@ -468,7 +571,7 @@ a child that would refuse a valid swap.
 
 | # | Place | What is wrong | The simpler form | What it must keep | Status |
 | --- | --- | --- | --- | --- | --- |
-| K1 | The preparation and the upkeep of an insert and a delete of a type with indexes and none of them unique: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`), `Engine/Entities/EntityTable.cs` (`TryFind`), `Engine/Writes/PreparedWrite.cs`, `PendingWrite.cs` | In the start of S16 an insert and a delete by name of the fixture's users, one caller, `write-callers`, run at 0.984 of 57be01b, the gauge 0.990, and every run of the two builds of the head is below the runs of the three builds before: 157.7 k to 163.8 k a second against 162.5 k to 166.6 k. What is specific to the users is three text indexes, ByLogin, ByEmail and ByRegionAndLogin, none of them unique, so the check of a unique value does not run. The same sprint makes the inserts and deletes of `index-writes`, Int64 indexes through the class, 7 % faster. A control on the workstation, the builds step by step, scattered too much to show a cause. The candidates are the 16 bytes added to the record of a write, the load G2 moves into the lookup, and the split of `TryReserve` | Not known until the cause is: the line on the machine, the builds of the sprint step by step | Every guarantee of S16; the size of the record a write needs | closed on 23 November 2026, below. Counted by the JIT listing of a Release driver over the public API, with `DOTNET_JitDisasm` and tiered PGO off, on the workstation (S16R): the users of the fixture inserted and deleted by name, at 57be01b and at 5d27900. (1) `ChangePublisher.TryReserveWithIndexes` makes 16 calls in 972 bytes instead of 20 in 1,264, its frame 144 bytes in both; `TryReserve` makes 5 calls in both, 226 bytes instead of 222; `InstallNew` 3 calls in 157 bytes instead of 4 in 194 and `RemoveOld` 5 calls in both, 218 bytes instead of 216, each with a frame 8 bytes larger; `StampDelete` and `Record` are inlined in both and `ChangeAt` is a call in both, so no call stopped being inlined. (2) The descent of an insert (`OrderedTree.Insert`, `Descend`) and `IndexOrder.CompareKeys` and `CompareTexts` make the same calls in the same bytes, but that `CompareKeys` steps over the parts by 56 bytes instead of 32: `EntryPart` grew from 32 to 56 bytes by the stored field at its end, and no offset moved. (3) `WriteExecutor.TryPrepare` makes the same 37 calls, 1,655 bytes instead of 1,622, its frame 280 bytes instead of 264: the replaced root `EntityTable.TryFind` gives lies in the frame as an out value and goes to `TryPrepareDelete` as one more argument, which puts one more of its arguments on the stack, and the key the preparation copies lies 8 bytes later in the record of the write; `TryPrepareInsert` and `TryPrepareDelete` are calls in both, 21 and 14 calls, 802 and 534 bytes instead of 785 and 527. (4) Not identical, as expected: `EntityTable.TryFind` makes 6 calls in both, 666 bytes instead of 639; `WriteCoordinator.Prepare` 5 calls in both, 213 bytes instead of 206; `TryPrepareTwice` inlines the check of a taken value, 8 calls in 415 bytes instead of 4 in 191, of which only the test of `HasUniqueIndex` runs for these users, and `TryReserveWithIndexes` reaches `TryReserveChecked` only for a type with a unique index; `MarkCompleted` 7 calls in 233 bytes instead of 6 in 208, the new call `ReleaseWaitersOf` behind the test of an empty list. No call is added on the path of these users, and the listings name no cause. After L2 (e5d8d5e) the listings of (1) are those of 5d27900, and `CompareKeys` steps by 48 bytes, its offsets 8 bytes lower. The cause is decided in the start of the machine of S17 by the builds 57be01b, e79a710, 138215c, 2da3bf7 and 5d27900, with L2. In the start of S17 (the rented ARM64 machine, five rounds) no step of S16 separates from the gauge, and S16 as a whole runs at 0.962 of 57be01b, below 1 in every round; the five trees ran adjacent and in one order, which the next start rotates. With part 1 of S17, which costs 2 to 6.5 % on writes that reserve in a secondary index, the entry is the path of such a write as a whole (the planner, 23 November 2026): listings at 57be01b, 5d27900, b9a9074 and ed81c76, kept outside the repository, count what it pays. They were taken again on 23 November 2026 at every step of S16 (57be01b, e79a710, 138215c, 2da3bf7, 5d27900) and at b9a9074, each driver built alone and its engine compared with the build's, since a driver whose folder held the output of another build could resolve that build's engine: the counts (1) to (4) stand, and the growth now shows step by step. F6 (e79a710) changes none of them. G2 (138215c) makes `TryReserveWithIndexes` 15 calls in 920 bytes, `InstallNew` 3 calls in 157, the frames of `InstallNew` and `RemoveOld` 8 bytes larger, `TryPrepare` 1,655 bytes with its frame of 280, `TryFind` 666 bytes and `TryPrepareDelete` 540. The unique indexes (2da3bf7) make `TryReserveWithIndexes` 16 calls in 972 bytes, `TryReserve` 226, `TryPrepareInsert` 802, `TryPrepareDelete` 534, `Prepare` 213, `TryPrepareTwice` 8 calls in 393 and `MarkCompleted` 7 calls in 233; the last commit of the sprint (5d27900) makes `TryPrepareTwice` 415 bytes. Counted by the rule of the record of S17, part 2 in `epic-1-core.md`, an insert into one Int64 index makes 21 + n calls at every step of S16 and at b9a9074, n being the nodes refilled, and a delete from G2 on makes two fewer than before G2, the two calls of `RootTable.Entry`, whose root the lookup now gives; so S16 adds only cold code to a write into an Int64 index, and part 1 raises the insert to 34 + 3n. It closes when a change brings the lines back within the gauge of 57be01b, or when the count shows what the two sprints bought and the planner accepts it with the figure. Closed on 23 November 2026, by that rule, in the start of the machine before the close of S17, with its trees rotated: the head of part 3 against 57be01b 0.990, within the gauge, none called (every ratio in the record of that start in `epic-1-core.md`); the 0.962 of the start of part 2, with the trees adjacent in one order, did not reproduce. The steps of S16 were not separated, because the listings count them and the entry closes on the head against 57be01b. What the path of a write with several indexes still pays after S17 is K2 |
+| K1 | The preparation and the upkeep of an insert and a delete of a type with indexes and none of them unique: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`), `Engine/Entities/EntityTable.cs` (`TryFind`), `Engine/Writes/PreparedWrite.cs`, `PendingWrite.cs` | In the start of S16 an insert and a delete by name of the fixture's users, one caller, `write-callers`, run at 0.984 of 57be01b, the gauge 0.990, and every run of the two builds of the head is below the runs of the three builds before: 157.7 k to 163.8 k a second against 162.5 k to 166.6 k. What is specific to the users is three text indexes, ByLogin, ByEmail and ByRegionAndLogin, none of them unique, so the check of a unique value does not run. The same sprint makes the inserts and deletes of `index-writes`, Int64 indexes through the class, 7 % faster. A control on the workstation, the builds step by step, scattered too much to show a cause. The candidates are the 16 bytes added to the record of a write, the load G2 moves into the lookup, and the split of `TryReserve` | Not known until the cause is: the line on the machine, the builds of the sprint step by step | Every guarantee of S16; the size of the record a write needs | closed on 23 November 2026, below. Counted by the JIT listing of a Release driver over the public API, with `DOTNET_JitDisasm` and tiered PGO off, on the workstation (S16R): the users of the fixture inserted and deleted by name, at 57be01b and at 5d27900. (1) `ChangePublisher.TryReserveWithIndexes` makes 16 calls in 972 bytes instead of 20 in 1,264, its frame 144 bytes in both; `TryReserve` makes 5 calls in both, 226 bytes instead of 222; `InstallNew` 3 calls in 157 bytes instead of 4 in 194 and `RemoveOld` 5 calls in both, 218 bytes instead of 216, each with a frame 8 bytes larger; `StampDelete` and `Record` are inlined in both and `ChangeAt` is a call in both, so no call stopped being inlined. (2) The descent of an insert (`OrderedTree.Insert`, `Descend`) and `IndexOrder.CompareKeys` and `CompareTexts` make the same calls in the same bytes, but that `CompareKeys` steps over the parts by 56 bytes instead of 32: `EntryPart` grew from 32 to 56 bytes by the stored field at its end, and no offset moved. (3) `WriteExecutor.TryPrepare` makes the same 37 calls, 1,655 bytes instead of 1,622, its frame 280 bytes instead of 264: the replaced root `EntityTable.TryFind` gives lies in the frame as an out value and goes to `TryPrepareDelete` as one more argument, which puts one more of its arguments on the stack, and the key the preparation copies lies 8 bytes later in the record of the write; `TryPrepareInsert` and `TryPrepareDelete` are calls in both, 21 and 14 calls, 802 and 534 bytes instead of 785 and 527. (4) Not identical, as expected: `EntityTable.TryFind` makes 6 calls in both, 666 bytes instead of 639; `WriteCoordinator.Prepare` 5 calls in both, 213 bytes instead of 206; `TryPrepareTwice` inlines the check of a taken value, 8 calls in 415 bytes instead of 4 in 191, of which only the test of `HasUniqueIndex` runs for these users, and `TryReserveWithIndexes` reaches `TryReserveChecked` only for a type with a unique index; `MarkCompleted` 7 calls in 233 bytes instead of 6 in 208, the new call `ReleaseWaitersOf` behind the test of an empty list. No call is added on the path of these users, and the listings name no cause. After L2 (e5d8d5e) the listings of (1) are those of 5d27900, and `CompareKeys` steps by 48 bytes, its offsets 8 bytes lower. The cause is decided in the start of the machine of S17 by the builds 57be01b, e79a710, 138215c, 2da3bf7 and 5d27900, with L2. In the start of S17 (the rented ARM64 machine, five rounds) no step of S16 separates from the gauge, and S16 as a whole runs at 0.962 of 57be01b, below 1 in every round; the five trees ran adjacent and in one order, which the next start rotates. With part 1 of S17, which costs 2 to 6.5 % on writes that reserve in a secondary index, the entry is the path of such a write as a whole (the planner, 23 November 2026): listings at 57be01b, 5d27900, b9a9074 and ed81c76, kept outside the repository, count what it pays. They were taken again on 23 November 2026 at every step of S16 (57be01b, e79a710, 138215c, 2da3bf7, 5d27900) and at b9a9074, each driver built alone and its engine compared with the build's, since a driver whose folder held the output of another build could resolve that build's engine: the counts (1) to (4) stand, and the growth now shows step by step. F6 (e79a710) changes none of them. G2 (138215c) makes `TryReserveWithIndexes` 15 calls in 920 bytes, `InstallNew` 3 calls in 157, the frames of `InstallNew` and `RemoveOld` 8 bytes larger, `TryPrepare` 1,655 bytes with its frame of 280, `TryFind` 666 bytes and `TryPrepareDelete` 540. The unique indexes (2da3bf7) make `TryReserveWithIndexes` 16 calls in 972 bytes, `TryReserve` 226, `TryPrepareInsert` 802, `TryPrepareDelete` 534, `Prepare` 213, `TryPrepareTwice` 8 calls in 393 and `MarkCompleted` 7 calls in 233; the last commit of the sprint (5d27900) makes `TryPrepareTwice` 415 bytes. Counted by the rule of the record of S17, part 2 in `epic-1/sprints/s17.md`, an insert into one Int64 index makes 21 + n calls at every step of S16 and at b9a9074, n being the nodes refilled, and a delete from G2 on makes two fewer than before G2, the two calls of `RootTable.Entry`, whose root the lookup now gives; so S16 adds only cold code to a write into an Int64 index, and part 1 raises the insert to 34 + 3n. It closes when a change brings the lines back within the gauge of 57be01b, or when the count shows what the two sprints bought and the planner accepts it with the figure. Closed on 23 November 2026, by that rule, in the start of the machine before the close of S17, with its trees rotated: the head of part 3 against 57be01b 0.990, within the gauge, none called (every ratio in the record of that start in `epic-1/sprints/s17.md`); the 0.962 of the start of part 2, with the trees adjacent in one order, did not reproduce. The steps of S16 were not separated, because the listings count them and the entry closes on the head against 57be01b. What the path of a write with several indexes still pays after S17 is K2 |
 
 ## Found while building S17, part 3, 23 November 2026
 
@@ -481,7 +584,7 @@ a child that would refuse a valid swap.
 
 | # | Place | What is wrong | The simpler form | What it must keep | Status |
 | --- | --- | --- | --- | --- | --- |
-| K2 | The write path of a type with several indexes after S17: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`, `TopUpIndexes`), `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `LeftAfterMove`, `Trim`), `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `AfterPublication`) | S17 costs a write that reserves in a secondary index. By listing, an insert into one Int64 index makes 25 + 2n calls at the head where it made 21 + n at b9a9074, n being the nodes refilled, the same on x64 and on ARM64 call for call. By ratio, the head against b9a9074 on `index-writes` down to 0.910; the ratios of part 1, of the bound by levels with what it bought, and of the write path, which bought nothing this method can see, are in the table of falls of the record of the start of the machine before the close of S17 in `epic-1-core.md`. The second line: part 2's insert that grows the primary index, 2 to 4 % by the start of part 2, owed, since no series of the last start grew the primary index; the next start carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated. The third line: part 3's `unique-writes` line, 0.953 against f6d9cf3, not explained by its listing, run again in the next start with the machine's listings (the same record) | Not known. The question to the architect's review after S17: what of the cost per index and per reservation can go without giving up the bound by levels or the check on the final state | The bound by levels: a batch whose take fits is not refused for its bound, and a refused or withdrawn reservation gives back exactly what it took; the check of unique values on the state a publication leaves; every guarantee of S17; no added load on a read | closed on 24 November 2026, after the start of the machine for S18 (its record in the [epic](epic-1-core.md)): the first line by `kd`, taken as a change of the light track of its own (four lines of `index-writes` 1.017 to 1.060, none falling), and applied as recorded below; `kbc` refused (3.1 to 5.4 % on six lines); the re-inlining of `NodePool.AfterPublication` not needed; the second line closed, part 2's growing insert not standing with the trees rotated; the third line closed, part 3's line not reproducing rotated. The reported fall while the primary index grows was carried as K3 |
+| K2 | The write path of a type with several indexes after S17: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`, `TopUpIndexes`), `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `LeftAfterMove`, `Trim`), `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `AfterPublication`) | S17 costs a write that reserves in a secondary index. By listing, an insert into one Int64 index makes 25 + 2n calls at the head where it made 21 + n at b9a9074, n being the nodes refilled, the same on x64 and on ARM64 call for call. By ratio, the head against b9a9074 on `index-writes` down to 0.910; the ratios of part 1, of the bound by levels with what it bought, and of the write path, which bought nothing this method can see, are in the table of falls of the record of the start of the machine before the close of S17 in `epic-1/sprints/s17.md`. The second line: part 2's insert that grows the primary index, 2 to 4 % by the start of part 2, owed, since no series of the last start grew the primary index; the next start carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated. The third line: part 3's `unique-writes` line, 0.953 against f6d9cf3, not explained by its listing, run again in the next start with the machine's listings (the same record) | Not known. The question to the architect's review after S17: what of the cost per index and per reservation can go without giving up the bound by levels or the check on the final state | The bound by levels: a batch whose take fits is not refused for its bound, and a refused or withdrawn reservation gives back exactly what it took; the check of unique values on the state a publication leaves; every guarantee of S17; no added load on a read | closed on 24 November 2026, after the start of the machine for S18 (its record in the [epic](epic-1/README.md)): the first line by `kd`, taken as a change of the light track of its own (four lines of `index-writes` 1.017 to 1.060, none falling), and applied as recorded below; `kbc` refused (3.1 to 5.4 % on six lines); the re-inlining of `NodePool.AfterPublication` not needed; the second line closed, part 2's growing insert not standing with the trees rotated; the third line closed, part 3's line not reproducing rotated. The reported fall while the primary index grows was carried as K3 |
 | K3 | The writer that inserts while the primary index grows, `read-by-key-threads` | 1.3 to 2.9 % slower at 6102bbe than at ed81c76 on four lines, called at three or four of five rounds, never at five; the same against 3e24ce4, so it arrives after part 2 of S17: in part 3 of S17, S17R or S18. No target is missed (the targets of writes G3 and G6) | The workstation listings at ed81c76 and 6102bbe and the rotated ARM64 run across 3e24ce4, 6b968b3, 8dc0e16, 6a4fb98, 6f50194 and 6102bbe | Every guarantee of S17 and S18 | closed in the ARM64 follow-up; the earlier fall did not repeat in five rounds across six trees |
 | K4 | A replace that keeps all values, `full-form-users` | The ordinary and middle forms change ByLogin uniqueness and Dictionary storage of Region together. The combined cost repeated on ARM64. | Compare the four combinations on one release tree using the existing unchanged-replace series. | The check of unique values, Dictionary sharing and identical users and index shapes. | closed; [ARM64 factorial](#k4-unchanged-replace-factorial) |
 
@@ -493,7 +596,7 @@ rewrites and overlapping keys during publication. The bound is recorded in
 [the index design](../design/ordered-index.md#the-reservation). The focused Debug tests
 passed all 88 cases. The coordinator's Release suite passed 3,291 tests with 129 skipped.
 Build, format and all 16 samples passed. The applied patch and the gauge ran against its
-parent on the rented machine. [ARM64 follow-up](epic-1-core.md#arm64-follow-up-after-s18r)
+parent on the rented machine. [ARM64 follow-up](epic-1/sprints/s18r-arm64-follow-up.md#arm64-follow-up-after-s18r)
 
 **K3 workstation listings** (24 November 2026). The x64 Release driver used the
 fixture's insert by name with 1,000 places remaining, the same preparation as the timed
@@ -501,7 +604,7 @@ scenario. At `ed81c76` and `6102bbe` the primary index grew from 4,457,536 to 8,
 bytes. `PrimaryIndex.Grow` has the same instructions and 581 bytes at both ends.
 `TryPrepareInsert` has 21 and 23 call sites, and `PublishBeforePosition` has 7 and 12.
 The rotated run across the six trees is in the
-[ARM64 follow-up](epic-1-core.md#arm64-follow-up-after-s18r).
+[ARM64 follow-up](epic-1/sprints/s18r-arm64-follow-up.md#arm64-follow-up-after-s18r).
 
 ## Architect's review after S18, 24 November 2026
 
@@ -530,9 +633,9 @@ scenarios, most tests of S18 beyond the audit and the model.
 **S18R, the order** (set by the planner on 24 November 2026): Z3, Z8, Z6, Z7, Z2 (a) to (d),
 Z4, Z1, and Z5 last. One commit per entry and one narrow independent review under the
 [refactoring track](process.md#the-architects-review). Z1 and Z4 lie on measured paths.
-Their workstation listings are in the [S18R close-out](epic-1-core.md#s18r). The
+Their workstation listings are in the [S18R close-out](epic-1/sprints/s18r.md#s18r). The
 `following-children` series is in the
-[ARM64 follow-up](epic-1-core.md#arm64-follow-up-after-s18r).
+[ARM64 follow-up](epic-1/sprints/s18r-arm64-follow-up.md#arm64-follow-up-after-s18r).
 
 | # | Place | What is wrong | The simpler form | What must be shown unchanged | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -603,7 +706,7 @@ stand as written in its brief.
 | `ClassField.CopyNested`, `RootValues.Value`, `RootReader` | Use one internal read path through `NestedValues.Read` for owned values, List, Map and Set as collection reads arrive. | The same values and independent copies by name and through a class, including null and empty collections. Keep property conversion in the same stage and compare the scalar read listings. | done in S19. Both API suites passed. The x64 scalar class copier was 1,398 bytes against 1,516 in the base listing. |
 | `BlockExport.Write`, `WritingRecords.EnterRecordBlock` | Share the rule that prepares an outgoing descriptor in the root and in a record when the wire uses the collection's entries descriptor. | Byte-for-byte compatibility for the existing forms, their inline offsets and the output order. A Map or Set sends its entries without local addresses or the lookup table. | done in S19. Twelve full UTF-8 and UTF-16 bodies matched byte for byte, and collection transfer passed with local lookup rebuilt on receipt. |
 
-The [S19 historical comparison](epic-1-core.md#s19-arm64-results) also measured the
+The [S19 historical comparison](epic-1/sprints/s19.md#s19-arm64-results) also measured the
 two S18 receiving series that were still owed. With two following children, the first
 repeat was 0.9618 of the base write rate. For an ordinary 100-byte forwarded replace,
 the second repeat's write p50 was 1.0751 of base. Both met the rotated rule in the
@@ -655,7 +758,7 @@ The fixed S19 tree and balanced write-only series isolate the costs there. The e
 
 ### S18 receiving lines
 
-Keep the [two historical comparisons](epic-1-core.md#s19-arm64-results) separate. The
+Keep the [two historical comparisons](epic-1/sprints/s19.md#s19-arm64-results) separate. The
 first in-process two-child repeat reached 0.9618 of base writes/s. The second ordinary
 100-byte forwarded replace repeat reached 1.0751 of base p50. Each met the rotating
 rule in that repeat. The old listing identifies extra checks and another placement
@@ -677,7 +780,7 @@ missed the ten-second local application wait. The isolated base and head reruns 
 subsequent full runs passed. Keep the unchanged test in the S20 publication checks and
 report any recurrence or evidence that explains it. The coordinator's three isolated
 Release runs on the S20 baseline passed as well. The later S20 Debug recurrence and
-two separate outer waits go to [S20I](epic-1-core.md#s20i--investigate-the-debug-timeouts)
+two separate outer waits go to [S20I](epic-1/sprints/s20i.md#s20i--investigate-the-debug-timeouts)
 by the owner's disposition. S20 keeps the unchanged test in its final publication check.
 
 ## Found while measuring S19, 24 November 2026
@@ -686,7 +789,7 @@ by the owner's disposition. S20 keeps the unchanged test in its final publicatio
 match of shared Int64 keys, the writer fell from 273,181 to 264,344 writes/s on
 ARM64. The reader change was within its gauge. An x64 control restoring the old
 ownership walk gave no consistent recovery within workstation variation. Inlining
-of `WalkStructure` remains a hypothesis. [Measurements](epic-1-core.md#s19-arm64-results)
+of `WalkStructure` remains a hypothesis. [Measurements](epic-1/sprints/s19.md#s19-arm64-results)
 
 Use the first independently justified rental. S20 checks publication locally and in
 ARM64 ordering CI, and its encoded size is deterministic. The receiving candidate is
@@ -715,9 +818,9 @@ thresholds in the S20 Acceptance stay in force.
 
 | # | Place | What is wrong | The simpler form | What it must keep | Status |
 | --- | --- | --- | --- | --- | --- |
-| R1 | `src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs` (`MostCompactEntries`) | The [S19 lookup results](epic-1-core.md#s19-arm64-results) compare compact at 8 entries and hashed at 9. Shape and count change together. The reported clock frequency gives a nominal 1 ns tick, and many percentiles have a visible 40 ns step. The first small hit rows have long tails of unknown cause. | Compare both forms at the same count, key type and hit or miss pattern for 4, 8, 9 and 16 entries. Warm each form, time a batch of probes together, and record native bytes and creation cost with the read results. Put the figure beside the constant when it supports a decision. | The S20 transitions remain compact to hashed from 8 to 9 and hashed to compact from 5 to 4. A new threshold needs a separate decision. | [measured with S21](#r1-matched-lookup-and-rotated-write-intervals), thresholds kept |
+| R1 | `src/Moltaro.Lattice.Engine/Storage/Roots/CollectionLookup.cs` (`MostCompactEntries`) | The [S19 lookup results](epic-1/sprints/s19.md#s19-arm64-results) compare compact at 8 entries and hashed at 9. Shape and count change together. The reported clock frequency gives a nominal 1 ns tick, and many percentiles have a visible 40 ns step. The first small hit rows have long tails of unknown cause. | Compare both forms at the same count, key type and hit or miss pattern for 4, 8, 9 and 16 entries. Warm each form, time a batch of probes together, and record native bytes and creation cost with the read results. Put the figure beside the constant when it supports a decision. | The S20 transitions remain compact to hashed from 8 to 9 and hashed to compact from 5 to 4. A new threshold needs a separate decision. | [measured with S21](#r1-matched-lookup-and-rotated-write-intervals), thresholds kept |
 | R1, write-lock series | S19 `map-write-lock` | At 100,000 entries the admission interval starts at about 41 ms and ends at 17 to 19 ms in each run, with lookup around 11 ms. All three runs use the same size order. The run does not establish steady performance by size or identify which work caused the change. | Use a separate series with each size warmed and size order rotated. Keep lookup time beside admission and whole-write time, and keep raw rounds in order. | Equivalent inputs, placement and instrumentation across sizes. Establish a cause before attributing the change. | [measured with S21](#r1-matched-lookup-and-rotated-write-intervals), order effects remain |
-| R2 | `src/Moltaro.Lattice.Engine/Storage/Roots/PackedMap.cs` | A packed Map boxes its key and value in the owned copy and whole write paths. The S19 `79,112 B` figure is the entire Int64 Map owned read plus lookup at 1,000 entries. The protected lookup allocates zero. The whole replacement figure includes validation and placement as well as boxing. | Use the existing type-bound approach of `PackedSet` for the fixed pair where it fits. Measure the same owned read plus lookup and whole write before and after. | Independent owned copies with declared types, key spelling and comparison, the existing checks of null, duplicate and bound, and no reflection on the call path. Map enumeration order is unspecified. | done in [S20R](epic-1-core.md#s20r--refactor-packed-map-scalar-pairs). [ARM64 measured with S21](#r2-fixed-scalar-pair-comparison) |
+| R2 | `src/Moltaro.Lattice.Engine/Storage/Roots/PackedMap.cs` | A packed Map boxes its key and value in the owned copy and whole write paths. The S19 `79,112 B` figure is the entire Int64 Map owned read plus lookup at 1,000 entries. The protected lookup allocates zero. The whole replacement figure includes validation and placement as well as boxing. | Use the existing type-bound approach of `PackedSet` for the fixed pair where it fits. Measure the same owned read plus lookup and whole write before and after. | Independent owned copies with declared types, key spelling and comparison, the existing checks of null, duplicate and bound, and no reflection on the call path. Map enumeration order is unspecified. | done in [S20R](epic-1/sprints/s20r.md#s20r--refactor-packed-map-scalar-pairs). [ARM64 measured with S21](#r2-fixed-scalar-pair-comparison) |
 | R3 | `src/Moltaro.Lattice.Engine/Storage/CollectionWriteTimings.cs` and the `LATTICE_COLLECTION_TIMINGS` sections in `WriteCoordinator.cs`, `NestedValues.cs` and `CollectionLookup.cs` | The default build excludes the cells. The source still places measurement code in the write path. The comment describes the special synchronous build that reads the cells on its calling thread. | After the affected-head control, remove the conditional product insertions and the obsolete scenario wiring from the current build in one commit. Exact lock timing needed by a later study belongs in its isolated measurement build. | The historical `3066ea63` build and archive remain reproducible. The default build has no timing cells or calls. | done in S20: affected-head control at `0f988e6`, removed in `c2aa7c5` |
 
 Both R1 preflights passed in Windows Git Bash in S20, on `3066ea63` with the isolated
@@ -735,7 +838,7 @@ to the rental follows the existing checked-queue and owner activation procedure.
 The five queue rows ran on the same ARM64 platform. The repaired R1 and K4
 kits kept the original sources by Git identity after line-ending normalization
 and used the same patches and rotation plans as the x64 preflight. See the
-[run record](epic-1-core.md#arm64-results). The independent measurement review
+[run record](epic-1/sprints/s21.md#arm64-results). The independent measurement review
 checked the raw and paired results.
 
 ### R1 matched lookup and rotated write intervals
@@ -883,7 +986,7 @@ distinct traversal patterns.
 
 The proposed S34 pending-target index and S24 budget accounting keep their placements.
 The existing full-root rollback defect was corrected in
-[S23D](epic-1-core.md#s24--the-memory-budget).
+[S23D](epic-1/sprints/s24.md#s24--the-memory-budget).
 
 ## Found while building S18, 24 November 2026
 
@@ -1103,7 +1206,7 @@ their disposition.
   Share only the equivalent capture setup. Keep each case's timing cuts, data,
   revision and physical placement assertions local.
 
-The [final cleanup investigation](epic-1-core.md#pre-s24-close-cleanup-investigation)
+The [final cleanup investigation](epic-1/sprints/s23a.md#pre-s24-close-cleanup-investigation)
 has a separate pre-S24 closure under E07 because its outcome may change behavior.
 
 ### S23AR verification
@@ -1173,7 +1276,7 @@ the early refusal and exception cleanup paths. The explicit exits are kept.
 A shared finally would track success across each preparation to choose the
 rollback, including attempts that go straight on to index top-up and
 publication. The two supported exits each return prepared resources once.
-After [S23F](epic-1-core.md#s23f-child-scratch-after-publishing-or-returning-a-batch),
+After [S23F](epic-1/sprints/s23a.md#s23f-child-scratch-after-publishing-or-returning-a-batch),
 returning scratch does not allocate. Root handle release uses the free
 chain, arena release uses the already allocated segment tables and text
 release queues later capacity work. The real three-attempt native refusal
