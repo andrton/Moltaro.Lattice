@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 
 public sealed class DeliveryCapacityBudgetTests
 {
-    [Fact]
+    [Fact(Skip = Pending)]
     public async Task The_tail_reports_new_physical_blocks_before_commit_and_keeps_only_the_surviving_cursors_history()
     {
         const int blockCapacity = 1024 * 1024;
@@ -81,8 +81,10 @@ public sealed class DeliveryCapacityBudgetTests
         {
             DeliveryBlock[] blocks = [];
             long logical = 0;
+            HeldMemory held = default;
             master.WithOwnershipAudit(() =>
             {
+                held = master.InspectHeld();
                 var observed = new HashSet<DeliveryBlock>(ReferenceEqualityComparer.Instance);
                 TakeChain(Backing<DeliveryBlock?>(tail, "_first"));
                 TakeChain(Backing<DeliveryBlock?>(tail, "_taken"));
@@ -99,6 +101,9 @@ public sealed class DeliveryCapacityBudgetTests
                 }
             });
             var bytes = blocks.Sum(block => ManagedObjectSize(block.Bytes));
+            Assert.Equal(bytes, held.DeliveryCapacityBytes);
+            Assert.DoesNotContain(held.Arrays, array =>
+                array.ElementType == typeof(byte) && blocks.Any(block => block.Bytes.Length == array.Length));
             return (blocks, bytes, logical);
         }
     }

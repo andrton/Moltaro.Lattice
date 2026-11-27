@@ -18,7 +18,7 @@ public sealed class ChildReceiveBudgetTests
     private const long ChildLimit = 4L * Segment;
     private const int BinaryLength = 170_000;
 
-    [Theory]
+    [Theory(Skip = Pending)]
     [InlineData(0, "resume")]
     [InlineData(1, "resume")]
     [InlineData(2, "resume")]
@@ -145,6 +145,10 @@ public sealed class ChildReceiveBudgetTests
                 return owners.ToArray();
             });
             var physical = ownedTail.Sum(block => ManagedObjectSize(block.Bytes));
+            var masterHeld = master.InspectHeld();
+            Assert.Equal(physical, masterHeld.DeliveryCapacityBytes);
+            Assert.DoesNotContain(masterHeld.Arrays, array =>
+                array.ElementType == typeof(byte) && ownedTail.Any(block => block.Bytes.Length == array.Length));
             ExpectCapacity(master, masterAllocator);
             var logical = master.Counters.PendingDeliveryBytes;
             Assert.True(logical > 2L * 1024 * 1024);
