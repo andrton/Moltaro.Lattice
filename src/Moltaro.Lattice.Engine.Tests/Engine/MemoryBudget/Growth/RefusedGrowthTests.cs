@@ -129,16 +129,6 @@ public sealed class RefusedGrowthTests
         return batch;
     }
 
-    // The arrays of a table of 2^bucketBits buckets (IndexTable): a main array of eight words a bucket and
-    // seven words of alignment, and one overflow page of a sixteenth of the buckets, at least one, in a
-    // directory of one page.
-    private static long TableBytes(int bucketBits)
-    {
-        var mainWords = (IndexTable.WordsPerBucket << bucketBits) + 7;
-        var pageWords = (IndexTable.WordsPerBucket << Math.Max(0, bucketBits - 4)) + 7;
-        return ArrayBytes(typeof(long), mainWords) + ArrayBytes(typeof(OverflowPage), 1) + ArrayBytes(typeof(long), pageWords);
-    }
-
     private static IndexSchema.Ranked Rank(int key, string region) =>
         new() { Id = key, Number = key, Login = $"login {key}", Region = region };
 

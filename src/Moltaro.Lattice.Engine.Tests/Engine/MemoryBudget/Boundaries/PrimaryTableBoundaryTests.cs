@@ -39,8 +39,8 @@ public sealed class PrimaryTableBoundaryTests
             await control.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(Inserts + 1, 8));
             Assert.True(grows);
             var after = ExpectAtRest(control, witness);
-            Assert.Equal(NewTableBytes(bucketBits + 1), after.Charged - before);
-            required = before + BatchInputCharge.PerMemberBytes + NewTableBytes(bucketBits + 1);
+            Assert.Equal(TableBytes(bucketBits + 1), after.Charged - before);
+            required = before + BatchInputCharge.PerMemberBytes + TableBytes(bucketBits + 1);
             Assert.Equal(required, after.Peak);
         }
 
@@ -64,7 +64,7 @@ public sealed class PrimaryTableBoundaryTests
             await insert;
             Assert.True(grew);
             Assert.Equal(Inserts + 1L, pieces.Get(Inserts + 1L)?.Id);
-            Assert.Equal(before + NewTableBytes(bucketBits + 1), ExpectAtRest(node, allocator).Charged);
+            Assert.Equal(before + TableBytes(bucketBits + 1), ExpectAtRest(node, allocator).Charged);
         }
     }
 
@@ -84,12 +84,5 @@ public sealed class PrimaryTableBoundaryTests
 
         node.DrainRetired();
         return growth;
-    }
-
-    private static long NewTableBytes(int bucketBits)
-    {
-        var mainWords = (IndexTable.WordsPerBucket << bucketBits) + 7;
-        var pageWords = (IndexTable.WordsPerBucket << Math.Max(0, bucketBits - 4)) + 7;
-        return ArrayBytes(typeof(long), mainWords) + ArrayBytes(typeof(OverflowPage), 1) + ArrayBytes(typeof(long), pageWords);
     }
 }

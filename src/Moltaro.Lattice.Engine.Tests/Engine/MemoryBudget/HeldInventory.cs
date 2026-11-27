@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Budgeting;
+using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
@@ -59,6 +60,16 @@ internal static class HeldInventory
         }
 
         return Align(2L * IntPtr.Size + fields);
+    }
+
+    // The arrays of a table of a primary index of 2^bucketBits buckets (IndexTable): a main array of
+    // eight words a bucket and seven words of alignment, and one overflow page of a sixteenth of the
+    // buckets, at least one, in a directory of one page.
+    public static long TableBytes(int bucketBits)
+    {
+        var mainWords = (IndexTable.WordsPerBucket << bucketBits) + 7;
+        var pageWords = (IndexTable.WordsPerBucket << Math.Max(0, bucketBits - 4)) + 7;
+        return ArrayBytes(typeof(long), mainWords) + ArrayBytes(typeof(OverflowPage), 1) + ArrayBytes(typeof(long), pageWords);
     }
 
     // One native grant: its bytes and its segment object. Its metadata arrays are among the arrays.
