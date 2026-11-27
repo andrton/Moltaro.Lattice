@@ -250,7 +250,8 @@ a test has an unlimited one.
 - *The input of a batch*, when a member is added, after every check of the addition and
   after the snapshot it builds: its encoded length and `BatchInputCharge.PerMemberBytes`
   (1,280 bytes), and with the first member `PerBuilderBytes` (640 bytes). One finalizable
-  owner per batch returns the whole charge when the execution of the batch ends, or when an
+  owner per batch returns the whole charge when the execution of the batch ends — on a
+  child, at the reply of its master, before the child waits to apply the batch —, or when an
   abandoned batch is collected. A snapshot longer than one piece of a transfer (64 KiB) is
   held in pieces, which keep it off the large object heap and charge nothing of their own:
   its encoded length is charged here.
