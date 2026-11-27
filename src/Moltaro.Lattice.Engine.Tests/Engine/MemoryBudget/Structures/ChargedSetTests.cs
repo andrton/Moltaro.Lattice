@@ -66,6 +66,34 @@ public sealed class ChargedSetTests
         Assert.Equal(arrays.Sum(ArrayBytes), budget.Charged);
     }
 
+    // Every element has one hash, so they share one chain of probes: removing its first keeps the
+    // later ones reachable.
+    [Fact(Skip = Pending)]
+    public void Removing_the_first_element_of_a_chain_keeps_the_later_ones_found()
+    {
+        var budget = new InstanceMemoryBudget();
+        var set = new ChargedSet<int>(new OneHash(), budget);
+        set.EnsureCapacity(8);
+        for (var key = 0; key < 6; key++)
+        {
+            Assert.True(set.Add(key));
+        }
+
+        Assert.True(set.Remove(0));
+        Assert.False(set.Contains(0));
+        for (var key = 1; key < 6; key++)
+        {
+            Assert.True(set.Contains(key));
+            Assert.True(set.TryGet(key, out var found));
+            Assert.Equal(key, found);
+        }
+
+        Assert.True(set.Remove(3));
+        Assert.All(new[] { 1, 2, 4, 5 }, key => Assert.True(set.Contains(key)));
+        Assert.True(set.Add(0));
+        Assert.True(set.Contains(0));
+    }
+
     private static ChargedSet<int> Fill(InstanceMemoryBudget budget)
     {
         var set = new ChargedSet<int>(EqualityComparer<int>.Default, budget);
@@ -76,6 +104,13 @@ public sealed class ChargedSetTests
         }
 
         return set;
+    }
+
+    private sealed class OneHash : IEqualityComparer<int>
+    {
+        public bool Equals(int left, int right) => left == right;
+
+        public int GetHashCode(int value) => 17;
     }
 
     private static List<HeldArray> Held(ChargedSet<int> set)
