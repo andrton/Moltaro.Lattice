@@ -11,6 +11,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Measurements;
 using Moltaro.Lattice.Measurements.Scenarios.StorageChurn;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.TestSupport.Replication;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
@@ -27,11 +28,13 @@ public sealed class HeldInventoryTests
     private const long Limit = 64L * Segment;
 
     // The structures a load of rows with secondary indexes and Dictionary text exercises on a master,
-    // with the generations of the primary tables its growth retired, and on its child, which applies
-    // a replicated replace after its load. The publication scratch grows with the data only through a
-    // unique index, which A_batch_through_a_unique_index… exercises.
+    // and on its child, which applies a replicated replace after its load. The generations of the
+    // primary tables the growth of the load retired are freed by the look after its publication, so
+    // RetiredMemory holds them only while a reader holds them, which While_a_reader_holds… exercises.
+    // The publication scratch grows with the data only through a unique index, which
+    // A_batch_through_a_unique_index… exercises.
     private static readonly string[] Loaded =
-        ["Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue", "RetiredMemory"];
+        ["Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue"];
 
     private static readonly string[] Followed =
     [
@@ -153,6 +156,7 @@ public sealed class HeldInventoryTests
         Assert.True(grew);
 
         var both = ExpectAtRest(node, allocator);
+        ExpectOwners(both, "RetiredMemory");
         Assert.True(node.Counters.RetiredIndexBytes > 0);
         Assert.True(Arrays(both) > Arrays(before));
 
@@ -171,17 +175,24 @@ public sealed class HeldInventoryTests
         var storage = new HeldPersistence(holding: false);
         await using var node = await OpenAsync(4L * Segment, allocator, persistence: storage);
         var pieces = node.Set<PieceSchema.Piece>();
-        await pieces.InsertAsync(PieceSchema.Of(1, 8, data: 64 * 1024));
+
+        // The stored piece leaves fewer than four regions of its segment free (see the refused batch below).
+        await pieces.InsertAsync(PieceSchema.Of(1, 8, data: Segment - 4 * Arena.MaxBlockSize));
         ExpectAtRest(node, allocator);
 
         await RefusedAsync(pieces.InsertAsync(PieceSchema.Of(2, 8, data: 14 * 1024 * 1024)).AsTask(), LatticeLimitEnum.Memory);
         ExpectAtRest(node, allocator);
 
         var refused = node.CreateWriteBatch();
-        // The estimates of the three members fit beside the stored data; their native blocks do not.
-        refused.Insert(PieceSchema.Of(3, 8, data: 3 * 1024 * 1024));
-        refused.Insert(PieceSchema.Of(4, 8, data: 3 * 1024 * 1024));
-        refused.Insert(PieceSchema.Of(5, 8, data: 3 * 1024 * 1024));
+        // The refused write left the segment it obtained in the reserve, so two segments are charged. The
+        // estimates of the three members, half a segment each, 1.5 segments together, fit in the two
+        // segments the limit of four leaves beside them. Their full chunks of ChunkPayload bytes take 32
+        // regions of one block each a member, 96 together, more than the fewer than four regions the
+        // stored piece leaves free in the first segment and the 64 of the reserve hold, so the members need
+        // a third segment, which the limit cannot give beside their estimates.
+        refused.Insert(PieceSchema.Of(3, 8, data: Segment / 2));
+        refused.Insert(PieceSchema.Of(4, 8, data: Segment / 2));
+        refused.Insert(PieceSchema.Of(5, 8, data: Segment / 2));
         await RefusedAsync(refused.CommitAsync().AsTask(), LatticeLimitEnum.Memory);
         ExpectAtRest(node, allocator);
 
@@ -234,7 +245,7 @@ public sealed class HeldInventoryTests
             counts[type] = counts.GetValueOrDefault(type) + 1;
             return true;
         }).ToList();
-        var trace = new ChurnTrace(smoke: true, ChurnTrace.UsersInSmoke, cyclic: true);
+        var trace = new ChurnTrace(smoke: true, ChurnTrace.UsersInSmoke);
         var audit = new ChurnAudit(seed);
         var allocator = new CountingNativeAllocator();
         await using var node = await OpenAsync(Limit, allocator, schema: schema);

@@ -277,15 +277,27 @@ public sealed class RetiredMemoryWorkerTests
     private static (int Count, int Capacity) QueueState(RetiredMemory memory)
     {
         var queue = RetiredItems(memory);
-        return (queue.Count, queue.EnsureCapacity(0));
+        return (queue.Count, queue.Capacity);
     }
 
     private static Task<(RetiredItem[] Items, long Bytes, int Handles)> RetirementAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
-            (RetiredItems(parts.Retired).ToArray(), parts.Arena.Counters.RetiredBytes, parts.Roots.Count));
+            (ItemsOf(RetiredItems(parts.Retired)), parts.Arena.Counters.RetiredBytes, parts.Roots.Count));
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
+    private static extern ref RetiredQueue RetiredItems(RetiredMemory retired);
+
+    // The items of the retirement queue in their order, copied out of its ring.
+    private static RetiredItem[] ItemsOf(RetiredQueue queue)
+    {
+        var items = new RetiredItem[queue.Count];
+        for (var index = 0; index < items.Length; index++)
+        {
+            items[index] = queue[index];
+        }
+
+        return items;
+    }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_epochs")]
     private static extern ref ReadEpochs Epochs(EngineDatabase node);

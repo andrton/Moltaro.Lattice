@@ -933,7 +933,7 @@ public sealed class AutomaticRelocationTests
         Inspect(node, parts =>
         {
             var queue = RetiredItems(parts.Retired);
-            result = (queue.Count, queue.EnsureCapacity(0));
+            result = (queue.Count, queue.Capacity);
         });
         return result;
     }
@@ -1100,7 +1100,7 @@ public sealed class AutomaticRelocationTests
     private static long CheckOf(long key) => key * -11;
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
+    private static extern ref RetiredQueue RetiredItems(RetiredMemory retired);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_regionsWithFreeSlot")]
     private static extern ref long[] ClassHeads(Arena arena);

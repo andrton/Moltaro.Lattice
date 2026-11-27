@@ -17,7 +17,6 @@ public sealed class BatchAdditionBudgetTests
 {
     private const long Limit = 16L * Segment;
     private const int LongValue = 250_000;
-    private const int CompetingRoom = 650_000;
     private const int SmallSnapshotRoom = 256;
 
     [Theory]
@@ -80,7 +79,7 @@ public sealed class BatchAdditionBudgetTests
         var first = node.CreateWriteBatch();
         var second = node.CreateWriteBatch();
         var before = ExpectAtRest(node, allocator);
-        using var held = node.HoldBudgetBacking(checked((int)(Limit - before.Charged - CompetingRoom)));
+        using var held = node.HoldBudgetBacking(checked((int)(Limit - before.Charged - CompetingRoom(node))));
         var member = PieceSchema.Of(2, 8, data: LongValue);
         var estimates = BatchInputCharge.PerBuilderBytes + MemberEstimate(node, member);
         first.Insert(member);
@@ -106,7 +105,7 @@ public sealed class BatchAdditionBudgetTests
         await using var node = await OpenAsync(Limit, allocator);
         await node.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, 8));
         var before = ExpectAtRest(node, allocator);
-        using var held = node.HoldBudgetBacking(checked((int)(Limit - before.Charged - CompetingRoom)));
+        using var held = node.HoldBudgetBacking(checked((int)(Limit - before.Charged - CompetingRoom(node))));
         var next = node.CreateWriteBatch();
         var abandoned = AbandonAfterCheckingPressure(node, next);
 
@@ -204,6 +203,16 @@ public sealed class BatchAdditionBudgetTests
         {
             persistence.ReleaseAll();
         }
+    }
+
+    // The room that two builders of one member of LongValue bytes compete for: the charge of one builder
+    // (PerBuilderBytes and the estimate of its member) and half of the charge of another, so that the first
+    // builder's member fits and a second builder's does not, with the header of the held array taken from
+    // the half.
+    private static long CompetingRoom(EngineDatabase node)
+    {
+        var builder = BatchInputCharge.PerBuilderBytes + MemberEstimate(node, PieceSchema.Of(2, 8, data: LongValue));
+        return builder + builder / 2;
     }
 
     private static void AssertMemoryRefusal(Action add)

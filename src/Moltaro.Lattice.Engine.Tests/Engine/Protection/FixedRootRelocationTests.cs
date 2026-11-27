@@ -555,13 +555,13 @@ public sealed class FixedRootRelocationTests
         Assert.True(database.TryRunMaintenanceStep(parts =>
         {
             var queue = RetiredItems(parts.Retired);
-            observed = (queue.Count, queue.EnsureCapacity(0));
+            observed = (queue.Count, queue.Capacity);
         }));
         return observed;
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
+    private static extern ref RetiredQueue RetiredItems(RetiredMemory retired);
 
     private static bool TryMove(EngineDatabase database, Location location, ArenaAddress destination)
     {

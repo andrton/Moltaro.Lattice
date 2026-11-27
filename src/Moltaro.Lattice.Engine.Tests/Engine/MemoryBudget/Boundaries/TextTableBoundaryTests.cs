@@ -13,9 +13,17 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Boundaries;
 // holds what the instance holds, the estimate of the write and that array, sized by its element type
 // and its length. The primary index is presized and Depot has no secondary index, so the text table
 // is the one structure that grows.
+//
+// The inserts before it grow other arrays of the text table by a copy, which holds the old and the new
+// array for a moment. They are replayed with the room of a held array beside the boundary, which the
+// test then holds, so that the room left is exactly the boundary and the limit gives its byte.
 public sealed class TextTableBoundaryTests
 {
     private const int MostInserts = 4_096;
+
+    // The length of the array held beside the boundary: a segment, far more than the peaks of the
+    // replayed inserts take.
+    private const int HeldLength = Segment;
 
     [Theory]
     [InlineData(-1)]
@@ -53,8 +61,9 @@ public sealed class TextTableBoundaryTests
         }
 
         var required = before + BatchInputCharge.PerMemberBytes + ArrayBytes(added);
+        var held = ArrayBytes(typeof(byte), HeldLength);
         var allocator = new CountingNativeAllocator();
-        await using var node = await OpenAsync(required + difference, allocator, schema: TextSchema.Utf8);
+        await using var node = await OpenAsync(required + held + difference, allocator, schema: TextSchema.Utf8);
         await PresizeAsync(node);
         var set = node.Set<TextSchema.Depot>();
         for (var key = 1; key < growing; key++)
@@ -63,6 +72,7 @@ public sealed class TextTableBoundaryTests
         }
 
         Assert.Equal(before, ExpectAtRest(node, allocator).Charged);
+        using var hold = node.HoldBudgetBacking(HeldLength);
         var texts = node.Counters.TextEntries;
         var insert = set.InsertAsync(Depot(growing)).AsTask();
         if (difference < 0)
@@ -70,13 +80,13 @@ public sealed class TextTableBoundaryTests
             await RefusedAsync(insert, LatticeLimitEnum.Memory);
             Assert.Null(set.Get((long)growing));
             Assert.Equal(texts, node.Counters.TextEntries);
-            Assert.Equal(before, ExpectAtRest(node, allocator).Charged);
+            Assert.Equal(before + held, ExpectAtRest(node, allocator).Charged);
         }
         else
         {
             await insert;
             Assert.Equal(Text(growing), set.Get((long)growing)?.Area);
-            Assert.Equal(before + ArrayBytes(added), ExpectAtRest(node, allocator).Charged);
+            Assert.Equal(before + held + ArrayBytes(added), ExpectAtRest(node, allocator).Charged);
         }
     }
 

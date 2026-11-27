@@ -35,7 +35,10 @@ public sealed class ChildReceiveBudgetTests
         var readiness = await source.InsertAsync(PieceSchema.Of(1, 8));
         var lowerBound = await ShortRequestRoomAsync(master.ListenUri!, PieceSchema.Of(1, 21));
         var pieceBytes = ArrayBytes(typeof(byte), TransferBuffer.PieceSize);
-        var shortRoom = checked((int)(2 * lowerBound));
+
+        // The room left beside the waiting frame: the estimates of the short writes the case submits
+        // while it waits, the second write and, before a disconnect, the signal, PerMemberBytes each.
+        var shortRoom = 2 * BatchInputCharge.PerMemberBytes;
         Assert.InRange(shortRoom, lowerBound + 32, pieceBytes - 1);
         ulong blocked = PositionSequence.Of(readiness.Position) + 1;
         await using var relay = FrameRelay.Start(master.ListenUri!);
@@ -68,7 +71,8 @@ public sealed class ChildReceiveBudgetTests
                         var node = receiving!;
                         var room = ChildLimit - ExpectInFlight(node, allocator, BatchInputCharge.PerMemberBytes).Charged;
                         atFrame = ReceiveBackings(node);
-                        held = node.HoldBudgetBacking(checked((int)room - shortRoom));
+                        // The held array is charged with its header, and its bytes are whole words.
+                        held = node.HoldBudgetBacking(checked((int)((room - shortRoom - ArrayHeaderBytes) / 8 * 8)));
                         Assert.InRange(ChildLimit - node.InspectHeld().Charged, lowerBound, pieceBytes - 1);
                     }
                 }

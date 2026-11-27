@@ -350,12 +350,12 @@ public sealed class PreparedDictionaryGrowthTests
                 var many = node.CreateWriteBatch();
                 var ordinal = 10_000L;
                 foreach (var text in Enumerable.Range(1_000, 32 * seededCount).Select(DistinctText)
-                    .Where(value => PageOf(value) == anchorPage).Take(4 * original.Capacity - 1))
+                    .Where(value => PageOf(value) == anchorPage).Take(4 * original.Capacity))
                 {
                     many.Insert(Depot(ordinal++, text));
                 }
 
-                Assert.Equal(4 * original.Capacity - 1, many.Count);
+                Assert.Equal(4 * original.Capacity, many.Count);
                 many.Insert(Depot(ordinal, shared));
                 predecessor = many.CommitAsync(cancel.Token).AsTask();
                 await CountersWait.UntilAsync(node, counts => counts.QueuedWrites == 2 && counts.TextEntries == many.Count + 1,

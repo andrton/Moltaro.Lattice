@@ -221,7 +221,9 @@ public sealed class UpdateOwnershipTests
         Assert.True(reachedLastMember);
         Assert.True(allocator.Requests > requests);
         Assert.Equal(2L * Segment, allocator.PeakBytes);
-        Assert.Equal(NativeBytes(built), allocator.OutstandingBytes);
+        // The segment the refused attempt obtained stays as the reserve, as any empty segment.
+        Assert.Equal(NativeBytes(built) + Segment, allocator.OutstandingBytes);
+        Assert.Equal(1, database.Counters.Arena.ReservedSegments);
         Assert.Equal(LatticeErrorEnum.WriteRejected, error.Error);
         Assert.Equal(LatticeLimitEnum.Memory, error.Limit);
         Assert.Null(error.OperationIndex);

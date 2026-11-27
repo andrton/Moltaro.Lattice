@@ -27,6 +27,10 @@ public sealed class HeadroomTests
 
         await using var master = await OpenAsync(Limit, new CountingNativeAllocator(), listen: true, schema: IndexSchema.Utf8);
         await (await OpenChildAsync(master)).DisposeAsync();
+
+        // The master ends the connection of the closed child when it reads its end, on its own task.
+        await Eventually.HoldsAsync(() => master.InspectHeld().Arrays.All(array => array.Owner != "FrameConnection"),
+            "The master still holds the buffers of the connection of the closed child.");
         var masterBefore = master.InspectHeld();
         var heap = Retained();
         var child = await OpenChildAsync(master);
@@ -37,8 +41,11 @@ public sealed class HeadroomTests
             var masterAfter = master.InspectHeld();
             var arrays = Arrays(held) + Arrays(masterAfter) - Arrays(masterBefore);
             var segments = (held.GrantedSegments + masterAfter.GrantedSegments - masterBefore.GrantedSegments) * ObjectBytes(typeof(ArenaSegment));
-            Assert.True(retained - arrays - segments <= held.Headroom,
-                $"The child retains {retained - arrays - segments} bytes beside its arrays; its headroom is {held.Headroom}.");
+
+            // The blocks of the delivery tail of the master are outside admission and not among the arrays.
+            var delivery = masterAfter.DeliveryCapacityBytes - masterBefore.DeliveryCapacityBytes;
+            var beside = retained - arrays - segments - delivery;
+            Assert.True(beside <= held.Headroom, $"The child retains {beside} bytes beside its arrays; its headroom is {held.Headroom}.");
         }
         finally
         {
