@@ -221,37 +221,7 @@ internal sealed class RequestReceiver : IDisposable
 
         var members = new BatchMember[count];
         var entityTypes = new LatticeEntityType[count];
-        PublicationKeys keys;
-        try
-        {
-            keys = new PublicationKeys(count, _writes.Budget);
-        }
-        catch (BudgetRefusedException exception)
-        {
-            Refuse(correlationId, exception);
-            return;
-        }
-
-        // The set passes to the write path with the batch; a request that ends before releases it.
-        var submitted = false;
-        try
-        {
-            SubmitMembers(correlationId, ref reader, members, entityTypes, keys, ref charged, ref submitted, minimumPosition);
-        }
-        finally
-        {
-            if (!submitted)
-            {
-                keys.Release();
-            }
-        }
-    }
-
-    // The members of a batch, checked one after the other, then the batch as one write (see SubmitBatch).
-    private void SubmitMembers(ulong correlationId, ref SequenceReader<byte> reader, BatchMember[] members, LatticeEntityType[] entityTypes,
-        PublicationKeys keys, ref long charged, ref bool submitted, LatticePosition? minimumPosition)
-    {
-        var count = members.Length;
+        var keys = PublicationKeys.OfBatch(count);
         var commands = 0L;
 
         for (var place = 0; place < count; place++)
@@ -287,7 +257,7 @@ internal sealed class RequestReceiver : IDisposable
                 throw Protocol.Invalid("A forwarded write batch carries too many update commands.");
             }
 
-            if (!keys.TryAdd(table, key))
+            if (!keys.Add((table, key)))
             {
                 throw Protocol.Invalid($"A forwarded write batch names {table.EntityType.Name} '{key}' in two members.");
             }
@@ -300,7 +270,6 @@ internal sealed class RequestReceiver : IDisposable
 
         var origin = new ForwardedOrigin(_replies, correlationId, entityTypes, _writes.Budget, charged);
         charged = 0;
-        submitted = true;
         _writes.Coordinator.Forward(members, keys, origin, SessionOf(minimumPosition));
     }
 

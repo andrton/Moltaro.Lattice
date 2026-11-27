@@ -231,9 +231,8 @@ a test has an unlimited one.
   secondary index, is not charged again.
 - *The managed structures that grow with the data*: the root pages, the tables and
   overflow buckets of the primary indexes, the arrays of the text table, the collection
-  tails, the retirement queue, the publication scratch, the key set of a batch from its
-  submission to its end and that of a child, and the buffers of connections and of a load
-  in transfer. Each is charged by the bytes
+  tails, the retirement queue, the publication scratch, a child's key set, and the buffers
+  of connections and of a load in transfer. Each is charged by the bytes
   of its backing array — a header of 24 bytes and the elements, rounded up to 8 bytes —
   when it grows: the new array is reserved before it is allocated, and the old one is
   released once it is dropped, or, for a generation a reader may still hold, such as the
@@ -262,7 +261,8 @@ a test has an unlimited one.
   the schema arrives with the load on a child.
 
 Not charged: the owner objects of the structures (their arrays are), the working objects
-of a write under its estimate — edits, claims, decoded commands and keys, replies —
+of a write under its estimate — edits, claims, decoded commands and keys, the key set of a
+batch, replies —
 application memory and garbage awaiting collection, the workspace of an enumeration,
 which the read budget bounds, and the delivery tail of a master, which is reported as its
 own figure until its retention policy is built.

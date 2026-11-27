@@ -9,24 +9,23 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the schema compares them (PrimaryKeys.KeysEqual), so that two spellings of a String key compared without
 // case are one entity, and the same key in another entity type is another one
 // (docs/decisions/mutation-commands.md, "Repeated roots inside an explicit WriteBatch").
-// - The set of a batch: the write coordinator asks it whether another write shares an entity with the batch
-//   (Writes.PendingWrite.SharesEntityWith), and the receiver of a child's connection refuses a forwarded batch
-//   that names an entity twice by it (Children.RequestReceiver). It is made before the batch is admitted,
-//   outside every lock, and not changed afterwards, so any thread may read it.
-// - The set of a child: the keys the effects of the transaction being applied name, so that it names each
-//   once (Child.Loading.ReceivedChanges). Only the thread that applies uses it, under the lock of the writes of
-//   the child, and empties it for the next transaction (Clear).
-//
-// Memory. The entities are kept in a ChargedSet, publication scratch charged to the budget of the instance by
-// the bytes of its array (docs/design/storage-and-maintenance.md, the memory budget). The set of a child
-// stays between its transactions. The set of a batch is made before the batch is admitted and released
-// when the batch ends; while it is admitted the write coordinator reports it (Writes.WriteCoordinator).
+// - The set of a batch (OfBatch): a plain set, a working object of the batch under the estimate its members
+//   already hold (docs/design/storage-and-maintenance.md, the memory budget). The write coordinator asks it
+//   whether another write shares an entity with the batch (Writes.PendingWrite.SharesEntityWith), and the
+//   receiver of a child's connection refuses a forwarded batch that names an entity twice by it
+//   (Children.RequestReceiver). It is made before the batch is admitted, outside every lock, and not changed
+//   afterwards, so any thread may read it.
+// - The set of a child, an instance of this class: the keys the effects of the transaction being applied
+//   name, so that it names each once (Child.Loading.ReceivedChanges). It stays between the transactions, so
+//   it is kept in a ChargedSet, publication scratch charged to the budget of the child by the bytes of its
+//   array. Only the thread that applies uses it, under the lock of the writes of the child, and empties it for
+//   the next transaction (Clear).
 internal sealed class PublicationKeys
 {
     private readonly ChargedSet<(EntityTable Table, EntityKey Key)> _keys;
 
-    // A set with room for capacity entities, charged to the budget; BudgetRefusedException when the
-    // budget cannot hold its array.
+    // The set of a child with room for capacity entities, charged to the budget; BudgetRefusedException
+    // when the budget cannot hold its array.
     public PublicationKeys(int capacity, MemoryBudget budget)
     {
         _keys = new ChargedSet<(EntityTable, EntityKey)>(Comparer.Instance, budget);
@@ -48,16 +47,11 @@ internal sealed class PublicationKeys
 
     public void ReportHeld(List<HeldArray> held) => _keys.ReportHeld(held);
 
-    // Whether the two sets hold an entity in common, looked up in the larger for each entity of the smaller.
-    public bool Overlaps(PublicationKeys other)
-    {
-        var (smaller, larger) = Count <= other.Count ? (this, other) : (other, this);
-
-        return smaller._keys.Overlaps(larger._keys);
-    }
+    // The set of the entities of a batch with room for capacity entities (see the class).
+    public static HashSet<(EntityTable Table, EntityKey Key)> OfBatch(int capacity) => new(capacity, Comparer.Instance);
 
     // The comparison of the entity type of the table, its hash the hash of the key in the primary index.
-    internal sealed class Comparer : IEqualityComparer<(EntityTable Table, EntityKey Key)>
+    private sealed class Comparer : IEqualityComparer<(EntityTable Table, EntityKey Key)>
     {
         public static readonly Comparer Instance = new();
 

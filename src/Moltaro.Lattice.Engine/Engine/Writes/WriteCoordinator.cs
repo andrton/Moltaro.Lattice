@@ -319,13 +319,6 @@ internal sealed class WriteCoordinator
     // The record for the next write (see the class, "What a write allocates"); null when none is kept.
     private PendingWrite? _spare;
 
-    // The sets of the entities of the batches admitted and not completed, charged to the budget as
-    // publication scratch: each is added when its batch is admitted and released when it completes
-    // (MarkCompleted), and the inspection of the tests reports them (ReportHeld). A set of a batch that is
-    // not admitted is released where the batch ends; while its batch waits for its admission, for the
-    // position of its session, it is charged and not yet reported.
-    private readonly List<PublicationKeys> _batchKeys = [];
-
     // The coordinator of a master. A child has one as well, which admits no write: its writes are
     // forwarded to its master (Child.Forwarding.Forwarder).
     public WriteCoordinator(
@@ -397,13 +390,11 @@ internal sealed class WriteCoordinator
     {
         if (cancellationToken.IsCancellationRequested)
         {
-            submission.Keys?.Release();
             return ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken);
         }
 
         if (!TryEnter(session, cancellationToken, out var waited, out var refusal))
         {
-            submission.Keys?.Release();
             return ValueTask.FromException<LatticeWriteResult>(refusal);
         }
 
@@ -424,21 +415,12 @@ internal sealed class WriteCoordinator
     // call when two members are of one entity, which the batch of the core never submits.
     public ValueTask<LatticeWriteResult> SubmitBatchAsync(BatchMember[] members, LatticeSession? session, CancellationToken cancellationToken)
     {
-        PublicationKeys keys;
-        try
-        {
-            keys = new PublicationKeys(members.Length, _retired.Budget);
-        }
-        catch (BudgetRefusedException exception)
-        {
-            return ValueTask.FromException<LatticeWriteResult>(exception.WriteRejected());
-        }
+        var keys = PublicationKeys.OfBatch(members.Length);
 
         foreach (ref readonly var member in members.AsSpan())
         {
-            if (!keys.TryAdd(member.Table, member.Key))
+            if (!keys.Add((member.Table, member.Key)))
             {
-                keys.Release();
                 throw new ArgumentException($"The batch has two members for {member.Table.EntityType.Name} '{member.Key}'.", nameof(members));
             }
         }
@@ -458,7 +440,7 @@ internal sealed class WriteCoordinator
     // root, and the set of their entities, which names none twice (Children.RequestReceiver): one write, as a
     // batch of SubmitBatchAsync is (see the class, "A write batch"), whose outcome is its reply as for one
     // forwarded write, with the refusals of SubmitBatchAsync.
-    public void Forward(BatchMember[] members, PublicationKeys keys, ForwardedOrigin forwarded, LatticeSession? session) =>
+    public void Forward(BatchMember[] members, HashSet<(EntityTable Table, EntityKey Key)> keys, ForwardedOrigin forwarded, LatticeSession? session) =>
         SubmitForwarded(new WriteSubmission(Members: members, Keys: keys, Forwarded: forwarded), session);
 
     // A forwarded write or batch enters the barrier of the close and is admitted, once the position of its
@@ -467,7 +449,6 @@ internal sealed class WriteCoordinator
     {
         if (!TryEnter(session, CancellationToken.None, out var waited, out var refusal))
         {
-            submission.Keys?.Release();
             submission.Forwarded!.Refuse(refusal);
 
             return;
@@ -640,7 +621,6 @@ internal sealed class WriteCoordinator
         }
         catch
         {
-            submission.Keys?.Release();
             _barrier.Exit();
             throw;
         }
@@ -661,7 +641,6 @@ internal sealed class WriteCoordinator
         }
         catch (Exception exception)
         {
-            submission.Keys?.Release();
             submission.Forwarded!.Refuse(exception);
             _barrier.Exit();
 
@@ -692,7 +671,6 @@ internal sealed class WriteCoordinator
             // ended those in them.
             if (_faulted)
             {
-                submission.Keys?.Release();
                 failure = ReadEpochs.FaultedRefusal();
             }
             else
@@ -705,7 +683,6 @@ internal sealed class WriteCoordinator
                 if (submission.Members is { } members)
                 {
                     write.BeginBatch(members, submission.Keys!);
-                    _batchKeys.Add(submission.Keys!);
                 }
                 else if (submission.Update is { } update)
                 {
@@ -1381,14 +1358,7 @@ internal sealed class WriteCoordinator
     public bool HoldsPreparedMemory() => !_prepared.IsEmpty || _groupPending;
 
     // Under the lock: the arrays of the executor, for the inspection of the tests (EngineDatabase.InspectHeld).
-    public void ReportHeld(List<HeldArray> held)
-    {
-        _executor.ReportHeld(held);
-        foreach (var keys in _batchKeys)
-        {
-            keys.ReportHeld(held);
-        }
-    }
+    public void ReportHeld(List<HeldArray> held) => _executor.ReportHeld(held);
 
     private bool CanReturnRootSlot()
     {
@@ -1832,12 +1802,6 @@ internal sealed class WriteCoordinator
         {
             _retired.Budget.Release(write.Estimate);
             write.Estimate = 0;
-        }
-
-        if (write.Keys is { } keys)
-        {
-            _batchKeys.Remove(keys);
-            keys.Release();
         }
 
         // The end of the oldest write that waited makes the next one the oldest: when it waits in step 1

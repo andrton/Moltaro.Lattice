@@ -113,20 +113,6 @@ internal sealed class ChargedSet<T>(IEqualityComparer<T> comparer, MemoryBudget 
         budget.Release(previous);
     }
 
-    // Whether an element of this set is in the other, looked up there for each element here. Only reads.
-    public bool Overlaps(ChargedSet<T> other)
-    {
-        foreach (var entry in _entries)
-        {
-            if (entry.Full && other.Contains(entry.Value))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     // Removes every element and keeps the array.
     public void Clear()
     {

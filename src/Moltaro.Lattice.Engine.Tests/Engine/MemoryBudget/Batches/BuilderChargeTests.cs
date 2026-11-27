@@ -48,8 +48,6 @@ public sealed class BuilderChargeTests
         var inFlight = ExpectInFlight(node, allocator, estimates);
         Assert.InRange(inFlight.Peak, inFlight.Charged, Limit);
 
-        // A commit charges the key set of its batch as publication scratch, so it needs room.
-        held.Dispose();
         foreach (var batch in batches.Where(batch => batch.Count > 0))
         {
             await batch.CommitAsync().AsTask().WaitAsync(Bound);
