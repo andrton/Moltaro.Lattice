@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.TestSupport.Replication;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
@@ -11,8 +12,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // roots are checked, and the check of a root takes memory of its own: the first root of Piece that the
 // import of a connection checks grows the starts of its three descriptors to a long[3]. A request the
 // master cannot hold at either point is refused with WriteRejected and Memory, the child keeps its
-// master, and the same write is accepted once memory is freed. The test holds the memory of the master
-// once the request has arrived whole, before its handling starts, leaving the room given.
+// master, and the same write is accepted once memory is freed. The import of the connection has not grown
+// after the refusal, so it came at the estimate or at the check of the root and not later, in the write
+// path; it has grown once the same write is accepted. The test holds the memory of the master once the
+// request has arrived whole, before its handling starts, leaving the room given.
 public sealed class ForwardedRequestRefusalTests
 {
     private const long Limit = 16L * Segment;
@@ -74,12 +77,16 @@ public sealed class ForwardedRequestRefusalTests
         }
 
         Assert.Null(master.Set<PieceSchema.Piece>().Get(2L));
-        ExpectAtRest(master, allocator);
+        Assert.DoesNotContain(ExpectAtRest(master, allocator).Arrays, StartsOfTheImport);
 
         var written = await WriteAsync(child, batch).WaitAsync(Bound);
         await child.WaitForPositionAsync(written.Position, Bound);
         Assert.Equal(10, child.Set<PieceSchema.Piece>().Get(2L)?.Note?.Length);
+        Assert.Contains(master.InspectHeld().Arrays, StartsOfTheImport);
     }
+
+    // The starts of the descriptors that the import of the connection grows when it checks a root.
+    private static bool StartsOfTheImport(HeldArray array) => array.Owner == "BlockImport" && array.ElementType == typeof(long);
 
     private static async Task<LatticeWriteResult> WriteAsync(EngineDatabase child, bool batch)
     {

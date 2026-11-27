@@ -820,8 +820,9 @@ and the member constant, and with the first member also the base and a constant 
 builder; the reservation comes after every check of the addition and after the snapshot
 it builds. An ordinary write, a child transaction and a forwarded request reserve their
 estimate when they start — the base, the member constant for each member and the encoded
-commands of a partial update — and release it when they end; a write a child forwards also
-reserves the encoded length of its request once it is encoded and before it is sent. Their
+commands of a partial update — and release it when they end; a write a child forwards, and a
+batch committed on a child, also reserve the encoded length of the request once it is encoded and
+before it is sent. Their
 values are charged where they land, in the root image of the arena, which is one workspace
 charged at its size, in the native blocks and in the connection buffers. Reservation and release are one atomic
 counter. The budget includes native read scratch when the engine owns it. Managed
