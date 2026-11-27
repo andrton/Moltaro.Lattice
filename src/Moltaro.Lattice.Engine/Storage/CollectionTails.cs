@@ -19,7 +19,12 @@ namespace Moltaro.Lattice.Storage;
 // is given back to the free records once no root lists it, maintenance has no
 // slot of it to return, no preparation edits it and no slot of it is borrowed.
 // What one preparation changes stays in plain maps until it is applied or
-// abandoned, under the estimate of the write.
+// abandoned, under the estimate of the write. A map that a batch of many roots
+// grew gives its arrays back once it is empty again (TrimWhenEmpty), so that
+// between writes each map keeps no more than the capacity it takes for its
+// first entry, which an ordinary write fills without allocating: a map per
+// preparation would allocate 216 bytes more in each write of a root with tails,
+// 1,394 bytes against 1,178 for a partial write of another field.
 internal sealed class CollectionTails(Arena arena, TimeProvider time)
 {
     public const int FullSlots = (Arena.MaxBlockSize - BlockHeader.Size) / sizeof(ulong);
@@ -96,7 +101,9 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     public void Apply(RootHandle handle, ArenaAddress root)
     {
-        if (!_preparations.Remove(root, out var edits))
+        var prepared = _preparations.Remove(root, out var edits);
+        TrimWhenEmpty(_preparations);
+        if (!prepared)
         {
             // A complete replacement or deletion ends every lease of this generation.
             var probe = new RootTails(handle, 0);
@@ -152,7 +159,9 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     public void Abandon(ArenaAddress root)
     {
-        if (_preparations.Remove(root, out var edits) && edits is not null)
+        var prepared = _preparations.Remove(root, out var edits);
+        TrimWhenEmpty(_preparations);
+        if (prepared && edits is not null)
         {
             foreach (var edit in edits.Values)
             {
@@ -202,6 +211,8 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             return false;
         }
 
+        TrimWhenEmpty(_borrowed);
+
         var slots = arena.Payload(slot).Length / sizeof(ulong);
         arena.RestoreColdLookupSlot(slot);
         _records[tail].BorrowedSlots -= slots;
@@ -213,6 +224,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
     {
         if (_borrowed.Remove(slot, out var tail))
         {
+            TrimWhenEmpty(_borrowed);
             _records[tail].BorrowedSlots -= arena.Payload(slot).Length / sizeof(ulong);
             ReleaseIfUnused(tail);
         }
@@ -408,6 +420,18 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         if (!tail.Last.IsNull)
         {
             result.Add(new(tail.Owner, tail.Offset, tail.Former, tail.Last, Borrowed: false));
+        }
+    }
+
+    // After an entry of the map is removed: an empty map that grew beyond the capacity it takes for its
+    // first entry gives its arrays back and takes that capacity again (see the class); one that never
+    // grew is left as it is, without an allocation.
+    private static void TrimWhenEmpty<TKey, TValue>(Dictionary<TKey, TValue> map)
+        where TKey : notnull
+    {
+        if (map.Count == 0)
+        {
+            map.TrimExcess();
         }
     }
 
