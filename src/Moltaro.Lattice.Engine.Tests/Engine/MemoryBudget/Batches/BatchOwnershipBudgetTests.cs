@@ -47,7 +47,7 @@ public sealed class BatchOwnershipBudgetTests
         await using var node = await OpenAsync(limit, allocator, schema: UpdateSchema.Schema);
         var batch = node.CreateWriteBatch();
         var kept = UpdateSchema.Item("kept");
-        var estimates = BatchInputCharge.PerBuilderBytes + MemberEstimate(node, kept);
+        var estimates = BuilderEstimate + MemberEstimate(node, kept);
         batch.Insert(kept);
         _ = ExpectInFlight(node, allocator, estimates);
         var position = node.Position;

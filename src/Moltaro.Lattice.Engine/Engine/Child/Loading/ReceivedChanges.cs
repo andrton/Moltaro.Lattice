@@ -111,13 +111,13 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // after it gave back what the attempt prepared; its follower pauses and tries it again when memory is freed
 // (Following.Follower). A retry first frees what is retired and gives back the reserves of the indexes.
 //
-// The estimate of a transaction. A transaction is a write unit: each attempt reserves PerMemberBytes for
-// each effect before it prepares the first, and releases it once the attempt ends, published or given
-// back (docs/design/storage-and-maintenance.md, the memory budget). The number of the effects is the one
-// the header of the transaction states (Replication.Transactions.TransactionFormat), so nothing is read
-// twice; the attempt checks it against the effects it reads, and a transaction whose number disagrees is
-// malformed. An estimate the budget cannot hold refuses the attempt as the arena does, so a Ready child
-// pauses at the transaction with the same wait.
+// The estimate of a transaction. A transaction is a write unit: each attempt reserves PerUnitBytes, the base
+// of a write unit, and PerMemberBytes for each effect before it prepares the first, and releases it once
+// the attempt ends, published or given back (docs/design/storage-and-maintenance.md, the memory budget).
+// The number of the effects is the one the header of the transaction states
+// (Replication.Transactions.TransactionFormat), so nothing is read twice; the attempt checks it against the
+// effects it reads, and a transaction whose number disagrees is malformed. An estimate the budget cannot
+// hold refuses the attempt as the arena does, so a Ready child pauses at the transaction with the same wait.
 internal sealed class ReceivedChanges
 {
     private readonly Arena _arena;
@@ -446,7 +446,7 @@ internal sealed class ReceivedChanges
     // One attempt with its estimate (see the class).
     private LatticeLimitEnum? ApplyAttempt(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool topsUp)
     {
-        var estimate = effectCount * BatchInputCharge.PerMemberBytes;
+        var estimate = BatchInputCharge.PerUnitBytes + (effectCount * BatchInputCharge.PerMemberBytes);
         if (!_arena.Budget.TryReserve(estimate))
         {
             return LatticeLimitEnum.Memory;

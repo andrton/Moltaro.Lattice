@@ -80,13 +80,13 @@ public sealed class BudgetWithdrawalTests
             var first = pieces.InsertAsync(PieceSchema.Of(2, 8)).AsTask();
             await storage.NextAsync();
             // The first write waits for its commit with its estimate.
-            var before = ExpectInFlight(node, allocator, BatchInputCharge.PerMemberBytes);
+            var before = ExpectInFlight(node, allocator, UnitEstimate(1));
             var written = node.Position;
 
             using var stop = new CancellationTokenSource();
             var large = PieceSchema.Of(3, 8, data: 5 * Mebibyte);
             var small = PieceSchema.Of(4, 8);
-            var estimates = BatchInputCharge.PerMemberBytes + BatchInputCharge.PerBuilderBytes +
+            var estimates = UnitEstimate(1) + BuilderEstimate +
                 MemberEstimate(node, large) + MemberEstimate(node, small);
             var batch = node.CreateWriteBatch();
             batch.Insert(large);
@@ -101,7 +101,7 @@ public sealed class BudgetWithdrawalTests
             Assert.Equal(written, node.Position);
             Assert.Null(pieces.Get(3L));
             // A segment the cancellation left empty is released or kept as the one empty reserve.
-            Assert.InRange(NativeBytes(ExpectInFlight(node, allocator, BatchInputCharge.PerMemberBytes)), NativeBytes(before),
+            Assert.InRange(NativeBytes(ExpectInFlight(node, allocator, UnitEstimate(1))), NativeBytes(before),
                 NativeBytes(before) + Segment);
 
             storage.ReleaseAll();

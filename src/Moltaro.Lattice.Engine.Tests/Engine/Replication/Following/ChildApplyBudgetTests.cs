@@ -135,7 +135,7 @@ public sealed class ChildApplyBudgetTests
             {
                 Assert.Equal(1, child.Counters.RootEntries);
                 Assert.Equal(child.ReservedNodeBytes(), child.Counters.Arena.PreparedBytes);
-                Assert.Equal(NativeBytes(loaded), NativeBytes(ExpectInFlight(child, allocator, member * BatchInputCharge.PerMemberBytes)));
+                Assert.Equal(NativeBytes(loaded), NativeBytes(ExpectInFlight(child, allocator, UnitEstimate(member))));
             });
 
             Assert.True(local.TryGet((long)ExistingKey, out var installed, out var still));

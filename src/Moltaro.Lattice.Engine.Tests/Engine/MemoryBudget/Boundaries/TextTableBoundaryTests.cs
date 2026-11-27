@@ -1,4 +1,3 @@
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Text;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -60,7 +59,7 @@ public sealed class TextTableBoundaryTests
             added = Assert.IsType<HeldArray>(found);
         }
 
-        var required = before + BatchInputCharge.PerMemberBytes + ArrayBytes(added);
+        var required = before + UnitEstimate(1) + ArrayBytes(added);
         var held = ArrayBytes(typeof(byte), HeldLength);
         var allocator = new CountingNativeAllocator();
         await using var node = await OpenAsync(required + held + difference, allocator, schema: TextSchema.Utf8);

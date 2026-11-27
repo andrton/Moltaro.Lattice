@@ -1,6 +1,5 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
@@ -208,7 +207,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         Assert.Equal(revision, still);
         Assert.Equal(1, child.Counters.RootEntries);
         Assert.Equal(earlierPrepared, child.Counters.Arena.PreparedBytes);
-        Assert.Equal(NativeBytes(before), NativeBytes(ExpectInFlight(child, allocator, BatchInputCharge.PerMemberBytes)));
+        Assert.Equal(NativeBytes(before), NativeBytes(ExpectInFlight(child, allocator, UnitEstimate(1))));
 
         _ = await MaintenanceStep.RunAfterAdmissionAsync(child, parts =>
         {

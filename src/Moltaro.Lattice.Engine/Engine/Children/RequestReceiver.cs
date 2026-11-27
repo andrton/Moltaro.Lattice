@@ -57,10 +57,10 @@ namespace Moltaro.Lattice.Engine.Children;
 //
 // Memory. The pieces a request is received in and the import that checks its roots are buffers of the
 // connection, charged to the budget of the master (MessageAssembler, Replication.Load.BlockImport). A whole
-// request reserves its estimate when its handling starts, before its roots are checked: PerMemberBytes for
-// each member and the encoded length of the commands of each update. A request the budget cannot hold, its
-// estimate or anything its check takes, is refused with WriteRejected and Memory as its reply, and the
-// connection goes on. The charge of its pieces and its estimate pass to its record (Writes.ForwardedOrigin),
+// request reserves its estimate when its handling starts, before its roots are checked: PerUnitBytes, the
+// base of a write unit, PerMemberBytes for each member and the encoded length of the commands of each
+// update. A request the budget cannot hold, its estimate or anything its check takes, is refused with
+// WriteRejected and Memory as its reply, and the connection goes on. The charge of its pieces and its estimate pass to its record (Writes.ForwardedOrigin),
 // which releases them when the write ends (docs/design/storage-and-maintenance.md, the memory budget).
 internal sealed class RequestReceiver : IDisposable
 {
@@ -164,7 +164,8 @@ internal sealed class RequestReceiver : IDisposable
         var key = table.Keys.ReadKey(ref reader);
         var update = UpdateOf(table, request.Kind, ref reader);
 
-        var estimate = BatchInputCharge.PerMemberBytes + (update is null ? 0 : UpdateCommands.Length(table.Layout.Structure, update.Commands));
+        var estimate = BatchInputCharge.PerUnitBytes + BatchInputCharge.PerMemberBytes +
+            (update is null ? 0 : UpdateCommands.Length(table.Layout.Structure, update.Commands));
         if (!TryReserve(correlationId, estimate, ref charged))
         {
             return;
@@ -214,7 +215,7 @@ internal sealed class RequestReceiver : IDisposable
 
         // The estimate of the members when the handling starts; the encoded commands of the updates are
         // added as each is read, before the root of the next member is checked.
-        if (!TryReserve(correlationId, count * BatchInputCharge.PerMemberBytes, ref charged))
+        if (!TryReserve(correlationId, BatchInputCharge.PerUnitBytes + (count * BatchInputCharge.PerMemberBytes), ref charged))
         {
             return;
         }

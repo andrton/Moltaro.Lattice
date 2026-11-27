@@ -23,7 +23,7 @@ public sealed class BuilderChargeTests
         var pieces = node.Set<PieceSchema.Piece>();
         await pieces.InsertAsync(PieceSchema.Of(1, 8));
         node.ResetBudgetPeak();
-        using var held = LeaveAbout(node, 2 * BatchInputCharge.PerBuilderBytes + 64 * BatchInputCharge.PerMemberBytes, out var room);
+        using var held = LeaveAbout(node, 2 * BuilderEstimate + 64 * BatchInputCharge.PerMemberBytes, out var room);
         using var start = new Barrier(3);
         var building = new[] { Build(node, start, 0), Build(node, start, 1) };
         start.SignalAndWait(Bound);
@@ -43,7 +43,7 @@ public sealed class BuilderChargeTests
 
         var batches = await Task.WhenAll(building).WaitAsync(Bound);
         var members = batches.Sum(batch => batch.Count);
-        var estimates = batches.Count(batch => batch.Count > 0) * BatchInputCharge.PerBuilderBytes + members * BatchInputCharge.PerMemberBytes;
+        var estimates = batches.Count(batch => batch.Count > 0) * BuilderEstimate + members * BatchInputCharge.PerMemberBytes;
         Assert.True(estimates <= room, $"The builders hold {estimates} bytes of estimates in {room} bytes of room.");
         var inFlight = ExpectInFlight(node, allocator, estimates);
         Assert.InRange(inFlight.Peak, inFlight.Charged, Limit);
@@ -102,7 +102,7 @@ public sealed class BuilderChargeTests
             batch.Delete<PieceSchema.Piece>(key);
         }
 
-        ExpectInFlight(node, allocator, BatchInputCharge.PerBuilderBytes + 3 * BatchInputCharge.PerMemberBytes);
+        ExpectInFlight(node, allocator, BuilderEstimate + 3 * BatchInputCharge.PerMemberBytes);
         return new WeakReference(batch);
     }
 }

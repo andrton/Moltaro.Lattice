@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -83,7 +82,7 @@ public sealed class AbandonedIndexChangesTests
         Assert.Null(child.Set<IndexSchema.Ranked>().Get(5L));
         Assert.Null(child.Set<IndexSchema.Ranked>().Get(6L));
         ExpectHeld(tally, child);
-        Assert.True(NativeBytes(ExpectInFlight(child, allocator, 2 * BatchInputCharge.PerMemberBytes)) > 0);
+        Assert.True(NativeBytes(ExpectInFlight(child, allocator, UnitEstimate(2))) > 0);
     }
 
     [Fact]

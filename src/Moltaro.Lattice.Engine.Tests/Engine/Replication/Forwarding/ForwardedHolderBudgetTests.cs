@@ -1,4 +1,3 @@
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
@@ -45,7 +44,7 @@ public sealed class ForwardedHolderBudgetTests
                 }
 
                 // Outside the writes lock, before the completed request goes to the write path.
-                var held = ExpectInFlight(accepting!, allocator, BatchInputCharge.PerMemberBytes);
+                var held = ExpectInFlight(accepting!, allocator, UnitEstimate(1));
                 ExpectOwners(held, "MessageAssembler", "BlockImport");
                 Assert.Contains(held.Arrays, array =>
                     array.Owner == "MessageAssembler" && array.ElementType == typeof(byte) && array.Length >= 32 * 1024);
@@ -68,7 +67,7 @@ public sealed class ForwardedHolderBudgetTests
             await beforeDrain.Task.WaitAsync(Bound);
             Assert.Equal(ready.Position.Sequence + 1, master.Position.Sequence);
             Assert.Equal(170_000, source.Get(3L)?.Data?.Length);
-            ExpectInFlight(master, allocator, BatchInputCharge.PerMemberBytes);
+            ExpectInFlight(master, allocator, UnitEstimate(1));
             Assert.DoesNotContain(link.ToChild, frame => frame.Kind == FrameKindEnum.WriteReply);
             Assert.False(writing.IsCompleted);
             Assert.Equal(ready.Position, child.Position);

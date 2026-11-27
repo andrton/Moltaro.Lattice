@@ -243,21 +243,34 @@ a test has an unlimited one.
 - *The root image of an ordinary write*: one workspace of the arena, charged at its size
   and grown under the writes lock when a wider root is written. A write whose image fits
   allocates none.
-- *The input of a batch*, when a member is added, after every check of the addition and
-  after the snapshot it builds: its encoded length and `BatchInputCharge.PerMemberBytes`
-  (1,280 bytes), and with the first member `PerBuilderBytes` (640 bytes). One finalizable
-  owner per batch returns the whole charge when the execution of the batch ends — on a
-  child, at the reply of its master, before the child waits to apply the batch —, or when an
-  abandoned batch is collected. A snapshot longer than one piece of a transfer (64 KiB) is
-  held in pieces, which keep it off the large object heap and charge nothing of their own:
-  its encoded length is charged here.
-- *A write in progress*: an ordinary write, a child transaction, a write a child forwards
-  and the request it arrives as on the master reserve one estimate when they start —
-  `PerMemberBytes` for each member, a child transaction counting them by the number of
-  effects its header states, and the encoded commands of a partial update — and
-  release it when they end; the child's write ends with the reply of its master. Their
-  values are charged where they land: in the root image, in the native blocks, and, for a
-  transaction or a forwarded request, in the connection buffers that carry it.
+- *A write unit*: an ordinary write, a batch, a child transaction, a write a child forwards
+  and the request it arrives as on the master. Every unit reserves one estimate by one
+  rule: `BatchInputCharge.PerUnitBytes` (2,048 bytes) once, the base of the unit;
+  `BatchInputCharge.PerMemberBytes` (1,280 bytes) for each member; and the lengths of what
+  the unit holds of its input — the encoded root of a member of a batch and the encoded
+  commands of a partial update. Both constants are measured on the reference fixture and
+  stated beside them: the base is the most a unit of one member costs beyond its member
+  across both nodes, a batch of one member a child forwards, at most 2,964 bytes measured
+  less 1,280; the member is the most a member adds, a partial write, 1,149 bytes. When each
+  unit reserves, and until when:
+  - a batch, when a member is added, after every check of the addition and after the
+    snapshot it builds: the encoded length and `PerMemberBytes`, and with the first member
+    also `PerUnitBytes` and `PerBuilderBytes` (640 bytes), the objects of the builder. One
+    finalizable owner per batch returns the whole charge when the execution of the batch
+    ends — on a child, at the reply of its master, before the child waits to apply the
+    batch —, or when an abandoned batch is collected. A snapshot longer than one piece of a
+    transfer (64 KiB) is held in pieces, which keep it off the large object heap and charge
+    nothing of their own: its encoded length is charged here;
+  - an ordinary write, at its first preparation inside the coordinator, until it ends;
+  - a child transaction, when an attempt starts, counting its members by the number of
+    effects its header states, until the attempt ends;
+  - a forwarded request on the master, when its handling starts, before its roots are
+    checked, until the write ends;
+  - a single write on a child, before its request is encoded, until the reply of its
+    master.
+
+  Their values are charged where they land: in the root image, in the native blocks, and,
+  for a transaction or a forwarded request, in the connection buffers that carry it.
 - *The headroom*, once, when the parts of the instance are made: at open on a master, when
   the schema arrives with the load on a child.
 

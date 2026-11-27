@@ -1,4 +1,3 @@
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage.Hashing;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
@@ -40,7 +39,7 @@ public sealed class PrimaryTableBoundaryTests
             Assert.True(grows);
             var after = ExpectAtRest(control, witness);
             Assert.Equal(TableBytes(bucketBits + 1), after.Charged - before);
-            required = before + BatchInputCharge.PerMemberBytes + TableBytes(bucketBits + 1);
+            required = before + UnitEstimate(1) + TableBytes(bucketBits + 1);
             Assert.Equal(required, after.Peak);
         }
 

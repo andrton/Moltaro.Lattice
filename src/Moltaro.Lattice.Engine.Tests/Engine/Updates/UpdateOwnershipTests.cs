@@ -191,7 +191,7 @@ public sealed class UpdateOwnershipTests
         var larger = new byte[tooLargeBytes];
         tooLarge.MapSet("Options", "large", new UpdateHome { City = "Paris", Data = larger });
         var linus = UpdateSchema.Item("linus");
-        var estimates = BatchInputCharge.PerBuilderBytes + UpdateEstimate(database, update) + MemberEstimate(database, linus) +
+        var estimates = BuilderEstimate + UpdateEstimate(database, update) + MemberEstimate(database, linus) +
             UpdateEstimate(database, tooLarge);
         var batch = database.CreateWriteBatch();
         batch.Update(update);

@@ -91,7 +91,7 @@ public sealed class OwnershipAfterChurnTests
         var batch = database.CreateWriteBatch();
         var small = TreeSchema.RecordOf(items, 2, shape: 1, number: 9002);
         var large = TreeSchema.RecordOf(items, 3, shape: 3, number: 9003);
-        var estimates = BatchInputCharge.PerBuilderBytes + MemberEstimate(database, small) + MemberEstimate(database, large);
+        var estimates = BuilderEstimate + MemberEstimate(database, small) + MemberEstimate(database, large);
         batch.Insert(small);
         batch.Insert(large);
         Assert.Equal(2, batch.Count);

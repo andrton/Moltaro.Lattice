@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.TestSupport.Replication;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
@@ -37,8 +36,8 @@ public sealed class ForwardedRequestRefusalTests
         var left = room switch
         {
             "nothing" => 0,
-            "less than the estimate" => BatchInputCharge.PerMemberBytes - 8,
-            _ => BatchInputCharge.PerMemberBytes + startsOfPiece - 8,
+            "less than the estimate" => UnitEstimate(1) - 8,
+            _ => UnitEstimate(1) + startsOfPiece - 8,
         };
         var allocator = new CountingNativeAllocator();
         IDisposable? held = null;

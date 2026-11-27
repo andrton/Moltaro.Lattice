@@ -40,8 +40,9 @@ public sealed class CompoundRelocationTests
     private static readonly LatticeSchema Schema = MakeSchema();
 
     // The room of the arena for what the tests stage, and beside it, in whole blocks, the estimate of the
-    // staging batch (BatchInputCharge: PerBuilderBytes, and the encoded root and PerMemberBytes of each
-    // member) and the buffers that the connection of a child holds on the master. The same for both roles.
+    // staging batch (BatchInputCharge: PerBuilderBytes and PerUnitBytes, and the encoded root and
+    // PerMemberBytes of each member) and the buffers that the connection of a child holds on the master. The
+    // same for both roles.
     private static readonly long MemoryLimit = 32L * Arena.MaxBlockSize + WholeBlocks(StagingEstimate() + ConnectionBuffers());
 
     [Theory]
@@ -774,12 +775,12 @@ public sealed class CompoundRelocationTests
         }
     }
 
-    // What the builder of the staging batch is charged: PerBuilderBytes, and for each member its encoded
-    // root and PerMemberBytes.
+    // What the builder of the staging batch is charged: PerBuilderBytes and PerUnitBytes (BuilderEstimate),
+    // and for each member its encoded root and PerMemberBytes.
     private static long StagingEstimate()
     {
         var layouts = new Dictionary<LatticeEntityType, RootLayout>();
-        var estimate = BatchInputCharge.PerBuilderBytes;
+        var estimate = BuilderEstimate;
         foreach (var record in StagingRecords())
         {
             if (!layouts.TryGetValue(record.EntityType, out var layout))

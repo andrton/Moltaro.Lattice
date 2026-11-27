@@ -812,12 +812,15 @@ structures, weak references, fixed directories, the headers of each entity type 
 index — is not charged object by object: a headroom computed from the schema, the options
 and the read slots of the host when the instance opens covers it and is reported as its
 own figure ([storage and maintenance](storage-and-maintenance.md#the-memory-budget) explains
-each part). The input of a batch is charged by an estimate when it is added: its encoded
-length, a constant for each member and, with the first member, a constant for the
+each part). Every write unit — an ordinary write, a batch, a child transaction, a write a
+child forwards and the request it arrives as on the master — reserves one estimate by one
+rule: a base for the unit, a constant for each member, and the lengths of what the unit
+holds of its input. The input of a batch is charged when it is added: its encoded length
+and the member constant, and with the first member also the base and a constant for the
 builder; the reservation comes after every check of the addition and after the snapshot
-it builds. An ordinary write, a child transaction and a forwarded request reserve one
-estimate when they start — the member constant for each member and the encoded commands
-of a partial update — and release it when they end; their values are charged where they
+it builds. An ordinary write, a child transaction and a forwarded request reserve their
+estimate when they start — the base, the member constant for each member and the encoded
+commands of a partial update — and release it when they end; their values are charged where they
 land, in the root image of the arena, which is one workspace charged at its size, in the
 native blocks and in the connection buffers. Reservation and release are one atomic
 counter. The budget includes native read scratch when the engine owns it. Managed

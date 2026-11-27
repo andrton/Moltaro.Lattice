@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -37,8 +36,8 @@ public sealed class ChildReceiveBudgetTests
         var pieceBytes = ArrayBytes(typeof(byte), TransferBuffer.PieceSize);
 
         // The room left beside the waiting frame: the estimates of the short writes the case submits
-        // while it waits, the second write and, before a disconnect, the signal, PerMemberBytes each.
-        var shortRoom = 2 * BatchInputCharge.PerMemberBytes;
+        // while it waits, the second write and, before a disconnect, the signal, a unit of one member each.
+        var shortRoom = 2 * UnitEstimate(1);
         Assert.InRange(shortRoom, lowerBound + 32, pieceBytes - 1);
         ulong blocked = PositionSequence.Of(readiness.Position) + 1;
         await using var relay = FrameRelay.Start(master.ListenUri!);
@@ -69,7 +68,7 @@ public sealed class ChildReceiveBudgetTests
                     if (held is null)
                     {
                         var node = receiving!;
-                        var room = ChildLimit - ExpectInFlight(node, allocator, BatchInputCharge.PerMemberBytes).Charged;
+                        var room = ChildLimit - ExpectInFlight(node, allocator, UnitEstimate(1)).Charged;
                         atFrame = ReceiveBackings(node);
                         // The held array is charged with its header, and its bytes are whole words.
                         held = node.HoldBudgetBacking(checked((int)((room - shortRoom - ArrayHeaderBytes) / 8 * 8)));
@@ -249,9 +248,9 @@ public sealed class ChildReceiveBudgetTests
         var readyToPrepare = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var receivedPressure = false;
 
-        // The room the second transaction finds: the estimate of its one member, and less than one
-        // more piece.
-        var room = BatchInputCharge.PerMemberBytes + 1_024;
+        // The room the second transaction finds: the estimate of a unit of its one member, and less than
+        // one more piece.
+        var room = UnitEstimate(1) + 1_024;
         Assert.True(room < ArrayBytes(typeof(byte), TransferBuffer.PieceSize));
         IDisposable? held = null;
         EngineDatabase? receiving = null;
@@ -290,7 +289,7 @@ public sealed class ChildReceiveBudgetTests
             await readyToPrepare.Task.WaitAsync(Bound);
             Assert.False(receivedPressure);
             Assert.Equal(pieces, PiecesOf(child));
-            ExpectInFlight(child, allocator, BatchInputCharge.PerMemberBytes);
+            ExpectInFlight(child, allocator, UnitEstimate(1));
             held!.Dispose();
             await child.WaitForPositionAsync(repeat.Position, Bound);
             Assert.Equal(BinaryLength, child.Set<PieceSchema.Piece>().Get(3L)?.Data?.Length);
@@ -344,8 +343,8 @@ public sealed class ChildReceiveBudgetTests
             Assert.Equal(new ChildPressureSample(sequence, LatticeLimitEnum.Memory, true, 0), await paused.Task.WaitAsync(Bound));
             var original = relay.FromMaster.First(frame => frame.Kind == FrameKindEnum.Transaction);
             Assert.True(TransactionPayload.AnnouncedLengthOf(original) > (ulong)limit);
-            Assert.InRange(ExpectInFlight(child, allocator, BatchInputCharge.PerMemberBytes).Charged, before.Charged,
-                before.Charged + BatchInputCharge.PerMemberBytes);
+            Assert.InRange(ExpectInFlight(child, allocator, UnitEstimate(1)).Charged, before.Charged,
+                before.Charged + UnitEstimate(1));
             Assert.Equal(NativeBytes(before), allocator.OutstandingBytes);
         }
 
@@ -390,7 +389,7 @@ public sealed class ChildReceiveBudgetTests
         {
             await hasReply.Task.WaitAsync(Bound);
             Assert.False(writing.IsCompleted);
-            var held = ExpectInFlight(control, allocator, BatchInputCharge.PerMemberBytes);
+            var held = ExpectInFlight(control, allocator, UnitEstimate(1));
             forwardingBytes = held.Peak - before.Charged;
         }
         finally

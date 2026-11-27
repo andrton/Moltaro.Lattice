@@ -70,9 +70,9 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 // that position every member is visible, and it acknowledges no part of it.
 //
 // Memory. A write of the child reserves its estimate in the budget of the child before its request is
-// encoded — BatchInputCharge.PerMemberBytes, and for a partial update the encoded length of its
-// commands — and releases it once its reply has come or its call has ended without one; its request,
-// its registration and its reply are working objects under that estimate
+// encoded — BatchInputCharge.PerUnitBytes and BatchInputCharge.PerMemberBytes, and for a partial update the
+// encoded length of its commands — and releases it once its reply has come or its call has ended without
+// one; its request, its registration and its reply are working objects under that estimate
 // (docs/design/storage-and-maintenance.md, the memory budget). A write the budget cannot hold is
 // WriteRejected with Memory, and nothing is sent. A batch is charged by its builder and reserves nothing
 // here; the charge of the builder is returned at the same point, before the wait for the application of
@@ -185,7 +185,7 @@ internal sealed class Forwarder
     // Memory, with nothing reserved, when the budget cannot hold it.
     private long Reserve(EntityTable table, UpdateInput? update)
     {
-        var estimate = BatchInputCharge.PerMemberBytes;
+        var estimate = BatchInputCharge.PerUnitBytes + BatchInputCharge.PerMemberBytes;
         if (update is not null)
         {
             estimate += UpdateCommands.Length(table.Layout.Structure, update.Commands);

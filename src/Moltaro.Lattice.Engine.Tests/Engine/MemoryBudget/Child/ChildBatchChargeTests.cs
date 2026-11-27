@@ -32,7 +32,7 @@ public sealed class ChildBatchChargeTests
             await control.WaitForPositionAsync(ready.Position, Bound);
             control.DrainRetired();
             rest = control.InspectHeld().Charged;
-            builder = BatchInputCharge.PerBuilderBytes + MemberEstimate(control, member);
+            builder = BuilderEstimate + MemberEstimate(control, member);
             control.ResetBudgetPeak();
             var batch = master.CreateWriteBatch();
             batch.Insert(member);

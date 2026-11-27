@@ -58,7 +58,7 @@ public sealed class PreparedDictionaryGrowthTests
             await persistence.NextAsync();
             using var stop = new CancellationTokenSource();
             var batch = node.CreateWriteBatch();
-            var estimates = BatchInputCharge.PerMemberBytes + BatchInputCharge.PerBuilderBytes;
+            var estimates = UnitEstimate(1) + BuilderEstimate;
             for (var id = 1; id <= entries; id++)
             {
                 var depot = Depot(id, DistinctText(id));
@@ -108,7 +108,7 @@ public sealed class PreparedDictionaryGrowthTests
             Assert.Equal(before, node.Position);
             Assert.Null(local.Get(1L));
             Assert.Null(local.Get((long)entries));
-            ExpectInFlight(node, allocator, BatchInputCharge.PerMemberBytes);
+            ExpectInFlight(node, allocator, UnitEstimate(1));
 
             persistence.ReleaseAll();
             await blocker.WaitAsync(Bound);

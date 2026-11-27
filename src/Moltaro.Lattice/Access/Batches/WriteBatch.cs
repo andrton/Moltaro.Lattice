@@ -13,7 +13,8 @@ namespace Moltaro.Lattice.Access.Batches;
 // so that a batch kept after its commit keeps no root alive.
 //
 // Memory. Every member is charged to the budget of the instance by an estimate, its encoded length and
-// BatchInputCharge.PerMemberBytes, and the first one also by BatchInputCharge.PerBuilderBytes; the
+// BatchInputCharge.PerMemberBytes, and the first one also by BatchInputCharge.PerBuilderBytes and by
+// BatchInputCharge.PerUnitBytes, the base of the write unit the batch becomes; the
 // estimate is reserved last, after every check of the addition and its snapshot, so a refusal for memory
 // comes after every other refusal and changes nothing. The one charge object returns the whole charge when
 // the execution of the batch ends, or when the batch is collected uncommitted.
@@ -167,7 +168,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
 
     // The last step of an addition, once its checks are made and its snapshot is built: room for one more
     // member, then the estimate of the member, its encoded length and PerMemberBytes, with PerBuilderBytes
-    // for the first, in the budget of the instance. WriteRejected with Memory when the instance cannot hold
+    // and PerUnitBytes for the first, in the budget of the instance. WriteRejected with Memory when the instance cannot hold
     // it, ObjectDisposedException when the database closed meanwhile; the member is not kept then, and the
     // snapshot is the collector's.
     private void Reserve(long length)
@@ -180,7 +181,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
 
         _identities.EnsureCapacity(Count + 1);
 
-        var estimate = length + BatchInputCharge.PerMemberBytes + (Count == 0 ? BatchInputCharge.PerBuilderBytes : 0);
+        var estimate = length + BatchInputCharge.PerMemberBytes + (Count == 0 ? BatchInputCharge.PerBuilderBytes + BatchInputCharge.PerUnitBytes : 0);
         if (!_charge.TryAdd(estimate))
         {
             ObjectDisposedException.ThrowIf(_executor.IsClosed, _executor);

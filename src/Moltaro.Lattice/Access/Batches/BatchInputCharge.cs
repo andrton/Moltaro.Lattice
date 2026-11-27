@@ -24,6 +24,22 @@ internal sealed class BatchInputCharge : IDisposable
     // delete 515, a whole replace 424. Rounded up to 1,280 for the hosts not measured.
     public const long PerMemberBytes = 1_280;
 
+    // The base of every write unit beside PerMemberBytes for each of its members: an ordinary write, a batch,
+    // a child transaction, a write a child forwards and the request it arrives as on the master. It covers
+    // what a unit in flight holds once whatever its number of members: its tasks and their continuations,
+    // the registration of a call, the reply, the wait for its application, the delivery and the receipt
+    // of its transaction. Measured by a test that fails when the constant is below what it measures: the
+    // allocation of the whole process, both nodes in one process, per unit of one member, as the difference
+    // of two runs in which every unit is applied by the child before the next. The figure depends on how many
+    // of the waits of a unit complete at once, which the load of the host decides. On Windows x64 with .NET
+    // 10, with the whole replace of a User of the reference fixture, over eleven runs of the test on a
+    // loaded host: the most is a batch of one member built and committed on a child, a median of 2,358 to
+    // 2,964 bytes beside the same batch on a master with its child (3,154 the most in one window); a write
+    // forwarded by a child 2,204 to 2,658 (2,970), a child transaction of one effect 1,415 to 1,439 (1,460).
+    // Less PerMemberBytes, 1,684 bytes (1,874); 2,048 is 22 % above the largest median (9 % above the
+    // largest window).
+    public const long PerUnitBytes = 2_048;
+
     private readonly IWriteBatchExecutor _executor;
 
     private long _bytes;

@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Text;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -85,7 +84,7 @@ public sealed class AbandonedRootTests
         Assert.Null(child.Set<TextSchema.Place>().Get(6L));
         tally.ExpectHeldBy(child);
         EntryCounts.ExpectEqual(tally, child);
-        Assert.True(NativeBytes(ExpectInFlight(child, allocator, 2 * BatchInputCharge.PerMemberBytes)) > 0);
+        Assert.True(NativeBytes(ExpectInFlight(child, allocator, UnitEstimate(2))) > 0);
     }
 
     [Fact]

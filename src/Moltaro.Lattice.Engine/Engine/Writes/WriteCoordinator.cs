@@ -1020,10 +1020,10 @@ internal sealed class WriteCoordinator
         }
     }
 
-    // Under the lock: reserves the estimate of an ordinary write, PerMemberBytes and, for a partial
-    // update, the encoded length of its commands (docs/design/storage-and-maintenance.md, the memory
-    // budget). The members of a batch are charged by its builder and a forwarded write by its request
-    // (ForwardedOrigin), so they reserve nothing here. False when the budget cannot hold it.
+    // Under the lock: reserves the estimate of an ordinary write, PerUnitBytes and PerMemberBytes and, for
+    // a partial update, the encoded length of its commands (docs/design/storage-and-maintenance.md, the
+    // memory budget). The members of a batch are charged by its builder and a forwarded write by its
+    // request (ForwardedOrigin), so they reserve nothing here. False when the budget cannot hold it.
     private bool TryReserveEstimate(PendingWrite write)
     {
         if (write.Members is not null || write.Forwarded is not null)
@@ -1031,7 +1031,7 @@ internal sealed class WriteCoordinator
             return true;
         }
 
-        var estimate = BatchInputCharge.PerMemberBytes;
+        var estimate = BatchInputCharge.PerUnitBytes + BatchInputCharge.PerMemberBytes;
         if (write.Update is { } update)
         {
             estimate += UpdateCommands.Length(write.Table.Layout.Structure, update.Commands);

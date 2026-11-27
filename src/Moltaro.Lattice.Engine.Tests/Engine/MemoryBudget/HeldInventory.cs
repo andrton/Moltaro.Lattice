@@ -38,6 +38,10 @@ internal static class HeldInventory
     // bytes; its elements follow and the whole is rounded up to 8 bytes.
     public const int ArrayHeaderBytes = 24;
 
+    // What the first addition to a batch reserves beside its member: the objects of its builder and the base
+    // of the write unit the batch becomes (BatchInputCharge).
+    public const long BuilderEstimate = BatchInputCharge.PerBuilderBytes + BatchInputCharge.PerUnitBytes;
+
     public static long ArrayBytes(Type element, int length) => Align(ArrayHeaderBytes + (long)length * ElementBytes(element));
 
     public static long ArrayBytes(HeldArray array) => ArrayBytes(array.ElementType, array.Length);
@@ -147,6 +151,11 @@ internal static class HeldInventory
     public static long UpdateEstimate(EngineDatabase node, LatticeUpdate update) =>
         UpdateCommands.Length(RootLayout.Compile(update.EntityType, node.Schema).Structure, update.ValidateContent().Commands) +
         BatchInputCharge.PerMemberBytes;
+
+    // The estimate of a write unit of the members beside their lengths: the base of a unit and PerMemberBytes
+    // for each member (BatchInputCharge). An ordinary write, a child transaction and a forwarded request
+    // reserve it.
+    public static long UnitEstimate(int members) => BatchInputCharge.PerUnitBytes + (members * BatchInputCharge.PerMemberBytes);
 
     // At a point of rest: the native grants are the allocator's, every owner is a known structure,
     // and the charge is exactly the inventory and the headroom.

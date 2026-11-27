@@ -1,4 +1,3 @@
-using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -8,8 +7,8 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Child;
 
-// A transaction a child applies is a write unit: it reserves PerMemberBytes for each of its effects
-// before it prepares the first, and releases it once it has ended. The estimate is read under the lock
+// A transaction a child applies is a write unit: it reserves the base of a unit (PerUnitBytes) and
+// PerMemberBytes for each of its effects before it prepares the first, and releases it once it has ended. The estimate is read under the lock
 // of the writes of the child, at the point before the first effect is prepared, where nothing else of
 // the transaction is charged yet: there the charge exceeds the inventory and the headroom by it.
 public sealed class ChildTransactionEstimateTests
@@ -17,7 +16,7 @@ public sealed class ChildTransactionEstimateTests
     private const long Limit = 64L * Segment;
 
     [Fact]
-    public async Task A_child_transaction_reserves_PerMemberBytes_for_each_member_when_it_starts_and_releases_it_when_it_ends()
+    public async Task A_child_transaction_reserves_the_base_of_a_unit_and_PerMemberBytes_for_each_member_when_it_starts_and_releases_it_when_it_ends()
     {
         await using var master = await OpenAsync(Limit, new CountingNativeAllocator(), listen: true, schema: IndexSchema.Utf8);
         var seeded = await master.Set<IndexSchema.Counted>().InsertAsync(new IndexSchema.Counted { Id = 1, Number = 1 });
@@ -53,7 +52,7 @@ public sealed class ChildTransactionEstimateTests
         await child.WaitForPositionAsync(written.Position, Bound);
 
         // At rest again the charge is the inventory and the headroom: the estimate was released.
-        Assert.Equal(3 * BatchInputCharge.PerMemberBytes, inside);
+        Assert.Equal(UnitEstimate(3), inside);
         ExpectAtRest(child, allocator);
     }
 }

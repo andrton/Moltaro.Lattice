@@ -202,7 +202,7 @@ public sealed class HeldInventoryTests
             deletes.Delete<PieceSchema.Piece>(key);
         }
 
-        ExpectInFlight(node, allocator, BatchInputCharge.PerBuilderBytes + 32 * BatchInputCharge.PerMemberBytes);
+        ExpectInFlight(node, allocator, BuilderEstimate + 32 * BatchInputCharge.PerMemberBytes);
         await deletes.CommitAsync().AsTask().WaitAsync(Bound);
         ExpectAtRest(node, allocator);
 

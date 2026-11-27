@@ -38,7 +38,7 @@ public sealed class BatchAdditionBudgetTests
 
         var batch = acting.CreateWriteBatch();
         var member = PieceSchema.Of(2, 8);
-        var estimates = BatchInputCharge.PerBuilderBytes + MemberEstimate(acting, member);
+        var estimates = BuilderEstimate + MemberEstimate(acting, member);
         batch.Insert(member);
         var update = acting.Set<PieceSchema.Piece>().CreateUpdate(1L);
         var command = update.Assign("Data", new byte[LongValue]);
@@ -81,7 +81,7 @@ public sealed class BatchAdditionBudgetTests
         var before = ExpectAtRest(node, allocator);
         using var held = node.HoldBudgetBacking(checked((int)(Limit - before.Charged - CompetingRoom(node))));
         var member = PieceSchema.Of(2, 8, data: LongValue);
-        var estimates = BatchInputCharge.PerBuilderBytes + MemberEstimate(node, member);
+        var estimates = BuilderEstimate + MemberEstimate(node, member);
         first.Insert(member);
         var prepared = ExpectInFlight(node, allocator, estimates);
         AssertMemoryRefusal(() => second.Insert(PieceSchema.Of(3, 8, data: LongValue)));
@@ -125,7 +125,7 @@ public sealed class BatchAdditionBudgetTests
         var pieces = node.Set<PieceSchema.Piece>();
         var open = node.CreateWriteBatch();
         var kept = PieceSchema.Of(1, 8);
-        var estimates = BatchInputCharge.PerBuilderBytes + MemberEstimate(node, kept);
+        var estimates = BuilderEstimate + MemberEstimate(node, kept);
         open.Insert(kept);
         var submitted = node.CreateWriteBatch();
         submitted.Delete<PieceSchema.Piece>(20L);
@@ -179,7 +179,7 @@ public sealed class BatchAdditionBudgetTests
             var prepared = node.Counters.Arena.PreparedBytes;
             var inserts = node.CreateWriteBatch();
             var replacement = PieceSchema.Of(2, 10, data: LongValue);
-            var estimates = BatchInputCharge.PerMemberBytes + BatchInputCharge.PerBuilderBytes + MemberEstimate(node, replacement);
+            var estimates = UnitEstimate(1) + BuilderEstimate + MemberEstimate(node, replacement);
             inserts.Replace(replacement);
             _ = ExpectInFlight(node, allocator, estimates);
 
@@ -206,12 +206,12 @@ public sealed class BatchAdditionBudgetTests
     }
 
     // The room that two builders of one member of LongValue bytes compete for: the charge of one builder
-    // (PerBuilderBytes and the estimate of its member) and half of the charge of another, so that the first
+    // (BuilderEstimate and the estimate of its member) and half of the charge of another, so that the first
     // builder's member fits and a second builder's does not, with the header of the held array taken from
     // the half.
     private static long CompetingRoom(EngineDatabase node)
     {
-        var builder = BatchInputCharge.PerBuilderBytes + MemberEstimate(node, PieceSchema.Of(2, 8, data: LongValue));
+        var builder = BuilderEstimate + MemberEstimate(node, PieceSchema.Of(2, 8, data: LongValue));
         return builder + builder / 2;
     }
 
