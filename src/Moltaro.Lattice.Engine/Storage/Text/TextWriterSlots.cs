@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Text;
@@ -17,10 +18,13 @@ internal sealed class TextWriterSlots(MemoryBudget budget)
     private readonly TextPages<TextSlot[]> _pages = new(budget);
     private int _pageCount;
 
+    // The fields above and the one of Count: two references and two counts.
+    private static readonly int FieldBytes = 2 * IntPtr.Size + 2 * sizeof(int);
+
     public int Count { get; private set; }
 
-    public long Bytes => 32 + _pages.Bytes + (_pageCount == 0 ? 0 :
-        24L + 32L * _pages.Get(0)!.Length + (24L + 32L * PageSlots) * (_pageCount - 1));
+    public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + _pages.Bytes + (_pageCount == 0 ? 0 :
+        MemoryBudget.ArrayBytes<TextSlot>(_pages.Get(0)!.Length) + MemoryBudget.ArrayBytes<TextSlot>(PageSlots) * (_pageCount - 1));
 
     public object? CapturePage(uint page) => _pages.Get(page);
 
@@ -135,7 +139,7 @@ internal sealed class TextWriterSlots(MemoryBudget budget)
     {
         for (var page = 0u; page < _pageCount; page++)
         {
-            held.Add(new HeldArray("TextTable", typeof(TextSlot), _pages.Get(page)!.Length));
+            held.Add(new HeldArray(nameof(TextTable), typeof(TextSlot), _pages.Get(page)!.Length));
         }
 
         _pages.ReportHeld(held);
@@ -145,14 +149,14 @@ internal sealed class TextWriterSlots(MemoryBudget budget)
 
     public void Measure(List<TextAllocationShape> groups)
     {
-        groups.Add(new TextAllocationShape(1, 16, 0, 0));
+        groups.Add(new TextAllocationShape(1, FieldBytes, 0, 0));
         _pages.Measure(groups);
         if (_pageCount != 0)
         {
-            groups.Add(new TextAllocationShape(1, 0, 32, _pages.Get(0)!.Length));
+            groups.Add(new TextAllocationShape(1, 0, Unsafe.SizeOf<TextSlot>(), _pages.Get(0)!.Length));
             if (_pageCount > 1)
             {
-                groups.Add(new TextAllocationShape(_pageCount - 1, 0, 32, PageSlots));
+                groups.Add(new TextAllocationShape(_pageCount - 1, 0, Unsafe.SizeOf<TextSlot>(), PageSlots));
             }
         }
     }

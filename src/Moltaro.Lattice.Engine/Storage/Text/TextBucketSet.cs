@@ -21,9 +21,12 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget budget)
 
     public uint Tag { get; } = tag;
 
+    // The fields above and those of Capacity and Tag: two references and three counts.
+    private static readonly int FieldBytes = 2 * IntPtr.Size + 2 * sizeof(int) + sizeof(uint);
+
     private int PageHeads => Math.Min(Capacity, PageSize);
 
-    public long Bytes => 40 + _pages.Bytes + (56L + ((4L * PageHeads + 7) & ~7L)) * _pageCount;
+    public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + _pages.Bytes + (TextAllocationShape.ObjectBytes(Page.FieldBytes) + PageBytes) * _pageCount;
 
     public int Bucket(uint hash) => (int)((hash * Fibonacci) >> (64 - BitOperations.Log2((uint)Capacity)));
 
@@ -94,7 +97,7 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget budget)
     {
         for (var page = 0; page < _pageCount; page++)
         {
-            held.Add(new HeldArray("TextTable", typeof(uint), PageHeads));
+            held.Add(new HeldArray(nameof(TextTable), typeof(uint), PageHeads));
         }
 
         _pages.ReportHeld(held);
@@ -117,12 +120,12 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget budget)
 
     public void Measure(List<TextAllocationShape> groups)
     {
-        groups.Add(new TextAllocationShape(1, 24, 0, 0));
+        groups.Add(new TextAllocationShape(1, FieldBytes, 0, 0));
         _pages.Measure(groups);
         if (_pageCount != 0)
         {
-            groups.Add(new TextAllocationShape(_pageCount, 16, 0, 0));
-            groups.Add(new TextAllocationShape(_pageCount, 0, 4, PageHeads));
+            groups.Add(new TextAllocationShape(_pageCount, Page.FieldBytes, 0, 0));
+            groups.Add(new TextAllocationShape(_pageCount, 0, sizeof(uint), PageHeads));
         }
     }
 
@@ -130,5 +133,8 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget budget)
     {
         public readonly uint[] Heads = new uint[heads];
         public int Occupied;
+
+        // The fields above: the reference to the heads and the count of the occupied ones.
+        public static readonly int FieldBytes = IntPtr.Size + sizeof(int);
     }
 }

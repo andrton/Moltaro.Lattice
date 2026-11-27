@@ -22,7 +22,10 @@ internal sealed class TextLocator(MemoryBudget budget)
     private uint _trimFrom;
     private bool _trimming;
 
-    public long Bytes => 40 + _pages.Bytes + _leafBytes;
+    // The fields above: two references, the bytes of the leaves, where trimming goes on and whether it does.
+    private static readonly int FieldBytes = 2 * IntPtr.Size + sizeof(long) + sizeof(uint) + sizeof(bool);
+
+    public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + _pages.Bytes + _leafBytes;
 
     public ArenaAddress Address(uint id)
     {
@@ -156,12 +159,12 @@ internal sealed class TextLocator(MemoryBudget budget)
 
     public void Measure(List<TextAllocationShape> directory, List<TextAllocationShape> leaves)
     {
-        directory.Add(new TextAllocationShape(1, 24, 0, 0));
+        directory.Add(new TextAllocationShape(1, FieldBytes, 0, 0));
         _pages.Measure(directory);
 
         for (var cursor = 0u; _pages.TryNext(cursor, out var page, out var leaf); cursor = page + 1)
         {
-            leaves.Add(new TextAllocationShape(1, 32, 0, 0));
+            leaves.Add(new TextAllocationShape(1, Leaf.FieldBytes, 0, 0));
             leaves.Add(new TextAllocationShape(1, 0, 8, leaf.Capacity));
             leaves.Add(new TextAllocationShape(1, 0, 4, leaf.Capacity));
         }
@@ -177,7 +180,7 @@ internal sealed class TextLocator(MemoryBudget budget)
         }
 
         objects = [
-            new TextLocatorAllocation(leaf, new TextAllocationShape(1, 32, 0, 0)),
+            new TextLocatorAllocation(leaf, new TextAllocationShape(1, Leaf.FieldBytes, 0, 0)),
             new TextLocatorAllocation(leaf.Addresses, new TextAllocationShape(1, 0, 8, leaf.Capacity)),
             new TextLocatorAllocation(leaf.Ordinals, new TextAllocationShape(1, 0, 4, leaf.Capacity)),
         ];
@@ -220,8 +223,8 @@ internal sealed class TextLocator(MemoryBudget budget)
     {
         for (var cursor = 0u; _pages.TryNext(cursor, out var page, out var leaf); cursor = page + 1)
         {
-            held.Add(new HeldArray("TextTable", typeof(long), leaf.Capacity));
-            held.Add(new HeldArray("TextTable", typeof(int), leaf.Capacity));
+            held.Add(new HeldArray(nameof(TextTable), typeof(long), leaf.Capacity));
+            held.Add(new HeldArray(nameof(TextTable), typeof(int), leaf.Capacity));
         }
 
         _pages.ReportHeld(held);
@@ -276,9 +279,12 @@ internal sealed class TextLocator(MemoryBudget budget)
         public readonly ulong Allocated = allocated;
         public ulong Taken = taken;
 
+        // The fields above: two references and two masks.
+        public static readonly int FieldBytes = 2 * IntPtr.Size + 2 * sizeof(ulong);
+
         public int Capacity => Addresses.Length;
 
-        public long Bytes => 96 + (8L * Capacity) + ((4L * Capacity + 7) & ~7L);
+        public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + LeafArrayBytes(Capacity);
 
         public int IndexOf(uint id)
         {

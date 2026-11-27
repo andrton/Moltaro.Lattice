@@ -32,9 +32,12 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
     private TextBucketSet? _old;
     private int _bucketCursor;
 
+    // The fields above: six references, the seed and the cursor.
+    private static readonly int FieldBytes = 6 * IntPtr.Size + sizeof(ulong) + sizeof(int);
+
     public int Count => _slots.Count;
 
-    public long Bytes => 80 + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
+    public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
 
     public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
@@ -88,7 +91,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
         var directory = new List<TextAllocationShape>();
         var leaves = new List<TextAllocationShape>();
         _locator.Measure(directory, leaves);
-        var slots = new List<TextAllocationShape> { new(1, 64, 0, 0) };
+        var slots = new List<TextAllocationShape> { new(1, FieldBytes, 0, 0) };
         _slots.Measure(slots);
         var active = new List<TextAllocationShape>();
         var old = new List<TextAllocationShape>();

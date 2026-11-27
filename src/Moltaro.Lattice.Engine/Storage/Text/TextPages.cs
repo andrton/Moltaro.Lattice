@@ -20,7 +20,10 @@ internal sealed class TextPages<T>(MemoryBudget budget) where T : class
     private int _branches;
     private bool _directFull;
 
-    public long Bytes => 32 + (312L * _branches);
+    // The fields above: two references, the count of the branches and whether page zero is full.
+    private static readonly int FieldBytes = 2 * IntPtr.Size + sizeof(int) + sizeof(bool);
+
+    public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + (TextAllocationShape.ObjectBytes(Branch.FieldBytes) + BranchBytes) * _branches;
 
     public T? Get(uint index)
     {
@@ -124,7 +127,7 @@ internal sealed class TextPages<T>(MemoryBudget budget) where T : class
     {
         for (var branch = 0; branch < _branches; branch++)
         {
-            held.Add(new HeldArray("TextTable", typeof(object), Stride));
+            held.Add(new HeldArray(nameof(TextTable), typeof(object), Stride));
         }
     }
 
@@ -224,11 +227,11 @@ internal sealed class TextPages<T>(MemoryBudget budget) where T : class
 
     public void Measure(List<TextAllocationShape> groups)
     {
-        groups.Add(new TextAllocationShape(1, 16, 0, 0));
+        groups.Add(new TextAllocationShape(1, FieldBytes, 0, 0));
         if (_branches != 0)
         {
-            groups.Add(new TextAllocationShape(_branches, 16, 0, 0));
-            groups.Add(new TextAllocationShape(_branches, 0, 8, Stride));
+            groups.Add(new TextAllocationShape(_branches, Branch.FieldBytes, 0, 0));
+            groups.Add(new TextAllocationShape(_branches, 0, IntPtr.Size, Stride));
         }
     }
 
@@ -312,5 +315,8 @@ internal sealed class TextPages<T>(MemoryBudget budget) where T : class
         public uint Full;
         public readonly byte Shift = (byte)shift;
         public byte Count;
+
+        // The fields above: the reference to the children, the mask of the full ones, the shift and the count.
+        public static readonly int FieldBytes = IntPtr.Size + sizeof(uint) + 2 * sizeof(byte);
     }
 }
