@@ -12,11 +12,11 @@ namespace Moltaro.Lattice.Storage.Budgeting;
 // when its retirement is freed. Small fixed bookkeeping by one headroom, reserved once and reported
 // as its own figure. The input of a batch and of a write unit by an estimate.
 //
-// What protects its state. The charge is one counter changed by interlocked operations: a
-// reservation is a compare-and-swap that never passes the limit, a release a subtraction. The lock
-// is taken only by the waiting child and by a release that finds the child's flag set, and it
-// protects the count of frees and the signal of the wait. No lock is held across an allocation, I/O
-// or a wait. The narrative is in docs/design/storage-and-maintenance.md, "The memory budget".
+// What protects its state. The charge is one counter changed by compare-and-swap: a reservation
+// never passes the limit, a release subtracts, and close replaces the counter by a closed mark, so
+// that neither changes it after close. The lock is taken only by the waiting child and by a release
+// that finds the child's flag set, and it protects the count of frees and the signal of the wait. No
+// lock is held across an allocation, I/O or a wait. The narrative is in docs/design/storage-and-maintenance.md, "The memory budget".
 internal sealed class MemoryBudget(long limit = long.MaxValue)
 {
     // The header of an array on a 64-bit runtime: the object header, the method table and the
@@ -28,11 +28,15 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
 
     private long _limit = limit;
 
+    // The charge, and the close: once the budget is closed the word holds ClosedCharge, so that a
+    // reservation or a release that races the close either lands before it, and is cleared with the
+    // charge, or sees the close and changes nothing.
+    private const long ClosedCharge = long.MinValue;
+
     private long _charged;
 
     private long _peak;
 
-    private volatile bool _closed;
 
     // The wait of the one child of the instance (see the class). The flag is set while the
     // child retries or waits, the thread while its own attempt runs, so that the attempt's rollback
@@ -50,7 +54,7 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
 
     // What is reserved now: native grants with their metadata, held arrays, the headroom and the
     // estimates in flight.
-    public long Charged => Volatile.Read(ref _charged);
+    public long Charged => Volatile.Read(ref _charged) is var charged && charged == ClosedCharge ? 0 : charged;
 
     // The largest charge since the budget was made or since ResetPeak.
     public long Peak => Volatile.Read(ref _peak);
@@ -73,7 +77,7 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
         var charged = Volatile.Read(ref _charged);
         while (true)
         {
-            if (_closed || bytes > Volatile.Read(ref _limit) - charged)
+            if (charged == ClosedCharge || bytes > Volatile.Read(ref _limit) - charged)
             {
                 return false;
             }
@@ -104,14 +108,25 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
     // decision reads it afterwards.
     public void Release(long bytes)
     {
-        if (_closed)
+        // The compare-and-swap is a full fence, so the flag is read after the bytes are free: a child
+        // that marks itself and then tries again sees either these bytes or this release's count.
+        var charged = Volatile.Read(ref _charged);
+        while (true)
         {
-            return;
+            if (charged == ClosedCharge)
+            {
+                return;
+            }
+
+            var seen = Interlocked.CompareExchange(ref _charged, charged - bytes, charged);
+            if (seen == charged)
+            {
+                break;
+            }
+
+            charged = seen;
         }
 
-        // The subtraction is a full fence, so the flag is read after the bytes are free: a child that
-        // marks itself and then tries again sees either these bytes or this release's count.
-        Interlocked.Add(ref _charged, -bytes);
         NoteReusable();
     }
 
@@ -215,7 +230,7 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
     {
         lock (_gate)
         {
-            if (_closed || _frees > ticket)
+            if (Volatile.Read(ref _charged) == ClosedCharge || _frees > ticket)
             {
                 return Task.CompletedTask;
             }
@@ -246,11 +261,10 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
         }
     }
 
-    // Ends admission, completes the wait and clears the charge.
+    // Ends admission, completes the wait and clears the charge: the charge reads 0 from now on.
     public void Close()
     {
-        _closed = true;
-        Interlocked.Exchange(ref _charged, 0);
+        Interlocked.Exchange(ref _charged, ClosedCharge);
         lock (_gate)
         {
             _freed?.TrySetResult();
