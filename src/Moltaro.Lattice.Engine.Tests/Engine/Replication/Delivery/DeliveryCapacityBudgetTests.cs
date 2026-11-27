@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -100,7 +101,7 @@ public sealed class DeliveryCapacityBudgetTests
                     }
                 }
             });
-            var bytes = blocks.Sum(block => ManagedObjectSize(block.Bytes));
+            var bytes = blocks.Sum(block => ArrayBytes(typeof(byte), block.Bytes.Length));
             Assert.Equal(bytes, held.DeliveryCapacityBytes);
             Assert.DoesNotContain(held.Arrays, array =>
                 array.ElementType == typeof(byte) && blocks.Any(block => block.Bytes.Length == array.Length));

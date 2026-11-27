@@ -12,10 +12,11 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Child;
 
 // A ready child that cannot hold the next change pauses at it, keeps its reads at its position and
-// waits for memory to be freed. A free wakes it whether it comes between the refusal and the
-// registration of its wait or after it, and the child applies the change once, in order, without
-// waiting for a retry pause: the pause is set far beyond the bound of every wait of these tests.
-// Its own rollback does not wake it. Close ends the wait.
+// waits for memory to be freed, without waiting for a retry pause: the pause is set far beyond the
+// bound of every wait of these tests. A free made at the pressure point, before the child registers
+// its wait, is seen by its second attempt, which applies the change; a free made while it waits
+// wakes it. Its own rollback does not wake it, and close ends the wait. Applied once and in order is
+// shown by the position, the revisions and the acknowledgements.
 public sealed class ChildMemoryWaitTests
 {
     private const long ChildLimit = 16L * Segment;
@@ -54,17 +55,15 @@ public sealed class ChildMemoryWaitTests
         Assert.Empty(local.Index("ByNumber").Find(IndexKey.Equal(8L)));
         Assert.Null(local.Get(2L));
         Assert.Null(local.Get(3L));
-        Assert.DoesNotContain(ChildReceiveBudgetTests.Acknowledged(fixture.Relay), sequence => sequence >= pressure.Sequence);
-        Assert.Equal(1, fixture.Attempts);
+        Assert.DoesNotContain(Acknowledged.By(fixture.Relay), sequence => sequence >= pressure.Sequence);
 
         fixture.Release();
         await fixture.Child.WaitForPositionAsync(later.Position, Bound);
-        Assert.Equal(2, fixture.Attempts);
         fixture.ExpectSameAsMaster();
         Assert.Equal(30L, local.Get(3L)?.Number);
-        var acknowledged = ChildReceiveBudgetTests.Acknowledged(fixture.Relay);
+        var acknowledged = Acknowledged.By(fixture.Relay);
         Assert.Equal(acknowledged.Order(), acknowledged);
-        await Eventually.HoldsAsync(() => ChildReceiveBudgetTests.Acknowledged(fixture.Relay).Contains(PositionSequence.Of(later.Position)),
+        await Eventually.HoldsAsync(() => Acknowledged.By(fixture.Relay).Contains(PositionSequence.Of(later.Position)),
             "The child did not acknowledge the changes it resumed.");
     }
 
@@ -79,10 +78,15 @@ public sealed class ChildMemoryWaitTests
             _ = await fixture.Pressure.WaitAsync(Bound);
             Assert.Equal(start, fixture.Child.Position);
 
+            // The attempt after the registration is refused too; its rollback wakes nothing, so no
+            // third attempt comes while the retry pause lasts.
+            await Eventually.HoldsAsync(() => fixture.Attempts == 2, "The child did not attempt the change again after its pause began.");
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            Assert.Equal(2, fixture.Attempts);
+
             await fixture.Child.CloseAsync().AsTask().WaitAsync(Bound);
             Assert.Equal(LatticeDatabaseStateEnum.Closed, fixture.Child.State);
             fixture.Allocator.ExpectEverythingReturned();
-            Assert.Equal(1, fixture.Attempts);
         }
         finally
         {
@@ -175,8 +179,7 @@ public sealed class ChildMemoryWaitTests
 
             if (Interlocked.Increment(ref _attempts) == 1)
             {
-                var free = ChildLimit - Child.InspectHeld().Charged;
-                _held = Child.HoldBudgetBacking(checked((int)(free - 64 - HeldInventory.ArrayHeaderBytes)));
+                _held = HeldInventory.LeaveAbout(Child, 64, out _);
             }
         }
 

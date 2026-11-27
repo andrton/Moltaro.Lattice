@@ -1,12 +1,9 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
-using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
-using Moltaro.Lattice.Replication.Updates;
-using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -47,15 +44,14 @@ public sealed class BatchAdditionBoundaryTests
         await child.WaitForPositionAsync(seeded.Position, Bound);
         var node = onChild ? child : master;
         var set = node.Set<PieceSchema.Piece>();
-        var layout = RootLayout.Compile(set.EntityType, node.Schema);
         var batch = node.CreateWriteBatch();
         batch.Delete<PieceSchema.Piece>(1_000L);
         Assert.Equal(1, batch.Count);
 
-        var above = Aligned(node, layout, update, extra: 0);
-        using (Leave(node, Estimate(layout, set, update, above)))
+        var above = Aligned(node, update, extra: 0);
+        using (Leave(node, Estimate(node, set, update, above)))
         {
-            Assert.Equal(Estimate(layout, set, update, above) + 1, Estimate(layout, set, update, above + 1));
+            Assert.Equal(Estimate(node, set, update, above) + 1, Estimate(node, set, update, above + 1));
             var charged = node.InspectHeld().Charged;
             var refusal = Assert.Throws<LatticeException>(() => Add(batch, set, update, key: 1, above + 1));
             Assert.Equal(LatticeErrorEnum.WriteRejected, refusal.Error);
@@ -69,8 +65,8 @@ public sealed class BatchAdditionBoundaryTests
             Assert.Equal(Limit, node.InspectHeld().Charged);
         }
 
-        var below = Aligned(node, layout, update, extra: 1);
-        using (Leave(node, Estimate(layout, set, update, below) + 1))
+        var below = Aligned(node, update, extra: 1);
+        using (Leave(node, Estimate(node, set, update, below) + 1))
         {
             Add(batch, set, update, key: 3, below);
             Assert.Equal(3, batch.Count);
@@ -104,38 +100,25 @@ public sealed class BatchAdditionBoundaryTests
         return update;
     }
 
-    private static long Estimate(RootLayout layout, ILatticeSet<PieceSchema.Piece> set, bool update, int name)
-    {
-        long encoded;
-        if (update)
-        {
-            encoded = UpdateCommands.Length(layout.Structure, Update(set, 1L, name).ValidateContent().Commands);
-        }
-        else
-        {
-            var piece = PieceSchema.Of(13, name);
-            encoded = RootValues.Export(layout, set.EntityType, [piece.Id, piece.Name, piece.Note, piece.Data, piece.Count]).Length;
-        }
-
-        return encoded + BatchInputCharge.PerMemberBytes;
-    }
+    private static long Estimate(EngineDatabase node, ILatticeSet<PieceSchema.Piece> set, bool update, int name) =>
+        update ? UpdateEstimate(node, Update(set, 1L, name)) : MemberEstimate(node, PieceSchema.Of(13, name));
 
     // The length of Name, from 16, at which room for the estimate and the extra bytes can be left
     // exactly by a held array, whose bytes are a multiple of 8.
-    private static int Aligned(EngineDatabase node, RootLayout layout, bool update, int extra)
+    private static int Aligned(EngineDatabase node, bool update, int extra)
     {
         var set = node.Set<PieceSchema.Piece>();
         var free = Limit - node.InspectHeld().Charged;
-        var name = Enumerable.Range(16, 8).Single(length => (free - Estimate(layout, set, update, length) - extra) % 8 == 0);
-        Assert.True(free - Estimate(layout, set, update, name) - extra >= ArrayHeaderBytes);
+        var name = Enumerable.Range(16, 8).Single(length => (free - Estimate(node, set, update, length) - extra) % 8 == 0);
+        Assert.True(free - Estimate(node, set, update, name) - extra >= ArrayHeaderBytes);
         return name;
     }
 
+    // Holds an array that leaves exactly the room given, which Aligned made a multiple of 8 away.
     private static IDisposable Leave(EngineDatabase node, long room)
     {
-        var free = Limit - node.InspectHeld().Charged - room;
-        var held = node.HoldBudgetBacking(checked((int)(free - ArrayHeaderBytes)));
-        Assert.Equal(room, Limit - node.InspectHeld().Charged);
+        var held = LeaveAbout(node, room, out var left);
+        Assert.Equal(room, left);
         return held;
     }
 }

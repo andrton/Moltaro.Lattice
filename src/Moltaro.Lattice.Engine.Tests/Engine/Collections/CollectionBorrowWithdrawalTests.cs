@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using static Moltaro.Lattice.Engine.Tests.Engine.Collections.CollectionShrinkPair;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -56,9 +57,17 @@ public sealed class CollectionBorrowWithdrawalTests
                     ["Id"] = 2,
                     ["Values"] = new Dictionary<int, int> { [0] = 1 },
                 });
+
+                // The next native grant of the preparation comes after the regrowth borrowed its
+                // slots, under the lock of the writes, on the thread that prepares it.
+                var parts = await MaintenanceStep.RunAfterAdmissionAsync(engine, current => current);
+                bool? borrowed = null;
+                node.Allocator.HoldNextAllocation(() =>
+                    borrowed = parts.Arena.CollectionSlotOwnershipForTest().Any(lease => lease.Borrowed));
                 var error = await Assert.ThrowsAsync<LatticeException>(() => duplicate.CommitAsync().AsTask().WaitAsync(Bound));
                 Assert.Equal(LatticeErrorEnum.DuplicateKey, error.Error);
                 Assert.Equal(1, error.OperationIndex);
+                Assert.True(borrowed);
             }
 
             Assert.False(blocker.IsCompleted);

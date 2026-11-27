@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -51,16 +50,6 @@ internal static class InstanceBudget
         }
     }
 
-    // The native charge is the allocator's outstanding grants, and the peak lies between the
-    // charge and the limit.
-    public static BudgetCapacitySample ExpectCapacity(EngineDatabase node, CountingNativeAllocator allocator)
-    {
-        var sample = node.InspectBudget();
-        Assert.Equal(allocator.OutstandingBytes, sample.NativeBytes);
-        Assert.InRange(sample.PeakBytes, sample.ChargedBytes, node.Counters.MemoryLimit);
-        return sample;
-    }
-
     public static async Task<LatticeException> RefusedAsync(Task operation, LatticeLimitEnum limit)
     {
         var failure = await Assert.ThrowsAsync<LatticeException>(() => operation.WaitAsync(Bound));
@@ -85,18 +74,4 @@ internal static class InstanceBudget
 
     public static T Backing<T>(object owner, string field) =>
         (T)owner.GetType().GetField(field, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.GetValue(owner)!;
-
-    // The bytes of an array on 64-bit .NET 10: a header of 24 bytes and the elements, rounded up to
-    // 8 bytes, whatever the reservation that paid for it.
-    public static long ManagedObjectSize(Array backing)
-    {
-        var element = backing.GetType().GetElementType()!;
-        var width = element.IsValueType ? SizeOf(element) : IntPtr.Size;
-        return Align(3L * IntPtr.Size + backing.LongLength * width);
-    }
-
-    private static long Align(long bytes) => (bytes + IntPtr.Size - 1) / IntPtr.Size * IntPtr.Size;
-
-    private static int SizeOf(Type element) =>
-        (int)typeof(Unsafe).GetMethod(nameof(Unsafe.SizeOf))!.MakeGenericMethod(element).Invoke(null, null)!;
 }

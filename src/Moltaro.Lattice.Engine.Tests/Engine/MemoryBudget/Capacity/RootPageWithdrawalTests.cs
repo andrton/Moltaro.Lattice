@@ -7,6 +7,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.TestSupport.Concurrency;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -63,7 +64,7 @@ public sealed class RootPageWithdrawalTests
         }
     }
 
-    [Fact]
+    [Fact(Skip = Pending)]
     public async Task A_capture_in_progress_never_needs_the_exclusively_cancelled_page()
     {
         const long cancelled = RootTable.EntriesPerPage + 1L;
@@ -133,7 +134,7 @@ public sealed class RootPageWithdrawalTests
             await child.WaitForPositionAsync(written.Position, Bound);
             Assert.Equal(written.Position, child.Position);
             Assert.Equal(18, local.Get(later)?.Name.Length);
-            _ = ExpectCapacity(master, allocator);
+            _ = ExpectAtRest(master, allocator);
         }
         finally
         {

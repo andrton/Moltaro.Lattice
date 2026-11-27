@@ -13,7 +13,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Growth;
 // A refused preparation returns what it reserved and every block, slot and text it prepared, and
 // none of its data becomes visible; the capacity that the text table and a primary table grew for it
 // stays with them, charged and reusable. The same write afterwards needs no growth and takes no new
-// charge for one.
+// charge for one. A preparation places every root before it reserves the room of the primary indexes
+// in the order of its members, so the refusal comes from the full table of Counted, whose room the
+// last member needs after the table of Uncounted grew.
 public sealed class RefusedGrowthTests
 {
     private const long Limit = 64L * Segment;
@@ -26,6 +28,7 @@ public sealed class RefusedGrowthTests
         await using var node = await OpenAsync(Limit, allocator, schema: IndexSchema.Utf8);
         var ranked = node.Set<IndexSchema.Ranked>();
         var uncounted = node.Set<IndexSchema.Uncounted>();
+        var counted = node.Set<IndexSchema.Counted>();
         await MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
             parts.Tables.Stored(3).Presize(1_024);
@@ -35,6 +38,7 @@ public sealed class RefusedGrowthTests
         {
             await ranked.InsertAsync(Rank(key, $"region {key}"));
             await uncounted.InsertAsync(new IndexSchema.Uncounted { Id = key, Number = key });
+            await counted.InsertAsync(new IndexSchema.Counted { Id = key, Number = key });
         }
 
         node.DrainRetired();
@@ -43,21 +47,16 @@ public sealed class RefusedGrowthTests
         var before = ExpectAtRest(node, allocator);
 
         IDisposable? held = null;
+        var countedGrew = false;
         try
         {
-            node.ArmGrowthSwitch(uncounted.EntityType, () =>
-                held = node.HoldBudgetBacking(checked((int)(Limit - node.InspectHeld().Charged - 32 - ArrayHeaderBytes))));
+            node.ArmGrowthSwitch(uncounted.EntityType, () => held = LeaveAbout(node, 32, out _));
+            node.ArmGrowthSwitch(counted.EntityType, () => countedGrew = true);
             var refused = Batch(node);
-            refused.Insert(new IndexSchema.Ranked
-            {
-                Id = 10_000,
-                Number = 10_000,
-                Login = "large",
-                Region = "large",
-                Note = new string('n', 6 * 1024 * 1024),
-            });
+            refused.Insert(new IndexSchema.Counted { Id = 9, Number = 9 });
             await RefusedAsync(refused.CommitAsync().AsTask(), LatticeLimitEnum.Memory);
             Assert.NotNull(held);
+            Assert.False(countedGrew);
         }
         finally
         {
@@ -71,8 +70,11 @@ public sealed class RefusedGrowthTests
         Assert.Empty(ranked.Index("ByRegion").Find(IndexKey.Equal(NewRegion(9))));
         Assert.Equal(8, ranked.Enumerate().Count());
         Assert.Equal(8, uncounted.Enumerate().Count());
+        Assert.Null(counted.Get(9L));
+        Assert.Empty(counted.Index("ByNumber").Find(IndexKey.Equal(9L)));
+        Assert.Equal(8, counted.Enumerate().Count());
         Assert.Equal(references, node.TextReferences().Count);
-        Assert.Equal(16, node.Counters.RootEntries);
+        Assert.Equal(24, node.Counters.RootEntries);
         OwnershipAudit.Expect(node);
         var rest = ExpectAtRest(node, allocator);
         Assert.NotEmpty(Added(rest.Arrays, before.Arrays));

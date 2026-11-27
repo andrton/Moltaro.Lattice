@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -11,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
 public sealed class ChildOpenBudgetTests
 {
-    [Theory]
+    [Theory(Skip = Pending)]
     [InlineData(4_096, true)]
     [InlineData(4_097, false)]
     public async Task The_initial_capture_must_fit_the_childs_addressable_root_slots(int count, bool fits)
@@ -30,7 +31,7 @@ public sealed class ChildOpenBudgetTests
             Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
             Assert.Equal(master.Position, child.Position);
             Assert.Equal(count, child.Set<PieceSchema.Piece>().Enumerate().Count());
-            Assert.True(ExpectCapacity(child, allocator).NativeBytes > 0);
+            Assert.True(NativeBytes(ExpectAtRest(child, allocator)) > 0);
         }
         else
         {

@@ -1,8 +1,14 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
+using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Budgeting;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
@@ -11,9 +17,23 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // report, each sized here by the layout of a 64-bit runtime and never by the budget. At a point of
 // rest — no write, no child transaction, no forwarded request and no batch builder alive — the
 // charge is exactly that inventory and the headroom. While a builder or a write is alive, the charge
-// lies between the inventory and the inventory with the headroom and the estimates in flight.
+// lies between the inventory with the headroom and that sum with the estimates in flight.
+//
+// The owner of a held array is the name of the type of the structure that reports it. Structures
+// names every structure that may report one, so a structure added later without a case here fails
+// the inventory tests that check the owners.
 internal static class HeldInventory
 {
+    public static readonly IReadOnlyList<string> Structures =
+    [
+        "Arena", "RootTable", "PrimaryIndex", "TextTable", "CollectionTails", "ChargedSet", "RetiredQueue", "RetiredMemory",
+        "ChangePublisher", "CommitGroup", "FrameConnection", "TransferBuffer", "BlockImport", "ReceivedChanges",
+        "MessageAssembler", "OutgoingMessage", "RootAssembler",
+
+        // The array a test holds through EngineDatabase.HoldBudgetBacking.
+        "HeldBudgetBacking",
+    ];
+
     // An array is an object header and a method table, 8 bytes each, and its length, padded to 8
     // bytes; its elements follow and the whole is rounded up to 8 bytes.
     public const int ArrayHeaderBytes = 24;
@@ -53,6 +73,9 @@ internal static class HeldInventory
         return ArrayBytes(typeof(ArenaRegion), regions) + 3 * ArrayBytes(typeof(ulong), regions * ArenaSegment.SlotWordsPerRegion);
     }
 
+    // The native bytes the allocator granted, the reserve included.
+    public static long NativeBytes(HeldMemory held) => (long)held.GrantedSegments * held.SegmentBytes;
+
     public static long Native(HeldMemory held) => held.GrantedSegments * GrantBytes(held.SegmentBytes);
 
     public static long Arrays(HeldMemory held) => held.Arrays.Sum(ArrayBytes);
@@ -91,11 +114,36 @@ internal static class HeldInventory
         return held;
     }
 
-    // At a point of rest: the native grants are the allocator's, and the charge is exactly the
-    // inventory and the headroom.
+    // Every owner is a known structure, and the structures the caller names report arrays.
+    public static void ExpectOwners(HeldMemory held, params string[] exercised)
+    {
+        var owners = held.Arrays.Select(array => array.Owner).Distinct().Order().ToArray();
+        Assert.All(owners, owner => Assert.Contains(owner, Structures));
+        Assert.All(exercised, structure => Assert.Contains(structure, owners));
+    }
+
+    // The estimate of an addition of the entity to a batch: its encoded root and PerMemberBytes.
+    public static long MemberEstimate<TEntity>(EngineDatabase node, TEntity entity)
+        where TEntity : class
+    {
+        var binding = EntityBinding<TEntity>.For(node.Schema);
+        return Encoded(node, binding.EntityType, binding.ValuesForWrite(entity)) + BatchInputCharge.PerMemberBytes;
+    }
+
+    public static long MemberEstimate(EngineDatabase node, LatticeRecord record) =>
+        Encoded(node, record.EntityType, record.ValuesForWrite()) + BatchInputCharge.PerMemberBytes;
+
+    // The estimate of an update: the encoded length of its commands and PerMemberBytes.
+    public static long UpdateEstimate(EngineDatabase node, LatticeUpdate update) =>
+        UpdateCommands.Length(RootLayout.Compile(update.EntityType, node.Schema).Structure, update.ValidateContent().Commands) +
+        BatchInputCharge.PerMemberBytes;
+
+    // At a point of rest: the native grants are the allocator's, every owner is a known structure,
+    // and the charge is exactly the inventory and the headroom.
     public static HeldMemory ExpectAtRest(EngineDatabase node, CountingNativeAllocator allocator)
     {
         var held = node.InspectHeld();
+        ExpectOwners(held);
         Assert.Equal(allocator.OutstandingBytes, (long)held.GrantedSegments * held.SegmentBytes);
         Assert.Equal(Inventory(held) + held.Headroom, held.Charged);
         Assert.InRange(held.Peak, held.Charged, node.Counters.MemoryLimit);
@@ -107,11 +155,16 @@ internal static class HeldInventory
     public static HeldMemory ExpectInFlight(EngineDatabase node, CountingNativeAllocator allocator, long estimates)
     {
         var held = node.InspectHeld();
+        ExpectOwners(held);
         Assert.Equal(allocator.OutstandingBytes, (long)held.GrantedSegments * held.SegmentBytes);
-        var inventory = Inventory(held);
-        Assert.InRange(held.Charged, inventory, inventory + held.Headroom + estimates);
+        var reserved = Inventory(held) + held.Headroom;
+        Assert.InRange(held.Charged, reserved, reserved + estimates);
+        Assert.InRange(held.Peak, held.Charged, node.Counters.MemoryLimit);
         return held;
     }
+
+    private static long Encoded(EngineDatabase node, Schema.LatticeEntityType type, object?[] values) =>
+        RootValues.Export(RootLayout.Compile(type, node.Schema), type, values).Length;
 
     private static long Align(long bytes) => (bytes + IntPtr.Size - 1) / IntPtr.Size * IntPtr.Size;
 }

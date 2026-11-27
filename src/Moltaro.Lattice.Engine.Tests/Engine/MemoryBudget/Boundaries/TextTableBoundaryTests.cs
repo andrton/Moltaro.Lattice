@@ -41,6 +41,7 @@ public sealed class TextTableBoundaryTests
                 var more = Added(later.Arrays, earlier.Arrays);
                 if (key > 2 && more.Count == 1 && Added(earlier.Arrays, later.Arrays).Count == 0)
                 {
+                    Assert.Equal("TextTable", more[0].Owner);
                     growing = key;
                     before = earlier.Charged;
                     found = more[0];

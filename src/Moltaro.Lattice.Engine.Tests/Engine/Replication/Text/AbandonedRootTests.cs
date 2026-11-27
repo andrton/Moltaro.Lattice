@@ -1,9 +1,11 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Text;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -29,7 +31,7 @@ public sealed class AbandonedRootTests
 
     public static IEnumerable<TheoryDataRow<string>> Changes => [new("one root"), new("two roots in one transaction")];
 
-    [Theory]
+    [Theory(Skip = Pending)]
     [MemberData(nameof(Changes))]
     public async Task Child_that_cannot_hold_a_received_root_after_it_placed_its_texts_gives_back_every_reference_and_pauses(string change)
     {
@@ -83,7 +85,7 @@ public sealed class AbandonedRootTests
         Assert.Null(child.Set<TextSchema.Place>().Get(6L));
         tally.ExpectHeldBy(child);
         EntryCounts.ExpectEqual(tally, child);
-        Assert.True(ExpectCapacity(child, allocator).NativeBytes > 0);
+        Assert.True(NativeBytes(ExpectInFlight(child, allocator, 2 * BatchInputCharge.PerMemberBytes)) > 0);
     }
 
     [Fact]

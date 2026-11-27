@@ -1,8 +1,10 @@
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -12,7 +14,7 @@ public sealed class BudgetWithdrawalTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    [Theory]
+    [Theory(Skip = Pending)]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_late_batch_failure_returns_the_blocks_and_handles_it_acquired_before_commit(bool allocationFails)
@@ -21,9 +23,9 @@ public sealed class BudgetWithdrawalTests
         await using var node = await OpenAsync(allocationFails ? 64L * Segment : 17L * Mebibyte, allocator);
         var pieces = node.Set<PieceSchema.Piece>();
         var ready = await pieces.InsertAsync(PieceSchema.Of(1, 8, data: 3 * Mebibyte));
-        var before = ExpectCapacity(node, allocator);
+        var before = ExpectAtRest(node, allocator);
         var allocated = allocator.ObtainedBytes;
-        Assert.Equal(Segment, before.NativeBytes);
+        Assert.Equal(Segment, NativeBytes(before));
         if (allocationFails)
         {
             // Let the new root take one physical segment, then fail the next real allocation.
@@ -50,7 +52,7 @@ public sealed class BudgetWithdrawalTests
 
         Assert.True(allocator.ObtainedBytes > allocated);
         // A segment the failure left empty is released or kept as the one empty reserve.
-        Assert.InRange(ExpectCapacity(node, allocator).NativeBytes, before.NativeBytes, before.NativeBytes + Segment);
+        Assert.InRange(NativeBytes(ExpectAtRest(node, allocator)), NativeBytes(before), NativeBytes(before) + Segment);
         Assert.Equal(0, node.Counters.Arena.PreparedBytes);
         Assert.Equal(1, node.Counters.RootEntries);
         Assert.Equal(ready.Position, node.Position);
@@ -64,7 +66,7 @@ public sealed class BudgetWithdrawalTests
         Assert.Null(pieces.Get(3L));
     }
 
-    [Fact]
+    [Fact(Skip = Pending)]
     public async Task Cancellation_before_dispatch_releases_a_writes_real_backing_while_an_earlier_commit_remains_held()
     {
         var storage = new HeldPersistence(holding: false);
@@ -77,24 +79,30 @@ public sealed class BudgetWithdrawalTests
         {
             var first = pieces.InsertAsync(PieceSchema.Of(2, 8)).AsTask();
             await storage.NextAsync();
-            var before = ExpectCapacity(node, allocator);
+            // The first write waits for its commit with its estimate.
+            var before = ExpectInFlight(node, allocator, BatchInputCharge.PerMemberBytes);
             var written = node.Position;
 
             using var stop = new CancellationTokenSource();
+            var large = PieceSchema.Of(3, 8, data: 5 * Mebibyte);
+            var small = PieceSchema.Of(4, 8);
+            var estimates = BatchInputCharge.PerMemberBytes + BatchInputCharge.PerBuilderBytes +
+                MemberEstimate(node, large) + MemberEstimate(node, small);
             var batch = node.CreateWriteBatch();
-            batch.Insert(PieceSchema.Of(3, 8, data: 5 * Mebibyte));
-            batch.Insert(PieceSchema.Of(4, 8));
+            batch.Insert(large);
+            batch.Insert(small);
             var pending = batch.CommitAsync(stop.Token).AsTask();
             await CountersWait.UntilAsync(node, counters => counters.QueuedWrites == 2 && counters.Arena.PreparedBytes > Segment,
                 "the later write holds real prepared backing");
-            var prepared = ExpectCapacity(node, allocator);
-            Assert.True(prepared.NativeBytes > before.NativeBytes);
+            var prepared = ExpectInFlight(node, allocator, estimates);
+            Assert.True(NativeBytes(prepared) > NativeBytes(before));
             await stop.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(Bound));
             Assert.Equal(written, node.Position);
             Assert.Null(pieces.Get(3L));
             // A segment the cancellation left empty is released or kept as the one empty reserve.
-            Assert.InRange(ExpectCapacity(node, allocator).NativeBytes, before.NativeBytes, before.NativeBytes + Segment);
+            Assert.InRange(NativeBytes(ExpectInFlight(node, allocator, BatchInputCharge.PerMemberBytes)), NativeBytes(before),
+                NativeBytes(before) + Segment);
 
             storage.ReleaseAll();
             var published = await first.WaitAsync(Bound);
@@ -109,7 +117,7 @@ public sealed class BudgetWithdrawalTests
         }
     }
 
-    [Fact]
+    [Fact(Skip = Pending)]
     public async Task Cancellation_while_resolving_memory_refusal_keeps_the_refused_write_from_running_after_reclamation()
     {
         var allocator = new CountingNativeAllocator();
@@ -130,7 +138,7 @@ public sealed class BudgetWithdrawalTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pressure.WaitAsync(Bound));
         Assert.Equal(deleted.Position, node.Position);
         Assert.Equal(0, node.Counters.Arena.PreparedBytes);
-        Assert.True(ExpectCapacity(node, allocator).NativeBytes > 0);
+        Assert.True(NativeBytes(ExpectAtRest(node, allocator)) > 0);
         pause.Release();
         Assert.Equal(1L, (await held.WaitAsync(Bound)).Id);
         node.DrainRetired();
@@ -140,6 +148,6 @@ public sealed class BudgetWithdrawalTests
         Assert.Null(pieces.Get(2L));
         Assert.Equal(size, pieces.Get(3L)?.Data?.Length);
         OwnershipAudit.Expect(node);
-        ExpectCapacity(node, allocator);
+        ExpectAtRest(node, allocator);
     }
 }

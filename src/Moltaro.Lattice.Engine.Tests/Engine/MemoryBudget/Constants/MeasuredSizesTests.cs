@@ -1,12 +1,9 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
-using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Measurements;
-using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Allocation;
-using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
@@ -110,14 +107,13 @@ public sealed class MeasuredSizesTests
         var whole = GC.GetTotalAllocatedBytes(precise: true) - before;
         Assert.InRange(whole, 0, Members * BatchInputCharge.PerMemberBytes);
 
-        var layout = RootLayout.Compile(set.EntityType, node.Schema);
         var updates = Enumerable.Range(0, Members + 64).Select(index =>
         {
             var update = set.CreateUpdate(key);
             update.Assign("DisplayName", $"display name {index % 2}");
             return update;
         }).ToList();
-        var commands = UpdateCommands.Length(layout.Structure, updates[0].ValidateContent().Commands);
+        var commands = HeldInventory.UpdateEstimate(node, updates[0]) - BatchInputCharge.PerMemberBytes;
         foreach (var update in updates.Take(64))
         {
             await update.CommitAsync().AsTask().WaitAsync(Bound);
@@ -143,10 +139,6 @@ public sealed class MeasuredSizesTests
         return bytes;
     }
 
-    private static long Encoded(EngineDatabase node, LatticeRecord record)
-    {
-        var layout = RootLayout.Compile(record.EntityType, node.Schema);
-        var values = record.EntityType.Fields.Select(field => record[field.Name]).ToArray();
-        return RootValues.Export(layout, record.EntityType, values).Length;
-    }
+    private static long Encoded(EngineDatabase node, LatticeRecord record) =>
+        HeldInventory.MemberEstimate(node, record) - BatchInputCharge.PerMemberBytes;
 }

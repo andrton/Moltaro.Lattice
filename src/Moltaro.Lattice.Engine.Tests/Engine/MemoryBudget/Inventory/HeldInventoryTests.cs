@@ -26,6 +26,18 @@ public sealed class HeldInventoryTests
 {
     private const long Limit = 64L * Segment;
 
+    // The structures a load of rows with secondary indexes and Dictionary text exercises on a master,
+    // with the generations of the primary tables its growth retired, and on its child, which applies
+    // a replicated replace after its load.
+    private static readonly string[] Loaded =
+        ["Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue", "RetiredMemory", "ChangePublisher"];
+
+    private static readonly string[] Followed =
+    [
+        "Arena", "RootTable", "PrimaryIndex", "TextTable", "RetiredQueue", "ChangePublisher", "FrameConnection", "ChargedSet",
+        "ReceivedChanges", "BlockImport",
+    ];
+
     [Fact(Skip = Pending)]
     public async Task After_a_load_the_charge_is_exactly_what_the_master_and_its_child_hold_and_their_headroom()
     {
@@ -34,7 +46,7 @@ public sealed class HeldInventoryTests
         var batch = master.CreateWriteBatch();
         for (var key = 1; key <= 300; key++)
         {
-            batch.Insert(new IndexSchema.Ranked { Id = key, Number = key, Login = $"login {key}", Region = $"region {key % 37}" });
+            batch.Insert(new IndexSchema.Ranked { Id = key, Number = key, Login = $"login {key}", Region = $"region {key}" });
             batch.Insert(new IndexSchema.Counted { Id = key, Number = key % 11 });
         }
 
@@ -48,7 +60,7 @@ public sealed class HeldInventoryTests
             MemoryLimit = Limit,
         }), held.Headroom);
         Assert.True(held.GrantedSegments > 0);
-        Assert.NotEmpty(held.Arrays);
+        ExpectOwners(held, Loaded);
 
         var childAllocator = new CountingNativeAllocator();
         var options = ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, Limit);
@@ -61,8 +73,8 @@ public sealed class HeldInventoryTests
         var later = await master.Set<IndexSchema.Ranked>().ReplaceAsync(
             new IndexSchema.Ranked { Id = 7, Number = 7, Login = "changed", Region = "a new region" });
         await child.WaitForPositionAsync(later.Position, Bound);
-        ExpectAtRest(master, masterAllocator);
-        ExpectAtRest(child, childAllocator);
+        ExpectOwners(ExpectAtRest(master, masterAllocator), [.. Loaded, "FrameConnection"]);
+        ExpectOwners(ExpectAtRest(child, childAllocator), Followed);
         Assert.Equal("a new region", child.Set<IndexSchema.Ranked>().Get(7L)?.Region);
     }
 
