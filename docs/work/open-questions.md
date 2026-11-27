@@ -86,8 +86,8 @@ in the meantime.
 | | |
 | --- | --- |
 | **Found** | 27 November 2026, review of the estimates of the write units, Epic 1, sprint S24B |
-| **Question** | A write a child forwards reserves its estimate on the master when the master starts to handle the request — `PerUnitBytes` and `PerMemberBytes` for each member, 3,328 B for one — before it is admitted. A refusal there is replied at once with `WriteRejected` and `Memory`, without the resolution of Q14 (free what is retired, wait for the reads that hold it, try once more alone), which the same write submitted on the master goes through. Should the refusal of the receiver go through the resolution? |
-| **Until answered** | Taken by the coordinator of S24B: the estimate is reserved at receipt and its refusal is replied at once, as since the first round of review of S24B. The body of the request already lies in charged connection buffers, so only the estimate can meet the limit there |
+| **Question** | A write a child forwards is refused on the master, before it is admitted, at three places: when a piece of its body cannot be held in the connection's buffers, when its estimate is reserved as the master starts to handle the request — `PerUnitBytes` and `PerMemberBytes` for each member, 3,328 B for one — and when the import grows to check its root. Each refusal is replied at once with `WriteRejected` and `Memory`, without the resolution of Q14 (free what is retired, wait for the reads that hold it, try once more alone), which the same write submitted on the master goes through. Should the refusals of the receiver go through the resolution? |
+| **Until answered** | Taken by the coordinator of S24B: the three refusals are replied at once, as since the first round of review of S24B |
 | **Decides** | The planner, with the contract of the memory gate (S25) |
 
 ## Answered
