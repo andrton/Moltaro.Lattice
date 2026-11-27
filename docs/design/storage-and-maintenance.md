@@ -276,20 +276,26 @@ schema and the options (`Storage/Budgeting/Headroom`):
 
 | Part | Bytes |
 | --- | ---: |
-| Every instance | 24,576 |
+| Every instance | 7,168 |
+| The slots of the protection of reads | 24 + 128 × the slots |
 | Each entity type | 1,152 |
-| Each index: the primary index of each entity type and each secondary index | 1,024 |
-| A child | 20,480 |
-| A master that listens for children | 4,608 |
+| Each index: the primary index of each entity type and each secondary index | 1,280 |
+| A child | 18,432 |
+| A master that listens for children | 5,376 |
 
-The figures were measured on Windows x64 with .NET 10 as what the heap retains once an
-instance is open, beside the arrays its structures report and its segment objects, for
-schemas of 1 to 32 entity types and 0 to 32 secondary indexes and for the reference
-fixture, and rounded up; the constants in the code state each measured figure. A child
-retains more for each type and index than a master, and the parts of a type and of an
-index follow the child. For the schema of the reference fixture, four entity types and six
-secondary indexes, the headroom is 39,424 bytes on a master, 44,032 on a master that
-listens and 59,904 on a child.
+The slots of the protection of reads are an array of 128 bytes a slot, as many slots as
+twice the processors, at least 128, rounded up to a power of two: their bytes depend on the
+host, so they are computed with the function the protection makes its slots with, not
+measured — 16,408 bytes with 128 slots. The other figures were measured on Windows x64 with
+.NET 10 as what the heap retains once an instance is open, beside the arrays its structures
+report, its segment objects and the slots, as the median of five opens between two still
+heaps, for schemas of 1 or 32 entity types with 0 or 32 secondary indexes and for the
+reference fixture; each constant is at most a quarter above the most it measured, the margin
+for a host that was not measured, and the constants in the code state each figure. A child
+retains more for each type and index than a master, and the parts of a type and of an index
+follow the child. For the schema of the reference fixture, four entity types and six
+secondary indexes, the headroom with 128 slots is 40,984 bytes on a master, 46,360 on a
+master that listens and 59,416 on a child.
 
 **The balance.** At a point of rest — no write, no child transaction, no forwarded request
 and no batch alive — the charge equals the native grants with their metadata, the arrays the

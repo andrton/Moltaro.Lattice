@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Protection;
 
@@ -92,7 +92,7 @@ internal sealed class ReadEpochs
     public ReadEpochs(object owner)
     {
         _owner = owner;
-        _slots = new EpochSlot[(int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(128, 2 * Environment.ProcessorCount))];
+        _slots = new EpochSlot[Headroom.ReadSlotCount()];
         _mask = _slots.Length - 1;
     }
 

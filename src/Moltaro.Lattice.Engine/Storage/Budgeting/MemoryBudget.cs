@@ -76,7 +76,10 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
     public long Headroom { get; private set; }
 
     // The bytes of a T[length]: the header and the elements, rounded up to 8 bytes.
-    public static long ArrayBytes<T>(int length) => (ArrayHeaderBytes + (long)Unsafe.SizeOf<T>() * length + 7) & ~7L;
+    public static long ArrayBytes<T>(int length) => ArrayBytes(Unsafe.SizeOf<T>(), length);
+
+    // The same for an array whose elements take elementBytes each.
+    public static long ArrayBytes(int elementBytes, int length) => (ArrayHeaderBytes + (long)elementBytes * length + 7) & ~7L;
 
     // Sets the limit of an instance once its options are known.
     public void Open(long limit) => Volatile.Write(ref _limit, limit);

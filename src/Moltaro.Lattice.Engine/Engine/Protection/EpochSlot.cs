@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Protection;
 
@@ -12,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 // pair of lines that the processor fetches together: a read writes only its own slot, and reads on
 // other processors do not slow it down. LightEpoch pads its entries to 64 bytes and keeps a thread
 // id and words of its users beside the epoch; a read here needs neither.
-[StructLayout(LayoutKind.Explicit, Size = 128)]
+[StructLayout(LayoutKind.Explicit, Size = Headroom.ReadSlotBytes)]
 internal struct EpochSlot
 {
     [FieldOffset(0)]
