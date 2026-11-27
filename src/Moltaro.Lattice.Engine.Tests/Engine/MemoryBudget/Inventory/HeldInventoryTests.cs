@@ -236,7 +236,7 @@ public sealed class HeldInventoryTests
         var seed = ReferenceFixture.Generate(schema).Where(record =>
         {
             var type = record.EntityType.Name;
-            var most = type == "User" ? ChurnTrace.UsersInSmoke : 128;
+            var most = type == "User" ? ChurnTrace.UsersInShortRuns : 128;
             if (counts.GetValueOrDefault(type) == most)
             {
                 return false;
@@ -245,7 +245,7 @@ public sealed class HeldInventoryTests
             counts[type] = counts.GetValueOrDefault(type) + 1;
             return true;
         }).ToList();
-        var trace = new ChurnTrace(smoke: true, ChurnTrace.UsersInSmoke);
+        var trace = new ChurnTrace(smoke: false, ChurnTrace.UsersInShortRuns, cyclic: true, cyclicSmoke: true);
         var audit = new ChurnAudit(seed);
         var allocator = new CountingNativeAllocator();
         await using var node = await OpenAsync(Limit, allocator, schema: schema);

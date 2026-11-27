@@ -11,6 +11,9 @@ internal sealed class ChurnTrace
 {
     public const int FramesPerSecond = 100;
     public const int UsersInSmoke = 1536;
+
+    // The users of the quick and the cyclic-smoke runs.
+    public const int UsersInShortRuns = 12_288;
     public const int Seed = 6035;
     public const long CollectionUser = 1;
     public const long CollectionRole = 1;
