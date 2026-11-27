@@ -29,4 +29,8 @@ below, so it says which entries S24B has already removed and what it adds.
   [development process](../../process.md#the-architects-review): no assertion changes,
   no test is removed, the suite and the format check pass before and after, and each
   measured path it touches is measured again against its exact parent and does not fall.
+- **Carried from S24B.** Its closing measurement on the rented ARM64 machine includes the
+  read-by-key series against pre-S24 `dd519ba4`. The follow-up of the S24B record
+  ("Closing measurement") closes when the rows of reads of a class alone have bands below
+  1.10 and lie inside them.
 - **Out of scope.** Any change of behavior or of a charge; the lifecycle (S25L).
