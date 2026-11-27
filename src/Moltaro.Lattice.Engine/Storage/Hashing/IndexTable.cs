@@ -63,8 +63,8 @@ namespace Moltaro.Lattice.Storage.Hashing;
 // Memory. The main array and the arrays of the overflow are charged to the budget the table is made
 // with before they are allocated, and released when the table is let go of (ReleaseBacking): by its
 // index at once when no reader can hold it, otherwise when its retirement is freed
-// (docs/design/storage-and-maintenance.md, the memory budget). A table made without one, in a test,
-// has an unlimited budget of its own.
+// (docs/design/storage-and-maintenance.md, the memory budget). A test that makes a table alone gives
+// it an unlimited budget.
 //
 // The largest main table has 2^27 buckets (MostBucketBits): its 2^30 words are the largest array of
 // longs below Array.MaxLength, and 4 entries a bucket make 2^29 entries. Beyond, the main table no
