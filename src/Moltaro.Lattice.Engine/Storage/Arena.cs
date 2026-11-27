@@ -981,14 +981,16 @@ internal sealed unsafe class Arena : IDisposable
     }
 
     // Doubles the segment table, and with it the capacity of the two arrays of slots, which can never
-    // hold more slots than the table has. The three new arrays are charged before they are made, and
-    // the old ones released once the new ones are in place. A reader that still has the old table
-    // finds the same segments in it.
+    // hold more slots than the table has. The three new arrays are charged before they are made. A
+    // reader that still has the old table finds the same segments in it, so the old table keeps its
+    // charge until the reads that could hold it have left (MemoryBudget.ReleaseAfterReads); room for it
+    // there is made first. Only the writer reads the two arrays of slots, so the old ones are released
+    // once the new ones are in place.
     private bool TryGrowSegmentTable()
     {
         var length = _segments.Length * 2;
         var bytes = DirectoryBytes(length);
-        if (!Budget.TryReserve(bytes))
+        if (!Budget.TryReserveAfterReads() || !Budget.TryReserve(bytes))
         {
             return false;
         }
@@ -1011,11 +1013,12 @@ internal sealed unsafe class Arena : IDisposable
         Array.Copy(_segments, grown, _segments.Length);
         Array.Copy(_freedSegmentSlots, freed, _freedSegmentCount);
         Array.Copy(_reservedSegments, reserved, _reservedSegmentCount);
-        var previous = _segments.Length;
+        var previous = _segments;
         _segments = grown;
         _freedSegmentSlots = freed;
         _reservedSegments = reserved;
-        Budget.Release(DirectoryBytes(previous));
+        Budget.Release(2 * MemoryBudget.ArrayBytes<int>(previous.Length));
+        Budget.ReleaseAfterReads(previous);
         return true;
     }
 

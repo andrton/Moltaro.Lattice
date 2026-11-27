@@ -204,6 +204,12 @@ internal sealed class TextLocator(MemoryBudget budget)
         }
 
         _leafBytes += (current?.Bytes ?? 0) - (old?.Bytes ?? 0);
+
+        // Released at once, though a read may still hold the old leaf, unlike a replaced directory
+        // (MemoryBudget.ReleaseAfterReads): a leaf is copied on every change of its IDs, so a retirement
+        // for each would add work to every write that takes or frees a text, and a read holds at most
+        // one leaf, of at most 816 bytes (64 addresses and 64 ordinals), within its call, kept by the
+        // collector (docs/design/storage-and-maintenance.md, the memory budget).
         if (old is not null)
         {
             _budget.Release(LeafArrayBytes(old.Capacity));

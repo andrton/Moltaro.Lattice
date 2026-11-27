@@ -73,6 +73,13 @@ namespace Moltaro.Lattice.Engine.Protection;
 // index keeps its charge until it is freed here (docs/design/storage-and-maintenance.md, the memory
 // budget).
 //
+// Replaced directories. The table of segments of the arena, the directory of pages of the table of root
+// entries and the directory of the overflow pages of a primary index grow by a larger copy, which a read
+// may not have seen yet; each structure hands the old array to the budget, which keeps it charged
+// (MemoryBudget.ReleaseAfterReads). They take no place in the queue: every look, drain and maintenance
+// step tags those handed over since the last one with the current epoch and releases those no read
+// inside can still hold, and the close releases what is left.
+//
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
 // place. Its actions run on whichever thread drains; here the thread must hold the writes lock.
@@ -153,10 +160,12 @@ internal sealed class RetiredMemory
     // The bytes of the retired tables of the primary indexes, counted as an index counts its table.
     public long IndexBytes { get; private set; }
 
-    // Adds the ring of the queue and the arrays of the retired generations not freed yet.
+    // Adds the ring of the queue and the arrays of the retired generations not freed yet, the replaced
+    // directories among them.
     public void ReportHeld(List<HeldArray> held)
     {
         _items.ReportHeld(held);
+        Budget.ReportAfterReads(held, nameof(RetiredMemory));
         for (var index = 0; index < _items.Count; index++)
         {
             if (_items[index].Owner is IndexTable table)
@@ -282,7 +291,14 @@ internal sealed class RetiredMemory
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
 
+        // The replaced directories are a few arrays at most, and their release is not a unit of the work.
+        if (Budget.HasAfterReads)
+        {
+            ReleaseReplacedDirectories();
+        }
+
         var spent = 0;
+
         long? safe = null;
         while (spent < workLimit && _items.Count != 0)
         {
@@ -407,6 +423,7 @@ internal sealed class RetiredMemory
     // failure from the final drain. It frees the arena even when the drain fails.
     public void DrainAtClose(Action? beforeTrim)
     {
+        Budget.ReleaseAllAfterReads();
         if (DrainAndCanTrim())
         {
             beforeTrim?.Invoke();
@@ -418,6 +435,10 @@ internal sealed class RetiredMemory
     {
         _itemsSinceLook = 0;
         _bytesSinceLook = 0;
+        if (Budget.HasAfterReads)
+        {
+            ReleaseReplacedDirectories();
+        }
 
         if (_items.Count == 0)
         {
@@ -481,7 +502,12 @@ internal sealed class RetiredMemory
     // drain after it frees everything retired up to now.
     public long ReadsToWaitFor()
     {
-        if (_items.Count == 0)
+        if (Budget.TagAfterReads(_epochs.Current))
+        {
+            _newest = _epochs.Current;
+        }
+
+        if (_items.Count == 0 && !Budget.HasAfterReads)
         {
             return 0;
         }
@@ -552,6 +578,18 @@ internal sealed class RetiredMemory
         _itemsSinceLook++;
         _bytesSinceLook += bytes;
         _retiredSincePublication = true;
+    }
+
+    // The replaced directories handed over since the last look wait for the reads of the current epoch,
+    // and those no read inside can still hold are released (see the class).
+    private void ReleaseReplacedDirectories()
+    {
+        if (Budget.TagAfterReads(_epochs.Current))
+        {
+            _newest = _epochs.Current;
+        }
+
+        Budget.ReleaseAfterReadsUpTo(_epochs.Advance());
     }
 
     private void Free(in RetiredItem item)

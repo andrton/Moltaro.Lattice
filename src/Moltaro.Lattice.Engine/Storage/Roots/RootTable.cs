@@ -17,6 +17,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // as it was. Each page and the directory are charged to the budget of the instance before they are
 // allocated (docs/design/storage-and-maintenance.md, the memory budget): a refusal by memory leaves
 // the table as it was, and a page added for a write that is refused or cancelled stays, its slots free.
+// A directory replaced by a larger copy keeps its charge until the reads that could hold it have left
+// (MemoryBudget.ReleaseAfterReads).
 //
 // The table takes no lock; its owner says who may call what at the same time. In the database Add
 // and Release, which change the list of free slots, are called only by the thread that holds the
@@ -230,6 +232,14 @@ internal sealed class RootTable
         var grows = Pages == _pages.Length;
         var length = grows ? Math.Min(_pageLimit, Math.Max(1, _pages.Length * 2)) : _pages.Length;
         var bytes = PageBytes + (grows ? MemoryBudget.ArrayBytes<RootEntry[]>(length) : 0);
+
+        // A read that still has the old directory finds the same pages in it, so the old directory keeps
+        // its charge until the reads that could hold it have left; room for it is made first.
+        if (grows && _pages.Length != 0)
+        {
+            _budget.ReserveAfterReads();
+        }
+
         _budget.Reserve(bytes);
 
         RootEntry[] page;
@@ -253,7 +263,7 @@ internal sealed class RootTable
             var previous = _pages;
             Array.Copy(previous, directory, previous.Length);
             _pages = directory;
-            _budget.Release(previous);
+            _budget.ReleaseAfterReads(previous);
         }
 
         _pages[Pages] = page;

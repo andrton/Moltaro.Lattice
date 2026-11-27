@@ -237,8 +237,13 @@ a test has an unlimited one.
   of its backing array — a header of 24 bytes and the elements, rounded up to 8 bytes —
   when it grows: the new array is reserved before it is allocated, and the old one is
   released once it is dropped, or, for a generation a reader may still hold, such as the
-  replaced table of a primary index, when its retirement is freed. A growth therefore holds
-  both arrays for a moment, and a structure keeps the capacity it reached.
+  replaced table of a primary index or a directory replaced by a larger copy — the segments
+  of the arena, the pages of the root table, the overflow pages of a primary index —, when
+  its retirement is freed. A growth therefore holds both arrays for a moment, and a
+  structure keeps the capacity it reached. The one term the charge does not cover at every
+  moment is the leaves of the text table that reads hold within their calls: a leaf is
+  copied on every change of its text IDs and released at once, and a read holds at most one
+  leaf of at most 816 bytes, so the term is bounded by the reads inside times 816 bytes.
 - *The root image of an ordinary write*: one workspace of the arena, charged at its size
   and grown under the writes lock when a wider root is written. A write whose image fits
   allocates none.

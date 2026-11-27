@@ -12,6 +12,14 @@ namespace Moltaro.Lattice.Storage.Budgeting;
 // when its retirement is freed. Small fixed bookkeeping by one headroom, reserved once and reported
 // as its own figure. The input of a batch and of a write unit by an estimate.
 //
+// The arrays released after the reads. A directory that a read may hold, replaced by a larger copy,
+// is handed over here (ReleaseAfterReads) and keeps its charge until the retirement of the database
+// releases it, once no read that could hold it is inside (Engine.Protection.RetiredMemory, which tags
+// each with an epoch at its next look). Several growths before a look are several arrays. The store
+// that keeps them is an array charged by its bytes before it grows, and it keeps its capacity; room is
+// made in it before the directory is replaced (TryReserveAfterReads), so the hand-over allocates
+// nothing and cannot fail. Only the thread that holds the lock of the writes uses the store.
+//
 // What protects its state. The charge is one counter changed by compare-and-swap: a reservation
 // never passes the limit, a release subtracts, and close replaces the counter by a closed mark, so
 // that neither changes it after close. The lock is taken only by the waiting child and by a release
@@ -49,6 +57,11 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
     private long _frees;
 
     private TaskCompletionSource? _freed;
+
+    // The arrays released after the reads (see the class), the first _afterReadsCount in use.
+    private ReplacedArray[] _afterReads = [];
+
+    private int _afterReadsCount;
 
     public long Limit => Volatile.Read(ref _limit);
 
@@ -200,6 +213,130 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
         if (capacity != 0)
         {
             Release(ArrayBytes<T>(capacity));
+        }
+    }
+
+    // Under the lock of the writes, before a structure replaces an array a read may hold: makes room for
+    // one more array released after the reads (see the class). False when the budget cannot hold the
+    // room; room made stays for the next replacement.
+    public bool TryReserveAfterReads()
+    {
+        if (_afterReadsCount < _afterReads.Length)
+        {
+            return true;
+        }
+
+        var length = Math.Max(4, 2 * _afterReads.Length);
+        var bytes = ArrayBytes<ReplacedArray>(length);
+        if (!TryReserve(bytes))
+        {
+            return false;
+        }
+
+        ReplacedArray[] grown;
+        try
+        {
+            grown = new ReplacedArray[length];
+        }
+        catch
+        {
+            Release(bytes);
+            throw;
+        }
+
+        // Only the writer reads the store, so the old one is released at once.
+        _afterReads.AsSpan(0, _afterReadsCount).CopyTo(grown);
+        Release(_afterReads);
+        _afterReads = grown;
+        return true;
+    }
+
+    // TryReserveAfterReads that refuses with BudgetRefusedException and the limit Memory.
+    public void ReserveAfterReads()
+    {
+        if (!TryReserveAfterReads())
+        {
+            throw new BudgetRefusedException(LatticeLimitEnum.Memory);
+        }
+    }
+
+    // Under the lock of the writes, after TryReserveAfterReads: the array the structure replaced keeps
+    // its charge until the retirement releases it (see the class). An empty array is not charged and is
+    // not kept.
+    public void ReleaseAfterReads<T>(T[] replaced)
+    {
+        if (replaced.Length != 0)
+        {
+            _afterReads[_afterReadsCount++] = new ReplacedArray(replaced, typeof(T), replaced.Length, ArrayBytes<T>(replaced.Length), Epoch: 0);
+        }
+    }
+
+    // For the retirement, under the lock of the writes: whether arrays wait for the reads.
+    public bool HasAfterReads => _afterReadsCount != 0;
+
+    // For the retirement, under the lock of the writes: the arrays handed over since the last call wait
+    // for the reads of the epoch given and of those before it; the others keep their epoch. False when
+    // none was handed over.
+    public bool TagAfterReads(long epoch)
+    {
+        var tagged = false;
+        foreach (ref var replaced in _afterReads.AsSpan(0, _afterReadsCount))
+        {
+            if (replaced.Epoch == 0)
+            {
+                replaced = replaced with { Epoch = epoch };
+                tagged = true;
+            }
+        }
+
+        return tagged;
+    }
+
+    // For the retirement, under the lock of the writes: releases, once, the charge of each tagged array
+    // whose epoch is at most the safe epoch given, and lets the array go.
+    public void ReleaseAfterReadsUpTo(long safe)
+    {
+        var kept = 0;
+        for (var index = 0; index < _afterReadsCount; index++)
+        {
+            var replaced = _afterReads[index];
+            if (replaced.Epoch != 0 && replaced.Epoch <= safe)
+            {
+                Release(replaced.Bytes);
+            }
+            else
+            {
+                _afterReads[kept++] = replaced;
+            }
+        }
+
+        _afterReads.AsSpan(kept, _afterReadsCount - kept).Clear();
+        _afterReadsCount = kept;
+    }
+
+    // For the close, once no read is inside: releases every array that waits.
+    public void ReleaseAllAfterReads()
+    {
+        foreach (ref readonly var replaced in _afterReads.AsSpan(0, _afterReadsCount))
+        {
+            Release(replaced.Bytes);
+        }
+
+        _afterReads.AsSpan(0, _afterReadsCount).Clear();
+        _afterReadsCount = 0;
+    }
+
+    // Adds the store and the arrays that wait, under the owner given.
+    public void ReportAfterReads(List<HeldArray> held, string owner)
+    {
+        if (_afterReads.Length != 0)
+        {
+            held.Add(new HeldArray(owner, typeof(ReplacedArray), _afterReads.Length));
+        }
+
+        foreach (ref readonly var replaced in _afterReads.AsSpan(0, _afterReadsCount))
+        {
+            held.Add(new HeldArray(owner, replaced.ElementType, replaced.Length));
         }
     }
 

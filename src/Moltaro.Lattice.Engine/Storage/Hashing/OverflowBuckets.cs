@@ -33,7 +33,8 @@ namespace Moltaro.Lattice.Storage.Hashing;
 //   free list.
 // - Each page and the directory are charged to the budget of the instance before they are
 //   allocated (docs/design/storage-and-maintenance.md, the memory budget); a page added for a write
-//   that is refused or cancelled stays with the table.
+//   that is refused or cancelled stays with the table. A directory replaced by a larger copy keeps its
+//   charge until the reads that could hold it have left (MemoryBudget.ReleaseAfterReads).
 //
 // Who reads and writes. Only the thread that holds the lock of the writes (Engine.Writes.WriteExecutor)
 // takes buckets and adds pages. A reader inside the protection of reads reaches a bucket in one of two ways, and each goes
@@ -168,6 +169,13 @@ internal sealed class OverflowBuckets
     // changes. The directory is published before any bucket of the page is linked.
     private void AddPage()
     {
+        // A read that still has the old directory finds the same pages in it, so the old directory keeps
+        // its charge until the reads that could hold it have left; room for it is made first.
+        if (_pageCount == _pages.Length)
+        {
+            _budget.ReserveAfterReads();
+        }
+
         var bytes = MemoryBudget.ArrayBytes<long>(PageWords);
         _budget.Reserve(bytes);
         long[] words;
@@ -194,7 +202,7 @@ internal sealed class OverflowBuckets
             grown[_pageCount] = page;
             var previous = _pages;
             Volatile.Write(ref _pages, grown);
-            _budget.Release(previous);
+            _budget.ReleaseAfterReads(previous);
         }
         else
         {
