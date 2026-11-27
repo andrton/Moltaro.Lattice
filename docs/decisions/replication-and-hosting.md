@@ -479,9 +479,9 @@ memory and explicit WriteBatch atomicity remain the same. Durable master prepara
 reserves the required publication resources before commit; no native gate spans
 PostgreSQL or transport I/O. This does not select a single global execution thread.
 
-The PostgreSQL worker that coalesces the journal into the saved base is a separate
-persistence responsibility inside the master. It updates provider-owned saved units,
-not a child's arena, and is not part of the child application path.
+The worker of the engine that coalesces the journal into the saved base is a separate
+persistence responsibility inside the master. It updates the saved units its provider
+stores, not a child's arena, and is not part of the child application path.
 
 ### Explicit WriteBatch boundaries
 

@@ -17,8 +17,9 @@ backup/restore, operational trust and deployment simplicity, together with the
 initial performance evidence, support this choice.
 
 PostgreSQL is the selected first backend, beyond its earlier candidate status.
-An engine-owned file backend remains a possible later addition; its release timing
-is not selected and it is not a prerequisite for implementing PostgreSQL storage.
+A file backend remains a possible later addition, as a provider of the contract below;
+its release timing is not selected and it is not a prerequisite for implementing
+PostgreSQL storage.
 The native core and MemoryOnly mode stay independent of SQL persistence. Durable
 operation through this first backend requires a PostgreSQL service, including when
 the master is embedded. This refines the earlier dependency-free Durable direction.
@@ -33,6 +34,41 @@ A bounded local PostgreSQL/Npgsql experiment is available.
 [PostgresStorageComparison](../../src/Prototypes/PostgresStorageComparison/README.md)
 implements that isolated baseline; selecting the backend does not certify its
 production throughput or recovery behavior.
+
+### A public provider contract and a second provider
+
+**Decided by the owner on 27 November 2026:** Durable storage is reached through a
+public provider contract in `Moltaro.Lattice`. A provider implements it in an assembly
+of its own, so that one can also be written outside this repository: for another SQL
+server, a memory-mapped file or any store that keeps the contract's guarantees. This
+repository ships two. `Moltaro.Lattice.PostgreSql` on Npgsql is the first backend and the
+production one. `Moltaro.Lattice.SqlServer` on Microsoft.Data.SqlClient is built once the
+PostgreSQL provider has its journal, base and cleanup. A later sprint that extends the
+contract extends both providers. In the owner's words, translated: "I would like storage
+of two kinds, Postgres and Microsoft SQL Server … there should be a public interface, so
+that even someone other than us can write their own storage provider … In production
+there will be only Postgres." He accepted the order proposed to him.
+
+The engine owns what makes the stored state correct: the encoded format, the coalescing
+of the journal into the base, the comparison of saved units, the order of recovery,
+validation, and the policy of cleanup and retirement. A provider owns only storage
+operations, each with a guarantee that the contract states. Among them:
+
+- taking and holding the leadership of a store;
+- appending a group of effects with its receipts as one durable transaction, which
+  assigns each write of the group its position and tells a definite rejection from an
+  unknown outcome;
+- reading the journal after a cursor;
+- reading the saved units of given roots;
+- writing saved units with the base cursor as one transaction, in bounded parts, without
+  holding up the appends of the journal;
+- streaming the base;
+- removing what a committed cursor covers.
+
+The sprints that build them name the members. The contract names no type of a driver or
+of the engine. One suite of conformance tests states the guarantees, and every provider
+of this repository passes it. A provider is an object given in the options: nothing is
+discovered or loaded by name.
 
 ### Separate persistence mode from storage destination
 
@@ -75,19 +111,19 @@ publication protocol is correct; those remain engine obligations under Q09.
 
 [Q09.2](checkpoint-and-journal.md#q09.2-postgresql-base-and-compact-journal) accepts
 a compact journal and recoverable saved state advanced by background application
-with coalescing. PostgreSQL provides physical WAL/recovery; the provider interprets and replays its stored
-changes. The strategy is accepted; exact SQL layout and encoding remain open:
+with coalescing. PostgreSQL provides physical WAL/recovery;
+the engine interprets and replays the changes its provider stores. The strategy is accepted; exact SQL layout and encoding remain open:
 
 | Stored material | Purpose |
 | --- | --- |
 | Base units | A complete recoverable base at a known committed boundary; 256-byte baseline payload units, independent of native segments |
 | Schema and publication metadata | Recoverable format/schema/dictionary state and ordering identity, consistent with the corresponding data |
-| Compact changes | Provider-owned replay input after the base boundary; requires safe compaction and bounded retention |
+| Compact changes | Replay input after the base boundary, stored by the provider and replayed by the engine; requires safe compaction and bounded retention |
 | Optional delivery history | Defined by child catch-up/reconnect guarantees; reuse of a recovery journal is not automatic |
 
 Transactions must persist the journal/base representation and metadata coherently.
-After restart, PostgreSQL recovers its rows; the provider loads the published base
-and replays its required later changes before readiness. Application replay follows
+After restart, PostgreSQL recovers its rows; the engine loads the published base
+through the provider and replays the required later changes before readiness. Application replay follows
 from the accepted data model, not a gap in PostgreSQL durability. Automatic size/age
 triggers, hard-limit refusal and background application with atomic saved-data/
 position commits are accepted under Q09.2, together with the 256-byte saved-unit
@@ -177,6 +213,6 @@ commit-outcome uncertainty and child resynchronization after restoration. Provid
 backup success alone is not the end-to-end recovery acceptance criterion.
 
 Implement PostgreSQL persistence first while keeping persistence actions separate
-from arena/query logic. Q09.5's MemoryOnly mode remains accepted in v1. A future
-file backend does not justify implementing a plugin framework or speculative
-universal storage interface now.
+from arena/query logic. Q09.5's MemoryOnly mode remains accepted in v1. The boundary
+between the engine and a provider is the public provider contract of the owner's
+decision of 27 November 2026 above. It is not a plugin framework.

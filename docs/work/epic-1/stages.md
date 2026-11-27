@@ -159,11 +159,12 @@ says "storage" for the durable store of a provider: `LatticeDatabaseOptions` wit
 contract of the stage, before S26, changes it and lists it, or keeps it with its reason.
 
 - [S26 · Operation identity and safe retry](sprints/s26.md)
-- [S27 · PostgreSQL provider and Durable open](sprints/s27.md)
+- [S27 · Provider contract, PostgreSQL provider and Durable open](sprints/s27.md)
 - [S28 · Durable commit](sprints/s28.md)
 - [S29 · Storage failures and the loss of leadership](sprints/s29.md)
 - [S30 · Saved base and background application](sprints/s30.md)
 - [S31 · Journal limits, cleanup and receipt retirement](sprints/s31.md)
+- [S31S · SQL Server provider](sprints/s31s.md)
 - [S32 · Recovery under failure](sprints/s32.md)
 
 ## Stage 7. Replication to release level
