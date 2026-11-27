@@ -223,7 +223,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     // What the caller can know from its own arguments is thrown here; what the database decides comes
     // through the task.
     // The charge of the batch passes to its execution: it is returned when the execution ends, whatever
-    // it ends with.
+    // it ends with, unless the execution returned it before (IWriteBatchExecutor.ExecuteAsync).
     private ValueTask<LatticeWriteResult> Commit(LatticeSession? session, CancellationToken cancellationToken)
     {
         ThrowIfSubmitted();
@@ -242,7 +242,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         ValueTask<LatticeWriteResult> result;
         try
         {
-            result = _executor.ExecuteAsync(operations, session, cancellationToken);
+            result = _executor.ExecuteAsync(operations, _charge, session, cancellationToken);
         }
         catch
         {

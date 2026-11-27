@@ -35,6 +35,9 @@ internal interface IWriteBatchExecutor
     // Executes the operations, of which there is at least one, as one write after the position the session
     // depends on, if one is given, and moves the session to its position: the outcome of
     // ILatticeWriteBatch.CommitAsync. Everything the database decides comes through the task, its close
-    // included. It reads the operations before it returns, and keeps nothing of the array.
-    ValueTask<LatticeWriteResult> ExecuteAsync(ArraySegment<WriteBatchOperation> operations, LatticeSession? session, CancellationToken cancellationToken);
+    // included. It reads the operations before it returns, and keeps nothing of the array. The charge of
+    // the input may be returned before the outcome, once nothing of the input is needed any more; the
+    // batch returns it at the outcome in any case.
+    ValueTask<LatticeWriteResult> ExecuteAsync(ArraySegment<WriteBatchOperation> operations, BatchInputCharge charge, LatticeSession? session,
+        CancellationToken cancellationToken);
 }

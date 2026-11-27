@@ -75,7 +75,8 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 // its registration and its reply are working objects under that estimate
 // (docs/design/storage-and-maintenance.md, the memory budget). A write the budget cannot hold is
 // WriteRejected with Memory, and nothing is sent. A batch is charged by its builder and reserves nothing
-// here.
+// here; the charge of the builder is returned at the same point, before the wait for the application of
+// the batch, since nothing of its input is needed any more.
 //
 // The wait for the application ends otherwise: at the timeout, or at once when the child lost its master
 // or faulted, in SynchronizationTimeout with the committed position, since the write is committed and must
@@ -154,14 +155,15 @@ internal sealed class Forwarder
             return Refused(exception, cancellationToken);
         }
 
-        return ForwardAsync(sender, call, session, estimate, cancellationToken);
+        return ForwardAsync(sender, call, session, estimate, charge: null, cancellationToken);
     }
 
     // A write batch of the child (see the class): its members, in their order, as one request, which its master
     // executes as one write (Writes.WriteCoordinator, "A write batch"), with the roots the batch of the core
     // encoded when they were added. The members are not kept once the request is written, so their roots are
     // held only until then. Every refusal comes through the task.
-    public ValueTask<LatticeWriteResult> WriteBatchAsync(BatchMember[] members, LatticeSession? session, CancellationToken cancellationToken)
+    public ValueTask<LatticeWriteResult> WriteBatchAsync(BatchMember[] members, BatchInputCharge charge, LatticeSession? session,
+        CancellationToken cancellationToken)
     {
         ChildSender sender;
         ForwardedCall call;
@@ -176,7 +178,7 @@ internal sealed class Forwarder
             return Refused(exception, cancellationToken);
         }
 
-        return ForwardAsync(sender, call, session, estimate: 0, cancellationToken);
+        return ForwardAsync(sender, call, session, estimate: 0, charge, cancellationToken);
     }
 
     // Reserves the estimate of a write of the child (see the class) and returns it; WriteRejected with
@@ -238,9 +240,10 @@ internal sealed class Forwarder
 
     // Steps 3 and 4 of a call (see the class): the queue of the sender, the reply, and the wait until this child
     // has applied the position of a write its master committed.
-    // The estimate of the write is released once its reply has come or its call has ended.
+    // The estimate of the write, and the charge of a batch, are released once its reply has come or its call
+    // has ended.
     private async ValueTask<LatticeWriteResult> ForwardAsync(ChildSender sender, ForwardedCall call, LatticeSession? session, long estimate,
-        CancellationToken cancellationToken)
+        BatchInputCharge? charge, CancellationToken cancellationToken)
     {
         ForwardedReply reply;
 
@@ -261,6 +264,7 @@ internal sealed class Forwarder
         finally
         {
             Release(estimate);
+            charge?.Dispose();
         }
 
         if (reply.Refusal is { } refusal)

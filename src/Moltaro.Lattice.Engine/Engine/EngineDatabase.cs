@@ -384,8 +384,10 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     // The commit of a write batch of the core: its members, each key in the form of its entity type
     // (Sets.KeyArgument), go on a master to the write coordinator as one write
     // (Writes.WriteCoordinator.SubmitBatchAsync), and on a child to its master as one request
-    // (Child.Forwarding.Forwarder.WriteBatchAsync). The close, and every refusal, come through the task.
-    ValueTask<LatticeWriteResult> IWriteBatchExecutor.ExecuteAsync(ArraySegment<WriteBatchOperation> operations, LatticeSession? session, CancellationToken cancellationToken)
+    // (Child.Forwarding.Forwarder.WriteBatchAsync), which returns the charge of the input at the reply of
+    // the master. The close, and every refusal, come through the task.
+    ValueTask<LatticeWriteResult> IWriteBatchExecutor.ExecuteAsync(ArraySegment<WriteBatchOperation> operations, BatchInputCharge charge,
+        LatticeSession? session, CancellationToken cancellationToken)
     {
         var parts = _parts;
 
@@ -406,7 +408,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         }
 
         return parts.Forwarder is { } forwarder
-            ? forwarder.WriteBatchAsync(members, session, cancellationToken)
+            ? forwarder.WriteBatchAsync(members, charge, session, cancellationToken)
             : parts.Coordinator.SubmitBatchAsync(members, session, cancellationToken);
     }
 
