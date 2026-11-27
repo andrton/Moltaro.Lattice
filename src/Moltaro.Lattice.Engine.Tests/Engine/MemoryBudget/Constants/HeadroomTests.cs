@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Allocation;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
@@ -13,7 +14,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Constants;
 // report and its segment objects: measured as what the heap retains once the instance is open, after
 // a first instance of the same form has been opened and closed so that the caches of the process
 // are made. A master without and with a listener and a child are measured; the parts of the
-// headroom each one adds have to cover what it retains.
+// headroom each one adds have to cover what it retains. What reads may keep of the text table
+// (Headroom.ReplacedTextBytes) is no part of what an open instance retains, so it is left out of the
+// comparison. On a schema without a text table it is zero, and the measured parts alone are stated:
+// one entity type, for the fixed parts of an instance, a listener and a child, and many entity types,
+// for the parts of each type and each index. A schema with texts keeps the fixed objects of the text
+// table covered.
 //
 // The heap of the process changes beside the instance, and the measurement leaves those changes out.
 // A thread that allocates takes an allocation context of 8 KiB, which GC.GetTotalMemory counts as in
@@ -29,13 +35,35 @@ public sealed class HeadroomTests
 
     private const int MeasuredOpens = 5;
 
+    // Schemas without a text table: one entity type, and as many entity types as a child of the parts of
+    // each type shows above the fixed parts. Each type has its key and one Int64 field, and no index.
+    private static readonly LatticeSchema OneType = Types(1);
+
+    private static readonly LatticeSchema ManyTypes = Types(32);
+
+    [Fact]
+    public async Task Where_the_schema_has_no_text_table_the_headroom_covers_what_a_master_a_listener_and_a_child_retain()
+    {
+        Assert.Equal(0, Headroom.ReplacedTextBytes(OneType));
+        Assert.Equal(0, Headroom.ReplacedTextBytes(ManyTypes));
+
+        await ExpectMasterCoveredAsync(OneType, listen: false);
+        await ExpectMasterCoveredAsync(OneType, listen: true);
+        await ExpectChildCoveredAsync(OneType);
+        await ExpectChildCoveredAsync(ManyTypes);
+    }
+
     [Fact]
     public async Task The_headroom_covers_what_an_open_master_and_its_child_retain_beside_their_arrays()
     {
-        await ExpectCoveredAsync(listen: false);
-        await ExpectCoveredAsync(listen: true);
+        await ExpectMasterCoveredAsync(IndexSchema.Utf8, listen: false);
+        await ExpectMasterCoveredAsync(IndexSchema.Utf8, listen: true);
+        await ExpectChildCoveredAsync(IndexSchema.Utf8);
+    }
 
-        await using var master = await OpenAsync(Limit, new CountingNativeAllocator(), listen: true, schema: IndexSchema.Utf8);
+    private static async Task ExpectChildCoveredAsync(LatticeSchema schema)
+    {
+        await using var master = await OpenAsync(Limit, new CountingNativeAllocator(), listen: true, schema: schema);
         await (await OpenChildAsync(master)).DisposeAsync();
         var besides = new List<long>();
         var headroom = 0L;
@@ -66,19 +94,18 @@ public sealed class HeadroomTests
             }
         }
 
-        var beside = Median(besides);
-        Assert.True(beside <= headroom, $"The child retains {beside} bytes beside its arrays; its headroom is {headroom}.");
+        ExpectCovered("child", schema, Median(besides), headroom);
     }
 
-    private static async Task ExpectCoveredAsync(bool listen)
+    private static async Task ExpectMasterCoveredAsync(LatticeSchema schema, bool listen)
     {
-        await (await OpenAsync(Limit, new CountingNativeAllocator(), listen: listen, schema: IndexSchema.Utf8)).DisposeAsync();
+        await (await OpenAsync(Limit, new CountingNativeAllocator(), listen: listen, schema: schema)).DisposeAsync();
         var besides = new List<long>();
         var headroom = 0L;
         for (var open = 0; open < MeasuredOpens; open++)
         {
             var heap = await StillAsync();
-            var node = await OpenAsync(Limit, new CountingNativeAllocator(), listen: listen, schema: IndexSchema.Utf8);
+            var node = await OpenAsync(Limit, new CountingNativeAllocator(), listen: listen, schema: schema);
             try
             {
                 var retained = await StillAsync() - heap;
@@ -92,8 +119,26 @@ public sealed class HeadroomTests
             }
         }
 
-        var beside = Median(besides);
-        Assert.True(beside <= headroom, $"The master retains {beside} bytes beside its arrays; its headroom is {headroom}.");
+        ExpectCovered(listen ? "master that listens" : "master", schema, Median(besides), headroom);
+    }
+
+    // What the instance retains beside its arrays is within its headroom without what reads may keep of the
+    // text table.
+    private static void ExpectCovered(string node, LatticeSchema schema, long beside, long headroom)
+    {
+        var covered = headroom - Headroom.ReplacedTextBytes(schema);
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"A {node} ({schema.EntityTypes.Count} entity types) retains {beside} bytes beside its arrays; its headroom without the text term is {covered}.");
+        Assert.True(beside <= covered, $"A {node} retains {beside} bytes beside its arrays; its headroom without the text term is {covered}.");
+    }
+
+    // A schema of the given number of entity types, each with its key and one Int64 field.
+    private static LatticeSchema Types(int count)
+    {
+        var types = Enumerable.Range(1, count).Select(type =>
+            $"{{ \"Id\": {type}, \"Name\": \"Type{type}\", \"Fields\": [ {{ \"Id\": 1, \"Name\": \"Id\", \"Type\": \"Int64\" }}, " +
+            $"{{ \"Id\": 2, \"Name\": \"Value\", \"Type\": \"Int64\" }} ], \"PrimaryKey\": [1] }}");
+        return LatticeSchema.Compile($"{{ \"EntityTypes\": [ {string.Join(", ", types)} ] }}");
     }
 
     // The heap once two readings in a row agree.
