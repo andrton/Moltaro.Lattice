@@ -5,7 +5,7 @@ using Moltaro.Lattice.Measurements.Manifests;
 using Moltaro.Lattice.Measurements.Scenarios;
 using Moltaro.Lattice.Measurements.Scenarios.StorageChurn;
 
-// The measurement program of the engine (docs/work/epic-1-core.md, "Test lanes"). It is started by
+// The measurement program of the engine (docs/work/epic-1/test-lanes.md). It is started by
 // hand, from src, with the name of a scenario and the name of the manifest the run is made under:
 //
 //   dotnet run -c Release --project Moltaro.Lattice.Measurements -- root-bytes development

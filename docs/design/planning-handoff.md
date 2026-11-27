@@ -28,7 +28,7 @@ not reasons to reopen settled product choices.
 6. [Performance requirements](performance-requirements.md),
    [prototype evidence](prototype-evidence.md) and the relevant
    [experiment sources](../../src/Prototypes/README.md).
-7. The existing [Epic 1 document](../work/epic-1-core.md). Reconcile its earlier
+7. The existing [Epic 1 document](../work/epic-1/README.md). Reconcile its earlier
    status and scope with this baseline rather than treating its old wording as a
    newer architecture decision.
 

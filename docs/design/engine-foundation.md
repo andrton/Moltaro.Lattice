@@ -4,7 +4,7 @@
 PostgreSQL persistence. One engine instance opens one database, with no partition
 layer. The [implementation contract](milestone-1-engine-contract.md) now fixes the
 mechanisms and starting settings described as open in the earlier overview below.
-Milestone and sprint planning is tracked in [Epic 1](../work/epic-1-core.md). The former [MemoryOnly experiment](first-prototype.md)
+Milestone and sprint planning is tracked in [Epic 1](../work/epic-1/README.md). The former [MemoryOnly experiment](first-prototype.md)
 is not the production release scope. The engine is built in steps; the
 [repository README](../../README.md) says what works today.
 

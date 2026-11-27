@@ -1,6 +1,6 @@
 {
   "Name": "rented-arm64-1",
-  "Purpose": "The figures of the sprints before the gates, for comparison between sprints only, on a rented ARM64 machine with dedicated cores. A new series: never compared in absolute terms with the figures of the development manifests. No figure under this manifest judges a gate, and the manifest needs no approval (docs/work/epic-1-core.md, Acceptance, rules for every measurement).",
+  "Purpose": "The figures of the sprints before the gates, for comparison between sprints only, on a rented ARM64 machine with dedicated cores. A new series: never compared in absolute terms with the figures of the development manifests. No figure under this manifest judges a gate, and the manifest needs no approval (docs/work/epic-1/acceptance.md, rules for every measurement).",
   "Machine": {
     "Processor": "ARM64, 16 cores, one thread a core",
     "Memory": "64 GiB"

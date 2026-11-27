@@ -1,6 +1,6 @@
 {
   "Name": "development-4",
-  "Purpose": "The figures of the sprints before the gates, for comparison between sprints only, from Epic 1, sprint S10 on: the same machine and versions as the manifests development to development-3, with a run in which a master and its children are instances of one process, connected over the loopback interface. No figure under this manifest judges a gate, and the manifest needs no approval (docs/work/epic-1-core.md, Acceptance, rules for every measurement).",
+  "Purpose": "The figures of the sprints before the gates, for comparison between sprints only, from Epic 1, sprint S10 on: the same machine and versions as the manifests development to development-3, with a run in which a master and its children are instances of one process, connected over the loopback interface. No figure under this manifest judges a gate, and the manifest needs no approval (docs/work/epic-1/acceptance.md, rules for every measurement).",
   "Machine": {
     "Processor": "Intel Core i9-13900H, 14 cores, 20 logical processors",
     "Memory": "64 GiB DDR5, two modules of 32 GiB at 5,200 MT/s"

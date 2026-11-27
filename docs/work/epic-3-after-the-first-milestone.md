@@ -1,7 +1,7 @@
 # Epic 3. After the first milestone
 
 **Status:** outline. Opened on 18 November 2026 by the owner's decision, to hold what
-belongs to neither [Epic 1](epic-1-core.md) nor [Epic 2](epic-2-identity-storage.md).
+belongs to neither [Epic 1](epic-1/README.md) nor [Epic 2](epic-2-identity-storage.md).
 Nothing here is designed or scheduled; each requirement gets its decision record before
 it gets a sprint.
 

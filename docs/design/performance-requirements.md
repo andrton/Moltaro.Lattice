@@ -348,7 +348,7 @@ establish that behavior.
 
 ### Accepted measurement conditions
 
-**Accepted by the owner on 14 November 2026, with the plan of [Epic 1](../work/epic-1-core.md).**
+**Accepted by the owner on 14 November 2026, with the plan of [Epic 1](../work/epic-1/README.md).**
 The targets above left the conditions of a run to the benchmark owner. These are the
 conditions under which a target is judged as passed or failed.
 

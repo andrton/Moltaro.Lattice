@@ -1,6 +1,6 @@
 {
   "Name": "development-5",
-  "Purpose": "The figures of the sprints before the gates, for comparison between sprints only, from Epic 1, sprint S13 on: the same machine and versions as the manifests development to development-4, with every process of a run held to eight logical processors, because the machine keeps at most nine to ten of its twenty busy at sustained speed. No figure under this manifest judges a gate, and the manifest needs no approval (docs/work/epic-1-core.md, Acceptance, rules for every measurement).",
+  "Purpose": "The figures of the sprints before the gates, for comparison between sprints only, from Epic 1, sprint S13 on: the same machine and versions as the manifests development to development-4, with every process of a run held to eight logical processors, because the machine keeps at most nine to ten of its twenty busy at sustained speed. No figure under this manifest judges a gate, and the manifest needs no approval (docs/work/epic-1/acceptance.md, rules for every measurement).",
   "Machine": {
     "Processor": "Intel Core i9-13900H, 14 cores, 20 logical processors",
     "Memory": "64 GiB DDR5, two modules of 32 GiB at 5,200 MT/s"
