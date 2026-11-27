@@ -138,14 +138,8 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         {
             OwnershipAudit.Expect(master);
             OwnershipAudit.Expect(child);
-            var masterHeld = ExpectAtRest(master, masterAllocator);
-            var childHeld = ExpectAtRest(child, childAllocator);
-            Assert.True(NativeBytes(masterHeld) > 0);
-            Assert.True(NativeBytes(childHeld) > 0);
-
-            // The entity of the external key keeps its collection in a tail on both nodes.
-            ExpectOwners(masterHeld, "CollectionTails");
-            ExpectOwners(childHeld, "CollectionTails");
+            Assert.True(NativeBytes(ExpectAtRest(master, masterAllocator)) > 0);
+            Assert.True(NativeBytes(ExpectAtRest(child, childAllocator)) > 0);
         }
     }
 

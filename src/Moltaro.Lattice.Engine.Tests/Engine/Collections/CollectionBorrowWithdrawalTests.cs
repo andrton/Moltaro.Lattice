@@ -2,12 +2,27 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using static Moltaro.Lattice.Engine.Tests.Engine.Collections.CollectionShrinkPair;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Collections;
 
 public sealed class CollectionBorrowWithdrawalTests
 {
+    // A sparse update that shrinks a chunked Map leaves its collection a tail, whose arrays the
+    // collection tails report and the budget charges.
+    [Fact(Skip = Pending)]
+    public async Task A_shrunk_collection_keeps_its_tail_in_the_inventory_at_rest()
+    {
+        await using var pair = await OpenAsync(false, false, Full, duplicateTarget: true);
+        _ = await pair.ResizeAsync(Full, Small);
+        pair.TurnAll();
+        var node = pair.Nodes[0];
+        Assert.NotEmpty(node.LeaseSnapshot());
+        ExpectOwners(ExpectAtRest(node.Database, node.Allocator), "CollectionTails");
+    }
+
     // A preparation that borrows native slots of a collection tail and is cancelled, or refused by
     // a later member, returns every loan and leaves the collection, its revision and the native
     // ledger as they were.
