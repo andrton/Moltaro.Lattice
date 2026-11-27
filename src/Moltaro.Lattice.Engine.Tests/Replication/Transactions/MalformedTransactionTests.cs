@@ -53,6 +53,7 @@ public sealed class MalformedTransactionTests
         new("an announced length longer than its effects"),
         new("a number of effects one more than it carries"),
         new("a number of effects one fewer than it carries"),
+        new("a number of effects beyond what its length can carry"),
         new("an unknown kind of effect"),
         new("an unknown type id in a Write"),
         new(DeleteOfAnUnknownType),
@@ -244,6 +245,11 @@ public sealed class MalformedTransactionTests
 
             case "a number of effects one fewer than it carries":
                 return frame.WithPayload(TransactionPayload.Make(sequence, count - 1, effects));
+
+            // An estimate for so many effects passes every memory limit: without the check of the header a
+            // Ready child would wait for memory instead of refusing the transaction.
+            case "a number of effects beyond what its length can carry":
+                return frame.WithPayload(TransactionPayload.Make(sequence, uint.MaxValue, effects));
 
             case "an unknown kind of effect":
                 effects[0] = 99;

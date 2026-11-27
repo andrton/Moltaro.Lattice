@@ -10,9 +10,9 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // effects. Whether the effects are valid, and as many as stated, is the applier's (Engine.Child.Following).
 //
 // What it checks of a frame, before any of it is used: while no transaction is in progress, the frame
-// begins one, with the sequence that comes next, the length of its effects, at least one byte, and no more
-// of them than the length announces; while one is in progress, the frame holds only its next bytes, no more
-// than it still announces (AnnouncedBody). The frame carries Protocol.EndsABody exactly when it completes
+// begins one, with the sequence that comes next, the length of its effects, at least one byte, no more
+// effects than that length can carry, and no more bytes than the length announces; while one is in
+// progress, the frame holds only its next bytes, no more than it still announces (AnnouncedBody). The frame carries Protocol.EndsABody exactly when it completes
 // the transaction. Each failure is a LatticeException with ValidationFailed.
 //
 // Memory. A transaction of one frame is handed out where it lies, in the payload of its frame, so it is
@@ -78,6 +78,13 @@ internal sealed class TransactionAssembler(long largest, MemoryBudget budget) : 
         if (announced == 0)
         {
             throw Protocol.Invalid($"The transaction {sequence} announces no effect.");
+        }
+
+        // The applier reserves its estimate from the number before it reads the effects, so a number the
+        // length cannot carry is refused here, before anything is reserved for it.
+        if ((ulong)effectCount * (ulong)TransactionFormat.SmallestEffectSize > announced)
+        {
+            throw Protocol.Invalid($"The transaction {sequence} states {effectCount} effects, more than its {announced} bytes of effects can carry.");
         }
 
         var complete = progress.Begin(frame, announced, (ulong)bytes.Length, "transaction", sequence);

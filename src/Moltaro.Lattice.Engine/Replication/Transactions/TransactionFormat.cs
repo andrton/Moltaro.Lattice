@@ -10,8 +10,8 @@ namespace Moltaro.Lattice.Replication.Transactions;
 //
 // A transaction is its sequence (UInt64), the length of its effects (UInt64), the number of its effects
 // (UInt32), from which a child reserves the estimate of the transaction before it reads them, and its
-// effects, one after another until that length; a child that reads another number of effects than the
-// header states refuses the transaction as malformed:
+// effects, one after another until that length; a child refuses as malformed a number of effects that
+// length cannot carry, before it reserves anything for them, and one that is not the number it reads:
 // - Write: its kind (EffectKindEnum, one byte), the length of its root (UInt64) and the root as a load
 //   sends it — type id (UInt32), last mutation sequence (UInt64), the number of its member of a write
 //   batch, 0 for a single write (UInt32) (Load.RootEnvelope), then what Load.BlockExport writes: layout
@@ -47,6 +47,10 @@ internal static class TransactionFormat
 
     // An Unchanged: its kind.
     public const int UnchangedSize = 1;
+
+    // The fewest bytes an effect takes, the shortest of the envelopes above: no more effects than the
+    // length of the effects divided by it can be in a transaction.
+    public static readonly int SmallestEffectSize = Math.Min(Math.Min(UnchangedSize, DeleteEnvelopeSize), Math.Min(WriteEnvelopeSize, UpdateEnvelopeSize));
 
     public static void WriteHeader(Span<byte> bytes, ulong sequence, long effectsLength, uint effectCount)
     {
