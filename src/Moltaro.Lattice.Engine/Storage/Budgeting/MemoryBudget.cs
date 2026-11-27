@@ -32,19 +32,18 @@ internal sealed class MemoryBudget(long limit = long.MaxValue)
     // GC.GetAllocatedBytesForCurrentThread on .NET 10, x64: a byte[0] takes 24 bytes, a byte[1] 32.
     private const int ArrayHeaderBytes = 24;
 
+    // What the charge holds once the budget is closed, so that a reservation or a release that races the
+    // close either lands before it, and is cleared with the charge, or sees the close and changes nothing.
+    private const long ClosedCharge = long.MinValue;
+
     private readonly Lock _gate = new();
 
     private long _limit = limit;
 
-    // The charge, and the close: once the budget is closed the word holds ClosedCharge, so that a
-    // reservation or a release that races the close either lands before it, and is cleared with the
-    // charge, or sees the close and changes nothing.
-    private const long ClosedCharge = long.MinValue;
-
+    // The charge, or ClosedCharge once the budget is closed.
     private long _charged;
 
     private long _peak;
-
 
     // The wait of the one child of the instance (see the class). The flag is set while the
     // child retries or waits, the thread while its own attempt runs, so that the attempt's rollback
