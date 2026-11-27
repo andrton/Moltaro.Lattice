@@ -61,7 +61,7 @@ public sealed class AbandonedIndexChangesTests
         var allocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
-            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, ObserveChildPressure = state => pressure.TrySetResult(state) });
+            new EngineTestInputs { Allocator = allocator, ObserveChildPressure = state => pressure.TrySetResult(state) });
         var readiness = child.Position;
 
         ExpectHeld(tally, child);

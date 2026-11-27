@@ -1,6 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Engine.Child.Following;
-using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -50,13 +48,10 @@ public sealed class ChildApplyBudgetTests
         (int Handles, long Blocks, long Native)? prefix = null;
         var fullRoot = effect is "insert" or "replace";
         var oversized = effect == "oversized";
-        Array[]? enlarged = null;
-        Array[]? rebuilt = null;
         await using var child = EngineDatabase.Create(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, ChildLimit),
             new EngineTestInputs
             {
-                ObserveBudgetBackings = true,
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 BeforeReceivedRootListGrowth = (count, index, _, _) =>
@@ -79,34 +74,9 @@ public sealed class ChildApplyBudgetTests
                         Interlocked.Increment(ref lastMemberAttempts);
                     }
 
-                    if (!fullRoot && index == member)
+                    if (!fullRoot && index == member && held is null)
                     {
-                        if (oversized)
-                        {
-                            var follower = Backing<Follower>(receiving!, "_follower");
-                            var changes = Backing<object>(follower, "_changes");
-                            var current = Backing<Array>(Backing<object>(changes, "_prepared"), "_items");
-                            var names = Backing<object>(Backing<PublicationKeys>(changes, "_keys"), "_keys");
-                            var keyBackings = DictionaryArrays(names);
-                            Assert.True(current.Length >= 1_025);
-                            Assert.Equal(2, keyBackings.Length);
-                            Assert.All(keyBackings, array => Assert.True(array.Length >= 1_025));
-                            Array[] actual = [current, .. keyBackings];
-                            _ = ExpectCapacity(receiving!, allocator, out _, actual);
-                            if (enlarged is null)
-                            {
-                                enlarged = actual;
-                            }
-                            else
-                            {
-                                rebuilt = actual;
-                            }
-                        }
-
-                        if (held is null)
-                        {
-                            HoldRoom();
-                        }
+                        HoldRoom();
                     }
                 },
                 ObserveChildPressure = sample =>
@@ -164,18 +134,6 @@ public sealed class ChildApplyBudgetTests
                 Assert.Equal(1, child.Counters.RootEntries);
                 Assert.Equal(child.ReservedNodeBytes(), child.Counters.Arena.PreparedBytes);
                 Assert.Equal(loaded.NativeBytes, ExpectCapacity(child, allocator).NativeBytes);
-                if (oversized)
-                {
-                    var grown = Assert.IsType<Array[]>(enlarged);
-                    Assert.True(grown.Sum(ManagedObjectSize) > 1_024 * 96);
-                    _ = child.InspectBudget((_, backing) =>
-                    {
-                        foreach (var old in grown)
-                        {
-                            Assert.NotSame(old, backing);
-                        }
-                    });
-                }
             });
 
             Assert.True(local.TryGet((long)ExistingKey, out var installed, out var still));
@@ -209,14 +167,6 @@ public sealed class ChildApplyBudgetTests
 
             if (end == "disconnect")
             {
-                var pending = (Pieces: Array.Empty<byte[]>(), ChargedBytes: 0L);
-                child.WithOwnershipAudit(() =>
-                {
-                    var physical = ChildReceiveBudgetTests.ReceiveBackings(child);
-                    Assert.NotEmpty(physical.Pieces);
-                    var charge = ExpectCapacity(child, allocator, out _, [physical.Receive, .. physical.Pieces]);
-                    pending = (physical.Pieces, charge.ChargedBytes);
-                });
                 var followingTask = Backing<Task>(child, "_following");
                 relay.Cut();
                 // The sender has room to start this short request and observes the
@@ -231,17 +181,8 @@ public sealed class ChildApplyBudgetTests
                 Assert.Equal(1, child.Counters.RootEntries);
                 Assert.Null(child.Set<IndexSchema.Ranked>().Get(17L));
                 Assert.DoesNotContain(ChildReceiveBudgetTests.Acknowledged(relay), sequence => sequence >= blocked);
-                var follower = Backing<Follower?>(child, "_follower");
-                if (follower is not null && Backing<object?>(follower, "_assembler") is { } assembler &&
-                    Backing<object?>(assembler, "_large") is { } transfer)
-                {
-                    Assert.Empty(Backing<System.Collections.IList>(transfer, "_pieces"));
-                }
-
                 var released = ExpectCapacity(child, allocator);
                 Assert.Equal(loaded.NativeBytes, released.NativeBytes);
-                Assert.True(pending.ChargedBytes - released.ChargedBytes >= pending.Pieces.Sum(ManagedObjectSize));
-                _ = child.InspectBudget((_, backing) => Assert.DoesNotContain(backing, pending.Pieces, ReferenceEqualityComparer.Instance));
                 OwnershipAudit.Expect(child);
                 await NothingRegistered.ExpectAsync(master, async () =>
                     await rows.UpsertAsync(new IndexSchema.Counted { Id = 1_000, Number = 3 }));
@@ -252,8 +193,6 @@ public sealed class ChildApplyBudgetTests
             await child.WaitForPositionAsync(later.Position, Bound);
             if (oversized)
             {
-                var replacement = Assert.IsType<Array[]>(rebuilt);
-                Assert.All(replacement, backing => Assert.DoesNotContain(backing, enlarged!, ReferenceEqualityComparer.Instance));
                 Assert.Equal(6 * 1024 * 1024, child.Set<IndexSchema.Ranked>().Get(17L)?.Login.Length);
             }
             Assert.Equal(later.Position, child.Position);

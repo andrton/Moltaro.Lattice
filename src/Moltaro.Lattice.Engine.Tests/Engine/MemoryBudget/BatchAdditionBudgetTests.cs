@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Access.Updates;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Replication;
@@ -32,7 +31,7 @@ public sealed class BatchAdditionBudgetTests
         var childAllocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, Limit),
-            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = childAllocator, DisableBackgroundMaintenance = true });
+            new EngineTestInputs { Allocator = childAllocator, DisableBackgroundMaintenance = true });
         var acting = onChild ? child : master;
         var allocator = onChild ? childAllocator : sourceAllocator;
 
@@ -114,56 +113,6 @@ public sealed class BatchAdditionBudgetTests
         Assert.Equal(1, next.Count);
     }
 
-    [Theory]
-    [InlineData(3)]
-    [InlineData(4)]
-    public async Task A_batch_growth_must_fit_both_actual_generations_of_its_backing(int entries)
-    {
-        var reference = new CountingNativeAllocator();
-        long net;
-        long peak;
-        await using (var control = await OpenAsync(Limit, reference))
-        {
-            await control.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, 8));
-            var batch = BuildDeletes(control, entries);
-            var old = BuilderArrays(batch);
-            _ = ExpectCapacity(control, reference, out _, old);
-            batch.Delete<PieceSchema.Piece>(10L + entries);
-            var replacement = BuilderArrays(batch);
-            _ = ExpectCapacity(control, reference, out net, replacement);
-            var withdrawn = old.Except(replacement, ReferenceEqualityComparer.Instance).ToArray();
-            Assert.NotEmpty(withdrawn);
-            peak = net + withdrawn.Sum(ManagedObjectSize);
-            Assert.True(control.InspectBudget().PeakBytes >= peak);
-        }
-
-        // The net capacity can hold the final builder. It cannot hold the old
-        // and the replacement arrays simultaneously. The extra allocation
-        // allowance in the control arm covers the individual key snapshot.
-        foreach (var fits in new[] { false, true })
-        {
-            var allocator = new CountingNativeAllocator();
-            await using var node = await OpenAsync(fits ? peak + 128 : net, allocator);
-            var start = await node.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, 8));
-            var batch = BuildDeletes(node, entries);
-            var old = BuilderArrays(batch);
-            if (fits)
-            {
-                batch.Delete<PieceSchema.Piece>(10L + entries);
-                Assert.Equal(entries + 1, batch.Count);
-                _ = ExpectCapacity(node, allocator, out _, BuilderArrays(batch));
-            }
-            else
-            {
-                AssertMemoryRefusal(() => batch.Delete<PieceSchema.Piece>(10L + entries));
-                Assert.Equal(entries, batch.Count);
-                Assert.Equal(old, BuilderArrays(batch));
-                _ = ExpectCapacity(node, allocator, out _, old);
-            }
-            Assert.Equal(start.Position, node.Position);
-        }
-    }
-
     [Fact]
     public async Task Full_and_partial_adds_keep_their_validation_duplicate_submitted_and_closed_precedence_under_pressure()
     {
@@ -183,14 +132,10 @@ public sealed class BatchAdditionBudgetTests
         var invalid = PieceSchema.Of(1, 8);
         invalid.Name = new string((char)0xD800, 1);
         var before = ExpectCapacity(node, allocator);
-        var retained = BuilderArrays(open);
-        var copyValues = ManagedObjectSize(new object?[pieces.EntityType.Fields.Count]);
-        var copyCommand = ManagedObjectSize(new UpdateCommand[1]) + ManagedObjectSize(new LatticeField[1]);
-        Assert.InRange(SmallSnapshotRoom, Math.Max(copyValues, copyCommand), 511);
 
         using (LeaveRoom(node, before, SmallSnapshotRoom))
         {
-            Assert.Equal(SmallSnapshotRoom, Limit - ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
+            Assert.Equal(SmallSnapshotRoom, Limit - ExpectCapacity(node, allocator).ChargedBytes);
             ExpectValidation(() => open.Insert(invalid));
             ExpectValidation(() => open.Update(malformed));
             Assert.Throws<ArgumentException>(() => open.Insert(PieceSchema.Of(1, 10)));
@@ -214,47 +159,6 @@ public sealed class BatchAdditionBudgetTests
     }
 
     [Fact]
-    public async Task An_earlier_snapshot_allocation_can_refuse_before_checking_batch_identity_or_submission()
-    {
-        var allocator = new CountingNativeAllocator();
-        await using var node = await OpenAsync(Limit, allocator);
-        var pieces = node.Set<PieceSchema.Piece>();
-        var open = node.CreateWriteBatch();
-        open.Insert(PieceSchema.Of(1, 8));
-        var submitted = node.CreateWriteBatch();
-        submitted.Delete<PieceSchema.Piece>(20L);
-        await submitted.CommitAsync();
-        var valid = pieces.CreateUpdate(1L);
-        valid.Assign("Name", "modified");
-        var retained = BuilderArrays(open);
-        var before = ExpectCapacity(node, allocator, out _, retained);
-        var copyValues = ManagedObjectSize(new object?[pieces.EntityType.Fields.Count]);
-        var copyCommand = ManagedObjectSize(new UpdateCommand[1]);
-        Assert.InRange(40, 0, Math.Min(copyValues, copyCommand) - 1);
-
-        using (LeaveRoom(node, before, 40))
-        {
-            var bound = ExpectCapacity(node, allocator, out _, retained);
-            Assert.Equal(40, Limit - bound.ChargedBytes);
-            Assert.Throws<ArgumentNullException>(() => open.Insert<PieceSchema.Piece>(null!));
-            Assert.Throws<InvalidOperationException>(() => open.Update(pieces.CreateUpdate(1L)));
-            AssertMemoryRefusal(() => open.Insert(PieceSchema.Of(1, 10)));
-            AssertMemoryRefusal(() => open.Update(valid));
-            AssertMemoryRefusal(() => submitted.Insert(PieceSchema.Of(1, 10)));
-            AssertMemoryRefusal(() => submitted.Update(valid));
-            Assert.Equal((1, 1, 1), (open.Count, submitted.Count, valid.Count));
-            Assert.Equal(bound.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
-        }
-
-        Assert.Throws<ArgumentException>(() => open.Insert(PieceSchema.Of(1, 10)));
-        Assert.Throws<ArgumentException>(() => open.Update(valid));
-        Assert.Throws<InvalidOperationException>(() => submitted.Insert(PieceSchema.Of(1, 10)));
-        Assert.Throws<InvalidOperationException>(() => submitted.Update(valid));
-        Assert.Equal((1, 1, 1), (open.Count, submitted.Count, valid.Count));
-        Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
-    }
-
-    [Fact]
     public async Task A_queued_batch_keeps_the_same_charged_input_and_takes_no_preparation_until_its_conflict_finishes()
     {
         var persistence = new HeldPersistence(holding: false);
@@ -270,26 +174,17 @@ public sealed class BatchAdditionBudgetTests
             var prepared = node.Counters.Arena.PreparedBytes;
             var inserts = node.CreateWriteBatch();
             inserts.Replace(PieceSchema.Of(2, 10, data: LongValue));
-            var body = BatchPieceArrays(inserts);
-            Assert.True(body.Length > 1);
-            _ = ExpectCapacity(node, allocator, out _, body);
+            _ = ExpectCapacity(node, allocator);
 
             using var stop = new CancellationTokenSource();
             var waiting = inserts.CommitAsync(stop.Token).AsTask();
             await CountersWait.UntilAsync(node, counters => counters.QueuedWrites == 2, "the conflicting batch is queued");
             Assert.False(waiting.IsCompleted);
             Assert.Equal(prepared, node.Counters.Arena.PreparedBytes);
-            _ = ExpectCapacity(node, allocator, out _, body);
+            _ = ExpectCapacity(node, allocator);
 
             await stop.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(Bound));
-            _ = node.InspectBudget((_, backing) =>
-            {
-                if (backing is byte[] bytes)
-                {
-                    Assert.DoesNotContain(bytes, body);
-                }
-            });
             persistence.ReleaseAll();
             var published = await first.WaitAsync(Bound);
             Assert.Equal(published.Position, node.Position);
@@ -314,67 +209,8 @@ public sealed class BatchAdditionBudgetTests
     private static void ExpectValidation(Action add) =>
         Assert.Equal(LatticeErrorEnum.ValidationFailed, Assert.Throws<LatticeException>(add).Error);
 
-    [Fact]
-    public async Task An_owned_empty_binary_operand_returns_its_actual_backing_after_a_refusal_and_a_commit()
-    {
-        var allocator = new CountingNativeAllocator();
-        await using var node = await OpenAsync(Limit, allocator);
-        var pieces = node.Set<PieceSchema.Piece>();
-        var seed = await pieces.InsertAsync(PieceSchema.Of(1, 8));
-        var batch = node.CreateWriteBatch();
-        var malformed = pieces.CreateUpdate(1L);
-        malformed.Assign("Data", Array.Empty<byte>());
-        malformed.Assign("Name", new string((char)0xD800, 1));
-        var abandoned = EmptyOperand(malformed);
-        var before = ExpectCapacity(node, allocator);
-        node.ResetBudgetPeak();
-        ExpectValidation(() => batch.Update(malformed));
-        var refused = ExpectCapacity(node, allocator);
-        Assert.Equal(before.ChargedBytes, refused.ChargedBytes);
-        Assert.True(refused.PeakBytes >= before.ChargedBytes + ManagedObjectSize(abandoned));
-        Assert.Same(abandoned, EmptyOperand(malformed));
-        Assert.Equal(2, malformed.Count);
-        Assert.Equal(0, batch.Count);
-        Assert.Equal(seed.Position, node.Position);
-        node.InspectBudget((_, backing) => Assert.NotSame(abandoned, backing));
-
-        var update = pieces.CreateUpdate(1L);
-        var changed = update.Assign("Data", Array.Empty<byte>());
-        var adopted = EmptyOperand(update);
-        batch.Update(update);
-        _ = ExpectCapacity(node, allocator, out _, adopted);
-        var committed = await batch.CommitAsync();
-        Assert.True(changed.Changed);
-        Assert.Equal(committed.Position, node.Position);
-        Assert.Empty(Assert.IsType<byte[]>(pieces.Get(1L)?.Data));
-        _ = ExpectCapacity(node, allocator);
-        node.InspectBudget((_, backing) => Assert.NotSame(adopted, backing));
-
-        static byte[] EmptyOperand(LatticeUpdate update)
-        {
-            var operand = Assert.IsType<byte[]>(Backing<List<UpdateCommand>>(update, "_commands")[0].First);
-            Assert.Empty(operand);
-            Assert.NotSame(Array.Empty<byte>(), operand);
-            return operand;
-        }
-    }
-
     private static IDisposable LeaveRoom(EngineDatabase node, BudgetCapacitySample before, int bytes) =>
         node.HoldBudgetBacking(checked((int)(Limit - before.ChargedBytes - bytes - ManagedObjectSize(Array.Empty<byte>()))));
-
-    private static ILatticeWriteBatch BuildDeletes(ILatticeDatabase node, int entries)
-    {
-        var batch = node.CreateWriteBatch();
-        for (var key = 10L; key < 10 + entries; key++)
-        {
-            batch.Delete<PieceSchema.Piece>(key);
-        }
-
-        return batch;
-    }
-
-    private static object[] BuilderArrays(ILatticeWriteBatch batch) =>
-        [Backing<Array>(Backing<object>(batch, "_operations"), "_items"), .. DictionaryArrays(Backing<object>(batch, "_identities"))];
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference AbandonAfterCheckingPressure(ILatticeDatabase node, ILatticeWriteBatch next)

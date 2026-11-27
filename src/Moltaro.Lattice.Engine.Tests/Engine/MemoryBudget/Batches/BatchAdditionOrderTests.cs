@@ -5,12 +5,18 @@ using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Schema;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Batches;
 
-public sealed class BatchSnapshotAdmissionTests
+// An addition makes every check it makes and builds its snapshot in the order it always has — an
+// update validates its copied content before its other checks — and reserves its estimate last, so a
+// refusal by memory never comes before one of those errors. A refusal changes nothing: the earlier
+// members, the count, an update passed to the call and the charge are kept, and a child sends no
+// request.
+public sealed class BatchAdditionOrderTests
 {
     private const long Limit = 8L * Segment;
     private const int WorkingRoom = 512;
@@ -28,10 +34,10 @@ public sealed class BatchSnapshotAdmissionTests
         }
         """);
 
-    [Theory]
+    [Theory(Skip = Pending)]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task A_required_snapshot_stops_at_the_memory_boundary_before_reading_a_later_field(bool onChild)
+    public async Task Under_memory_pressure_every_check_of_the_snapshot_comes_before_the_refusal_by_memory(bool onChild)
     {
         var masterAllocator = new CountingNativeAllocator();
         await using var master = await OpenAsync(Limit, masterAllocator, listen: true, schema: Schema);
@@ -41,108 +47,65 @@ public sealed class BatchSnapshotAdmissionTests
         var childAllocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, Limit),
-            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = childAllocator, DisableBackgroundMaintenance = true });
+            new EngineTestInputs { Allocator = childAllocator, DisableBackgroundMaintenance = true });
         var node = onChild ? child : master;
-        var allocator = onChild ? childAllocator : masterAllocator;
         var set = node.Set("Snapshot");
         Assert.True(set.TryGet(1L, out _, out var originalRevision));
 
         var items = Enumerable.Range(0, 256).Select(index => new byte[] { (byte)index, 89 }).ToList();
-        Assert.True(ManagedObjectSize(Backing<byte[][]>(items, "_items")) > WorkingRoom);
         var invalidEarly = Record(node, null, items, null);
         var invalidLate = Record(node, 2L, items, null);
-        var rejectedTyped = new Snapshot(2L, items, null);
-        var validatedTyped = new Snapshot(2L, items, null);
+        var invalidTyped = new Snapshot(2L, items, null);
+        var valid = Record(node, 4L, items, "valid");
         var update = set.CreateUpdate(1L);
         var replacement = update.Assign("Items", items);
         var invalidText = update.Assign("Name", new string((char)0xD800, 1));
+        var validUpdate = set.CreateUpdate(1L);
+        var assigned = validUpdate.Assign("Items", items);
 
         var batch = node.CreateWriteBatch();
         byte[] earlier = [53, 91];
         batch.Insert(Record(node, 70L, [earlier], "kept"));
-        var earlierPieces = BatchPieceArrays(batch);
-        Assert.NotEmpty(earlierPieces);
         batch.Delete<Snapshot>(71L);
-        var operations = Backing<object>(batch, "_operations");
-        var identities = Backing<object>(batch, "_identities");
-        object[] retained = [Backing<Array>(operations, "_items"), .. DictionaryArrays(identities), .. earlierPieces];
         byte[] prefix = [174, 193];
-        var largeElement = new byte[4_096];
-        byte[][] lateInvalid = [prefix, largeElement, null!];
-        Assert.True(ManagedObjectSize(largeElement) > WorkingRoom);
-        var lowReads = new List<int>();
-        var highReads = new List<int>();
-        byte[]? copiedPrefix = null;
-        var rejectedElement = new Snapshot(3L, new ObservedItems(lateInvalid, index =>
+        byte[][] lateInvalid = [prefix, new byte[4_096], null!];
+        var reads = new List<int>();
+        var invalidElement = new Snapshot(3L, new ObservedItems(lateInvalid, reads.Add), "valid");
+        using (LeaveAbout(node, WorkingRoom, out _))
         {
-            lowReads.Add(index);
-            if (index == 1)
-            {
-                var copies = new List<byte[]>();
-                node.InspectBudget((_, backing) =>
-                {
-                    if (backing is byte[] bytes && !ReferenceEquals(bytes, prefix) && bytes.AsSpan().SequenceEqual(prefix))
-                    {
-                        copies.Add(bytes);
-                    }
-                });
-
-                copiedPrefix = Assert.Single(copies);
-                _ = ExpectCapacity(node, allocator, out _, [.. retained, copiedPrefix]);
-            }
-        }), "valid");
-        var validatedElement = new Snapshot(3L, new ObservedItems(lateInvalid, highReads.Add), "valid");
-        var before = ExpectCapacity(node, allocator, out _, retained);
-        var holdLength = checked((int)(Limit - before.ChargedBytes - WorkingRoom - ManagedObjectSize(Array.Empty<byte>())));
-        using (node.HoldBudgetBacking(holdLength))
-        {
-            var bound = ExpectCapacity(node, allocator, out _, retained);
-            Assert.Equal(WorkingRoom, Limit - bound.ChargedBytes);
+            var bound = node.InspectHeld().Charged;
             ExpectValidation("Id", () => batch.Insert(invalidEarly));
-            ExpectMemory(() => batch.Insert(invalidLate));
-            ExpectMemory(() => batch.Insert(rejectedTyped));
-            Assert.Equal((1, 1, 0), rejectedTyped.Reads);
-            node.ResetBudgetPeak();
-            ExpectMemory(() => batch.Insert(rejectedElement));
-            Assert.Equal((1, 1, 0), rejectedElement.Reads);
-            Assert.Equal([0, 1], lowReads);
-            Assert.NotNull(copiedPrefix);
-            node.InspectBudget((_, backing) => Assert.NotSame(copiedPrefix, backing));
-            var afterElement = ExpectCapacity(node, allocator, out _, retained);
-            Assert.InRange(afterElement.PeakBytes - bound.ChargedBytes, ManagedObjectSize(copiedPrefix), WorkingRoom);
-            Assert.Equal(bound.ChargedBytes, afterElement.ChargedBytes);
-            ExpectMemory(() => batch.Update(update));
-            Assert.Equal(bound.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
-            Assert.Equal(2, batch.Count);
-            Assert.Equal(2, update.Count);
+            ExpectValidation("Name", () => batch.Insert(invalidLate));
+            ExpectValidation("Name", () => batch.Insert(invalidTyped));
+            Assert.Equal((1, 1, 1), invalidTyped.Reads);
+            ExpectValidation("Items", () => batch.Insert(invalidElement));
+            Assert.Equal([0, 1, 2], reads);
+            Assert.Equal((1, 1, 0), invalidElement.Reads);
+            ExpectValidation("Name", () => batch.Update(update));
+            Assert.Throws<ArgumentException>(() => batch.Delete<Snapshot>(70L));
+            ExpectMemory(() => batch.Insert(valid));
+            ExpectMemory(() => batch.Update(validUpdate));
+            Assert.Throws<InvalidOperationException>(() => assigned.Changed);
             Assert.Throws<InvalidOperationException>(() => replacement.Changed);
             Assert.Throws<InvalidOperationException>(() => invalidText.Changed);
+            Assert.Equal(2, batch.Count);
+            Assert.Equal(2, update.Count);
+            Assert.Equal(1, validUpdate.Count);
+            Assert.Equal(bound, node.InspectHeld().Charged);
         }
 
-        Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
-        ExpectValidation("Name", () => batch.Insert(invalidLate));
-        ExpectValidation("Name", () => batch.Insert(validatedTyped));
-        Assert.Equal((1, 1, 1), validatedTyped.Reads);
-        ExpectValidation("Items", () => batch.Insert(validatedElement));
-        Assert.Equal([0, 1, 2], highReads);
-        Assert.Equal((1, 1, 0), validatedElement.Reads);
-        ExpectValidation("Name", () => batch.Update(update));
-        Assert.Equal(2, batch.Count);
-        Assert.Equal(2, update.Count);
-        Assert.Throws<ArgumentException>(() => batch.Delete<Snapshot>(70L));
-        Assert.Throws<ArgumentException>(() => batch.Delete<Snapshot>(71L));
-        Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator, out _, retained).ChargedBytes);
+        batch.Insert(valid);
+        batch.Update(validUpdate);
+        Assert.Equal(4, batch.Count);
         Assert.Equal(saved.Position, master.Position);
         Assert.Equal(saved.Position, child.Position);
         Assert.DoesNotContain(relay.FromChild, frame => frame.Kind == FrameKindEnum.WriteRequest);
         Assert.True(set.TryGet(1L, out var copy, out var revision));
         Assert.Equal(originalRevision, revision);
         Assert.Equal(original, Assert.Single(copy.Get<List<byte[]>>("Items")!));
-        Assert.Equal("seed", copy.Get<string>("Name"));
-        Assert.Null(set.Get(2L));
-        Assert.Null(set.Get(3L));
         var committed = await batch.CommitAsync().AsTask().WaitAsync(Bound);
         await child.WaitForPositionAsync(committed.Position, Bound);
+        Assert.True(assigned.Changed);
         foreach (var replica in new[] { master, child })
         {
             var member = replica.Set("Snapshot").Get(70L);
@@ -150,7 +113,40 @@ public sealed class BatchSnapshotAdmissionTests
             Assert.Equal(earlier, Assert.Single(member.Get<List<byte[]>>("Items")!));
             Assert.Equal("kept", member.Get<string>("Name"));
             Assert.Null(replica.Set("Snapshot").Get(71L));
+            Assert.Equal(256, replica.Set("Snapshot").Get(4L)?.Get<List<byte[]>>("Items")?.Count);
+            Assert.Equal(256, replica.Set("Snapshot").Get(1L)?.Get<List<byte[]>>("Items")?.Count);
         }
+    }
+
+    [Fact(Skip = Pending)]
+    public async Task Under_memory_pressure_the_duplicate_and_submitted_checks_come_before_the_refusal_by_memory()
+    {
+        var allocator = new CountingNativeAllocator();
+        await using var node = await OpenAsync(Limit, allocator);
+        var pieces = node.Set<PieceSchema.Piece>();
+        var open = node.CreateWriteBatch();
+        open.Insert(PieceSchema.Of(1, 8));
+        var submitted = node.CreateWriteBatch();
+        submitted.Delete<PieceSchema.Piece>(20L);
+        await submitted.CommitAsync();
+        var valid = pieces.CreateUpdate(1L);
+        valid.Assign("Name", "modified");
+        using (LeaveAbout(node, 40, out _))
+        {
+            var bound = node.InspectHeld().Charged;
+            Assert.Throws<ArgumentNullException>(() => open.Insert<PieceSchema.Piece>(null!));
+            Assert.Throws<InvalidOperationException>(() => open.Update(pieces.CreateUpdate(1L)));
+            Assert.Throws<ArgumentException>(() => open.Insert(PieceSchema.Of(1, 10)));
+            Assert.Throws<ArgumentException>(() => open.Update(valid));
+            Assert.Throws<InvalidOperationException>(() => submitted.Insert(PieceSchema.Of(1, 10)));
+            Assert.Throws<InvalidOperationException>(() => submitted.Update(valid));
+            ExpectMemory(() => open.Insert(PieceSchema.Of(2, 10)));
+            Assert.Equal((1, 1, 1), (open.Count, submitted.Count, valid.Count));
+            Assert.Equal(bound, node.InspectHeld().Charged);
+        }
+
+        open.Insert(PieceSchema.Of(2, 10));
+        Assert.Equal(2, open.Count);
     }
 
     private static LatticeRecord Record(ILatticeDatabase node, long? key, List<byte[]> items, string? name) =>

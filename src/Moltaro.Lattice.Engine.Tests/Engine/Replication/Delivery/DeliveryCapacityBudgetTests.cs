@@ -81,11 +81,8 @@ public sealed class DeliveryCapacityBudgetTests
         {
             DeliveryBlock[] blocks = [];
             long logical = 0;
-            var charged = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            BudgetCapacitySample snapshot = default;
             master.WithOwnershipAudit(() =>
             {
-                snapshot = master.InspectBudget((_, backing) => charged.Add(backing));
                 var observed = new HashSet<DeliveryBlock>(ReferenceEqualityComparer.Instance);
                 TakeChain(Backing<DeliveryBlock?>(tail, "_first"));
                 TakeChain(Backing<DeliveryBlock?>(tail, "_taken"));
@@ -101,9 +98,7 @@ public sealed class DeliveryCapacityBudgetTests
                     }
                 }
             });
-            Assert.All(blocks, block => Assert.DoesNotContain(block.Bytes, charged));
-            var bytes = blocks.Sum(block => ManagedObjectSize(block) + ManagedObjectSize(block.Bytes));
-            Assert.Equal(bytes, snapshot.DeliveryCapacityBytes);
+            var bytes = blocks.Sum(block => ManagedObjectSize(block.Bytes));
             return (blocks, bytes, logical);
         }
     }

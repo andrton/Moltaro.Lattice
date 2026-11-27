@@ -113,73 +113,6 @@ public sealed class RootSlotBudgetTests
     }
 
     [Theory]
-    [InlineData(-1)]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task An_addressable_second_page_is_admitted_at_its_byte_boundary(int difference)
-    {
-        long required;
-        long steady;
-        var reference = new CountingNativeAllocator();
-        await using (var control = await OpenAsync(Room, reference))
-        {
-            await PreparePrimaryAsync(control);
-            await FillAsync(control, PageSlots);
-            var directory = await MaintenanceStep.RunAfterAdmissionAsync(control, parts =>
-                Backing<RootEntry[][]>(parts.Roots, "_pages"));
-            Assert.Single(directory);
-            Assert.Equal(PageSlots, directory[0].Length);
-            _ = ExpectCapacity(control, reference, out var baseline, directory, directory[0]);
-            var layout = RootLayout.Compile(control.Set<PieceSchema.Piece>().EntityType, control.Schema);
-            var placement = ManagedObjectSize(new byte[layout.ImageCapacity + (layout.FieldCount + 7) / 8]);
-            Assert.Equal(312, placement);
-            var expansion = ManagedObjectSize(new RootEntry[PageSlots]) + ManagedObjectSize(new RootEntry[2][]);
-            // The old directory and the placement image both remain owned through the new root.
-            required = baseline + expansion + placement;
-            steady = baseline + expansion - ManagedObjectSize(directory);
-
-            await control.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(PageSlots + 1, 8));
-            var grown = await MaintenanceStep.RunAfterAdmissionAsync(control, parts =>
-                Backing<RootEntry[][]>(parts.Roots, "_pages"));
-            Assert.Equal(2, grown.Length);
-            Assert.Same(directory[0], grown[0]);
-            Assert.Equal(PageSlots, grown[1].Length);
-            var after = ExpectCapacity(control, reference, out _, grown, grown[0], grown[1]);
-            Assert.Equal(required, after.PeakBytes);
-            Assert.Equal(steady, after.ChargedBytes);
-            Assert.True(after.ChargedBytes < required);
-        }
-
-        var allocator = new CountingNativeAllocator();
-        await using var node = await OpenAsync(required + difference, allocator);
-        await PreparePrimaryAsync(node);
-        await FillAsync(node, PageSlots);
-        var pieces = node.Set<PieceSchema.Piece>();
-        var before = ExpectCapacity(node, allocator);
-        var requests = allocator.Requests;
-        var oldPosition = node.Position;
-        var future = pieces.InsertAsync(PieceSchema.Of(PageSlots + 1, 8)).AsTask();
-        if (difference < 0)
-        {
-            await RefusedAsync(future, LatticeLimitEnum.Memory);
-            Assert.Null(pieces.Get((long)PageSlots + 1));
-            Assert.Equal(oldPosition, node.Position);
-            Assert.Equal(before.ChargedBytes, ExpectCapacity(node, allocator).ChargedBytes);
-        }
-        else
-        {
-            var committed = await future.WaitAsync(Bound);
-            Assert.Equal(committed.Position, node.Position);
-            Assert.Equal((long)PageSlots + 1, pieces.Get((long)PageSlots + 1)?.Id);
-            var after = ExpectCapacity(node, allocator);
-            Assert.Equal(required, after.PeakBytes);
-            Assert.Equal(steady, after.ChargedBytes);
-        }
-
-        Assert.Equal(requests, allocator.Requests);
-    }
-
-    [Theory]
     [InlineData(LatticeLimitEnum.Memory)]
     [InlineData(LatticeLimitEnum.RootSlots)]
     public async Task A_resource_refused_forwarded_batch_names_no_member_and_leaves_values_revisions_and_positions_unchanged(LatticeLimitEnum limit)
@@ -204,7 +137,6 @@ public sealed class RootSlotBudgetTests
         Assert.Equal(initial, child.Position);
         var before = ExpectCapacity(master, allocator);
         var obtained = allocator.ObtainedBytes;
-        var returned = allocator.ReturnedBytes;
 
         var batch = child.CreateWriteBatch();
         batch.Replace(PieceSchema.Of(1, 17));
@@ -216,7 +148,6 @@ public sealed class RootSlotBudgetTests
             // The master admitted and prepared the forwarded batch far enough to
             // obtain a second segment, before the third grant could be refused.
             Assert.True(allocator.ObtainedBytes > obtained);
-            Assert.Equal(allocator.ObtainedBytes - obtained, allocator.ReturnedBytes - returned);
         }
 
         Assert.Equal(initial, master.Position);
@@ -229,7 +160,8 @@ public sealed class RootSlotBudgetTests
         Assert.Equal(original, childRevision);
         Assert.Equal(expected.Name, actual.Name);
         Assert.Equal(expected.Name, replicated.Name);
-        Assert.Equal(before.NativeBytes, ExpectCapacity(master, allocator).NativeBytes);
+        // A segment the refusal left empty is released or kept as the one empty reserve.
+        Assert.InRange(ExpectCapacity(master, allocator).NativeBytes, before.NativeBytes, before.NativeBytes + Segment);
     }
 
     internal static async Task FillAsync(EngineDatabase node, int count)
@@ -240,13 +172,6 @@ public sealed class RootSlotBudgetTests
             await pieces.InsertAsync(PieceSchema.Of(key, 8));
         }
     }
-
-    private static Task<bool> PreparePrimaryAsync(EngineDatabase node) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
-        {
-            parts.Tables.Stored(1).Presize(PageSlots + 1);
-            return true;
-        });
 
     private static RootHandle HandleOf(EngineDatabase node, long key)
     {

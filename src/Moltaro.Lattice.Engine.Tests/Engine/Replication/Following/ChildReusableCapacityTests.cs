@@ -40,7 +40,6 @@ public sealed class ChildReusableCapacityTests
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, memory),
             new EngineTestInputs
             {
-                ObserveBudgetBackings = true,
                 Allocator = allocator,
                 Arena = returnsSegment ? new ArenaOptions { MemoryLimit = memory, ReservedSegments = 0 } : null,
                 DisableBackgroundMaintenance = true,

@@ -53,13 +53,13 @@ namespace Moltaro.Lattice.Access;
 /// caller and is not safe to use from several threads at once.
 /// </para>
 /// <para>
-/// On either role, adding an operation reserves local memory for its copied input and
-/// workspace. The call reports <see cref="LatticeErrorEnum.WriteRejected"/> with
+/// On either role, adding an operation reserves local memory for its input after its input is
+/// copied. The call reports <see cref="LatticeErrorEnum.WriteRejected"/> with
 /// <see cref="LatticeLimitEnum.Memory"/> and no <see cref="LatticeException.OperationIndex"/>
-/// when a required snapshot or working allocation cannot fit. It stops at that allocation,
-/// before taking any later input or contacting the master. An error already found while checking
-/// the input keeps its usual code. Earlier operations, the count and any update passed to the call
-/// are preserved. The caller can retry the addition when memory is available.
+/// when that reservation cannot fit, before contacting the master. Every check of the input is
+/// made first and keeps its usual code, so a refusal for memory never comes before one of those
+/// errors. Earlier operations, the count and any update passed to the call are preserved. The
+/// caller can retry the addition when memory is available.
 /// Submitting the batch transfers its charged input to the database until that input can be
 /// released. A batch that still waits for its turn takes no new preparation reservation.
 /// </para>

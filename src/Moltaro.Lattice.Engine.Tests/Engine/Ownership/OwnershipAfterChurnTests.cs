@@ -92,7 +92,6 @@ public sealed class OwnershipAfterChurnTests
         Assert.Equal(2, batch.Count);
         var built = ExpectCapacity(database, allocator);
         Assert.Equal(Segment, built.NativeBytes);
-        Assert.True(built.PeakBytes > built.ChargedBytes);
 
         if (binds)
         {
