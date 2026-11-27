@@ -97,6 +97,24 @@ public sealed class MemoryBudgetTests
     }
 
     [Fact(Skip = Pending)]
+    public async Task A_free_between_the_attempt_and_the_wait_moves_the_count_past_the_ticket()
+    {
+        var budget = new InstanceMemoryBudget(1024 * 1024);
+        Assert.True(budget.TryReserve(1_000));
+        var ticket = budget.BeginRetry();
+        budget.EndRetry();
+        try
+        {
+            await Task.Run(() => budget.Release(100)).WaitAsync(Bound);
+            Assert.True(budget.WhenFreedAfter(ticket).IsCompleted);
+        }
+        finally
+        {
+            budget.EndWait();
+        }
+    }
+
+    [Fact(Skip = Pending)]
     public async Task A_free_after_the_ticket_wakes_the_waiting_child_and_its_own_attempt_does_not()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);
