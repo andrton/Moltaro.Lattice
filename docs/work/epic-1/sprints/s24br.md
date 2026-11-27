@@ -11,6 +11,8 @@ below, so it says which entries S24B has already removed and what it adds.
   rule, and the test hooks of the engine have one form; nothing the code guarantees and
   no measured figure changes.
 - **Contract.** None.
+- **To read.** The [reviews of 27 November 2026](../../refactoring.md#reviews-after-s24r-27-november-2026);
+  [the architect's review](../../process.md#the-architects-review); the [S24B](s24b.md) record.
 - **Entries.** One preparation bracket for the master and the child
   (`WriteCoordinator`, `WriteExecutor`, `ReceivedChanges`); one refusal ladder; one
   preparer of an update member in `WriteExecutor`; a refusal by memory reported one way

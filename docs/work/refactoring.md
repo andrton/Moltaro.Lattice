@@ -58,21 +58,24 @@ file, `internal` by default, the direction of the assemblies and of Storage ← 
 mechanisms of S19 to S23 sound: reads take no lock, the epochs follow Tsavorite's
 `LightEpoch`, compaction is bounded per turn, Map and Set lookups are compact, no lock is
 held across an `await`. Both traced most of what they found to one choice of S24: byte-exact
-charges of managed objects and the return of capacity a failed preparation grew, which
-the decision record [Q14](../decisions/write-admission.md) does not ask for. The owner
+charges of managed objects and the return of capacity a failed preparation grew. The
+decision record [Q14](../decisions/write-admission.md) asks that a failed attempt release
+its partial preparation and reservations, and leaves exact managed accounting to
+engineering: the budget is not an exact cap. The owner
 decided on 27 November 2026 to charge memory by structure instead; that is
 [S24B](epic-1/sprints/s24b.md).
 
-Gone through by the planner the same day. Line numbers are those of `2d8ff204`.
+Gone through by the planner the same day. Line numbers are those of `2d8ff204`, in
+`src/Moltaro.Lattice.Engine` unless a path says otherwise.
 
 **Joined (S24B)**, removed by the change of the accounting rule or carried out with it:
 
 - **Byte-exact charges of managed objects.** 49 hand-computed object-size formulas, for
   example `Storage/Text/TextTable.cs:35`, `Storage/CollectionTails.cs:27-31`, and the
   charge of one `WeakReference` in `Storage/Arena.cs:76,164-176`.
-- **One rule, nine implementations.** "Growth during a preparation is provisional, keep
+- **One rule, ten implementations.** "Growth during a preparation is provisional, keep
   the smaller predecessor, reinstate it on failure": `WorkspaceCapacity` with
-  `BackingHistory`, the journal of `MemoryBudget.cs:51-97`, the segment directory of
+  `BackingHistory`, the journal of `src/Moltaro.Lattice/Budgeting/MemoryBudget.cs:51-97`, the segment directory of
   `Arena.cs:1083-1147`, `Roots/RootTable.cs:52-55`, `Hashing/OverflowBuckets.cs:56,301`,
   `Indexes/PrimaryIndex.cs:59,323`, `Text/TextTable.cs:470-570,749`,
   `Text/TextLocator.cs:196-277`, `Text/TextWriterSlots.cs:17,219` and
@@ -85,7 +88,7 @@ Gone through by the planner the same day. Line numbers are those of `2d8ff204`.
   `HashHelpers.GetPrime`, and `BudgetDictionaries.cs:111` and `BudgetHashSets.cs:72` mirror
   private layouts. Not in the exceptions register.
 - **The budget's three jobs.** `MemoryBudget` is a counter, an undo journal bound to a
-  thread id (`MemoryBudget.cs:20-49`, with `IsPreparing` changing behavior in `RootTable`,
+  thread id (`src/Moltaro.Lattice/Budgeting/MemoryBudget.cs:20-49`, with `IsPreparing` changing behavior in `RootTable`,
   `TextTable`, `TextLocator`, `TextWriterSlots` and `Arena`) and a test inventory
   (`observesBackings`, `BudgetBackings`); `RootTable` inherits a journal node.
 - **A nullable budget the product never leaves null.** About 190 `budget?.` and
@@ -94,9 +97,9 @@ Gone through by the planner the same day. Line numbers are those of `2d8ff204`.
   `Roots/RootWriter.cs:139,665`: a reservation, a weak-slot check, `new byte[]` when the
   width changes, a release; 704 of the 824 B of the Windows public pair.
 - **One global lock for every reservation and release**, also only to signal:
-  `MemoryBudget.cs:269`, `Arena.cs:636,650`, `RootTable.cs:258`.
+  `src/Moltaro.Lattice/Budgeting/MemoryBudget.cs:269`, `Storage/Arena.cs:636,650`, `RootTable.cs:258`.
 - **A finalizable lease per batch addition, partial update and child transaction**
-  (`MemoryLease.cs:245`, `WriteBatch.cs:102,163`, `Engine/Writes/PreparedUpdates.cs:20`,
+  (`src/Moltaro.Lattice/Budgeting/MemoryLease.cs:245`, `src/Moltaro.Lattice/Access/Batches/WriteBatch.cs:102,163`, `Engine/Writes/PreparedUpdates.cs:20`,
   `Engine/Child/Loading/ReceivedChanges.cs:646`, `Engine/Entities/UniqueClaims.cs:71`).
 - **A child's wake after a release before its registration** waits for the retry pause,
   up to 5 s (`Engine/Child/Following/Follower.cs:358-377`, `Replication/RetryPause.cs`).

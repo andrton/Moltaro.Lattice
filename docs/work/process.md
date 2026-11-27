@@ -47,7 +47,7 @@ mistakes may survive later checks.
 | Independent reviewer of a sprint | Opus 5.5, xhigh | `gpt-6.2-sol`, `xhigh` |
 | Implementer of a critical sprint of the engine (concurrency, storage, the lifetime of memory, replication, durability) | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
 | Study before a critical sprint | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
-| Difficult performance investigation, after three or four rounds without a cause | Opus 5.5, xhigh | `gpt-6.2-sol`, `ultra` |
+| Difficult performance investigation | Opus 5.5, xhigh, for read scaling only, after three or four rounds without a cause | `gpt-6.2-sol`, `ultra` |
 | Implementer of any other sprint of the full track | Opus 5.5, high | `gpt-6.2-sol`, `high` |
 | Refactoring sprint: its implementer and its narrow reviewer | Opus 5.5, high | `gpt-6.2-sol`, `high` |
 | Light-track implementer (documents, samples, comments, small fixes) | Opus 5.5, high | `gpt-6.2-sol`, `high` |
