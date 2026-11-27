@@ -13,6 +13,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -956,21 +957,6 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
         MaintenanceStep.RunAfterAdmissionAsync(node, parts => ItemsOf(RetiredItems(parts.Retired))
             .Where(item => item.Kind is RetiredKindEnum.RelocatedBlock or RetiredKindEnum.Root or RetiredKindEnum.DeletedRoot)
             .ToArray());
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref RetiredQueue RetiredItems(RetiredMemory retired);
-
-    // The items of the retirement queue in their order, copied out of its ring.
-    private static RetiredItem[] ItemsOf(RetiredQueue queue)
-    {
-        var items = new RetiredItem[queue.Count];
-        for (var index = 0; index < items.Length; index++)
-        {
-            items[index] = queue[index];
-        }
-
-        return items;
-    }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_reserved")]
     private static extern ref int RetirementReservations(RetiredMemory retired);

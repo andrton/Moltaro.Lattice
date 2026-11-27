@@ -15,6 +15,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -710,21 +711,6 @@ public sealed class OwnedValueRelocationTests
             var queue = RetiredItems(parts.Retired);
             return (ItemsOf(queue), queue.Capacity);
         });
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref RetiredQueue RetiredItems(RetiredMemory retired);
-
-    // The items of the retirement queue in their order, copied out of its ring.
-    private static RetiredItem[] ItemsOf(RetiredQueue queue)
-    {
-        var items = new RetiredItem[queue.Count];
-        for (var index = 0; index < items.Length; index++)
-        {
-            items[index] = queue[index];
-        }
-
-        return items;
-    }
 
     private static void ExpectRetirement(RetiredItem item, RetiredKindEnum kind, ArenaAddress address)
     {

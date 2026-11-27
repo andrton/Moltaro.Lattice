@@ -6,6 +6,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Schema;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -283,21 +284,6 @@ public sealed class RetiredMemoryWorkerTests
     private static Task<(RetiredItem[] Items, long Bytes, int Handles)> RetirementAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
             (ItemsOf(RetiredItems(parts.Retired)), parts.Arena.Counters.RetiredBytes, parts.Roots.Count));
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref RetiredQueue RetiredItems(RetiredMemory retired);
-
-    // The items of the retirement queue in their order, copied out of its ring.
-    private static RetiredItem[] ItemsOf(RetiredQueue queue)
-    {
-        var items = new RetiredItem[queue.Count];
-        for (var index = 0; index < items.Length; index++)
-        {
-            items[index] = queue[index];
-        }
-
-        return items;
-    }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_epochs")]
     private static extern ref ReadEpochs Epochs(EngineDatabase node);
