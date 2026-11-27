@@ -789,12 +789,16 @@ that grows with the data — root pages, the tables and overflow buckets of the 
 indexes, the arrays of the text table, collection tails, the retirement queue,
 publication scratch, the buffers of connections and of a load in transfer, a child's key
 set — is charged by the bytes of its backing array when it grows: the new array is reserved before it is allocated, and the old one is released
-when it is dropped or, for a generation a reader may still hold, when its retirement is
-freed, so a replacement is charged while its predecessor is held. Small fixed bookkeeping
-— the owner objects of the structures, weak references, fixed directories, the headers of
-each entity type and each index — is not charged object by object: a headroom computed
-from the schema and the options when the instance opens covers it and is reported as its
-own figure. The input of a batch is charged by an estimate when it is added: its encoded
+when it is dropped or, for a generation a reader may still hold — the replaced table of a
+primary index, a replaced directory —, once the reads that could hold it have left, so a
+replacement is charged while its predecessor is held. A replaced leaf or a dropped branch
+of the text table is released at once; a read holds at most one of each, and the headroom
+holds one of each for every read slot. Small fixed bookkeeping — the owner objects of the
+structures, weak references, fixed directories, the headers of each entity type and each
+index — is not charged object by object: a headroom computed from the schema, the options
+and the read slots of the host when the instance opens covers it and is reported as its
+own figure ([storage and maintenance](storage-and-maintenance.md#the-memory-budget) explains
+each part). The input of a batch is charged by an estimate when it is added: its encoded
 length, a constant for each member and, with the first member, a constant for the
 builder; the reservation comes after every check of the addition and after the snapshot
 it builds. An ordinary write, a child transaction and a forwarded request reserve one
