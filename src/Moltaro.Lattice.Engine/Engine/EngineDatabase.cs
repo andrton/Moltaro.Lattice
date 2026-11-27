@@ -366,6 +366,12 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         return RootValues.Export(layout, entityType, values, lease);
     }
 
+    bool IWriteBatchExecutor.TryReserveInput(long bytes) =>
+        throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+
+    void IWriteBatchExecutor.ReleaseInput(long bytes) =>
+        throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+
     void IWriteBatchExecutor.CheckUpdate(LatticeEntityType entityType, UpdateInput update)
     {
         ThrowIfNotReady();

@@ -159,6 +159,9 @@ internal sealed class RetiredMemory
     // The bytes of the retired tables of the primary indexes, counted as an index counts its table.
     public long IndexBytes { get; private set; }
 
+    // Adds the ring of the queue and the arrays of the retired generations not freed yet.
+    public void ReportHeld(List<Storage.Budgeting.HeldArray> held) => throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+
     // Under the writes lock: the full native slot sizes of pending physical relocations.
     public int RelocationBytes { get; private set; }
 

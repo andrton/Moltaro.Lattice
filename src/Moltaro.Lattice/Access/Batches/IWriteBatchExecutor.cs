@@ -27,6 +27,13 @@ internal interface IWriteBatchExecutor
 
     void CheckUpdate(LatticeEntityType entityType, UpdateInput update);
 
+    // Reserves bytes of the input of a batch in the budget of the instance (BatchInputCharge); false
+    // when the instance cannot hold them. It writes nothing when it refuses.
+    bool TryReserveInput(long bytes);
+
+    // Returns bytes that TryReserveInput reserved.
+    void ReleaseInput(long bytes);
+
     // Executes the operations, of which there is at least one, as one write after the position the session
     // depends on, if one is given, and moves the session to its position: the outcome of
     // ILatticeWriteBatch.CommitAsync. Everything the database decides comes through the task, its close

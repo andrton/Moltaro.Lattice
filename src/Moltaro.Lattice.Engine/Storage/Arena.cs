@@ -218,6 +218,16 @@ internal sealed unsafe class Arena : IDisposable
         Budget!.Release(image);
     }
 
+    // Under the writes lock: the arena's one root image, at least length bytes long, grown when it
+    // is shorter. A write whose image fits allocates none.
+    public byte[] RootImage(int length) => throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+
+    // The native segments the arena holds, in use or reserved.
+    public int GrantedSegments => throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+
+    // Adds the arrays of the segment table, the root image and the metadata arrays of each segment.
+    public void ReportHeld(List<Budgeting.HeldArray> held) => throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+
     // The text entries of the database, in this arena (see the class).
     public TextTable Texts { get; }
 

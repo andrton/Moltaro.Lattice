@@ -25,6 +25,10 @@ internal sealed partial class EngineDatabase
         return new BudgetCapacitySample(charged, peak, native, _parts?.Delivery.CapacityBytes ?? 0);
     }
 
+    // Under the writes lock: the charge of the budget beside what the structures hold. A test reads
+    // it at a point of rest, with no write unit in flight, and sizes each array itself.
+    internal HeldMemory InspectHeld() => throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+
     internal void ResetBudgetPeak() => _budget.ResetPeak();
 
     // A test can hold a real charged allocation to align capacity return with a wire frame.

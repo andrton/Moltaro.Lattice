@@ -105,6 +105,10 @@ internal sealed class EngineTestInputs
     // the writes lock. ReceivedFrames counts frames already consumed from the transaction.
     public Action<ChildPressureSample>? ObserveChildPressure { get; init; }
 
+    // The pause of a ready child between two attempts at a change its memory cannot hold, in place
+    // of the paced pauses of the transport, so that a test can tell a wake by a free from a retry.
+    public TimeSpan? ChildRetryPause { get; init; }
+
     // Outside Writes, before each admission attempt for a valid transaction frame, including
     // retries. Tests can hold budgeted backing this connection did not need until that frame.
     public Action<ulong, int>? BeforeChildTransactionFrame { get; init; }
