@@ -25,6 +25,9 @@ internal sealed class TextPages<T>(MemoryBudget budget) where T : class
 
     public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + (TextAllocationShape.ObjectBytes(Branch.FieldBytes) + BranchBytes) * _branches;
 
+    // What a read walking the pages can hold of a branch a change dropped: its object and its array.
+    public static long DroppedBranchBytes => TextAllocationShape.ObjectBytes(Branch.FieldBytes) + BranchBytes;
+
     public T? Get(uint index)
     {
         var root = Volatile.Read(ref _root);
@@ -87,6 +90,9 @@ internal sealed class TextPages<T>(MemoryBudget budget) where T : class
             throw;
         }
 
+        // Released at once, though a read walking the pages may still hold a dropped branch: a read holds
+        // at most one dropped branch and one replaced leaf at a time, as locals of its lookup, and the
+        // headroom holds one of each for every slot of the protection of reads (TextLocator.HeldByOneRead).
         var dropped = before + added - _branches;
         if (dropped != 0)
         {

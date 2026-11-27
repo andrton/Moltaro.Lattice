@@ -9,7 +9,8 @@ namespace Moltaro.Lattice.Storage.Text;
 // leaf alive through the load. No retired leaf list holds pages for other readers.
 // The two arrays of a leaf are charged to the budget before the leaf is made,
 // and released when the leaf is replaced or dropped: a reader that still holds
-// the old leaf keeps it through the collector, not through the engine. A leaf
+// the old leaf keeps it through the collector, not through the engine, and the
+// headroom holds one such leaf for every slot of reads (HeldByOneRead). A leaf
 // emptied by a preparation that was refused or cancelled stays, for the next
 // write, until bounded maintenance trims it (docs/design/storage-and-
 // maintenance.md, the memory budget).
@@ -26,6 +27,15 @@ internal sealed class TextLocator(MemoryBudget budget)
     private static readonly int FieldBytes = 2 * IntPtr.Size + sizeof(long) + sizeof(uint) + sizeof(bool);
 
     public long Bytes => TextAllocationShape.ObjectBytes(FieldBytes) + _pages.Bytes + _leafBytes;
+
+    // A leaf maps the IDs of one page.
+    private const int LeafIds = 64;
+
+    // What one read can hold of the locator after the charge of it was released: the largest leaf, its
+    // object and its arrays for 64 IDs, that a change replaced, and the branch of the pages it read that
+    // leaf through, which a change dropped (ReplaceCharged, TextPages.Set). 864 and 312 bytes, 1,176
+    // together; the headroom holds it once for each slot of the protection of reads (Engine.Headroom).
+    public static long HeldByOneRead => TextAllocationShape.ObjectBytes(Leaf.FieldBytes) + LeafArrayBytes(LeafIds) + TextPages<Leaf>.DroppedBranchBytes;
 
     public ArenaAddress Address(uint id)
     {
@@ -209,10 +219,11 @@ internal sealed class TextLocator(MemoryBudget budget)
         _leafBytes += (current?.Bytes ?? 0) - (old?.Bytes ?? 0);
 
         // Released at once, though a read may still hold the old leaf, unlike a replaced directory
-        // (MemoryBudget.ReleaseAfterReads): a leaf is copied on every change of its IDs, so a retirement
-        // for each would add work to every write that takes or frees a text, and a read holds at most
-        // one leaf, of at most 816 bytes (64 addresses and 64 ordinals), within its call, kept by the
-        // collector (docs/design/storage-and-maintenance.md, the memory budget).
+        // (MemoryBudget.ReleaseAfterReads): a leaf is copied whenever its IDs outgrow it or leave it half
+        // empty, so a retirement for each would add work to the writes that take or free texts. A read
+        // holds at most one replaced leaf and one dropped branch at a time, as locals of its lookup, and
+        // the headroom holds one of each for every slot of the protection of reads (HeldByOneRead,
+        // docs/design/storage-and-maintenance.md, the memory budget).
         if (old is not null)
         {
             _budget.Release(LeafArrayBytes(old.Capacity));

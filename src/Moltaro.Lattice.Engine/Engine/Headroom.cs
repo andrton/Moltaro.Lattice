@@ -1,7 +1,9 @@
-using System.Numerics;
+using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Budgeting;
+using Moltaro.Lattice.Storage.Text;
 
-namespace Moltaro.Lattice.Storage.Budgeting;
+namespace Moltaro.Lattice.Engine;
 
 // The headroom of an instance: the small fixed bookkeeping that the budget does not charge object
 // by object — the owner objects of the structures, weak references, fixed directories, the headers
@@ -47,20 +49,20 @@ internal static class Headroom
     // entity types and 32 secondary indexes; 5,376 is 19 % above.
     public const long ListenerBytes = 5_376;
 
-    // The bytes of one slot of the protection of reads (Engine.Protection.EpochSlot).
-    public const int ReadSlotBytes = 128;
+    // The array of the slots of the protection of reads, with as many slots as ReadEpochs makes on the
+    // host, which grow with its processors, so it is computed rather than measured: 16,408 bytes for 128
+    // slots.
+    public static long ReadSlotArrayBytes() => MemoryBudget.ArrayBytes<EpochSlot>(ReadEpochs.HostSlotCount());
 
-    // The number of slots of the protection of reads, which Engine.Protection.ReadEpochs makes: two for
-    // each processor, at least 128, rounded up to a power of two.
-    public static int ReadSlotCount() => (int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(128, 2 * Environment.ProcessorCount));
+    // What reads may hold of the text table that its charge no longer covers, for a schema whose texts
+    // the text table holds: one replaced leaf and one dropped branch for each slot of the protection of
+    // reads (Storage.Text.TextLocator.HeldByOneRead), 1,176 bytes a slot, 150,528 bytes for 128 slots.
+    // Zero for a schema without such texts, whose text table never makes a leaf.
+    public static long ReplacedTextBytes(LatticeSchema schema) => HoldsTexts(schema) ? ReadEpochs.HostSlotCount() * TextLocator.HeldByOneRead : 0;
 
-    // The array of the slots of the protection of reads, which grows with the processors of the host, so
-    // it is computed for the host rather than measured: 16,408 bytes for 128 slots.
-    public static long ReadSlotArrayBytes() => MemoryBudget.ArrayBytes(ReadSlotBytes, ReadSlotCount());
-
-    // InstanceBytes and ReadSlotArrayBytes, plus EntityTypeBytes for each entity type, plus IndexBytes
-    // for each entity type and each secondary index, plus ChildBytes or ListenerBytes when the options
-    // open one.
+    // InstanceBytes, ReadSlotArrayBytes and ReplacedTextBytes, plus EntityTypeBytes for each entity
+    // type, plus IndexBytes for each entity type and each secondary index, plus ChildBytes or
+    // ListenerBytes when the options open one.
     public static long For(LatticeSchema schema, LatticeDatabaseOptions options)
     {
         var types = schema.EntityTypes.Count;
@@ -70,7 +72,7 @@ internal static class Headroom
             indexes += entityType.Indexes.Count;
         }
 
-        var headroom = InstanceBytes + ReadSlotArrayBytes() + types * EntityTypeBytes + indexes * IndexBytes;
+        var headroom = InstanceBytes + ReadSlotArrayBytes() + ReplacedTextBytes(schema) + types * EntityTypeBytes + indexes * IndexBytes;
         if (options.Role == LatticeRoleEnum.Child)
         {
             headroom += ChildBytes;
@@ -82,4 +84,28 @@ internal static class Headroom
 
         return headroom;
     }
+
+    // Whether the text table holds texts of the schema: a String with Dictionary storage, in a field of an
+    // entity type or of an owned type or in the element, key or value of a collection, or a String that is
+    // part of a secondary index, as a place of the layout decides it (Storage.Values.StoredField.LiesInTextEntry).
+    private static bool HoldsTexts(LatticeSchema schema)
+    {
+        foreach (var entityType in schema.EntityTypes)
+        {
+            if (entityType.Fields.Any(field => Shares(field.Declaration)) ||
+                entityType.Indexes.Any(index => index.Parts.Any(part => part.Field.Declaration.Type == LatticeFieldTypeEnum.String)))
+            {
+                return true;
+            }
+        }
+
+        return schema.OwnedTypes.Any(ownedType => ownedType.Fields.Any(field => Shares(field.Declaration)));
+    }
+
+    // A String with Dictionary storage, itself or in the element, the key or the value it declares.
+    private static bool Shares(LatticeValueDeclaration declaration) =>
+        (declaration.Type == LatticeFieldTypeEnum.String && declaration.StringStorage == LatticeStringStorageEnum.Dictionary) ||
+        (declaration.Element is { } element && Shares(element)) ||
+        (declaration.Key is { } key && Shares(key)) ||
+        (declaration.Value is { } value && Shares(value));
 }

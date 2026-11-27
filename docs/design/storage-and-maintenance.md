@@ -240,10 +240,7 @@ a test has an unlimited one.
   replaced table of a primary index or a directory replaced by a larger copy — the segments
   of the arena, the pages of the root table, the overflow pages of a primary index —, when
   its retirement is freed. A growth therefore holds both arrays for a moment, and a
-  structure keeps the capacity it reached. The one term the charge does not cover at every
-  moment is the leaves of the text table that reads hold within their calls: a leaf is
-  copied on every change of its text IDs and released at once, and a read holds at most one
-  leaf of at most 816 bytes, so the term is bounded by the reads inside times 816 bytes.
+  structure keeps the capacity it reached.
 - *The root image of an ordinary write*: one workspace of the arena, charged at its size
   and grown under the writes lock when a wider root is written. A write whose image fits
   allocates none.
@@ -273,7 +270,7 @@ own figure until its retention policy is built.
 **The headroom.** The small fixed bookkeeping that the budget does not charge object by
 object — the owner objects of the structures, weak references, fixed directories, the
 headers of each entity type and each index — is covered by a headroom computed from the
-schema and the options (`Storage/Budgeting/Headroom`):
+schema and the options (`Engine/Headroom`):
 
 | Part | Bytes |
 | --- | ---: |
@@ -283,20 +280,27 @@ schema and the options (`Storage/Budgeting/Headroom`):
 | Each index: the primary index of each entity type and each secondary index | 1,280 |
 | A child | 18,432 |
 | A master that listens for children | 5,376 |
+| What reads hold of the text table, when the schema has texts the text table holds | 1,176 × the slots |
 
 The slots of the protection of reads are an array of 128 bytes a slot, as many slots as
 twice the processors, at least 128, rounded up to a power of two: their bytes depend on the
 host, so they are computed with the function the protection makes its slots with, not
-measured — 16,408 bytes with 128 slots. The other figures were measured on Windows x64 with
-.NET 10 as what the heap retains once an instance is open, beside the arrays its structures
-report, its segment objects and the slots, as the median of five opens between two still
-heaps, for schemas of 1 or 32 entity types with 0 or 32 secondary indexes and for the
+measured — 16,408 bytes with 128 slots. A leaf of the locator of the text table is replaced
+by a copy when its text IDs outgrow it or leave it half empty, or dropped when they are all
+gone, and a branch of its pages is dropped when its pages are gone; both are released at
+once. A read holds at most one replaced leaf and one dropped branch at a time, so the
+headroom holds one of each for every slot, 1,176 bytes a slot from their layouts
+(`TextLocator.HeldByOneRead`), when the schema has a String with Dictionary storage or a
+String in a secondary index, whose texts the text table holds. The other figures were
+measured on Windows x64 with .NET 10 as what the heap retains once an instance is open,
+beside the arrays its structures report, its segment objects and the slots, as the median
+of five opens between two still heaps, for schemas of 1 or 32 entity types with 0 or 32 secondary indexes and for the
 reference fixture; each constant is at most a quarter above the most it measured, the margin
 for a host that was not measured, and the constants in the code state each figure. A child
 retains more for each type and index than a master, and the parts of a type and of an index
 follow the child. For the schema of the reference fixture, four entity types and six
-secondary indexes, the headroom with 128 slots is 40,984 bytes on a master, 46,360 on a
-master that listens and 59,416 on a child.
+secondary indexes, the headroom with 128 slots is 191,512 bytes on a master, 196,888 on a
+master that listens and 209,944 on a child.
 
 **The balance.** At a point of rest — no write, no child transaction, no forwarded request
 and no batch alive — the charge equals the native grants with their metadata, the arrays the
