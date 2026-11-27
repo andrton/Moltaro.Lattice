@@ -57,10 +57,11 @@ namespace Moltaro.Lattice.Engine.Children;
 //
 // Memory. The pieces a request is received in and the import that checks its roots are buffers of the
 // connection, charged to the budget of the master (MessageAssembler, Replication.Load.BlockImport). A whole
-// request also reserves its estimate, PerMemberBytes for each member and the encoded length of the commands
-// of each update; a request the budget cannot hold is refused with WriteRejected and Memory as its reply.
-// The charge of its pieces and its estimate pass to its record (Writes.ForwardedOrigin), which releases them
-// when the write ends (docs/design/storage-and-maintenance.md, the memory budget).
+// request reserves its estimate when its handling starts, before its roots are checked: PerMemberBytes for
+// each member and the encoded length of the commands of each update. A request the budget cannot hold, its
+// estimate or anything its check takes, is refused with WriteRejected and Memory as its reply, and the
+// connection goes on. The charge of its pieces and its estimate pass to its record (Writes.ForwardedOrigin),
+// which releases them when the write ends (docs/design/storage-and-maintenance.md, the memory budget).
 internal sealed class RequestReceiver : IDisposable
 {
     private readonly ForwardedWrites _writes;
@@ -162,15 +163,25 @@ internal sealed class RequestReceiver : IDisposable
         var table = TableOf(request.TypeId);
         var key = table.Keys.ReadKey(ref reader);
         var update = UpdateOf(table, request.Kind, ref reader);
-        var root = update is null ? RootOf(table, request, key, ref reader) : default;
-
-        ForwardEncoding.ExpectEnd(reader);
 
         var estimate = BatchInputCharge.PerMemberBytes + (update is null ? 0 : UpdateCommands.Length(table.Layout.Structure, update.Commands));
         if (!TryReserve(correlationId, estimate, ref charged))
         {
             return;
         }
+
+        ReadOnlySequence<byte> root;
+        try
+        {
+            root = update is null ? RootOf(table, request, key, ref reader) : default;
+        }
+        catch (BudgetRefusedException exception)
+        {
+            Refuse(correlationId, exception);
+            return;
+        }
+
+        ForwardEncoding.ExpectEnd(reader);
 
         var origin = new ForwardedOrigin(_replies, correlationId, root, table.EntityType, _writes.Budget, charged);
         charged = 0;
@@ -183,7 +194,7 @@ internal sealed class RequestReceiver : IDisposable
     {
         if (!_writes.Budget.TryReserve(estimate))
         {
-            _replies.Refuse(correlationId, new BudgetRefusedException(LatticeLimitEnum.Memory).WriteRejected(), indexId: null);
+            Refuse(correlationId, new BudgetRefusedException(LatticeLimitEnum.Memory));
             return false;
         }
 
@@ -191,11 +202,23 @@ internal sealed class RequestReceiver : IDisposable
         return true;
     }
 
+    // The reply of a request the budget of the master cannot hold.
+    private void Refuse(ulong correlationId, BudgetRefusedException refusal) =>
+        _replies.Refuse(correlationId, refusal.WriteRejected(), indexId: null);
+
     // Checks a write batch, every member and the batch as a whole, and submits it as one write (see the
     // class). The members' roots are slices of the body of the request.
     private void SubmitBatch(ulong correlationId, ref SequenceReader<byte> reader, ref long charged)
     {
         var (minimumPosition, count) = ForwardEncoding.ReadBatchHead(ref reader);
+
+        // The estimate of the members when the handling starts; the encoded commands of the updates are
+        // added as each is read, before the root of the next member is checked.
+        if (!TryReserve(correlationId, count * BatchInputCharge.PerMemberBytes, ref charged))
+        {
+            return;
+        }
+
         var members = new BatchMember[count];
         var entityTypes = new LatticeEntityType[count];
         var keys = new PublicationKeys(count);
@@ -207,7 +230,27 @@ internal sealed class RequestReceiver : IDisposable
             var table = TableOf(member.TypeId);
             var key = table.Keys.ReadKey(ref reader);
             var update = UpdateOf(table, member.Kind, ref reader);
-            var root = update is null ? RootOf(table, member, key, ref reader) : default;
+            ReadOnlySequence<byte> root = default;
+            if (update is not null)
+            {
+                if (!TryReserve(correlationId, UpdateCommands.Length(table.Layout.Structure, update.Commands), ref charged))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                try
+                {
+                    root = RootOf(table, member, key, ref reader);
+                }
+                catch (BudgetRefusedException exception)
+                {
+                    Refuse(correlationId, exception);
+                    return;
+                }
+            }
+
             commands += update?.Commands.Length ?? 0;
             if (commands > int.MaxValue)
             {
@@ -224,20 +267,6 @@ internal sealed class RequestReceiver : IDisposable
         }
 
         ForwardEncoding.ExpectEnd(reader);
-
-        var estimate = count * BatchInputCharge.PerMemberBytes;
-        foreach (ref readonly var member in members.AsSpan())
-        {
-            if (member.Update is { } update)
-            {
-                estimate += UpdateCommands.Length(member.Table.Layout.Structure, update.Commands);
-            }
-        }
-
-        if (!TryReserve(correlationId, estimate, ref charged))
-        {
-            return;
-        }
 
         var origin = new ForwardedOrigin(_replies, correlationId, entityTypes, _writes.Budget, charged);
         charged = 0;
