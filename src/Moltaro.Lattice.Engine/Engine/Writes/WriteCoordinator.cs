@@ -791,10 +791,6 @@ internal sealed class WriteCoordinator
             {
                 forwarded.Refuse(failure);
             }
-            else
-            {
-                forwarded.ReleaseInput();
-            }
 
             _barrier.Exit();
 
@@ -1926,10 +1922,6 @@ internal sealed class WriteCoordinator
             if (write.Failure is { } refusal)
             {
                 forwarded.Refuse(refusal);
-            }
-            else
-            {
-                forwarded.ReleaseInput();
             }
         }
         else if (write.Failure is { } failure)

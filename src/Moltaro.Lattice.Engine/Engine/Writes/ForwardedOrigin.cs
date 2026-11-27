@@ -17,8 +17,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // Memory. The record owns what the request charged to the budget of the master: the pieces its body was
 // received in and the estimate of the request (docs/design/storage-and-maintenance.md, the memory budget),
-// one figure, released once when the write ends (ReleaseInput), whether it succeeded or was refused. Only
-// the call that ends the write releases it.
+// one figure, released once when the write ends (ReleaseInput): by the publication of a write that
+// succeeded, before its reply can be sent (WriteExecutor), and by Refuse for a write that was refused.
 //
 // The identity of a unique index a refusal names, which the reply carries in place of the name
 // (Replication.Forwarding.ForwardEncoding), is that of the index within one entity type: of the write, or for
