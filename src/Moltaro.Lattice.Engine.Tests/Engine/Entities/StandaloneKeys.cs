@@ -53,7 +53,7 @@ internal sealed class StandaloneKeys : IDisposable
 
         _keyType = keyType;
         _textLength = textLength;
-        _arena = new Arena(new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize });
+        _arena = new Arena(new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize }, new InstanceMemoryBudget());
         _table = EntityTable.Open(entityType, schema, _arena, roots, epochs, new RetiredMemory(epochs, _arena, roots), new PositionClock(1, owner), Seed);
         _layout = _table.Layout!;
         _fixedPart = new byte[RootReader.FixedPartLength(_layout)];

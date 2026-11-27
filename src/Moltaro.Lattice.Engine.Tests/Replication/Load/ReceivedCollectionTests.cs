@@ -90,7 +90,7 @@ public sealed class ReceivedCollectionTests
     [Fact]
     public void A_received_duplicate_in_an_inline_packed_Set_refuses_placement_without_retaining_any_bytes()
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit }, new MemoryBudget());
         var layout = Layout();
         var input = Encode(layout, 1, [1, 2]);
         Assert.Equal((uint)DescriptorKindEnum.Inline, BinaryPrimitives.ReadUInt32LittleEndian(input.AsSpan(Descriptor)));
@@ -224,7 +224,7 @@ public sealed class ReceivedCollectionTests
     [InlineData(9)]
     public void A_stale_write_with_a_duplicate_Set_member_refuses_the_transaction_and_releases_an_earlier_prepared_insert(int count)
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit }, new MemoryBudget());
         var owner = new object();
         var roots = new RootTable(new MemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);

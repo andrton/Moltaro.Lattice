@@ -31,7 +31,7 @@ public sealed class TableFieldOrderTests
         var owner = new object();
         var roots = new RootTable(new InstanceMemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize }, new InstanceMemoryBudget());
         var table = EntityTable.Open(entityType, schema, arena, roots, epochs, new RetiredMemory(epochs, arena, roots), new PositionClock(1, owner), seed: 0);
 
         ref var indexes = ref Unsafe.As<SecondaryIndex[], byte>(ref IndexesOf(table));

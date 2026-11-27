@@ -14,7 +14,7 @@ public sealed class RetiredTableTests
     [Fact]
     public void A_primary_table_replaced_by_a_growth_is_let_go_once_its_retirement_is_freed()
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize }, new InstanceMemoryBudget());
         var retired = new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
         var index = new PrimaryIndex(retired);
         var first = FirstTable(index);

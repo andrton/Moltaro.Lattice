@@ -185,7 +185,7 @@ public sealed class PartialCatchUpTests
         var sparse = TransactionPayload.EffectsOf(TransactionPayload.SingleFrameAt(relay, changed.Position));
         var delete = TransactionPayload.EffectsOf(TransactionPayload.SingleFrameAt(relay, deleted.Position));
 
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 4L * new ArenaOptions().SegmentSize });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 4L * new ArenaOptions().SegmentSize }, new MemoryBudget());
         var (received, roots, clock) = Receiver(arena);
         var start = PositionSequence.Of(inserted.Position);
         received.EndLoad(start);
@@ -225,7 +225,7 @@ public sealed class PartialCatchUpTests
         var sparse = await OneSparseEffectAsync();
 
         var arenaOptions = new ArenaOptions();
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = arenaOptions.SegmentSize });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = arenaOptions.SegmentSize }, new MemoryBudget());
         var (received, roots, clock) = Receiver(arena);
         received.EndLoad(captureStart: 1);
         var random = new Random(42);
@@ -276,7 +276,7 @@ public sealed class PartialCatchUpTests
         var prefix = new string('k', KeyLength - 3);
         byte[][] keys = [.. Enumerable.Range(0, OldCount + NewCount).Select(
             index => Encoding.UTF8.GetBytes(prefix + index.ToString("D3", CultureInfo.InvariantCulture)))];
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = arenaOptions.SegmentSize });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = arenaOptions.SegmentSize }, new MemoryBudget());
         var (received, roots, clock) = Receiver(arena);
         received.EndLoad(captureStart: 1);
 

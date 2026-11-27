@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
@@ -45,7 +46,7 @@ public sealed class ResidentDescriptorImportTests
             SegmentSize = Arena.MaxBlockSize,
             MemoryLimit = (TakenSegments + (nativeFailure ? 1L : 0L)) * Arena.MaxBlockSize,
             ReservedSegments = 0,
-        }, allocator);
+        }, allocator, new MemoryBudget());
 
         var seedType = Assert.Single(SeedSchema.EntityTypes);
         var seedLayout = RootLayout.Compile(seedType, SeedSchema);

@@ -105,22 +105,22 @@ internal sealed unsafe class Arena : IDisposable
 
     private bool _disposed;
 
-    // Takes the settings; segments are obtained on demand. Refuses null options with
-    // ArgumentNullException, and with ArgumentOutOfRangeException a MemoryLimit smaller than one
-    // segment, a SegmentSize smaller than MaxBlockSize or not a whole multiple of it, and a
-    // negative ReservedSegments.
-    public Arena(ArenaOptions options)
-        : this(options, new NativeAllocator())
+    // An arena made alone, by a test of the engine or the measurement program, with the settings and the
+    // budget given; segments are obtained on demand, and ArenaOptions.MemoryLimit bounds its native
+    // segments. Refuses null options with ArgumentNullException, and with ArgumentOutOfRangeException a
+    // MemoryLimit smaller than one segment, a SegmentSize smaller than MaxBlockSize or not a whole
+    // multiple of it, and a negative ReservedSegments.
+    internal Arena(ArenaOptions options, MemoryBudget budget)
+        : this(options, new NativeAllocator(), budget)
     {
     }
 
     // The same, with the allocator through which the arena obtains and returns the native memory of
     // its segments. Only a test of the engine passes another than NativeAllocator itself (exception
-    // X3). The text table hashes with the seed 0 and knows no lock of the writes: an arena a test of the
-    // engine makes by itself has no database around it. Its budget is unlimited, and
-    // ArenaOptions.MemoryLimit bounds its native segments.
-    internal Arena(ArenaOptions options, NativeAllocator allocator)
-        : this(options, allocator, textSeed: 0, writes: null, collectionTime: null, new MemoryBudget(), limitsSegments: true)
+    // X3). The text table hashes with the seed 0 and knows no lock of the writes: an arena made alone
+    // has no database around it.
+    internal Arena(ArenaOptions options, NativeAllocator allocator, MemoryBudget budget)
+        : this(options, allocator, textSeed: 0, writes: null, collectionTime: null, budget, limitsSegments: true)
     {
     }
 

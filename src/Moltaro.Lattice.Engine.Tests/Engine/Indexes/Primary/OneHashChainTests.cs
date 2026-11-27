@@ -92,7 +92,7 @@ public sealed class OneHashChainTests
         Assert.True(oneHash.Bytes <= 2 * spread.Bytes, $"The index of {Count} entries of one hash takes {oneHash.Bytes} bytes, more than twice the {spread.Bytes} of as many of different hashes.");
     }
 
-    private static Arena Arena() => new(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize });
+    private static Arena Arena() => new(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize }, new InstanceMemoryBudget());
 
     private static PrimaryIndex IndexOf(Arena arena) =>
         new(new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null)));

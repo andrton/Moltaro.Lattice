@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;
@@ -24,7 +25,7 @@ internal sealed class OneRegionArena : IDisposable
         Allocator = new CountingNativeAllocator();
         Arena = new Arena(
             new ArenaOptions { SegmentSize = Arena.MaxBlockSize, ReservedSegments = reservedSegments, MemoryLimit = 64L * Arena.MaxBlockSize },
-            Allocator);
+            Allocator, new MemoryBudget());
 
         // Blocks of the largest class, one segment each, freed again: their segments fill the reserve.
         var blocks = new List<ArenaAddress>();

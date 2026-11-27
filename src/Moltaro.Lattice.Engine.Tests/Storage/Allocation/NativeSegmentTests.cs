@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -90,7 +91,7 @@ public sealed class NativeSegmentTests
         {
             var options = new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, SegmentSize = size };
 
-            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(options));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(options, new MemoryBudget()));
         }
     }
 
@@ -98,7 +99,7 @@ public sealed class NativeSegmentTests
     public void A_segment_of_MaxBlockSize_bytes_holds_a_block_of_every_size_class()
     {
         var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 2L * SpecifiedSizeClasses.All.Count * Arena.MaxBlockSize };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
         var tally = new ArenaTally();
 
         foreach (var blockSize in SpecifiedSizeClasses.All)
@@ -128,7 +129,7 @@ public sealed class NativeSegmentTests
     {
         // Without a reserve, a segment left empty is freed at once.
         var options = new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize, ReservedSegments = 0 };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
         var blocks = Arenas.AllocateUntilSegments(arena, 6);
 
         for (var tag = 0; tag < blocks.Count; tag++)

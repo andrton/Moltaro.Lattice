@@ -325,7 +325,7 @@ internal static class RootBytesScenario
 
         var layout = RootLayout.Compile(entityType, schema);
         var options = new ArenaOptions { MemoryLimit = ArenaMemoryLimit };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
         var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var logicalBytes = 0L;
 

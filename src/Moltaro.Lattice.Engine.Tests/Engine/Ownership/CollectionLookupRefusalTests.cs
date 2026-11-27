@@ -7,6 +7,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 
@@ -96,7 +97,7 @@ public sealed class CollectionLookupRefusalTests
         SegmentSize = Segment,
         MemoryLimit = segments * Segment,
         ReservedSegments = 0,
-    }, allocator);
+    }, allocator, new InstanceMemoryBudget());
 
     private static HashSet<ushort> LargeSet() => Enumerable.Range(0, 9_000).Select(number => (ushort)number).ToHashSet();
 

@@ -6,6 +6,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 
@@ -33,7 +34,7 @@ public sealed class NativeOutOfMemoryInsideATreeTests
     public void Native_out_of_memory_at_the_second_chunk_of_a_List_of_records_leaves_nothing_allocated()
     {
         var allocator = new CountingNativeAllocator();
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * SegmentSize, ReservedSegments = 0 }, allocator);
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * SegmentSize, ReservedSegments = 0 }, allocator, new InstanceMemoryBudget());
 
         // The 64 regions of the first segment, all but two.
         for (var region = 0; region < 62; region++)
@@ -82,7 +83,7 @@ public sealed class NativeOutOfMemoryInsideATreeTests
         for (var failAt = 1; ; failAt++)
         {
             var allocator = new CountingNativeAllocator { FailAt = failAt };
-            using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * SegmentSize, ReservedSegments = 0 }, allocator);
+            using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * SegmentSize, ReservedSegments = 0 }, allocator, new InstanceMemoryBudget());
             var completed = TryWrite(arena, values);
             var counters = arena.Counters;
             var held = (counters.LiveBytes, counters.ClassSlackBytes, counters.PreparedBytes, counters.RetiredBytes, arena.Texts.Count);

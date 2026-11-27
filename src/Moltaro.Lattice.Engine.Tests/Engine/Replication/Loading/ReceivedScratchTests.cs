@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Loading;
 
@@ -136,5 +137,5 @@ public sealed class ReceivedScratchTests
         SegmentSize = Arena.MaxBlockSize,
         MemoryLimit = (long)segments * Arena.MaxBlockSize,
         ReservedSegments = 0,
-    }, allocator);
+    }, allocator, new InstanceMemoryBudget());
 }

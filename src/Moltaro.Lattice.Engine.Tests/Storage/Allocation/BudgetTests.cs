@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -23,7 +24,7 @@ public sealed class BudgetTests
     public void An_allocation_beyond_the_memory_limit_fails_and_leaves_the_counters_as_they_were()
     {
         var options = new ArenaOptions { MemoryLimit = 2L * Arenas.SegmentSize };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
         var blocks = new List<ArenaAddress>();
         var before = arena.Counters;
 
@@ -51,7 +52,7 @@ public sealed class BudgetTests
     {
         // Two and a half segments: room for two.
         var options = new ArenaOptions { MemoryLimit = 5L * Arenas.SegmentSize / 2 };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
 
         AllocateLargestUntilRefused(arena, options);
 
@@ -62,7 +63,7 @@ public sealed class BudgetTests
     public void The_reserve_counts_toward_the_memory_limit()
     {
         var options = new ArenaOptions { MemoryLimit = 2L * Arenas.SegmentSize };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
         var blocks = Arenas.AllocateUntilSegments(arena, 2);
 
         // The second segment holds one block; freed, it leaves the segment empty and in the reserve,
@@ -82,7 +83,7 @@ public sealed class BudgetTests
     [Fact]
     public void A_memory_limit_of_one_segment_is_enough_to_allocate()
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = Arenas.SegmentSize });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = Arenas.SegmentSize }, new MemoryBudget());
 
         Arenas.Allocate(arena, 100);
 
@@ -92,14 +93,14 @@ public sealed class BudgetTests
     [Fact]
     public void Null_options_are_refused()
     {
-        Assert.Throws<ArgumentNullException>(() => new Arena(null!));
+        Assert.Throws<ArgumentNullException>(() => new Arena(null!, new MemoryBudget()));
     }
 
     [Fact]
     public void The_memory_limit_is_required()
     {
         // There is no "0 means unlimited": the default limit is refused.
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(new ArenaOptions()));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(new ArenaOptions(), new MemoryBudget()));
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public sealed class BudgetTests
 
         foreach (var limit in limits)
         {
-            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(new ArenaOptions { MemoryLimit = limit }));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(new ArenaOptions { MemoryLimit = limit }, new MemoryBudget()));
         }
     }
 
@@ -122,7 +123,7 @@ public sealed class BudgetTests
         {
             var options = new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, SegmentSize = size };
 
-            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(options));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(options, new MemoryBudget()));
         }
     }
 
@@ -135,7 +136,7 @@ public sealed class BudgetTests
         {
             var options = new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, ReservedSegments = reserve };
 
-            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(options));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(options, new MemoryBudget()));
         }
     }
 

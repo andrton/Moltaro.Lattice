@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -22,7 +23,7 @@ public sealed class ManagedAllocationTests
     [Fact]
     public void Allocating_and_freeing_blocks_allocates_no_managed_memory_after_warm_up()
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, ReservedSegments = 64 });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, ReservedSegments = 64 }, new MemoryBudget());
         var payloadLengths = SpecifiedSizeClasses.All.Select(size => size - SpecifiedSizeClasses.HeaderSize).ToArray();
         var blocks = new ArenaAddress[payloadLengths.Length * BlocksPerClass];
         var root = new RootHandle(1, 1);

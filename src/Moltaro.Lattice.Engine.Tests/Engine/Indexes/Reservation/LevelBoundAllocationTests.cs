@@ -26,7 +26,7 @@ public sealed class LevelBoundAllocationTests
 
         var layout = RootLayout.Compile(entityType, IndexSchema.Utf8);
 
-        using (var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit, ReservedSegments = 2 }))
+        using (var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit, ReservedSegments = 2 }, new InstanceMemoryBudget()))
         {
             var retired = new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
             var warm = SecondaryIndex.Open(definition, layout, arena, retired);

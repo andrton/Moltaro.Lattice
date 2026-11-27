@@ -100,7 +100,7 @@ internal static class LargeWriteChildScenario
         var user = ReferenceFixture.Generate(schema).First(record => record.EntityType.Name == "User");
         var entityType = user.EntityType;
         var layout = RootLayout.Compile(entityType, schema);
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * 1024 * 1024 });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * 1024 * 1024 }, new MemoryBudget());
         var roots = new RootTable(new MemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(roots);
         var table = EntityTable.Open(entityType, schema, arena, roots, epochs, new RetiredMemory(epochs, arena, roots), new PositionClock(1, roots), seed: 0);
@@ -162,7 +162,7 @@ internal static class LargeWriteChildScenario
         var schema = LargeWritesScenario.Schema;
         var entityType = schema.EntityTypes.Single();
         var layout = RootLayout.Compile(entityType, schema);
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 256L * 1024 * 1024 });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 256L * 1024 * 1024 }, new MemoryBudget());
         var roots = new RootTable(new MemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(roots);
         var retired = new RetiredMemory(epochs, arena, roots);
