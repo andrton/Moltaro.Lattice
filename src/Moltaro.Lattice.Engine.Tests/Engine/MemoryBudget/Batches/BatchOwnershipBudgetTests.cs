@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Batches;
 
 public sealed class BatchOwnershipBudgetTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Creating_a_Ready_batch_still_succeeds_with_no_headroom_and_its_first_add_can_be_retried()
     {
         var allocator = new CountingNativeAllocator();
@@ -38,7 +38,7 @@ public sealed class BatchOwnershipBudgetTests
         ExpectAtRest(node, allocator);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Repeated_refused_nested_snapshots_do_not_add_capacity_to_the_live_builder()
     {
         const long limit = 8L * Segment;

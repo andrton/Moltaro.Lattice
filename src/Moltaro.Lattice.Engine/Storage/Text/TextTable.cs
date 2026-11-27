@@ -1,8 +1,8 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.Numerics;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Values;
 
@@ -13,7 +13,12 @@ namespace Moltaro.Lattice.Storage.Text;
 // and hash links, and both table generations during bounded migration.
 // A root or index node holds a reference until its native retirement. After
 // final unlink the ID remains reserved until all its detached blocks go.
-internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? beforePreparedBucketGrowth)
+// The arrays of the locator, the writer entries and the bucket sets are
+// charged to the budget of the arena when they grow, and a preparation that
+// is refused or cancelled gives back its texts but leaves the capacity they
+// grew (docs/design/storage-and-maintenance.md, the memory budget). A miss
+// does its bounded maintenance during a preparation as at any other time.
+internal sealed class TextTable(Arena arena, ulong seed, Lock? writes)
 {
     private const int ScratchBytes = 512;
     private const uint Tag = 0x8000_0000;
@@ -21,34 +26,15 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
     private readonly Arena _arena = arena;
     private readonly ulong _seed = seed;
     private readonly Lock? _writes = writes;
-    private readonly Action? _beforePreparedBucketGrowth = beforePreparedBucketGrowth;
-    private readonly TextLocator _locator = TextLocator.Create(arena.Budget);
-    private readonly TextWriterSlots _slots = TextWriterSlots.Create(arena.Budget);
-    private TextBucketSet _active = TextBucketSet.Create(2, 0, arena.Budget);
+    private readonly TextLocator _locator = new(arena.Budget);
+    private readonly TextWriterSlots _slots = new(arena.Budget);
+    private TextBucketSet _active = new(2, 0, arena.Budget);
     private TextBucketSet? _old;
-    private EarlierBuckets? _earlier;
     private int _bucketCursor;
-    private int _deferredWork;
-    private int _installedCount;
-    private bool _maintenanceRequested;
-
-    public static long OwnerBytes => MemoryBudget.ObjectBytes(9L * IntPtr.Size + 3 * sizeof(int) + 1);
 
     public int Count => _slots.Count;
 
-    public long Bytes
-    {
-        get
-        {
-            var bytes = OwnerBytes + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
-            for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
-            {
-                bytes += EarlierBuckets.Bytes + earlier.Active.Bytes + (earlier.Old?.Bytes ?? 0);
-            }
-
-            return bytes;
-        }
-    }
+    public long Bytes => 80 + _locator.Bytes + _slots.Bytes + _active.Bytes + (_old?.Bytes ?? 0);
 
     public ArenaAddress AddressOf(ulong id) => _locator.Address((uint)id);
 
@@ -64,11 +50,6 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         AssertWrites();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
         deferred = false;
-        if (_arena.Budget is not null && _installedCount != Count)
-        {
-            return 0;
-        }
-
         var work = 0;
         for (; work < workLimit; work++)
         {
@@ -80,7 +61,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
                 }
                 else if (NeededHeads() is var needed && needed != _active.Capacity)
                 {
-                    var replacement = TextBucketSet.Create(needed, _active.Tag ^ Tag, _arena.Budget);
+                    var replacement = new TextBucketSet(needed, _active.Tag ^ Tag, _arena.Budget);
                     _old = _active;
                     _active = replacement;
                     _bucketCursor = 0;
@@ -101,57 +82,18 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         return work;
     }
 
-    // A failed preparation must keep the previous bucket layout and locator capacity. Work on
-    // existing text can resume after preparation succeeds and its entries are retained.
-    public void EndPreparation(bool keeps)
-    {
-        _maintenanceRequested |= keeps && _deferredWork != 0;
-        _deferredWork = 0;
-        if (keeps)
-        {
-            MaintainAfterPublication();
-        }
-        else
-        {
-            _slots.ReleaseUnused();
-            ReturnUnusedBucketGrowth();
-        }
-    }
-
-    private void MaintainAfterPublication()
-    {
-        if (_installedCount != Count)
-        {
-            return;
-        }
-
-        ReleaseEarlierBuckets(stop: null);
-        if (_maintenanceRequested)
-        {
-            _maintenanceRequested = false;
-            Maintain(2, null, deferAllocationFailure: true, releaseWriterPage: false, out _);
-        }
-    }
-
     public TextCapacitySnapshot MeasureCapacity()
     {
         AssertWrites();
         var directory = new List<TextAllocationShape>();
         var leaves = new List<TextAllocationShape>();
         _locator.Measure(directory, leaves);
-        var slots = new List<TextAllocationShape> { new(1, (int)(OwnerBytes - 2 * IntPtr.Size), 0, 0) };
+        var slots = new List<TextAllocationShape> { new(1, 64, 0, 0) };
         _slots.Measure(slots);
         var active = new List<TextAllocationShape>();
         var old = new List<TextAllocationShape>();
         _active.Measure(active);
         _old?.Measure(old);
-        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
-        {
-            old.Add(new TextAllocationShape(1, (int)(EarlierBuckets.Bytes - 2 * IntPtr.Size), 0, 0));
-            earlier.Active.Measure(old);
-            earlier.Old?.Measure(old);
-        }
-
         return new TextCapacitySnapshot(directory, leaves, slots, active, old, []);
     }
 
@@ -210,22 +152,28 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         _slots.At(ReferenceOf((uint)id)).References++;
     }
 
+    // Drops a reference. The last reference of a text that was never published belongs to a
+    // preparation that was refused or cancelled: the text goes, and the capacity it grew stays.
     public void Release(ulong id)
     {
         AssertWrites();
         var number = (uint)id;
-        if (!TryDetachLastReference(number, out var address, out var length))
+        if (!TryDetachLastReference(number, out var address, out var length, out var unpublished))
         {
             return;
         }
 
-        var prepared = _arena.Budget is not null && _arena.IsPrepared(address);
         ValueBlocks.FreeText(_arena, address, length);
-        _locator.Return(number);
-        if (prepared)
-        {
-            _slots.ReleaseUnused();
-        }
+        _locator.Return(number, keepsLeaf: unpublished);
+    }
+
+    // Adds the arrays of the locator, the writer entries and both bucket sets.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        _locator.ReportHeld(held);
+        _slots.ReportHeld(held);
+        _active.ReportHeld(held);
+        _old?.ReportHeld(held);
     }
 
     public bool ReleaseStep(ref TextReclamation work)
@@ -233,7 +181,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         AssertWrites();
         if (!work.Detached)
         {
-            if (!TryDetachLastReference(work.Id, out work.Address, out var length))
+            if (!TryDetachLastReference(work.Id, out work.Address, out var length, out _))
             {
                 work = default;
                 return true;
@@ -274,18 +222,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         var address = AddressOf(id);
         if (_arena.IsPrepared(address))
         {
-            var reference = ReferenceOf((uint)id);
-            ValueBlocks.PublishText(_arena, address, _slots.At(reference).Length);
-            if (_arena.Budget is { } budget)
-            {
-                _installedCount++;
-                _slots.Keep(reference);
-                _locator.Keep((uint)id);
-                if (!budget.IsPreparing)
-                {
-                    MaintainAfterPublication();
-                }
-            }
+            ValueBlocks.PublishText(_arena, address, _slots.At(ReferenceOf((uint)id)).Length);
         }
     }
 
@@ -373,23 +310,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         {
             // Catch up on placement without returning the empty page this
             // write can reuse. The automatic turn can return it later.
-            if (_arena.Budget is { IsPreparing: true } budget)
-            {
-                // Relink a whole layout only when the preparation holds the
-                // larger population. An ordinary miss keeps bounded migration.
-                if (Count >= 4L * _active.Capacity && Count - _installedCount > _installedCount)
-                {
-                    GrowPreparedBuckets(budget);
-                }
-                else
-                {
-                    _deferredWork = 2;
-                }
-            }
-            else
-            {
-                Maintain(2, null, deferAllocationFailure: false, releaseWriterPage: false, out _);
-            }
+            Maintain(2, null, deferAllocationFailure: false, releaseWriterPage: false, out _);
         }
 
         if (!_locator.TryTake(out var id))
@@ -398,18 +319,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         }
 
         var bucket = _active.Bucket(hash);
-        var parkedEarlier = false;
         var added = false;
         try
         {
             _slots.Reserve();
             _active.Reserve(bucket);
-            if (_earlier is not null)
-            {
-                ReserveEarlierEntries(hash);
-                parkedEarlier = true;
-            }
-
             var source = pieces.Source();
             if (!ValueBlocks.TryStoreText(_arena, id, length, ref source, out var physical))
             {
@@ -427,147 +341,11 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         }
         finally
         {
+            // The pages reserved for the text stay with their structures for the next write.
             if (!added)
             {
-                if (parkedEarlier)
-                {
-                    ReleaseEarlierEntries(hash, until: null);
-                }
-
-                _active.ReleaseReservation(bucket);
-                _slots.ReleaseReservation();
-                _locator.Return(id);
+                _locator.Return(id, keepsLeaf: true);
             }
-        }
-    }
-
-    // A preparation can add many distinct values without publishing a root. Grow
-    // geometrically during those misses, and finish reserving pages before changing
-    // any links. Readers use the locator, so only the publishing thread sees the
-    // bucket layout. Each earlier layout is paid until its reservations settle.
-    private void GrowPreparedBuckets(MemoryBudget budget)
-    {
-        _beforePreparedBucketGrowth?.Invoke();
-        var needed = NeededHeads(Count + 1);
-        var replacement = TextBucketSet.Create(needed, _active.Tag ^ Tag, budget);
-        EarlierBuckets previous;
-        try
-        {
-            for (var reference = 1u; reference <= (uint)Count; reference++)
-            {
-                replacement.Reserve(replacement.Bucket(_slots.At(reference).Hash));
-            }
-
-            previous = EarlierBuckets.Keep(_active, _old, _bucketCursor, Count, _earlier, budget);
-        }
-        catch
-        {
-            replacement.ReleaseAll();
-            throw;
-        }
-
-        var firstGrowth = _earlier is null;
-        _earlier = previous;
-        _active = replacement;
-        _old = null;
-        _bucketCursor = 0;
-        for (var reference = 1u; reference <= (uint)Count; reference++)
-        {
-            ref var slot = ref _slots.At(reference);
-            var wasOld = (slot.Next & Tag) != previous.Active.Tag;
-            var table = wasOld ? previous.Old! : previous.Active;
-            table.KeepParkedEntry(slot.Hash);
-            if (firstGrowth)
-            {
-                slot.WasInOldBucket = wasOld;
-            }
-
-            Link(replacement, replacement.Bucket(slot.Hash), reference);
-        }
-    }
-
-    // Called after a failed or cancelled owner's references have gone. Rebuild the
-    // smallest retained layout that can hold the survivors without another allocation.
-    public void ReturnUnusedBucketGrowth()
-    {
-        if (_earlier is null)
-        {
-            return;
-        }
-
-        EarlierBuckets? restore = null;
-        for (var earlier = _earlier; earlier is not null && earlier.Fits(Count); earlier = earlier.Previous)
-        {
-            restore = earlier;
-        }
-
-        if (restore is not null)
-        {
-            _active.ReleaseAll();
-            _old?.ReleaseAll();
-            ReleaseEarlierBuckets(restore);
-
-            _active = restore.Active;
-            _old = restore.Old;
-            _bucketCursor = restore.Cursor;
-            _earlier = restore.Previous;
-            _arena.Budget!.Release(EarlierBuckets.Bytes, restore);
-            _active.ResetHeads();
-            _old?.ResetHeads();
-            for (var reference = 1u; reference <= (uint)Count; reference++)
-            {
-                ref var slot = ref _slots.At(reference);
-                var table = TableToRestore(restore, slot);
-                Link(table, table.Bucket(slot.Hash), reference);
-            }
-        }
-
-        if (_installedCount == Count)
-        {
-            ReleaseEarlierBuckets(stop: null);
-        }
-    }
-
-    // A later prepared owner can keep this ID. Pay its place in each layout
-    // we might restore. A refusal returns precisely the prefix already reserved.
-    private void ReserveEarlierEntries(uint hash)
-    {
-        var pending = _earlier;
-        try
-        {
-            while (pending is not null)
-            {
-                pending.Active.ReserveParkedEntry(hash);
-                pending = pending.Previous;
-            }
-        }
-        catch
-        {
-            ReleaseEarlierEntries(hash, pending);
-            throw;
-        }
-    }
-
-    private void ReleaseEarlierEntries(uint hash, EarlierBuckets? until)
-    {
-        for (var earlier = _earlier; earlier is not null && !ReferenceEquals(earlier, until); earlier = earlier.Previous)
-        {
-            earlier.Active.ReleaseParkedEntry(hash);
-        }
-    }
-
-    private static TextBucketSet TableToRestore(EarlierBuckets earlier, in TextSlot slot) =>
-        slot.WasInOldBucket && earlier.Old is { } old ? old : earlier.Active;
-
-    private void ReleaseEarlierBuckets(EarlierBuckets? stop)
-    {
-        while (!ReferenceEquals(_earlier, stop))
-        {
-            var earlier = _earlier!;
-            _earlier = earlier.Previous;
-            earlier.Active.ReleaseAll();
-            earlier.Old?.ReleaseAll();
-            _arena.Budget!.Release(EarlierBuckets.Bytes, earlier);
         }
     }
 
@@ -576,7 +354,7 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         if (!old.TryPage(_bucketCursor, out var bucket))
         {
             _old = null;
-            old.ReleaseBacking();
+            old.ReleaseAll();
             return;
         }
 
@@ -608,13 +386,13 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         table.SetHead(bucket, reference);
     }
 
-    private void Unlink(TextBucketSet table, uint reference)
+    private void Unlink(TextBucketSet table, uint reference, bool keepsPage = false)
     {
         ref var slot = ref _slots.At(reference);
         var next = slot.Next & LinkMask;
         if (slot.Previous == 0)
         {
-            table.SetHead(table.Bucket(slot.Hash), next);
+            table.SetHead(table.Bucket(slot.Hash), next, keepsPage);
         }
         else
         {
@@ -629,7 +407,8 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
     }
 
     // Unlinking leaves the ID reserved until its caller finishes freeing the native blocks.
-    private bool TryDetachLastReference(uint id, out ArenaAddress address, out uint length)
+    // A text whose block was never published is unpublished: its removal keeps the capacity it grew.
+    private bool TryDetachLastReference(uint id, out ArenaAddress address, out uint length, out bool unpublished)
     {
         var reference = ReferenceOf(id);
         ref var slot = ref _slots.At(reference);
@@ -637,29 +416,21 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         {
             address = default;
             length = 0;
+            unpublished = false;
             return false;
         }
 
         length = slot.Length;
         address = AddressOf(id);
-        if (_arena.Budget is not null && !_arena.IsPrepared(address))
-        {
-            _installedCount--;
-        }
-
-        Remove(reference);
+        unpublished = _arena.IsPrepared(address);
+        Remove(reference, unpublished);
         return true;
     }
 
-    private void Remove(uint reference)
+    private void Remove(uint reference, bool keepsCapacity)
     {
         ref var slot = ref _slots.At(reference);
-        for (var earlier = _earlier; earlier is not null; earlier = earlier.Previous)
-        {
-            TableToRestore(earlier, slot).ReleaseParkedEntry(slot.Hash);
-        }
-
-        Unlink(TableOf(slot.Next), reference);
+        Unlink(TableOf(slot.Next), reference, keepsCapacity);
         _locator.SetOrdinal(slot.Id, -1);
 
         var last = (uint)Count;
@@ -685,12 +456,10 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
             _locator.SetOrdinal(slot.Id, (int)reference - 1);
         }
 
-        _slots.Pop();
+        _slots.Pop(keepsCapacity);
     }
 
-    private int NeededHeads() => NeededHeads(Count);
-
-    private static int NeededHeads(int count) => (int)BitOperations.RoundUpToPowerOf2(Math.Max(2u, ((uint)count + 3) / 4));
+    private int NeededHeads() => (int)BitOperations.RoundUpToPowerOf2(Math.Max(2u, ((uint)Count + 3) / 4));
 
     private uint ReferenceOf(uint id) => (uint)(_locator.Ordinal(id) + 1);
 
@@ -742,35 +511,6 @@ internal sealed class TextTable(Arena arena, ulong seed, Lock? writes, Action? b
         }
 
         return true;
-    }
-
-    private sealed class EarlierBuckets(TextBucketSet active, TextBucketSet? old, int cursor, int entries, EarlierBuckets? previous)
-    {
-        public static long Bytes => MemoryBudget.ObjectBytes(3L * IntPtr.Size + 2 * sizeof(int));
-
-        public TextBucketSet Active { get; } = active;
-        public TextBucketSet? Old { get; } = old;
-        public int Cursor { get; } = cursor;
-        public EarlierBuckets? Previous { get; } = previous;
-
-        public bool Fits(int count) => count <= Math.Max(entries, 4L * Active.Capacity);
-
-        public static EarlierBuckets Keep(TextBucketSet active, TextBucketSet? old, int cursor, int entries, EarlierBuckets? previous,
-            MemoryBudget budget)
-        {
-            budget.Reserve(Bytes);
-            try
-            {
-                var backing = new EarlierBuckets(active, old, cursor, entries, previous);
-                budget.Own(backing, nameof(TextTable));
-                return backing;
-            }
-            catch
-            {
-                budget.Release(Bytes);
-                throw;
-            }
-        }
     }
 
     private void AssertWrites() => Debug.Assert(_writes is null || _writes.IsHeldByCurrentThread);

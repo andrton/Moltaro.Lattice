@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // sender cannot send yet stays held, and the child completes the write once the reply goes.
 public sealed class ForwardedHolderBudgetTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Master_charges_received_pieces_and_import_workspace_and_holds_a_reply_for_a_blocked_sender()
     {
         var allocator = new CountingNativeAllocator();

@@ -11,14 +11,6 @@ internal sealed class UpdateOutcome
 
     public void SetBits(byte[] bits) => _bits = bits;
 
-    public void ClearBits(byte[] bits)
-    {
-        if (ReferenceEquals(_bits, bits))
-        {
-            _bits = null;
-        }
-    }
-
     public ReadOnlySpan<byte> PreparedBits => _bits;
 
     public bool Changed(int command)

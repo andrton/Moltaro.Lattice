@@ -166,7 +166,7 @@ public sealed class UpdateOwnershipTests
         Assert.Equal("ordinary replacement", items.Get("ada")!.Label);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Arena_refusal_of_a_mixed_batch_gives_back_prepared_blocks_but_keeps_borrowed_values()
     {
         const long limit = 8L * Segment;

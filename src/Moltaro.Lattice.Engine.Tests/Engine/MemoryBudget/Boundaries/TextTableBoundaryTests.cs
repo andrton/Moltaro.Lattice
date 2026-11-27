@@ -17,7 +17,7 @@ public sealed class TextTableBoundaryTests
 {
     private const int MostInserts = 4_096;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(0)]
     [InlineData(1)]

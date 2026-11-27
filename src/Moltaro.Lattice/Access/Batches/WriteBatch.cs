@@ -1,6 +1,5 @@
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Values;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Batches;
@@ -12,28 +11,38 @@ namespace Moltaro.Lattice.Access.Batches;
 //
 // The commit hands the operations to the database (IWriteBatchExecutor.ExecuteAsync) and lets go of them,
 // so that a batch kept after its commit keeps no root alive.
+//
+// Memory. Every member is charged to the budget of the instance by an estimate, its encoded length and
+// BatchInputCharge.PerMemberBytes, and the first one also by BatchInputCharge.PerBuilderBytes; the
+// estimate is reserved last, after every check of the addition and its snapshot, so a refusal for memory
+// comes after every other refusal and changes nothing. The one charge object returns the whole charge when
+// the execution of the batch ends, or when the batch is collected uncommitted.
 internal sealed class WriteBatch : ILatticeWriteBatch
 {
+    // The room of the operations when the first is added; it doubles when it is full.
+    private const int FirstRoom = 4;
+
     private readonly LatticeSchema _schema;
 
     private readonly IWriteBatchExecutor _executor;
-    private List<WriteBatchOperation> _operations = [];
+
+    private readonly BatchInputCharge _charge;
+
+    // The operations in the order they were added: the first Count.
+    private WriteBatchOperation[] _operations = [];
 
     // The entities the batch already addresses, told apart as the schema compares their keys
     // (WriteBatchEntity). A key is normalized to the key type of its entity type before it is
     // added, so an integer key is one entity in whatever width it was given.
-    private readonly BudgetSet<WriteBatchEntity> _identities;
-    private readonly MemoryBudget? _budget;
-    private MemoryLease? _lease;
+    private HashSet<WriteBatchEntity> _identities = [];
     private bool _submitted;
     private bool _hasUpdates;
 
-    public WriteBatch(LatticeSchema schema, IWriteBatchExecutor executor, MemoryBudget? budget = null)
+    public WriteBatch(LatticeSchema schema, IWriteBatchExecutor executor)
     {
         _schema = schema;
         _executor = executor;
-        _budget = budget;
-        _identities = new BudgetSet<WriteBatchEntity>(budget, nameof(WriteBatch), EqualityComparer<WriteBatchEntity>.Default);
+        _charge = new BatchInputCharge(executor);
     }
 
     public int Count { get; private set; }
@@ -97,15 +106,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         ArgumentNullException.ThrowIfNull(entity);
 
         var binding = EntityBinding<TEntity>.For(_schema);
-        try
-        {
-            using var snapshot = OpenSnapshot();
-            Add(kind, binding.EntityType, binding.ValuesForWrite(entity, snapshot), expectedRevision, snapshot);
-        }
-        catch (BudgetRefusedException exception)
-        {
-            throw SnapshotRefusal(exception);
-        }
+        Add(kind, binding.EntityType, binding.ValuesForWrite(entity), expectedRevision);
     }
 
     private void Save(WriteKindEnum kind, LatticeRecord record, LatticeRevision? expectedRevision)
@@ -116,38 +117,16 @@ internal sealed class WriteBatch : ILatticeWriteBatch
             throw new ArgumentException($"The record is a '{record.EntityType.Name}' of another schema, not of this database.", nameof(record));
         }
 
-        try
-        {
-            var values = record.ValuesForBatch(SnapshotBudget, out var snapshot);
-            using (snapshot)
-            {
-                Add(kind, entityType, values, expectedRevision, snapshot);
-            }
-        }
-        catch (BudgetRefusedException exception)
-        {
-            throw SnapshotRefusal(exception);
-        }
+        Add(kind, entityType, record.ValuesForWrite(), expectedRevision);
     }
 
-    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object?[] values, LatticeRevision? expectedRevision, MemoryLease? snapshot) =>
-        Add(kind, entityType, values[entityType.Key.Ordinal]!, values, expectedRevision, snapshot);
+    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object?[] values, LatticeRevision? expectedRevision) =>
+        Add(kind, entityType, values[entityType.Key.Ordinal]!, values, expectedRevision);
 
     private void Delete(LatticeEntityType entityType, object key, LatticeRevision? expectedRevision)
     {
         ArgumentNullException.ThrowIfNull(key);
-        try
-        {
-            var normalized = FieldValues.NormalizeBatchKey(entityType, key, SnapshotBudget, out var snapshot);
-            using (snapshot)
-            {
-                Add(WriteKindEnum.Delete, entityType, normalized, null, expectedRevision, snapshot);
-            }
-        }
-        catch (BudgetRefusedException exception)
-        {
-            throw SnapshotRefusal(exception);
-        }
+        Add(WriteKindEnum.Delete, entityType, FieldValues.NormalizeKey(entityType, key), null, expectedRevision);
     }
 
     // Checked before anything is kept, and encoded before the operation is kept: a refused operation leaves
@@ -155,29 +134,14 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     // before Add (Save: a String or Binary value above its bound and every other check of the schema);
     // then a batch already submitted, InvalidOperationException; then an operation for an entity the
     // batch already addresses; then, as the engine encodes the root (IWriteBatchExecutor.EncodeRoot), a
-    // database that was closed, ObjectDisposedException, and a List above its bound.
-    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision,
-        MemoryLease? snapshot = null)
+    // database that was closed, ObjectDisposedException, and a List above its bound; last the memory of
+    // the instance for the estimate of the member (Reserve).
+    private void Add(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision)
     {
         var entity = CheckIdentity(entityType, key);
-        var addition = OpenSnapshot();
-        try
-        {
-            var root = _executor.EncodeRoot(entityType, values, addition);
-            if (addition is not null)
-            {
-                snapshot?.Transfer(key, addition);
-            }
-
-            PrepareLease(addition);
-            PrepareCapacity();
-            Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
-            KeepLease(ref addition);
-        }
-        finally
-        {
-            addition?.Dispose();
-        }
+        var root = _executor.EncodeRoot(entityType, values);
+        Reserve(root.Length);
+        Keep(entity, new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
     }
 
     private void AddUpdate(LatticeUpdate update, LatticeRevision? expectedRevision)
@@ -190,111 +154,41 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         }
 
         update.ThrowIfEmpty();
-        // Finish any fallible allocation before changing either builder.
-        MemoryLease? addition = null;
-        try
-        {
-            addition = OpenSnapshot();
-            var input = update.ValidateContent(addition);
-            var entityType = update.EntityType;
-            var key = update.Key;
-            var entity = CheckIdentity(entityType, key);
-            _executor.CheckUpdate(entityType, input);
-
-            PrepareLease(addition);
-            PrepareCapacity();
-            Keep(entity, new WriteBatchOperation(WriteKindEnum.Update, entityType, key, expectedRevision, default, input));
-            KeepLease(ref addition);
-
-            _hasUpdates = true;
-            update.Consume();
-        }
-        catch (BudgetRefusedException exception)
-        {
-            throw SnapshotRefusal(exception);
-        }
-        finally
-        {
-            addition?.Dispose();
-        }
+        var input = update.ValidateContent();
+        var entityType = update.EntityType;
+        var key = update.Key;
+        var entity = CheckIdentity(entityType, key);
+        var length = _executor.CheckUpdate(entityType, input);
+        Reserve(length);
+        Keep(entity, new WriteBatchOperation(WriteKindEnum.Update, entityType, key, expectedRevision, default, input));
+        _hasUpdates = true;
+        update.Consume();
     }
 
-    private MemoryBudget? SnapshotBudget => _executor.IsClosed ? null : _budget;
-
-    private MemoryLease? OpenSnapshot() => SnapshotBudget is { } budget ? MemoryLease.Create(budget) : null;
-
-    private void PrepareLease(MemoryLease? addition)
+    // The last step of an addition, once its checks are made and its snapshot is built: room for one more
+    // member, then the estimate of the member, its encoded length and PerMemberBytes, with PerBuilderBytes
+    // for the first, in the budget of the instance. WriteRejected with Memory when the instance cannot hold
+    // it, ObjectDisposedException when the database closed meanwhile; the member is not kept then, and the
+    // snapshot is the collector's.
+    private void Reserve(long length)
     {
-        if (_lease is null && addition is not null)
+        // Finish any fallible allocation before the reservation and before changing either builder.
+        if (Count == _operations.Length)
         {
-            addition.Own((Operations: _operations, Identities: _identities), static (budget, state) =>
+            Array.Resize(ref _operations, Math.Max(FirstRoom, 2 * _operations.Length));
+        }
+
+        _identities.EnsureCapacity(Count + 1);
+
+        var estimate = length + BatchInputCharge.PerMemberBytes + (Count == 0 ? BatchInputCharge.PerBuilderBytes : 0);
+        if (!_charge.TryAdd(estimate))
+        {
+            ObjectDisposedException.ThrowIf(_executor.IsClosed, _executor);
+            throw new LatticeException(LatticeErrorEnum.WriteRejected, "The write needs more memory than the instance can hold.")
             {
-                budget.Release(BudgetCollections.Items(state.Operations));
-                state.Operations.Clear();
-                state.Operations.Capacity = 0;
-                state.Identities.Dispose();
-            });
+                Limit = LatticeLimitEnum.Memory,
+            };
         }
-    }
-
-    private void KeepLease(ref MemoryLease? addition)
-    {
-        if (addition is null)
-        {
-            return;
-        }
-
-        if (_lease is { } lease)
-        {
-            lease.Take(addition);
-        }
-        else
-        {
-            _lease = addition;
-        }
-
-        addition = null;
-    }
-
-    private LatticeException SnapshotRefusal(BudgetRefusedException exception)
-    {
-        ObjectDisposedException.ThrowIf(_executor.IsClosed, _executor);
-        return exception.WriteRejected();
-    }
-
-    private void PrepareCapacity()
-    {
-        var needed = Count + 1;
-        if (_budget is null)
-        {
-            _operations.EnsureCapacity(needed);
-            _identities.EnsureCapacity(needed);
-            return;
-        }
-
-        if (needed <= _operations.Capacity)
-        {
-            _identities.EnsureCapacity(needed);
-            return;
-        }
-
-        // Prepare both replacements before installing either list capacity or a new member.
-        // The list's old array is still owned while the identity set is also growing.
-        var previous = BudgetCollections.Items(_operations);
-        var expanded = _budget.Allocate<WriteBatchOperation>(BudgetCollections.CapacityFor(previous.Length, needed), nameof(WriteBatch));
-        try
-        {
-            previous.AsSpan(0, Count).CopyTo(expanded);
-            _identities.EnsureCapacity(needed);
-        }
-        catch
-        {
-            _budget.Release(expanded);
-            throw;
-        }
-
-        BudgetCollections.Items(_operations) = expanded;
-        _budget.Release(previous);
     }
 
     private WriteBatchEntity CheckIdentity(LatticeEntityType entityType, object key)
@@ -313,7 +207,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     private void Keep(WriteBatchEntity entity, WriteBatchOperation operation)
     {
         _identities.Add(entity);
-        _operations.Add(operation);
+        _operations[Count] = operation;
         Count++;
     }
 
@@ -328,49 +222,57 @@ internal sealed class WriteBatch : ILatticeWriteBatch
 
     // What the caller can know from its own arguments is thrown here; what the database decides comes
     // through the task.
+    // The charge of the batch passes to its execution: it is returned when the execution ends, whatever
+    // it ends with.
     private ValueTask<LatticeWriteResult> Commit(LatticeSession? session, CancellationToken cancellationToken)
     {
         ThrowIfSubmitted();
-        if (_operations.Count == 0)
+        if (Count == 0)
         {
             throw new InvalidOperationException("The batch is empty; there is nothing to commit.");
         }
 
         _submitted = true;
-        var operations = _operations;
-        var lease = _lease;
-        _lease = null;
-        _operations = [];
-        _identities.Dispose();
 
+        var operations = new ArraySegment<WriteBatchOperation>(_operations, 0, Count);
+
+        _operations = [];
+        _identities = [];
+
+        ValueTask<LatticeWriteResult> result;
         try
         {
-            var result = _executor.ExecuteAsync(operations, session, cancellationToken);
-            if (_hasUpdates)
-            {
-                var completion = result.AsTask();
-                foreach (var operation in operations)
-                {
-                    operation.Update?.Outcome.Attach(completion);
-                }
-
-                result = new ValueTask<LatticeWriteResult>(completion);
-            }
-
-            return lease is null ? result : ReleaseAfterAsync(result, lease);
+            result = _executor.ExecuteAsync(operations, session, cancellationToken);
         }
         catch
         {
-            lease?.Dispose();
+            _charge.Dispose();
             throw;
         }
+
+        if (_hasUpdates)
+        {
+            var completion = result.AsTask();
+            foreach (var operation in operations)
+            {
+                operation.Update?.Outcome.Attach(completion);
+            }
+
+            result = new ValueTask<LatticeWriteResult>(completion);
+        }
+
+        return ReturnChargeAfterAsync(result, _charge);
     }
 
-    private static async ValueTask<LatticeWriteResult> ReleaseAfterAsync(ValueTask<LatticeWriteResult> result, MemoryLease lease)
+    private static async ValueTask<LatticeWriteResult> ReturnChargeAfterAsync(ValueTask<LatticeWriteResult> result, BatchInputCharge charge)
     {
-        using (lease)
+        try
         {
             return await result.ConfigureAwait(false);
+        }
+        finally
+        {
+            charge.Dispose();
         }
     }
 

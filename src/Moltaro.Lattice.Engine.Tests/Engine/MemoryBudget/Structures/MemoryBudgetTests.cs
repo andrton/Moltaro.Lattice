@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Structures;
 // attempt does not.
 public sealed class MemoryBudgetTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public void Reservations_racing_for_the_last_bytes_never_pass_the_limit()
     {
         const int Threads = 8;
@@ -33,7 +33,7 @@ public sealed class MemoryBudgetTests
         Assert.Equal(Limit, budget.Charged);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void A_budget_made_without_a_limit_holds_any_charge()
     {
         var budget = new InstanceMemoryBudget();
@@ -43,7 +43,7 @@ public sealed class MemoryBudgetTests
         Assert.Equal(0, budget.Charged);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void Arrays_are_charged_by_their_bytes_and_a_growth_releases_the_array_it_replaces()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);
@@ -69,7 +69,7 @@ public sealed class MemoryBudgetTests
         Assert.Equal(0, budget.Charged);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void A_refused_growth_keeps_the_array_and_the_charge()
     {
         var budget = new InstanceMemoryBudget(ArrayBytes(typeof(long), 4) + ArrayBytes(typeof(long), 16) - 1);
@@ -80,7 +80,7 @@ public sealed class MemoryBudgetTests
         Assert.Equal(ArrayBytes(typeof(long), 4), budget.Charged);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void Close_clears_the_charge_ends_admission_and_ignores_a_later_release()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);
@@ -96,7 +96,7 @@ public sealed class MemoryBudgetTests
         Assert.Equal(0, budget.Charged);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_free_between_the_attempt_and_the_wait_moves_the_count_past_the_ticket()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);
@@ -114,7 +114,7 @@ public sealed class MemoryBudgetTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_free_after_the_ticket_wakes_the_waiting_child_and_its_own_attempt_does_not()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);

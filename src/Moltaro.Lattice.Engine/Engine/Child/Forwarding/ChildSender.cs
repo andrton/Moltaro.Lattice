@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Budgeting;
-
 namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
 // The one task that sends on the connection of a Ready child to its master (brief of Epic 1, sprint S12,
@@ -36,7 +34,6 @@ internal sealed class ChildSender
     private readonly MasterLink _link;
 
     private readonly PendingRequests _pending;
-    private readonly MemoryBudget? _budget;
 
     private readonly Lock _lock = new();
 
@@ -56,11 +53,10 @@ internal sealed class ChildSender
     // The correlation id of the last request taken.
     private ulong _lastId;
 
-    public ChildSender(MasterLink link, PendingRequests pending, MemoryBudget? budget = null)
+    public ChildSender(MasterLink link, PendingRequests pending)
     {
         _link = link;
         _pending = pending;
-        _budget = budget;
     }
 
     // Queues the request of a call, after every request queued before it; false once the sender has ended,
@@ -74,7 +70,6 @@ internal sealed class ChildSender
                 return false;
             }
 
-            _queue.EnsureCapacity(_queue.Count + 1, _budget, nameof(ChildSender));
             _queue.Enqueue(call);
         }
 
@@ -143,12 +138,6 @@ internal sealed class ChildSender
                 _ended = true;
                 queued = [.. _queue];
                 _queue.Clear();
-                if (_budget is { } budget)
-                {
-                    var array = BudgetCollections.Items(_queue);
-                    _queue.TrimExcess();
-                    budget.Release(array);
-                }
             }
 
             foreach (var call in queued)
@@ -168,25 +157,13 @@ internal sealed class ChildSender
     // class).
     private async Task SendAsync(ForwardedCall call, CancellationToken cancellationToken)
     {
-        call.CorrelationId = _lastId + 1;
-        try
-        {
-            if (!_pending.TryRegister(call))
-            {
-                throw new OperationCanceledException("The connection to the master has ended.");
-            }
-        }
-        catch (BudgetRefusedException exception)
-        {
-            if (call.TryEnd())
-            {
-                call.Fail(exception.WriteRejected());
-            }
+        call.CorrelationId = ++_lastId;
 
-            return;
+        if (!_pending.TryRegister(call))
+        {
+            throw new OperationCanceledException("The connection to the master has ended.");
         }
 
-        _lastId++;
         var request = call.Request;
 
         for (var index = 0; index < request.FrameCount; index++)

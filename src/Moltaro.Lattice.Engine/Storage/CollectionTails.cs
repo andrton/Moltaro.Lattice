@@ -1,4 +1,5 @@
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
+using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Storage;
 
@@ -7,124 +8,89 @@ namespace Moltaro.Lattice.Storage;
 // Ready slots stay allocated in the arena. A preparation unlinks a slot, and
 // either publishes it as active or puts the same grant back on refusal.
 //
-// Storage for an owner and its worker link is provided during write
-// preparation. One maintenance call considers one owner and gives back at
-// most one slot. The lease never belongs to a published descriptor and all
-// changes to membership, age and native allocation hold Writes.
+// One maintenance call considers one owner and gives back at most one slot.
+// The lease never belongs to a published descriptor and all changes to
+// membership, age and native allocation hold Writes.
+//
+// The tails are records in one array, charged to the budget of the arena when
+// it grows (docs/design/storage-and-maintenance.md, the memory budget): the
+// records of one root are linked from the root's entry in a charged set, and
+// the records maintenance works on are linked in a list of their own. A record
+// is given back to the free records once no root lists it, maintenance has no
+// slot of it to return, no preparation edits it and no slot of it is borrowed.
+// What one preparation changes stays in plain maps until it is applied or
+// abandoned, under the estimate of the write.
 internal sealed class CollectionTails(Arena arena, TimeProvider time)
 {
     public const int FullSlots = (Arena.MaxBlockSize - BlockHeader.Size) / sizeof(ulong);
 
     private static readonly TimeSpan Underuse = TimeSpan.FromSeconds(5);
 
-    private readonly Dictionary<RootHandle, Dictionary<int, CollectionTail>> _owners = [];
+    private CollectionTail[] _records = [];
+
+    // The records ever used: those below are in use or free.
+    private int _used;
+
+    // The first free record plus one, 0 when none is free; free records are linked by NextOfRoot.
+    private int _free;
+
+    // The first and the last record plus one of the list maintenance works on.
+    private int _readyFirst;
+
+    private int _readyLast;
+
+    // For each root that has tails, its first record plus one.
+    private readonly ChargedSet<RootTails> _roots = new(new RootComparer(), arena.Budget);
+
     private readonly Dictionary<ArenaAddress, Dictionary<int, CollectionTailEdit>?> _preparations = [];
-    private Dictionary<ArenaAddress, CollectionTail> _borrowed = [];
-    private BackingHistory<Dictionary<ArenaAddress, CollectionTail>>? _borrowHistory;
-    private readonly LinkedList<CollectionTail> _ready = new();
 
-    private const string BudgetOwner = nameof(CollectionTails);
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(7L * IntPtr.Size);
-    private static long ReadyBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 2 * sizeof(int));
-    private MemoryBudget? Budget => arena.Budget;
-    private static long TailBytes => MemoryBudget.ObjectBytes(7L * sizeof(long) + IntPtr.Size + 5 * sizeof(int) + 4);
-    private static long WorkBytes => MemoryBudget.ObjectBytes(4L * IntPtr.Size);
+    private readonly Dictionary<ArenaAddress, int> _borrowed = [];
 
-    public static CollectionTails Create(Arena arena, TimeProvider time)
-    {
-        var budget = arena.Budget;
-        var required = OwnerBytes + ReadyBytes + 3 * BudgetDictionaries.OwnerBytes;
-        budget?.Reserve(required);
-        try
-        {
-            var tails = new CollectionTails(arena, time);
-            if (budget is not null)
-            {
-                budget.Own(tails, BudgetOwner);
-                budget.Own(tails._owners, BudgetOwner);
-                budget.Own(tails._preparations, BudgetOwner);
-                budget.Own(tails._borrowed, BudgetOwner);
-                budget.Own(tails._ready, BudgetOwner);
-            }
+    public bool HasOwner(RootHandle handle) => _roots.Contains(new RootTails(handle, 0));
 
-            return tails;
-        }
-        catch
-        {
-            budget?.Release(required);
-            throw;
-        }
-    }
-
-    public bool HasOwner(RootHandle handle) => _owners.ContainsKey(handle);
-
-    public bool HasSlots(RootHandle handle, int offset) => Find(handle, offset) is { ReadySlots: > 0 };
+    public bool HasSlots(RootHandle handle, int offset) => Find(handle, offset) is var tail && tail >= 0 && _records[tail].ReadySlots > 0;
 
     // A sparse root keeps its leases even when none of their fields changes.
     // Only an actual collection edit needs a field table.
-    public void PrepareSparse(ArenaAddress root)
-    {
-        _preparations.EnsureCapacity(_preparations.Count + 1, Budget, BudgetOwner);
-        _preparations.Add(root, null);
-    }
+    public void PrepareSparse(ArenaAddress root) => _preparations.Add(root, null);
 
     public void PrepareChange(ArenaAddress root, RootHandle handle, int offset, ArenaAddress former, int active, int need)
     {
         var tail = Find(handle, offset);
-        if (tail is null && former.IsNull)
+        if (tail < 0 && former.IsNull)
         {
             return;
         }
 
-        var edits = Preparation(root);
-        edits.EnsureCapacity(edits.Count + 1, Budget, BudgetOwner);
-        var isNew = tail is null;
+        var isNew = tail < 0;
         if (isNew)
         {
-            var newFields = !_owners.TryGetValue(handle, out var fields);
-            if (newFields)
-            {
-                _owners.EnsureCapacity(_owners.Count + 1, Budget, BudgetOwner);
-                fields = BudgetDictionaries.Create<int, CollectionTail>(Budget, BudgetOwner);
-            }
-
-            try
-            {
-                var fieldTable = fields!;
-                fieldTable.EnsureCapacity(fieldTable.Count + 1, Budget, BudgetOwner);
-                tail = MakeTail(handle, offset);
-                fieldTable.Add(offset, tail);
-                if (newFields)
-                {
-                    _owners.Add(handle, fieldTable);
-                }
-            }
-            catch
-            {
-                if (newFields)
-                {
-                    Budget?.ReleaseDictionary(fields!, includesOwner: true);
-                }
-
-                throw;
-            }
+            tail = AddTail(handle, offset);
         }
 
-        edits.Add(offset, new(tail!, former, active, need, isNew, Ended: false));
-        tail!.PendingEdit = true;
+        try
+        {
+            Preparation(root).Add(offset, new(tail, former, active, need, isNew, Ended: false));
+        }
+        catch
+        {
+            if (isNew)
+            {
+                Forget(tail);
+            }
+
+            throw;
+        }
+
+        _records[tail].PendingEdit = true;
     }
 
     public void PrepareEnd(ArenaAddress root, RootHandle handle, int offset)
     {
-        if (Find(handle, offset) is { } tail)
+        if (Find(handle, offset) is var tail && tail >= 0)
         {
-            var edits = Preparation(root);
-            if (!edits.ContainsKey(offset))
-            {
-                edits.EnsureCapacity(edits.Count + 1, Budget, BudgetOwner);
-                edits.Add(offset, new(tail, default, 0, 0, NewOwner: false, Ended: true));
-            }
-            tail.PendingEdit = true;
+            Preparation(root).TryAdd(offset, new(tail, default, 0, 0, NewOwner: false, Ended: true));
+            _records[tail].PendingEdit = true;
         }
     }
 
@@ -133,14 +99,19 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         if (!_preparations.Remove(root, out var edits))
         {
             // A complete replacement or deletion ends every lease of this generation.
-            if (_owners.Remove(handle, out var fields))
+            var probe = new RootTails(handle, 0);
+            if (_roots.TryGet(probe, out var owner))
             {
-                foreach (var tail in fields.Values)
+                _roots.Remove(probe);
+                for (var next = owner.First; next != 0;)
                 {
+                    var tail = next - 1;
+                    next = _records[tail].NextOfRoot;
+                    _records[tail].Listed = false;
+                    _records[tail].NextOfRoot = 0;
                     End(tail);
+                    ReleaseIfUnused(tail);
                 }
-
-                Budget?.ReleaseDictionary(fields, includesOwner: true);
             }
 
             return;
@@ -154,20 +125,21 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         foreach (var edit in edits.Values)
         {
             var tail = edit.Tail;
-            tail.PendingEdit = false;
+            ref var record = ref _records[tail];
+            record.PendingEdit = false;
             if (edit.Ended)
             {
-                Forget(tail);
                 End(tail);
+                Forget(tail);
                 continue;
             }
 
-            tail.Active = edit.Active;
-            tail.Need = edit.Need;
-            if (!edit.Former.IsNull && tail.Empty)
+            record.Active = edit.Active;
+            record.Need = edit.Need;
+            if (!edit.Former.IsNull && record.Empty)
             {
-                tail.Former = edit.Former;
-                tail.Transferring = edit.Former;
+                record.Former = edit.Former;
+                record.Transferring = edit.Former;
             }
 
             // Publishing another logical value does not abandon an admitted
@@ -176,8 +148,6 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             Refresh(tail);
             ForgetEmpty(tail);
         }
-
-        Budget?.ReleaseDictionary(edits, includesOwner: true);
     }
 
     public void Abandon(ArenaAddress root)
@@ -186,7 +156,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         {
             foreach (var edit in edits.Values)
             {
-                edit.Tail.PendingEdit = false;
+                _records[edit.Tail].PendingEdit = false;
                 if (edit.NewOwner)
                 {
                     Forget(edit.Tail);
@@ -196,8 +166,6 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
                     ForgetEmpty(edit.Tail);
                 }
             }
-
-            Budget?.ReleaseDictionary(edits, includesOwner: true);
         }
     }
 
@@ -205,23 +173,24 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         out ArenaAddress slot)
     {
         slot = default;
-        if (Find(owner, field) is not { } tail)
+        var tail = Find(owner, field);
+        if (tail < 0)
         {
             return false;
         }
 
+        ref var record = ref _records[tail];
         var full = bytes == Arena.MaxBlockSize - BlockHeader.Size;
-        slot = full ? tail.Full : tail.Last;
+        slot = full ? record.Full : record.Last;
         if (slot.IsNull || arena.Payload(slot).Length != bytes)
         {
             return false;
         }
 
         // Reserve rollback state before changing any native link.
-        ReserveBorrow();
         _borrowed.Add(slot, tail);
         Pop(tail, full);
-        tail.BorrowedSlots += bytes / sizeof(ulong);
+        record.BorrowedSlots += bytes / sizeof(ulong);
         arena.RewriteColdLookupSlot(slot, lookup, offset, layoutVersion);
         return true;
     }
@@ -235,9 +204,8 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
         var slots = arena.Payload(slot).Length / sizeof(ulong);
         arena.RestoreColdLookupSlot(slot);
-        tail.BorrowedSlots -= slots;
+        _records[tail].BorrowedSlots -= slots;
         Push(tail, slot, slots);
-        ReleaseBorrowCapacity();
         return true;
     }
 
@@ -245,64 +213,8 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
     {
         if (_borrowed.Remove(slot, out var tail))
         {
-            tail.BorrowedSlots -= arena.Payload(slot).Length / sizeof(ulong);
-            ReleaseBorrowCapacity();
-        }
-    }
-
-    private void ReserveBorrow()
-    {
-        var count = _borrowed.Count + 1;
-        var current = _borrowed.EnsureCapacity(0);
-        if (count <= current)
-        {
-            return;
-        }
-
-        if (Budget is not { } budget)
-        {
-            _borrowed.EnsureCapacity(count);
-            return;
-        }
-
-        var grown = BudgetDictionaries.Create<ArenaAddress, CollectionTail>(budget, BudgetOwner);
-        try
-        {
-            grown.EnsureCapacity(BudgetCollections.CapacityFor(current, count), budget, BudgetOwner);
-            foreach (var (slot, tail) in _borrowed)
-            {
-                grown.Add(slot, tail);
-            }
-
-            _borrowHistory = BackingHistory<Dictionary<ArenaAddress, CollectionTail>>.Keep(_borrowed, _borrowHistory, budget, BudgetOwner);
-        }
-        catch
-        {
-            budget.ReleaseDictionary(grown, includesOwner: true);
-            throw;
-        }
-
-        _borrowed.Clear();
-        _borrowed = grown;
-    }
-
-    // The old tables have room for the live loans but hold no stale copies of their owners.
-    // Restore from the actual surviving set under Writes, with no new allocation at withdrawal.
-    private void ReleaseBorrowCapacity()
-    {
-        while (_borrowHistory is { } history && history.Backing.EnsureCapacity(0) >= _borrowed.Count)
-        {
-            var previous = _borrowed;
-            foreach (var (slot, tail) in previous)
-            {
-                history.Backing.Add(slot, tail);
-            }
-
-            _borrowed = history.Backing;
-            _borrowHistory = history.Earlier;
-            history.Drop(Budget!);
-            previous.Clear();
-            Budget!.ReleaseDictionary(previous, includesOwner: true);
+            _records[tail].BorrowedSlots -= arena.Payload(slot).Length / sizeof(ulong);
+            ReleaseIfUnused(tail);
         }
     }
 
@@ -310,7 +222,8 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
     // is still allocated, so its address cannot name a later lookup here.
     public bool Accept(ArenaAddress lookup, ArenaAddress slot)
     {
-        if (Transferring(lookup) is not { } tail)
+        var tail = Transferring(lookup);
+        if (tail < 0)
         {
             return false;
         }
@@ -323,39 +236,41 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
 
     public void Finish(ArenaAddress lookup)
     {
-        if (Transferring(lookup) is { } tail)
+        var tail = Transferring(lookup);
+        if (tail >= 0)
         {
-            tail.Transferring = default;
+            _records[tail].Transferring = default;
             ForgetEmpty(tail);
         }
     }
 
     public void ReleaseOne()
     {
-        if (_ready.First is not { } work)
+        if (_readyFirst == 0)
         {
             return;
         }
 
-        _ready.RemoveFirst();
-        _ready.AddLast(work);
-        var tail = work.Value;
-        if (tail.PendingEdit || tail.BorrowedSlots != 0)
+        var tail = _readyFirst - 1;
+        RemoveReady(tail);
+        AddReady(tail);
+        ref var record = ref _records[tail];
+        if (record.PendingEdit || record.BorrowedSlots != 0)
         {
             return;
         }
 
-        if (!tail.Ended && !tail.Shrinking)
+        if (!record.Ended && !record.Shrinking)
         {
-            if (time.GetElapsedTime(tail.AboveSince!.Value) < Underuse)
+            if (time.GetElapsedTime(record.AboveSince) < Underuse)
             {
                 return;
             }
 
-            tail.Shrinking = true;
+            record.Shrinking = true;
         }
 
-        ReleaseSlot(tail, full: !tail.Full.IsNull);
+        ReleaseSlot(tail, full: !record.Full.IsNull);
     }
 
     // Under Writes, a failed size estimate can discount ready slots. Only the
@@ -366,8 +281,9 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         {
             // Each ready slot accounts for its whole native block. Full slots
             // have a common size, and only the last slot can be smaller.
-            var blocks = tail.ReadySlots / FullSlots + (tail.Last.IsNull ? 0 : 1);
-            bytes -= tail.ReadySlots * (long)sizeof(ulong) + blocks * (long)BlockHeader.Size;
+            ref readonly var record = ref _records[tail];
+            var blocks = record.ReadySlots / FullSlots + (record.Last.IsNull ? 0 : 1);
+            bytes -= record.ReadySlots * (long)sizeof(ulong) + blocks * (long)BlockHeader.Size;
             if (bytes <= 0)
             {
                 return true;
@@ -384,13 +300,14 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
     {
         foreach (var tail in SpareTails())
         {
-            if (!tail.Full.IsNull)
+            ref readonly var record = ref _records[tail];
+            if (!record.Full.IsNull)
             {
                 ReleaseSlot(tail, full: true);
                 return true;
             }
 
-            if (tail.Last.IsNull || !arena.CanReleaseColdLookupForPressure(tail.Last, neededClass, out var clearRegion))
+            if (record.Last.IsNull || !arena.CanReleaseColdLookupForPressure(record.Last, neededClass, out var clearRegion))
             {
                 continue;
             }
@@ -401,7 +318,7 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
             }
             else
             {
-                ReleaseRegion(Arena.RegionOf(tail.Last));
+                ReleaseRegion(Arena.RegionOf(record.Last));
             }
 
             return true;
@@ -410,46 +327,54 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         return false;
     }
 
+    // Adds the record array; the set of roots reports its own.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        if (_records.Length != 0)
+        {
+            held.Add(new HeldArray(nameof(CollectionTails), typeof(CollectionTail), _records.Length));
+        }
+
+        _roots.ReportHeld(held);
+    }
+
     private void ReleaseRegion(long region)
     {
         // Every allocated slot in this region was already checked. Slot
-        // donation does not add a lease, and Dictionary permits removal
-        // of empty owners and fields while enumerating them.
+        // donation does not add a lease, and a record released meanwhile
+        // is no longer in use, which the walk skips.
         foreach (var tail in SpareTails())
         {
-            if (!tail.Last.IsNull && Arena.RegionOf(tail.Last) == region)
+            if (!_records[tail].Last.IsNull && Arena.RegionOf(_records[tail].Last) == region)
             {
                 ReleaseSlot(tail, full: false);
             }
         }
     }
 
-    private void ReleaseSlot(CollectionTail tail, bool full)
+    private void ReleaseSlot(int tail, bool full)
     {
         arena.Free(Pop(tail, full));
         Refresh(tail);
         ForgetEmpty(tail);
-        ReleaseWhenUnowned(tail);
+        ReleaseIfUnused(tail);
     }
 
-    private IEnumerable<CollectionTail> SpareTails()
+    // The tails that hold spare slots: those of the roots that list them, then the ended ones that
+    // maintenance still works on. A record released during the walk is skipped.
+    private IEnumerable<int> SpareTails()
     {
-        foreach (var fields in _owners.Values)
+        for (var tail = 0; tail < _used; tail++)
         {
-            foreach (var tail in fields.Values)
+            if (_records[tail] is { InUse: true, Listed: true })
             {
                 yield return tail;
             }
         }
 
-        // An ended owner is removed from _owners but keeps its ready worker
-        // link until its last slot is returned. Its link may go during yield.
-        var work = _ready.First;
-        while (work is not null)
+        for (var tail = 0; tail < _used; tail++)
         {
-            var tail = work.Value;
-            work = work.Next;
-            if (tail.Ended)
+            if (_records[tail] is { InUse: true, Listed: false, Ended: true, Ready: true })
             {
                 yield return tail;
             }
@@ -461,18 +386,19 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
         var result = new List<CollectionSlotOwnership>();
         foreach (var tail in SpareTails())
         {
-            AddReady(tail, result);
+            AddReady(_records[tail], result);
         }
 
         foreach (var (slot, tail) in _borrowed)
         {
-            result.Add(new(tail.Owner, tail.Offset, tail.Former, slot, Borrowed: true));
+            ref readonly var record = ref _records[tail];
+            result.Add(new(record.Owner, record.Offset, record.Former, slot, Borrowed: true));
         }
 
         return result.ToArray();
     }
 
-    private void AddReady(CollectionTail tail, List<CollectionSlotOwnership> result)
+    private void AddReady(in CollectionTail tail, List<CollectionSlotOwnership> result)
     {
         for (var slot = tail.Full; !slot.IsNull; slot = arena.ColdLookupLink(slot))
         {
@@ -489,154 +415,263 @@ internal sealed class CollectionTails(Arena arena, TimeProvider time)
     {
         if (!_preparations.TryGetValue(root, out var changes) || changes is null)
         {
-            if (!_preparations.ContainsKey(root))
-            {
-                _preparations.EnsureCapacity(_preparations.Count + 1, Budget, BudgetOwner);
-            }
-
-            changes = BudgetDictionaries.Create<int, CollectionTailEdit>(Budget, BudgetOwner);
+            changes = [];
             _preparations[root] = changes;
         }
 
         return changes;
     }
 
-    private CollectionTail? Find(RootHandle handle, int offset) =>
-        _owners.TryGetValue(handle, out var fields) && fields.TryGetValue(offset, out var tail) ? tail : null;
+    // The record of the field of the root, or -1.
+    private int Find(RootHandle handle, int offset)
+    {
+        if (!_roots.TryGet(new RootTails(handle, 0), out var owner))
+        {
+            return -1;
+        }
 
-    private CollectionTail? Transferring(ArenaAddress lookup)
+        for (var next = owner.First; next != 0; next = _records[next - 1].NextOfRoot)
+        {
+            if (_records[next - 1].Offset == offset)
+            {
+                return next - 1;
+            }
+        }
+
+        return -1;
+    }
+
+    // A record for a new tail of the field of the root, listed first among the root's records. The
+    // record array and the set of roots grow, charged, before anything changes.
+    private int AddTail(RootHandle handle, int offset)
+    {
+        if (_free == 0 && _used == _records.Length)
+        {
+            arena.Budget.Grow(ref _records, Math.Max(4, 2 * _records.Length));
+        }
+
+        var probe = new RootTails(handle, 0);
+        var listed = _roots.TryGet(probe, out var owner);
+        if (!listed)
+        {
+            _roots.EnsureCapacity(_roots.Count + 1);
+        }
+
+        int tail;
+        if (_free != 0)
+        {
+            tail = _free - 1;
+            _free = _records[tail].NextOfRoot;
+        }
+        else
+        {
+            tail = _used++;
+        }
+
+        _records[tail] = new CollectionTail
+        {
+            Owner = handle,
+            Offset = offset,
+            InUse = true,
+            Listed = true,
+            NextOfRoot = listed ? owner.First : 0,
+        };
+
+        if (listed)
+        {
+            _roots.Remove(probe);
+        }
+
+        _roots.Add(new RootTails(handle, tail + 1));
+        return tail;
+    }
+
+    private int Transferring(ArenaAddress lookup)
     {
         ref readonly var header = ref arena.Header(lookup);
         var tail = Find(header.Root, (int)header.DescriptorOffset);
-        return tail is not null && tail.Transferring == lookup ? tail : null;
+        return tail >= 0 && _records[tail].Transferring == lookup ? tail : -1;
     }
 
-    private void Push(CollectionTail tail, ArenaAddress slot, int slots)
+    private void Push(int tail, ArenaAddress slot, int slots)
     {
+        ref var record = ref _records[tail];
         if (slots == FullSlots)
         {
-            arena.SetColdLookupLink(slot, tail.Full);
-            tail.Full = slot;
+            arena.SetColdLookupLink(slot, record.Full);
+            record.Full = slot;
         }
         else
         {
             // Only the final chunk of one former lookup can use a smaller class.
-            tail.Last = slot;
+            record.Last = slot;
         }
 
-        tail.ReadySlots += slots;
+        record.ReadySlots += slots;
     }
 
-    private ArenaAddress Pop(CollectionTail tail, bool full)
+    private ArenaAddress Pop(int tail, bool full)
     {
-        var slot = full ? tail.Full : tail.Last;
+        ref var record = ref _records[tail];
+        var slot = full ? record.Full : record.Last;
         if (full)
         {
-            tail.Full = arena.ColdLookupLink(slot);
+            record.Full = arena.ColdLookupLink(slot);
         }
         else
         {
-            tail.Last = default;
+            record.Last = default;
         }
 
-        tail.ReadySlots -= arena.Payload(slot).Length / sizeof(ulong);
+        record.ReadySlots -= arena.Payload(slot).Length / sizeof(ulong);
         return slot;
     }
 
-    private void End(CollectionTail tail)
+    private void End(int tail)
     {
-        tail.Ended = true;
-        tail.Transferring = default;
+        _records[tail].Ended = true;
+        _records[tail].Transferring = default;
         Refresh(tail);
-        ReleaseWhenUnowned(tail);
     }
 
-    private void Refresh(CollectionTail tail)
+    private void Refresh(int tail)
     {
-        if (tail.Shrinking && tail.Capacity <= 2 * tail.Need)
+        ref var record = ref _records[tail];
+        if (record.Shrinking && record.Capacity <= 2 * record.Need)
         {
-            tail.Shrinking = false;
+            record.Shrinking = false;
         }
 
-        if (!tail.Ended && !tail.Shrinking && tail.Capacity > 4 * tail.Need)
+        if (!record.Ended && !record.Shrinking && record.Capacity > 4 * record.Need)
         {
-            tail.AboveSince ??= time.GetTimestamp();
+            if (!record.Above)
+            {
+                record.AboveSince = time.GetTimestamp();
+                record.Above = true;
+            }
         }
-        else if (!tail.Shrinking)
+        else if (!record.Shrinking)
         {
-            tail.AboveSince = null;
+            record.Above = false;
         }
 
-        var work = tail.Work!;
-        var needed = tail.ReadySlots > 0 && (tail.Ended || tail.Shrinking || tail.AboveSince.HasValue);
-        if (needed && work.List is null)
+        var needed = record.ReadySlots > 0 && (record.Ended || record.Shrinking || record.Above);
+        if (needed && !record.Ready)
         {
-            _ready.AddLast(work);
+            AddReady(tail);
         }
-        else if (!needed && work.List is not null)
+        else if (!needed && record.Ready)
         {
-            _ready.Remove(work);
+            RemoveReady(tail);
         }
     }
 
-    private void ForgetEmpty(CollectionTail tail)
+    private void ForgetEmpty(int tail)
     {
         // Borrowing itself doesn't change the published capacity. A spare that
         // appears while a write is prepared still belongs to the reserved edit.
-        if (tail.Empty && !tail.Ended && !tail.PendingEdit)
+        ref readonly var record = ref _records[tail];
+        if (record.Empty && !record.Ended && !record.PendingEdit)
         {
             Forget(tail);
         }
     }
 
-    private void Forget(CollectionTail tail)
+    // Takes the record off its root's list, and gives it back when nothing else holds it.
+    private void Forget(int tail)
     {
-        if (_owners.TryGetValue(tail.Owner, out var fields) &&
-            fields.TryGetValue(tail.Offset, out var current) && current == tail)
+        ref var record = ref _records[tail];
+        if (record.Listed)
         {
-            fields.Remove(tail.Offset);
-            if (fields.Count == 0)
+            var probe = new RootTails(record.Owner, 0);
+            _roots.TryGet(probe, out var owner);
+            if (owner.First == tail + 1)
             {
-                _owners.Remove(tail.Owner);
-                Budget?.ReleaseDictionary(fields, includesOwner: true);
+                _roots.Remove(probe);
+                if (record.NextOfRoot != 0)
+                {
+                    _roots.Add(new RootTails(record.Owner, record.NextOfRoot));
+                }
             }
-        }
-
-        ReleaseWhenUnowned(tail);
-    }
-
-    private CollectionTail MakeTail(RootHandle handle, int offset)
-    {
-        var budget = Budget;
-        budget?.Reserve(TailBytes + WorkBytes);
-        try
-        {
-            var tail = new CollectionTail(handle, offset);
-            tail.Work = new LinkedListNode<CollectionTail>(tail);
-            if (budget is not null)
+            else
             {
-                tail.BudgetOwned = true;
-                budget.Own(tail, BudgetOwner);
-                budget.Own(tail.Work, BudgetOwner);
+                var previous = owner.First - 1;
+                while (_records[previous].NextOfRoot != tail + 1)
+                {
+                    previous = _records[previous].NextOfRoot - 1;
+                }
+
+                _records[previous].NextOfRoot = record.NextOfRoot;
             }
 
-            return tail;
+            record.Listed = false;
+            record.NextOfRoot = 0;
         }
-        catch
+
+        ReleaseIfUnused(tail);
+    }
+
+    private void ReleaseIfUnused(int tail)
+    {
+        ref var record = ref _records[tail];
+        if (record is { InUse: true, Listed: false, Ready: false, PendingEdit: false, BorrowedSlots: 0 })
         {
-            budget?.Release(TailBytes + WorkBytes);
-            throw;
+            record = new CollectionTail { NextOfRoot = _free };
+            _free = tail + 1;
         }
     }
 
-    private void ReleaseWhenUnowned(CollectionTail tail)
+    private void AddReady(int tail)
     {
-        if (tail.BudgetOwned && tail.Empty && tail.Work!.List is null && !ReferenceEquals(Find(tail.Owner, tail.Offset), tail))
+        ref var record = ref _records[tail];
+        record.Ready = true;
+        record.ReadyPrevious = _readyLast;
+        record.ReadyNext = 0;
+        if (_readyLast == 0)
         {
-            tail.BudgetOwned = false;
-            var budget = Budget!;
-            budget.Forget(tail.Work);
-            budget.Release(TailBytes + WorkBytes, tail);
+            _readyFirst = tail + 1;
         }
+        else
+        {
+            _records[_readyLast - 1].ReadyNext = tail + 1;
+        }
+
+        _readyLast = tail + 1;
+    }
+
+    private void RemoveReady(int tail)
+    {
+        ref var record = ref _records[tail];
+        if (record.ReadyPrevious == 0)
+        {
+            _readyFirst = record.ReadyNext;
+        }
+        else
+        {
+            _records[record.ReadyPrevious - 1].ReadyNext = record.ReadyNext;
+        }
+
+        if (record.ReadyNext == 0)
+        {
+            _readyLast = record.ReadyPrevious;
+        }
+        else
+        {
+            _records[record.ReadyNext - 1].ReadyPrevious = record.ReadyPrevious;
+        }
+
+        record.Ready = false;
+        record.ReadyPrevious = 0;
+        record.ReadyNext = 0;
+    }
+
+    // A root with tails and its first record plus one; the set compares the root alone.
+    private readonly record struct RootTails(RootHandle Handle, int First);
+
+    private sealed class RootComparer : IEqualityComparer<RootTails>
+    {
+        public bool Equals(RootTails left, RootTails right) => left.Handle.Equals(right.Handle);
+
+        public int GetHashCode(RootTails value) => value.Handle.GetHashCode();
     }
 }

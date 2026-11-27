@@ -1,20 +1,26 @@
 using System.Buffers;
-
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Storage;
 
-// A contiguous byte buffer whose replacement and current arrays overlap until copying finishes.
-// The owner serializes writes and releases its backing only after the last borrower has left.
-internal sealed class BudgetByteWriter(MemoryBudget? budget, int capacity, string owner) : IBufferWriter<byte>, IDisposable
+// A contiguous byte buffer whose array is charged to the budget given: reserved before the array is
+// allocated, the replacement charged beside the old array while the written bytes are copied, and the
+// old one released then; the last array is released by Dispose (docs/design/storage-and-maintenance.md,
+// the memory budget). The owner serializes the writes and disposes it only after the last borrower of
+// its memory has left.
+internal sealed class BudgetByteWriter(MemoryBudget budget, int capacity) : IBufferWriter<byte>, IDisposable
 {
-    public static long OwnerBytes => MemoryBudget.ObjectBytes(3L * IntPtr.Size + sizeof(int));
+    private byte[] _buffer = budget.Allocate<byte>(capacity);
 
-    private byte[] _buffer = budget?.Allocate<byte>(capacity, owner) ?? new byte[capacity];
     private int _written;
 
     public int WrittenCount => _written;
+
+    // The length of the array, which the budget charges.
+    public int Capacity => _buffer.Length;
+
     public ReadOnlyMemory<byte> WrittenMemory => _buffer.AsMemory(0, _written);
+
     public ReadOnlySpan<byte> WrittenSpan => _buffer.AsSpan(0, _written);
 
     public void Advance(int count)
@@ -30,27 +36,13 @@ internal sealed class BudgetByteWriter(MemoryBudget? budget, int capacity, strin
         var needed = checked(_written + Math.Max(sizeHint, 1));
         if (needed > _buffer.Length)
         {
-            var length = BudgetCollections.CapacityFor(_buffer.Length, needed);
-            var grown = budget?.Allocate<byte>(length, owner) ?? new byte[length];
-            var previous = _buffer;
-            WrittenSpan.CopyTo(grown);
-            _buffer = grown;
-            budget?.Release(previous);
+            budget.Grow(ref _buffer, Math.Max(needed, (int)Math.Min(2L * _buffer.Length, Array.MaxLength)));
         }
 
         return _buffer.AsMemory(_written);
     }
 
     public Span<byte> GetSpan(int sizeHint = 0) => GetMemory(sizeHint).Span;
-
-    public ReadOnlyMemory<byte> Take(MemoryLease lease)
-    {
-        lease.TakeArray(_buffer);
-        var written = WrittenMemory;
-        _buffer = [];
-        _written = 0;
-        return written;
-    }
 
     public void ResetWrittenCount() => _written = 0;
 
@@ -59,6 +51,6 @@ internal sealed class BudgetByteWriter(MemoryBudget? budget, int capacity, strin
         var previous = _buffer;
         _buffer = [];
         _written = 0;
-        budget?.Release(previous);
+        budget.Release(previous);
     }
 }

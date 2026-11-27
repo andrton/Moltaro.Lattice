@@ -26,7 +26,7 @@ public sealed class RootSlotBudgetTests
         Assert.Equal(2_147_479_552, pages * RootTable.EntriesPerPage);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task On_a_full_page_an_insert_waits_for_a_deleted_slot_and_then_reuses_its_next_generation()
     {
         var allocator = new CountingNativeAllocator();
@@ -113,7 +113,7 @@ public sealed class RootSlotBudgetTests
         });
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeLimitEnum.Memory)]
     [InlineData(LatticeLimitEnum.RootSlots)]
     public async Task A_resource_refused_forwarded_batch_names_no_member_and_leaves_values_revisions_and_positions_unchanged(LatticeLimitEnum limit)

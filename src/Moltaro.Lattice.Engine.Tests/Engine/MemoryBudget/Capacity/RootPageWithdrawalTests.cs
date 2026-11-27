@@ -64,7 +64,7 @@ public sealed class RootPageWithdrawalTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_capture_in_progress_never_needs_the_exclusively_cancelled_page()
     {
         const long cancelled = RootTable.EntriesPerPage + 1L;

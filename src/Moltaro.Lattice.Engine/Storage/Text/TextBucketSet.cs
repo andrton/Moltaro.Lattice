@@ -1,15 +1,20 @@
 using System.Numerics;
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Text;
 
 // Heads are paged, so a new table is started without allocating its whole
 // capacity. Writes owns both sets and their links, including page removal.
-internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget)
+// The heads of each page are charged to the budget before the page is made
+// and released when it is dropped; a page emptied by a preparation that was
+// refused or cancelled stays, for the next write (docs/design/storage-and-
+// maintenance.md, the memory budget).
+internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget budget)
 {
     private const int PageSize = 64;
     private const ulong Fibonacci = 0x9E3779B97F4A7C15;
-    private readonly TextPages<Page> _pages = TextPages<Page>.Create(budget);
+    private readonly MemoryBudget _budget = budget;
+    private readonly TextPages<Page> _pages = new(budget);
     private int _pageCount;
 
     public int Capacity { get; } = capacity;
@@ -18,130 +23,42 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
 
     private int PageHeads => Math.Min(Capacity, PageSize);
 
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size + 3 * sizeof(int));
-    private long PageBytes => MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)) + MemoryBudget.ArrayBytes<uint>(PageHeads);
-
-    public static TextBucketSet Create(int capacity, uint tag, MemoryBudget? budget)
-    {
-        budget?.Reserve(OwnerBytes);
-        try
-        {
-            var buckets = new TextBucketSet(capacity, tag, budget);
-            budget?.Own(buckets, nameof(TextBucketSet));
-            return buckets;
-        }
-        catch
-        {
-            budget?.Release(OwnerBytes);
-            throw;
-        }
-    }
-
-    public void ReleaseBacking()
-    {
-        System.Diagnostics.Debug.Assert(_pageCount == 0);
-        _pages.ReleaseBacking();
-        budget?.Release(OwnerBytes, this);
-    }
-
-    public void ReleaseAll()
-    {
-        while (_pages.TryNext(0, out var number, out var page))
-        {
-            DropPage(number, page);
-        }
-
-        ReleaseBacking();
-    }
-
-    public void ResetHeads()
-    {
-        for (var next = 0u; _pages.TryNext(next, out var number, out var page); next = number + 1)
-        {
-            Array.Clear(page.Heads);
-            page.Occupied = 0;
-            page.ParkedEntries = 0;
-        }
-    }
-
-    public bool HasRoomFor(uint hash) => _pages.Get((uint)Bucket(hash) >> 6) is not null;
-
-    // Parked heads are stale. Count the entries that could return to each
-    // paid page so a withdrawal can drop any page whose last owner leaves.
-    public void KeepParkedEntry(uint hash) => _pages.Get((uint)Bucket(hash) >> 6)!.ParkedEntries++;
-
-    public void ReleaseParkedEntry(uint hash)
-    {
-        var number = (uint)Bucket(hash) >> 6;
-        var page = _pages.Get(number)!;
-        if (--page.ParkedEntries == 0)
-        {
-            DropPage(number, page);
-        }
-    }
-
-    public long Bytes => OwnerBytes + _pages.Bytes + PageBytes * _pageCount;
+    public long Bytes => 40 + _pages.Bytes + (56L + ((4L * PageHeads + 7) & ~7L)) * _pageCount;
 
     public int Bucket(uint hash) => (int)((hash * Fibonacci) >> (64 - BitOperations.Log2((uint)Capacity)));
 
     public uint Head(int bucket) => _pages.Get((uint)bucket >> 6)?.Heads[bucket & 63] ?? 0;
 
-    public void Reserve(int bucket, Action? beforePageAllocation = null) =>
-        GetOrReservePage(bucket, beforePageAllocation);
+    // Whether the page of the bucket of the hash is there, so that a text of the hash takes no new page.
+    public bool HasRoomFor(uint hash) => _pages.Get((uint)Bucket(hash) >> 6) is not null;
 
-    private Page GetOrReservePage(int bucket, Action? beforePageAllocation)
+    private long PageBytes => MemoryBudget.ArrayBytes<uint>(PageHeads);
+
+    public void Reserve(int bucket, Action? beforePageAllocation = null)
     {
-        var number = (uint)bucket >> 6;
-        if (_pages.Get(number) is { } existing)
+        var page = (uint)bucket >> 6;
+        if (_pages.Get(page) is null)
         {
-            return existing;
-        }
-
-        beforePageAllocation?.Invoke();
-        budget?.Reserve(PageBytes);
-        Page? added = null;
-        try
-        {
-            added = new Page(PageHeads);
-            if (budget is not null)
+            beforePageAllocation?.Invoke();
+            var bytes = PageBytes;
+            _budget.Reserve(bytes);
+            try
             {
-                budget.Own(added, nameof(TextBucketSet));
-                budget.Own(added.Heads, nameof(TextBucketSet));
+                _pages.Set(page, new Page(PageHeads));
+            }
+            catch
+            {
+                _budget.Release(bytes);
+                throw;
             }
 
-            _pages.Set(number, added);
             _pageCount++;
-            return added;
-        }
-        catch
-        {
-            if (budget is not null)
-            {
-                if (added is not null)
-                {
-                    budget.Forget(added.Heads);
-                    budget.Forget(added);
-                }
-
-                budget.Release(PageBytes);
-            }
-
-            throw;
         }
     }
 
-    public void ReserveParkedEntry(uint hash) => GetOrReservePage(Bucket(hash), beforePageAllocation: null).ParkedEntries++;
-
-    public void ReleaseReservation(int bucket)
-    {
-        var number = (uint)bucket >> 6;
-        if (_pages.Get(number) is { Occupied: 0 } page)
-        {
-            DropPage(number, page);
-        }
-    }
-
-    public void SetHead(int bucket, uint head)
+    // A page that loses its last head is dropped, unless the change unwinds a preparation that was
+    // refused or cancelled, whose capacity stays.
+    public void SetHead(int bucket, uint head, bool keepsPage = false)
     {
         var number = (uint)bucket >> 6;
         var page = _pages.Get(number)!;
@@ -157,30 +74,41 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
         }
 
         slot = head;
-        if (page.Occupied == 0)
+        if (page.Occupied == 0 && !keepsPage)
         {
-            DropPage(number, page);
+            _pages.Set(number, null);
+            _pageCount--;
+            _budget.Release(PageBytes);
         }
     }
 
-    private void DropPage(uint number, Page page)
+    // Releases every page and branch, when the set is let go of after a migration.
+    public void ReleaseAll()
     {
-        _pages.Set(number, null);
-        _pageCount--;
-        if (budget is not null)
-        {
-            budget.Forget(page.Heads);
-            budget.Release(PageBytes, page);
-        }
+        _budget.Release(_pageCount * PageBytes);
+        _pageCount = 0;
+        _pages.ReleaseAll();
     }
 
-    // Locates one page, without a scan across absent parts of the table.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        for (var page = 0; page < _pageCount; page++)
+        {
+            held.Add(new HeldArray("TextTable", typeof(uint), PageHeads));
+        }
+
+        _pages.ReportHeld(held);
+    }
+
+    // Locates one page, without a scan across absent parts of the table. A set of fewer than 64 buckets
+    // has one page shorter than 64 heads: a bucket from past its last one is past every page, also when
+    // the page stays empty for the next write.
     public bool TryPage(int from, out int first)
     {
         if (_pages.TryNext((uint)from >> 6, out var page, out _))
         {
             first = Math.Max(from, (int)(page << 6));
-            return true;
+            return first < Capacity;
         }
 
         first = 0;
@@ -189,7 +117,7 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
 
     public void Measure(List<TextAllocationShape> groups)
     {
-        groups.Add(new TextAllocationShape(1, (int)(OwnerBytes - 2 * IntPtr.Size), 0, 0));
+        groups.Add(new TextAllocationShape(1, 24, 0, 0));
         _pages.Measure(groups);
         if (_pageCount != 0)
         {
@@ -202,6 +130,5 @@ internal sealed class TextBucketSet(int capacity, uint tag, MemoryBudget? budget
     {
         public readonly uint[] Heads = new uint[heads];
         public int Occupied;
-        public int ParkedEntries;
     }
 }

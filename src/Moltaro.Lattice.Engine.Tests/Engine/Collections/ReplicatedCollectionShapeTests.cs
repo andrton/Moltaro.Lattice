@@ -82,7 +82,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
             rows.Select(row => row.Item3).Distinct().Order());
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [MemberData(nameof(BudgetCases))]
     public async Task Capacity_and_ownership_reconcile_across_inline_and_external_load_full_sparse_and_delete_effects(
         LatticeFieldTypeEnum keyType, string encoding, string profileName)
@@ -143,7 +143,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         }
     }
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeFieldTypeEnum.Int8, "Utf8", "PackedList", false)]
     [InlineData(LatticeFieldTypeEnum.String, "Utf16", "RecordList", true)]
     [InlineData(LatticeFieldTypeEnum.UInt32, "Utf8", "PackedMap", true)]

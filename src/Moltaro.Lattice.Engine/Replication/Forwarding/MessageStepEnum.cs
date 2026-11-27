@@ -9,10 +9,10 @@ internal enum MessageStepEnum
     // The frame completed the message, whose body is whole.
     Whole = 2,
 
-    // The frame began a message announced above the largest the caller takes: nothing of it is taken,
-    // and its other frames are dropped.
+    // The frame began a message announced above the largest the caller takes, or brought a piece the
+    // budget cannot hold: nothing of the message is kept, and its other frames are dropped.
     Refused = 3,
 
-    // The frame was the last of a message refused at its first frame.
+    // The frame was the last of a message refused at an earlier frame.
     Dropped = 4,
 }

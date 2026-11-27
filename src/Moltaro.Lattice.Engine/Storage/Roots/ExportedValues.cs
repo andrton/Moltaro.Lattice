@@ -1,5 +1,4 @@
 using System.Buffers;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Roots;
@@ -35,23 +34,19 @@ internal sealed class ExportedValues
     // after structure; null for a descriptor that holds none.
     private readonly List<byte[]>?[] _values;
 
-    private ExportedValues(StructureLayout structure, int first, int structures, MemoryLease? lease)
+    private ExportedValues(StructureLayout structure, int first, int structures)
     {
         _structure = structure;
         _first = first;
         _structures = structures;
-        Lease = lease;
-        var length = structures * structure.DescriptorCount;
-        _values = lease?.Allocate<List<byte[]>?>(length, nameof(ExportedValues)) ?? new List<byte[]>?[length];
+        _values = new List<byte[]>?[structures * structure.DescriptorCount];
     }
 
-    public MemoryLease? Lease { get; }
-
     // The store of a root of the layout.
-    public static ExportedValues OfRoot(RootLayout layout, MemoryLease? lease = null) => new(layout.Structure, 0, 1, lease);
+    public static ExportedValues OfRoot(RootLayout layout) => new(layout.Structure, 0, 1);
 
     // The store of a block of count records of the element.
-    public static ExportedValues OfRecords(StructureLayout element, int count, MemoryLease? lease) => new(element, BlockHeader.Size, count, lease);
+    public static ExportedValues OfRecords(StructureLayout element, int count) => new(element, BlockHeader.Size, count);
 
     // The bytes of every value kept, the blocks of records and their values included.
     public long Length { get; private set; }
@@ -60,11 +55,11 @@ internal sealed class ExportedValues
     public void Store<TSource>(int offset, int length, ref TSource source)
         where TSource : IValueSource, allows ref struct
     {
-        var pieces = NewPieces((length + ValueBlocks.ChunkPayload - 1) / ValueBlocks.ChunkPayload);
+        var pieces = new List<byte[]>((length + ValueBlocks.ChunkPayload - 1) / ValueBlocks.ChunkPayload);
 
         for (var left = length; left > 0; left -= ValueBlocks.ChunkPayload)
         {
-            var piece = NewBlock(Math.Min(left, ValueBlocks.ChunkPayload));
+            var piece = new byte[Math.Min(left, ValueBlocks.ChunkPayload)];
 
             source.Fill(piece);
             pieces.Add(piece);
@@ -79,8 +74,7 @@ internal sealed class ExportedValues
     // order.
     public void StoreRecords(int offset, byte[] block, ExportedValues records)
     {
-        var pieces = _values[IndexOf(offset)] ??= NewPieces(0);
-        pieces.EnsureCapacity(pieces.Count + 1, Lease?.Budget, nameof(ExportedValues));
+        var pieces = _values[IndexOf(offset)] ??= [];
 
         pieces.Add(block);
 
@@ -88,33 +82,11 @@ internal sealed class ExportedValues
         {
             if (values is not null)
             {
-                pieces.EnsureCapacity(pieces.Count + values.Count, Lease?.Budget, nameof(ExportedValues));
                 pieces.AddRange(values);
             }
         }
 
         Length += block.Length + records.Length;
-    }
-
-    public byte[] NewBlock(int length) =>
-        Lease?.Allocate<byte>(length, nameof(ExportedValues)) ?? new byte[length];
-
-    private List<byte[]> NewPieces(int count)
-    {
-        if (Lease is not { } lease)
-        {
-            return new List<byte[]>(count);
-        }
-
-        var pieces = lease.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(ExportedValues),
-            static () => new List<byte[]>(), static (budget, values) =>
-            {
-                budget.Release(BudgetCollections.Items(values));
-                values.Clear();
-                values.Capacity = 0;
-            });
-        pieces.EnsureCapacity(count, lease.Budget, nameof(ExportedValues));
-        return pieces;
     }
 
     // Writes every value kept into the output, in the order of the descriptors.

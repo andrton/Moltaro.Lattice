@@ -21,7 +21,7 @@ public sealed class RefusedGrowthTests
     private const long Limit = 64L * Segment;
     private const int Texts = 128;
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_write_needing_the_growth_a_refused_write_made_takes_no_new_charge_and_the_refused_data_stays_invisible()
     {
         var allocator = new CountingNativeAllocator();

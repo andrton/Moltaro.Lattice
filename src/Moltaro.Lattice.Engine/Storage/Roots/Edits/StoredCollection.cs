@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access.Values;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -38,10 +37,10 @@ internal readonly struct StoredCollection
     public int Find(object? key) =>
         CollectionLookup.Find(_arena, _element, _collection, _arena.Payload(_holder), _encoding, IndexValue.Of(key));
 
-    public string Spelling(int ordinal, MemoryLease? lease)
+    public string Spelling(int ordinal)
     {
         var keys = new CollectionKeys(_arena, _element, _collection, _arena.Payload(_holder), _encoding);
-        return keys.Spelling(ordinal, lease);
+        return keys.Spelling(ordinal);
     }
 
     public (ArenaAddress Address, int Offset) Record(int ordinal)

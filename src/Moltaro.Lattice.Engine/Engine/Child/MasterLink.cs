@@ -2,13 +2,12 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Child;
 
@@ -160,7 +159,7 @@ internal sealed class MasterLink : IDisposable
 
             if (frame.EndsABody)
             {
-                return SchemaTransfer.Read(bytes.Sequence, _budget);
+                return SchemaTransfer.Read(bytes.Sequence);
             }
         }
     }
@@ -206,10 +205,7 @@ internal sealed class MasterLink : IDisposable
         }
         finally
         {
-            var backing = BudgetCollections.Items(completed);
             completed.Clear();
-            completed.Capacity = 0;
-            _budget.Release(backing);
         }
     }
 
@@ -244,7 +240,11 @@ internal sealed class MasterLink : IDisposable
     // Ends the connection in order. The master sees the child go, and holds nothing for it afterwards.
     public void Dispose() => _connection.Dispose();
 
+    // Releases the buffers of the connection, once the loops that use them have ended.
     public void ReleaseBacking() => _connection.ReleaseBacking();
+
+    // Adds the buffers of the connection, for the inspection of the tests (EngineDatabase.InspectHeld).
+    public void ReportHeld(List<HeldArray> held) => _connection.ReportHeld(held);
 
     // The address of the master: an IP address, or a name that the system resolves when it connects.
     private static EndPoint EndPointOf(Uri masterUri) =>

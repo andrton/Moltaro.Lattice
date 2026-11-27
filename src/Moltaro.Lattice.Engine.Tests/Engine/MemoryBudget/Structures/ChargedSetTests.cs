@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Structures;
 // probe while the others stay, and a cleared set keeps its array.
 public sealed class ChargedSetTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public void A_growth_is_admitted_exactly_when_both_arrays_fit_and_a_refused_one_keeps_the_set()
     {
         var control = new InstanceMemoryBudget();
@@ -45,7 +45,7 @@ public sealed class ChargedSetTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void A_removed_element_is_gone_to_a_probe_and_a_cleared_set_keeps_its_array()
     {
         var budget = new InstanceMemoryBudget();
@@ -68,7 +68,7 @@ public sealed class ChargedSetTests
 
     // Every element has one hash, so they share one chain of probes: removing its first keeps the
     // later ones reachable.
-    [Fact(Skip = Pending)]
+    [Fact]
     public void Removing_the_first_element_of_a_chain_keeps_the_later_ones_found()
     {
         var budget = new InstanceMemoryBudget();

@@ -30,7 +30,7 @@ public sealed class OwnershipAfterChurnTests
 
     private const int Keys = 8;
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Ownership_audit_after_churn_with_refusals_and_withdrawals_finds_every_block_owned_by_exactly_one_live_entity()
     {
         var storage = new HeldPersistence(holding: false);

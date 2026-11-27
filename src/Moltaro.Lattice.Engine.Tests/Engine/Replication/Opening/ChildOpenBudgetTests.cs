@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
 public sealed class ChildOpenBudgetTests
 {
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(4_096, true)]
     [InlineData(4_097, false)]
     public async Task The_initial_capture_must_fit_the_childs_addressable_root_slots(int count, bool fits)

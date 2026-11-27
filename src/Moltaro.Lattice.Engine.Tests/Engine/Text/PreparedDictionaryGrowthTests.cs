@@ -22,7 +22,7 @@ public sealed class PreparedDictionaryGrowthTests
 {
     private const ulong Seed = 6035;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task An_atomic_batch_distributes_new_dictionary_text_before_publication_and_cancellation_preserves_prior_owners(bool existing)
@@ -138,7 +138,7 @@ public sealed class PreparedDictionaryGrowthTests
     // rows, where the test holds all of the memory but a few bytes, and the room of the full table of
     // Place, which its last member needs, is refused. The texts the batch added are given back; the
     // buckets they grew stay.
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Refused_dictionary_bucket_growth_keeps_installed_mappings_and_the_same_data_can_be_retried()
     {
         const long limit = 8L * Segment;

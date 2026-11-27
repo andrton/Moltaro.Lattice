@@ -780,16 +780,34 @@ One root and one transaction may
 be larger than any bounded buffer of this table — an internal
 group, the pending replication, a batch of base application: each of them bounds what
 accumulates and takes a transaction that exceeds it alone, and none refuses a transaction
-for its own size. The MemoryOnly engine reserves the required capacity before acquisition
-and before a transaction can publish. Full native segment grants include the empty
-reserve, unused slots and alignment tails. Native slots within a charged segment add no
-second charge. Managed owner capacity includes root pages, primary and secondary index
-backing, text metadata, prepared and queued input, publication scratch and connection
-buffers. A replacement is charged while its predecessor is still held, including old
-index generations held by readers. The budget includes native read scratch when the
-engine owns it. Managed enumeration workspace uses the separate read budget. Application
-memory and garbage awaiting collection are outside instance admission. The retained
-delivery tail is accounted for separately until its own retention policy is implemented.
+for its own size. The MemoryOnly engine charges memory by structure, and reserves before
+it acquires and before a transaction can publish. A native segment is charged at its
+grant with its managed metadata, the empty reserve, unused slots and alignment tails
+included, and released when it is returned; native slots within a charged segment add no
+second charge; the nodes of the secondary indexes are native blocks. A managed structure
+that grows with the data — root pages, the tables and overflow buckets of the primary
+indexes, the arrays of the text table, collection tails, the retirement queue,
+publication scratch, the buffers of connections and of a load in transfer, a child's key
+set — is charged by the bytes of its backing array when it grows: the new array is reserved before it is allocated, and the old one is released
+when it is dropped or, for a generation a reader may still hold, when its retirement is
+freed, so a replacement is charged while its predecessor is held. Small fixed bookkeeping
+— the owner objects of the structures, weak references, fixed directories, the headers of
+each entity type and each index — is not charged object by object: a headroom computed
+from the schema and the options when the instance opens covers it and is reported as its
+own figure. The input of a batch is charged by an estimate when it is added: its encoded
+length, a constant for each member and, with the first member, a constant for the
+builder; the reservation comes after every check of the addition and after the snapshot
+it builds. An ordinary write, a child transaction and a forwarded request reserve one
+estimate when they start — the member constant for each member and the encoded commands
+of a partial update — and release it when they end; their values are charged where they
+land, in the root image of the arena, which is one workspace charged at its size, in the
+native blocks and in the connection buffers. Reservation and release are one atomic
+counter. The budget includes native read scratch when the engine owns it. Managed
+enumeration workspace uses the separate read budget. Application memory and garbage
+awaiting collection are outside instance admission, and the budget is not an exact cap
+of the memory of the process. The retained delivery tail is accounted for separately until
+its own retention policy is implemented. [Storage and maintenance](storage-and-maintenance.md#the-memory-budget)
+describes the budget with its constants and the wait of a child.
 
 A transaction that exhausts the byte budget is refused with `WriteRejected` and `Memory`.
 When all addressable root slots are in use or permanently exhausted, a request for a
@@ -799,10 +817,12 @@ a new page. If a root slot can be addressed and its new backing cannot fit, the 
 addition can report `Memory` synchronously before queueing or transmission. It keeps the
 previous members and leaves the failed addition available to retry.
 
-A refusal leaves installed data, revisions and position unchanged. It releases unused
-reservations and backing owned exclusively by that attempt. Earlier paid-for reusable
-capacity and storage still protected by another owner remain charged. A dropped managed
-reference ends its ownership charge; collection happens on the runtime's schedule.
+A refusal leaves installed data, revisions and position unchanged. It returns the
+reservations it did not use and every slot, handle and block it prepared. Capacity that a
+structure grew during the attempt stays with the structure, charged and reusable by the
+next write; a native segment the unwind leaves empty goes to the reserve or is returned,
+as any empty segment. Storage still protected by another owner remains charged. A dropped
+managed reference ends its ownership charge; collection happens on the runtime's schedule.
 Report both effects separately in peak evidence. The 1.5x peak target uses the steady
 reference baseline before growth.
 

@@ -20,7 +20,7 @@ public sealed class BatchAdditionBoundaryTests
 {
     private const long Limit = 16L * Segment;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]

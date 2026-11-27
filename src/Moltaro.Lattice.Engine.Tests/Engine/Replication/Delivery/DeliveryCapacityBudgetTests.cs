@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 
 public sealed class DeliveryCapacityBudgetTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_tail_reports_new_physical_blocks_before_commit_and_keeps_only_the_surviving_cursors_history()
     {
         const int blockCapacity = 1024 * 1024;

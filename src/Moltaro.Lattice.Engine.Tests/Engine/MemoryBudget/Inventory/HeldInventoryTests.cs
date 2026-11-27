@@ -39,7 +39,7 @@ public sealed class HeldInventoryTests
         "BlockImport",
     ];
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task After_a_load_the_charge_is_exactly_what_the_master_and_its_child_hold_and_their_headroom()
     {
         var masterAllocator = new CountingNativeAllocator();
@@ -79,7 +79,7 @@ public sealed class HeldInventoryTests
         Assert.Equal("a new region", child.Set<IndexSchema.Ranked>().Get(7L)?.Region);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_batch_through_a_unique_index_is_charged_its_publication_scratch_on_the_master_and_its_child()
     {
         var masterAllocator = new CountingNativeAllocator();
@@ -110,7 +110,7 @@ public sealed class HeldInventoryTests
         Assert.Equal([64L], UniqueSchema.OwnersOf(child.Set<UniqueSchema.Account>(), "renamed 64"));
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_connected_peer_is_charged_its_frame_buffers_before_it_sends_hello_until_its_connection_ends()
     {
         var allocator = new CountingNativeAllocator();
@@ -132,7 +132,7 @@ public sealed class HeldInventoryTests
         static int Buffers(HeldMemory held) => held.Arrays.Count(array => array.ElementType == typeof(byte) && array.Length >= 64 * 1024);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task While_a_reader_holds_the_old_primary_table_both_generations_are_charged_until_it_leaves()
     {
         var allocator = new CountingNativeAllocator();
@@ -164,7 +164,7 @@ public sealed class HeldInventoryTests
         Assert.Equal(keys.Order(), set.Enumerate().Select(piece => piece.Id).Order());
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task After_refusals_and_cancellations_the_charge_is_exactly_what_remains_held()
     {
         var allocator = new CountingNativeAllocator();
@@ -217,7 +217,7 @@ public sealed class HeldInventoryTests
         Assert.Equal(new[] { 1L }, pieces.Enumerate().Select(piece => piece.Id));
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task After_the_churn_trace_the_charge_is_exactly_what_the_master_holds()
     {
         var schema = LatticeSchema.Compile(ReferenceFixture.SchemaJson);
@@ -271,7 +271,7 @@ public sealed class HeldInventoryTests
         ExpectAtRest(node, allocator);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Before_close_the_charge_is_exactly_what_is_held_and_after_close_every_native_grant_is_returned()
     {
         var allocator = new CountingNativeAllocator();

@@ -34,7 +34,7 @@ public sealed class BatchAdditionOrderTests
         }
         """);
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Under_memory_pressure_every_check_of_the_snapshot_comes_before_the_refusal_by_memory(bool onChild)
@@ -118,7 +118,7 @@ public sealed class BatchAdditionOrderTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Under_memory_pressure_the_duplicate_and_submitted_checks_come_before_the_refusal_by_memory()
     {
         var allocator = new CountingNativeAllocator();

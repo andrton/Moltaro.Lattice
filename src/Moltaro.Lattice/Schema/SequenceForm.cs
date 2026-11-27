@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Budgeting;
-
 namespace Moltaro.Lattice.Schema;
 
 // The .NET collection that a record holds at a List or a Set position: List<T> or
@@ -25,14 +23,14 @@ internal abstract class SequenceForm
     public abstract IEnumerable<object?> Elements(object input);
 
     // A new, empty collection of the record.
-    public abstract object Create(int capacity = 0, MemoryLease? lease = null);
+    public abstract object Create(int capacity = 0);
 
     // The count in a collection this form created.
     public abstract int Count(object collection);
 
     // Adds an element of type T. A HashSet keeps the member it has when an equal one is
     // added, so of equal members the first is kept.
-    public abstract void Add(object collection, object? element, MemoryLease? lease = null);
+    public abstract void Add(object collection, object? element);
 
     public static SequenceForm For(bool isSet, LatticeValueDeclaration element) =>
         For(isSet, element.PositionType, element.TextComparison);

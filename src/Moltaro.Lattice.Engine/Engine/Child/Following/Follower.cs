@@ -1,13 +1,12 @@
 using System.Buffers;
 using System.Diagnostics;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child.Forwarding;
 using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Child.Following;
 
@@ -45,9 +44,13 @@ namespace Moltaro.Lattice.Engine.Child.Following;
 //
 // Capacity. Before Ready, a controlled refusal to hold a frame or apply a transaction fails the open
 // with Unavailable. Once Ready, the follower keeps the refused frame or complete transaction on the
-// live connection and retries it after a budget change or a paced wait. It holds no writes lock while
-// it waits. Reads continue at the applied position and no later frame or acknowledgement passes the
-// blocked work. Closing or an observed connection end releases the backing.
+// live connection and pauses at it: it marks itself as the waiter of the budget and tries once more,
+// and refused again it waits until memory is freed after that mark, or at most the retry pause, and
+// tries again (MemoryBudget.BeginRetry, WhenFreedAfter). Memory freed before the mark is seen by the
+// attempt that follows it; memory freed after it wakes the wait. The attempt's own rollback does not.
+// It holds no writes lock while it waits. Reads continue at the applied position and no later frame or
+// acknowledgement passes the blocked work. Closing ends the wait, and closing or an observed connection
+// end releases the backing.
 //
 // Stopping. A child that stops following — a frame that is not valid, a connection that ended,
 // the end of the master's stream, the frame Closed, a send of the sender that
@@ -99,9 +102,12 @@ internal sealed class Follower
     private readonly TransactionAssembler _assembler;
 
     private readonly TimeSpan _openTimeout;
+
     private readonly MemoryBudget _budget;
+
+    // The test inputs of the instance: the pause between two attempts at memory, the observation of a
+    // pause and of each attempt at a frame; null for every other instance.
     private readonly EngineTestInputs? _testInputs;
-    private ChildPressureSample? _pressure;
 
     // Guards the count of the suspensions and the task their end completes.
     private readonly Lock _suspensions = new();
@@ -130,6 +136,15 @@ internal sealed class Follower
         _openTimeout = openTimeout;
         _budget = budget;
         _testInputs = testInputs;
+    }
+
+    // For the inspection of the tests (EngineDatabase.InspectHeld), between two applications: what the
+    // changes hold, the pieces of a transaction of several frames and those of a reply.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        _changes.ReportHeld(held);
+        _assembler.ReportHeld(held);
+        _pending.ReportHeld(held);
     }
 
     // Applies the transactions after S up to R, which LoadEnd announced (see the class), and reports what
@@ -204,7 +219,6 @@ internal sealed class Follower
         {
             _assembler.Dispose();
             _changes.ReleaseTransferBacking();
-            _pressure = null;
 
             // For every end; after the frame Closed it changes nothing more. The child is marked before it
             // ends its side of the connection, so that a master, whose close waits for that end, finds it
@@ -305,22 +319,57 @@ internal sealed class Follower
                 throw Protocol.Invalid($"The master sent a {frame.Kind} frame where the stream of its transactions comes.");
             }
 
-            var framePause = default(RetryPause);
-            bool complete;
-            while (true)
+            var complete = false;
+            LatticeLimitEnum? refused;
+            try
             {
+                complete = _assembler.Accept(frame, out sequence, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
+                refused = null;
+            }
+            catch (BudgetRefusedException exception) when (acknowledges)
+            {
+                refused = exception.Limit;
+            }
+
+            // Once Ready, a frame the child cannot hold waits for memory (see the class).
+            var framePause = default(RetryPause);
+            while (refused is { } limit)
+            {
+                _testInputs?.ObserveChildPressure?.Invoke(new ChildPressureSample(sequence, limit, true, received));
+                var ticket = _budget.BeginRetry();
                 try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    complete = _assembler.Accept(frame, out sequence, out effects,
-                        _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
-                    _pressure = null;
-                    break;
+                    try
+                    {
+                        complete = _assembler.Accept(frame, out sequence, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
+                        refused = null;
+                    }
+                    catch (BudgetRefusedException exception)
+                    {
+                        refused = exception.Limit;
+                    }
+                    finally
+                    {
+                        _budget.EndRetry();
+                    }
+
+                    if (refused is not null)
+                    {
+                        await WaitForFreeAsync(ticket, ref framePause, cancellationToken).ConfigureAwait(false);
+                        try
+                        {
+                            complete = _assembler.Accept(frame, out sequence, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
+                            refused = null;
+                        }
+                        catch (BudgetRefusedException exception)
+                        {
+                            refused = exception.Limit;
+                        }
+                    }
                 }
-                catch (BudgetRefusedException exception) when (acknowledges)
+                finally
                 {
-                    await WaitForCapacityAsync(new ChildPressureSample(sequence, exception.Limit, true, received),
-                        framePause.Next(), cancellationToken).ConfigureAwait(false);
+                    _budget.EndWait();
                 }
             }
 
@@ -338,17 +387,38 @@ internal sealed class Follower
 
         // The effects stay where they were received: no frame is received while the suspension lasts.
         await WhileSuspendedAsync(cancellationToken).ConfigureAwait(false);
-        var applyPause = default(RetryPause);
-        var retry = false;
-        while (_changes.Apply(sequence, effects, ready: acknowledges, retry, cancellationToken) is { } limit)
+        var pressure = _changes.Apply(sequence, effects, ready: acknowledges, retry: false, cancellationToken);
+
+        // Once Ready, a transaction the child cannot hold waits for memory (see the class). The pressure is
+        // observed after the refused attempt gave back what it prepared, before the follower marks itself.
+        var pause = default(RetryPause);
+        while (pressure is { } limit)
         {
-            await WaitForCapacityAsync(new ChildPressureSample(sequence, limit, false, received),
-                applyPause.Next(), cancellationToken).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            retry = true;
+            _testInputs?.ObserveChildPressure?.Invoke(new ChildPressureSample(sequence, limit, false, received));
+            var ticket = _budget.BeginRetry();
+            try
+            {
+                try
+                {
+                    pressure = _changes.Apply(sequence, effects, ready: true, retry: true, cancellationToken);
+                }
+                finally
+                {
+                    _budget.EndRetry();
+                }
+
+                if (pressure is not null)
+                {
+                    await WaitForFreeAsync(ticket, ref pause, cancellationToken).ConfigureAwait(false);
+                    pressure = _changes.Apply(sequence, effects, ready: true, retry: true, cancellationToken);
+                }
+            }
+            finally
+            {
+                _budget.EndWait();
+            }
         }
 
-        _pressure = null;
         _assembler.Reset();
         _applied = sequence;
         _clock.Wake();
@@ -356,25 +426,26 @@ internal sealed class Follower
         return true;
     }
 
-    private async ValueTask WaitForCapacityAsync(ChildPressureSample pressure, TimeSpan pace, CancellationToken cancellationToken)
+    // Waits until memory is freed after the ticket, or the close, or at most the retry pause: the test
+    // input when it is given, otherwise the paced pause of the transport (Replication.RetryPause).
+    private Task WaitForFreeAsync(long ticket, ref RetryPause pause, CancellationToken cancellationToken)
     {
-        // Register after rollback so returning this attempt's own backing does not
-        // cause an immediate retry. A paced attempt also lets the writer drain newly eligible
-        // read epochs whose capacity has not been returned yet.
-        var changed = _budget.WhenChanged();
-        if (_pressure != pressure)
-        {
-            _pressure = pressure;
-            _testInputs?.ObserveChildPressure?.Invoke(pressure);
-        }
+        var pace = _testInputs?.ChildRetryPause ?? pause.Next();
+        return WaitForFreeAsync(_budget.WhenFreedAfter(ticket), pace, cancellationToken);
+    }
 
+    private static async Task WaitForFreeAsync(Task freed, TimeSpan pace, CancellationToken cancellationToken)
+    {
         try
         {
-            await changed.WaitAsync(pace, cancellationToken).ConfigureAwait(false);
+            await freed.WaitAsync(pace, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
+            // The pause passed: the next attempt is due.
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     // Completes at once when no suspension is held, otherwise when the last one ends.

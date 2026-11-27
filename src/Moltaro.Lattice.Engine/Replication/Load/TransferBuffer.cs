@@ -1,43 +1,41 @@
 using System.Buffers;
-using Moltaro.Lattice.Budgeting;
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Replication.Load;
 
 // The bytes of one root outside the arena, on either side of a load (the planner's block of 15 November
 // 2026, "A root larger than a frame"; block of 17 November, point 9): on the master the copy of a root
 // that the capture takes under the protection of reads and sends after it has left it; on a child the
-// bytes of a root whose frames are still arriving. The connection or batch owns the backing and
-// its charge until the buffer is disposed or ownership is transferred.
+// bytes of a root or of a transaction whose frames are still arriving.
 //
 // It is made of pieces of PieceSize bytes, taken as the bytes grow and kept when the buffer is cleared,
 // so that one buffer serves every root of a connection: it grows to the largest root once, copies
 // nothing when it grows, takes nothing from the heap for large objects, and holds a root of any size,
 // beyond what one array can. Its bytes are read as a sequence of the pieces (Sequence).
 //
+// The bytes of each piece and the list of the pieces are charged to the budget given before they are
+// allocated, and released when the buffer is disposed (docs/design/storage-and-maintenance.md, the memory
+// budget); the piece objects are bookkeeping of the headroom. A buffer made without a budget, for the
+// export of one root of a batch, is the caller's input and charges an unlimited budget of its own.
+//
 // One thread at a time uses a buffer: the task of the connection that owns it.
-internal sealed class TransferBuffer(MemoryBudget? budget = null, List<TransferPiece>? suppliedPieces = null) : IBufferWriter<byte>, IDisposable
+internal sealed class TransferBuffer(MemoryBudget budget) : IBufferWriter<byte>, IDisposable
 {
     // The bytes of one piece: as much as GetSpan hands out at once, and more than the largest payload of
     // a block, so that a root payload is written in one piece.
     public const int PieceSize = 64 * 1024;
 
-    private static long PieceBytes =>
-        MemoryBudget.ArrayBytes<byte>(PieceSize) +
-        MemoryBudget.ObjectBytes(3L * IntPtr.Size + sizeof(long) + 3 * sizeof(int));
+    private static readonly long PieceBytes = MemoryBudget.ArrayBytes<byte>(PieceSize);
 
-    private readonly List<TransferPiece> _pieces = suppliedPieces ?? [];
-
-    public static TransferBuffer ForSnapshot(MemoryLease snapshot)
-    {
-        var pieces = snapshot.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(TransferBuffer),
-            static () => new List<TransferPiece>());
-        return snapshot.Allocate(MemoryBudget.ObjectBytes(2L * IntPtr.Size + sizeof(long) + sizeof(int)), nameof(TransferBuffer),
-            () => new TransferBuffer(snapshot.Budget, pieces), static (_, buffer) => buffer.Dispose());
-    }
+    private readonly List<TransferPiece> _pieces = [];
 
     // The piece being written; its index in _pieces. -1 while the buffer is empty.
     private int _current = -1;
+
+    public TransferBuffer()
+        : this(new MemoryBudget())
+    {
+    }
 
     // The bytes written since the last Clear.
     public long Length { get; private set; }
@@ -99,18 +97,15 @@ internal sealed class TransferBuffer(MemoryBudget? budget = null, List<TransferP
         }
     }
 
-    // Reserve an entire incoming frame before changing what was accepted. Clear resets the write
-    // position but retains the previously owned pieces for the next body.
+    // Takes the pieces that the bytes given need beyond those written, before anything of them is
+    // written, so that a refusal by the budget changes nothing that was accepted. From the start, the
+    // bytes are counted from an empty buffer. The pieces taken stay for the next body.
     public void PrepareAppend(int bytes, bool fromStart = false)
     {
         var current = fromStart ? -1 : _current;
         var remaining = current < 0 ? 0 : PieceSize - _pieces[current].Used;
         var more = (int)((Math.Max(0L, (long)bytes - remaining) + PieceSize - 1) / PieceSize);
-        var needed = current + 1 + more;
-        if (needed > _pieces.Count)
-        {
-            Grow(needed);
-        }
+        Grow(current + 1 + more);
     }
 
     // Room for at least sizeHint bytes, and at least one, in one piece: the rest of the piece being
@@ -143,93 +138,65 @@ internal sealed class TransferBuffer(MemoryBudget? budget = null, List<TransferP
         Length += count;
     }
 
-    private void TakeNextPiece()
+    // Adds the list of the pieces and the bytes of each piece.
+    public void ReportHeld(List<HeldArray> held)
     {
-        if (_current + 1 == _pieces.Count)
+        if (_pieces.Capacity != 0)
         {
-            Grow(_pieces.Count + 1);
+            held.Add(new HeldArray(nameof(TransferBuffer), typeof(TransferPiece), _pieces.Capacity));
         }
 
-        _current++;
-    }
-
-    private void Grow(int needed)
-    {
-        var existing = _pieces.Count;
-        if (budget is null)
+        for (var index = 0; index < _pieces.Count; index++)
         {
-            while (_pieces.Count < needed)
-            {
-                _pieces.Add(new TransferPiece());
-            }
-
-            return;
-        }
-
-        var previous = BudgetCollections.Items(_pieces);
-        var grows = needed > previous.Length;
-        var length = grows ? BudgetCollections.CapacityFor(previous.Length, needed) : previous.Length;
-        var capacity = (needed - existing) * PieceBytes +
-            (grows ? MemoryBudget.ArrayBytes<TransferPiece>(length) : 0);
-        budget.Reserve(capacity);
-
-        try
-        {
-            if (grows)
-            {
-                _pieces.Capacity = length;
-                budget.Own(BudgetCollections.Items(_pieces), nameof(TransferBuffer));
-            }
-
-            while (_pieces.Count < needed)
-            {
-                var piece = new TransferPiece();
-                _pieces.Add(piece);
-                budget.Own(piece, nameof(TransferBuffer));
-                budget.Own(piece.Bytes, nameof(TransferBuffer));
-            }
-        }
-        catch
-        {
-            for (var index = existing; index < _pieces.Count; index++)
-            {
-                budget.Forget(_pieces[index]);
-                budget.Forget(_pieces[index].Bytes);
-            }
-
-            _pieces.RemoveRange(existing, _pieces.Count - existing);
-            if (!ReferenceEquals(BudgetCollections.Items(_pieces), previous))
-            {
-                budget.Forget(BudgetCollections.Items(_pieces));
-                BudgetCollections.Items(_pieces) = previous;
-            }
-
-            budget.Release(capacity);
-            throw;
-        }
-
-        if (grows)
-        {
-            budget.Release(previous);
+            held.Add(new HeldArray(nameof(TransferBuffer), typeof(byte), PieceSize));
         }
     }
 
+    // Releases every piece and the list, once the owner is done with the bytes.
     public void Dispose()
     {
-        if (budget is not null)
+        budget.Release(_pieces.Count * PieceBytes);
+        if (_pieces.Capacity != 0)
         {
-            foreach (var piece in _pieces)
-            {
-                budget.Forget(piece.Bytes);
-                budget.Release(PieceBytes, piece);
-            }
-
-            budget.Release(BudgetCollections.Items(_pieces));
+            budget.Release(MemoryBudget.ArrayBytes<TransferPiece>(_pieces.Capacity));
         }
 
         _pieces.Clear();
         _pieces.Capacity = 0;
         _current = -1;
         Length = 0;
+    }
+
+    private void TakeNextPiece()
+    {
+        Grow(_current + 2);
+        _current++;
+    }
+
+    // Charges and takes pieces until the buffer holds that many.
+    private void Grow(int needed)
+    {
+        if (needed <= _pieces.Count)
+        {
+            return;
+        }
+
+        budget.EnsureCapacity(_pieces, needed);
+        while (_pieces.Count < needed)
+        {
+            budget.Reserve(PieceBytes);
+            TransferPiece piece;
+            try
+            {
+                piece = new TransferPiece();
+            }
+            catch
+            {
+                budget.Release(PieceBytes);
+                throw;
+            }
+
+            _pieces.Add(piece);
+        }
     }
 }

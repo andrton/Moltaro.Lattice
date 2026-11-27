@@ -15,9 +15,10 @@ master-coordinated writes and local read replicas, with PostgreSQL durability.
 
 One instance owns one database: schema, data, indexes, strings and memory budget.
 The same engine runs embedded in an application or in a dedicated service. The budget
-covers complete native segment grants, their empty reserve, engine-owned managed
-backing and the capacity needed for preparation and active connections. Reader-held
-backing remains charged until it can be released. The master accounts for its retained
+charges complete native segment grants with their empty reserve and the backing arrays
+of the engine's managed structures as they grow, covers small fixed bookkeeping by a
+headroom computed at open, and charges batch input and writes in progress by fixed
+estimates. Reader-held backing remains charged until it can be released. The master accounts for its retained
 delivery blocks separately. See [capacity and ownership](milestone-1-engine-contract.md#initial-bounded-settings).
 
 <!-- DIAGRAM:architecture -->

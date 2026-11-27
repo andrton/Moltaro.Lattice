@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
-
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Hashing;
 
@@ -60,6 +59,12 @@ namespace Moltaro.Lattice.Storage.Hashing;
 // the buckets with an overflow, and an index takes 17 to 34 bytes an entry whatever its key type,
 // against 28 to 56 for an Int64 key and 36 to 72 for a Guid or String key in the map of
 // Arc.Collections that the primary index used before this table.
+//
+// Memory. The main array and the arrays of the overflow are charged to the budget the table is made
+// with before they are allocated, and released when the table is let go of (ReleaseBacking): by its
+// index at once when no reader can hold it, otherwise when its retirement is freed
+// (docs/design/storage-and-maintenance.md, the memory budget). A table made without one, in a test,
+// has an unlimited budget of its own.
 //
 // The largest main table has 2^27 buckets (MostBucketBits): its 2^30 words are the largest array of
 // longs below Array.MaxLength, and 4 entries a bucket make 2^29 entries. Beyond, the main table no
@@ -122,15 +127,24 @@ internal sealed class IndexTable
     private readonly int _mainBuckets;
 
     private readonly OverflowBuckets _overflow;
-    private readonly MemoryBudget? _budget;
+
+    private readonly MemoryBudget _budget;
 
     // The entries the table holds, on lines of their own (IndexTableCounts).
     private IndexTableCounts _counts;
 
+    // A table made alone, by a test, with an unlimited budget.
+    public IndexTable(int bucketBits, int version)
+        : this(bucketBits, version, new MemoryBudget())
+    {
+    }
+
     // A table of 2^bucketBits main buckets, empty, with overflow pages of a sixteenth of them, at
-    // least one bucket, of the version given. bucketBits is 1 to MostBucketBits. The arrays are
-    // allocated before anything else, so an OutOfMemoryException leaves nothing behind.
-    public IndexTable(int bucketBits, int version, MemoryBudget? budget = null)
+    // least one bucket, of the version given. bucketBits is 1 to MostBucketBits. Its arrays are
+    // charged to the budget before they are allocated, and the arrays are allocated before anything
+    // else, so a refusal or an OutOfMemoryException leaves nothing behind. The table keeps its
+    // charge until ReleaseBacking, when it is dropped or its retirement is freed.
+    public IndexTable(int bucketBits, int version, MemoryBudget budget)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(bucketBits, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(bucketBits, MostBucketBits);
@@ -138,22 +152,17 @@ internal sealed class IndexTable
         Version = version;
         _mainBuckets = 1 << bucketBits;
         _budget = budget;
-        var capacity = LeastCapacity(bucketBits);
-        budget?.Reserve(capacity);
+        var length = (_mainBuckets * WordsPerBucket) + (LineBytes / sizeof(long)) - 1;
+        var bytes = MemoryBudget.ArrayBytes<long>(length);
+        budget.Reserve(bytes);
         try
         {
-            _words = GC.AllocateArray<long>(MainWords(bucketBits), pinned: true);
+            _words = GC.AllocateArray<long>(length, pinned: true);
             _overflow = new OverflowBuckets(Math.Max(0, bucketBits - 4), budget);
-            if (budget is not null)
-            {
-                budget.Own(this, nameof(IndexTable));
-                budget.Own(_words, nameof(IndexTable));
-                _overflow.OwnFirst();
-            }
         }
         catch
         {
-            budget?.Release(capacity);
+            budget.Release(bytes);
             throw;
         }
 
@@ -161,24 +170,26 @@ internal sealed class IndexTable
         _shift = 64 - bucketBits;
     }
 
-    private static int MainWords(int bucketBits) => ((1 << bucketBits) * WordsPerBucket) + LineBytes / sizeof(long) - 1;
-
-    private static long OwnerBytes =>
-        MemoryBudget.ObjectBytes(3L * IntPtr.Size + 4 * sizeof(int) + Unsafe.SizeOf<IndexTableCounts>());
-
-    public static long LeastCapacity(int bucketBits) => OwnerBytes + MemoryBudget.ArrayBytes<long>(MainWords(bucketBits)) +
+    // The bytes the budget charges for a table of 2^bucketBits main buckets when it is made: its main
+    // array and the directory and first page of its overflow buckets.
+    public static long LeastCapacity(int bucketBits) =>
+        MemoryBudget.ArrayBytes<long>(((1 << bucketBits) * WordsPerBucket) + (LineBytes / sizeof(long)) - 1) +
         OverflowBuckets.FirstCapacity(Math.Max(0, bucketBits - 4));
 
-    public void Published() => _overflow.Published();
-
+    // Releases the charge of the table's arrays, once nothing can reach the table any more: it was
+    // replaced before any reader saw it, or its retirement is freed.
     public void ReleaseBacking()
     {
+        _budget.Release(_words);
         _overflow.ReleaseBacking();
-        if (_budget is { } budget)
-        {
-            budget.Release(_words);
-            budget.Release(OwnerBytes, this);
-        }
+    }
+
+    // Adds the arrays of the table under the owner given: the index that holds it, or the retired
+    // memory that holds it for its readers.
+    public void ReportHeld(List<HeldArray> held, string owner)
+    {
+        held.Add(new HeldArray(owner, typeof(long), _words.Length));
+        _overflow.ReportHeld(held, owner);
     }
 
     public int BucketBits => 64 - _shift;
@@ -246,17 +257,6 @@ internal sealed class IndexTable
 
         _overflow.Reserve(others + 1);
     }
-
-    public bool FitsReservations(int reserved, uint hashes) =>
-        (reserved == 0 || BucketBits == MostBucketBits || !IsFull(reserved - 1)) &&
-        _overflow.CanTake(RequiredOverflow(reserved, hashes));
-
-    public void ReleaseUnused(int reserved, uint hashes) => _overflow.ReleaseUnused(RequiredOverflow(reserved, hashes));
-
-    public void KeepCapacity() => _overflow.KeepCapacity();
-
-    private int RequiredOverflow(int reserved, uint hashes) =>
-        reserved == 1 && EmptyWordOf(hashes, out _, out _) ? 0 : reserved;
 
     // Adds the entry of a key that the index does not hold, after Reserve. The entry is written by
     // one store with release semantics, into an empty word of the bucket of the hash or of one of its

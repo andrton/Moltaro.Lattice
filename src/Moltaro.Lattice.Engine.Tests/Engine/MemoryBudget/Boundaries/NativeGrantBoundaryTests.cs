@@ -14,7 +14,7 @@ public sealed class NativeGrantBoundaryTests
     private const int Region = 64 * 1024;
     private static readonly RootHandle Owner = new(1, 1);
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(0)]
     [InlineData(1)]

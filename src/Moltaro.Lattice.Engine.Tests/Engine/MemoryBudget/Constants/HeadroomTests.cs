@@ -19,7 +19,7 @@ public sealed class HeadroomTests
 {
     private const long Limit = 64L * Segment;
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_headroom_covers_what_an_open_master_and_its_child_retain_beside_their_arrays()
     {
         await ExpectCoveredAsync(listen: false);

@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Structures;
 [Collection<ManagedAllocationCollection>]
 public sealed class RetiredQueueTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public void Items_leave_in_the_order_they_were_retired_across_a_wrap_and_a_growth()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);
@@ -45,7 +45,7 @@ public sealed class RetiredQueueTests
         Assert.Equal(next, expected);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void An_item_enqueued_into_the_room_ensured_before_allocates_nothing()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);
@@ -63,7 +63,7 @@ public sealed class RetiredQueueTests
         Assert.Equal(1, queue.Count);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void The_ring_is_charged_by_its_bytes_kept_when_a_growth_is_refused_and_given_back_when_trimmed_empty()
     {
         var budget = new InstanceMemoryBudget(1024 * 1024);

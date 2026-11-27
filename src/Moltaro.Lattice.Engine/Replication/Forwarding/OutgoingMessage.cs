@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Buffers.Binary;
-using Moltaro.Lattice.Budgeting;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 
@@ -17,7 +16,7 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 //
 // One thread at a time writes a message; once it is complete, the sender of the connection reads its
 // pieces, and nothing writes it any more.
-internal sealed class OutgoingMessage : IBufferWriter<byte>, IDisposable
+internal sealed class OutgoingMessage : IBufferWriter<byte>
 {
     // The first capacity of a piece, enough for the body of a small write without growing.
     private const int FirstCapacity = 512;
@@ -26,15 +25,13 @@ internal sealed class OutgoingMessage : IBufferWriter<byte>, IDisposable
 
     private readonly List<int> _lengths = [];
 
-    private readonly MemoryBudget? _budget;
     private byte[] _current;
 
     private int _used;
 
-    public OutgoingMessage(MemoryBudget? budget = null)
+    public OutgoingMessage()
     {
-        _budget = budget;
-        _current = NewPiece(FirstCapacity);
+        _current = new byte[FirstCapacity];
         _used = sizeof(ulong);
     }
 
@@ -50,7 +47,8 @@ internal sealed class OutgoingMessage : IBufferWriter<byte>, IDisposable
     // Ends the body: its length goes into the first frame. Nothing is written afterwards.
     public void Complete()
     {
-        SealPiece();
+        _pieces.Add(_current);
+        _lengths.Add(_used);
         BinaryPrimitives.WriteUInt64LittleEndian(_pieces[0], (ulong)BodyLength);
     }
 
@@ -68,16 +66,16 @@ internal sealed class OutgoingMessage : IBufferWriter<byte>, IDisposable
             if (_used + wanted <= Protocol.MaxDataPayload)
             {
                 // The piece grows, up to a frame's worth.
-                var grown = NewPiece(Math.Min(Protocol.MaxDataPayload, Math.Max(2 * _current.Length, _used + wanted)));
+                var grown = new byte[Math.Min(Protocol.MaxDataPayload, Math.Max(2 * _current.Length, _used + wanted))];
 
                 _current.AsSpan(0, _used).CopyTo(grown);
-                _budget?.Release(_current);
                 _current = grown;
             }
             else
             {
-                SealPiece();
-                _current = NewPiece(Protocol.MaxDataPayload);
+                _pieces.Add(_current);
+                _lengths.Add(_used);
+                _current = new byte[Protocol.MaxDataPayload];
                 _used = 0;
             }
         }
@@ -107,38 +105,4 @@ internal sealed class OutgoingMessage : IBufferWriter<byte>, IDisposable
             bytes = bytes[count..];
         }
     }
-
-    private byte[] NewPiece(int length) => _budget?.Allocate<byte>(length, nameof(OutgoingMessage)) ?? new byte[length];
-
-    private void SealPiece()
-    {
-        var count = _pieces.Count + 1;
-        _pieces.EnsureCapacity(count, _budget, nameof(OutgoingMessage));
-        _lengths.EnsureCapacity(count, _budget, nameof(OutgoingMessage));
-        _pieces.Add(_current);
-        _lengths.Add(_used);
-        _current = [];
-    }
-
-    public void Dispose()
-    {
-        if (_budget is { } budget)
-        {
-            budget.Release(_current);
-            foreach (var piece in _pieces)
-            {
-                budget.Release(piece);
-            }
-
-            budget.Release(BudgetCollections.Items(_pieces));
-            budget.Release(BudgetCollections.Items(_lengths));
-        }
-
-        _current = [];
-        _pieces.Clear();
-        _pieces.Capacity = 0;
-        _lengths.Clear();
-        _lengths.Capacity = 0;
-    }
-
 }

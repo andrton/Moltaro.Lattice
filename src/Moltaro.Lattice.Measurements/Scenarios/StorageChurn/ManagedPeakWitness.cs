@@ -9,8 +9,8 @@ using static Moltaro.Lattice.Measurements.Scenarios.StorageChurn.ManagedBackingS
 
 namespace Moltaro.Lattice.Measurements.Scenarios.StorageChurn;
 
-// The same growth and collision geometry as PrimaryGenerationBudgetTests. The real owner
-// references are discovered from the live table, independently of the budget's traversal.
+// The growth and collision geometry of a primary table that a reader holds while the index grows. The arrays
+// of the tables are discovered from the live table, independently of what the structures report.
 internal static class ManagedPeakWitness
 {
     public const string Name = "s24-managed-verify";
@@ -47,7 +47,7 @@ internal static class ManagedPeakWitness
                 var original = index.TableAndVersion(out var version);
                 var previous = Backings(original);
                 previousBytes = previous.Sum(sizes.Of);
-                before = inventory.Read("before-growth", 0, node, ledger, LooseLimit, [queue, .. previous]);
+                before = inventory.Read("before-growth", 0, node, ledger, LooseLimit);
 
                 using var leave = new ManualResetEventSlim();
                 var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -67,14 +67,14 @@ internal static class ManagedPeakWitness
                         var current = index.TableAndVersion(out var generation);
                         ChurnAudit.Require(generation == version + 1, "The new main table was not installed.");
                         fresh = Backings(current);
-                        switching = inventory.Read("growth-old-and-new", 0, node, ledger, LooseLimit, [queue, .. previous, .. fresh]);
+                        switching = inventory.Read("growth-old-and-new", 0, node, ledger, LooseLimit);
                     });
 
                     var changed = await set.InsertAsync(Row(set, Keys[8]), token);
                     ChurnAudit.Require(changed.Changed && fresh is not null && switching is not null, "The insertion did not reach primary growth.");
                     overlap = switching!;
                     nextBytes = fresh!.Sum(sizes.Of);
-                    held = inventory.Read("after-growth-reader-held", 0, node, ledger, LooseLimit, [queue, .. previous, .. fresh!]);
+                    held = inventory.Read("after-growth-reader-held", 0, node, ledger, LooseLimit);
                     ChurnAudit.Require(before.Native == overlap.Native && before.Native == held.Native &&
                         overlap.Budget.PeakBytes >= before.IndependentBytes + nextBytes &&
                         node.Counters.RetiredIndexBytes > 0,
@@ -87,7 +87,7 @@ internal static class ManagedPeakWitness
                 }
 
                 node.DrainRetired();
-                released = inventory.Read("reader-released", 0, node, ledger, LooseLimit, fresh!, previous);
+                released = inventory.Read("reader-released", 0, node, ledger, LooseLimit);
                 ChurnAudit.Require(held.IndependentBytes - released.IndependentBytes >= previousBytes &&
                     node.Counters.RetiredIndexBytes == 0, "The old-generation backing was not returned after release.");
 
@@ -117,7 +117,7 @@ internal static class ManagedPeakWitness
                 var original = index.TableAndVersion(out var version);
                 var old = Backings(original);
                 var position = node.Position;
-                narrowBefore = inventory.Read("narrow-before", 0, node, narrowLedger, narrow, [queue, .. old]);
+                narrowBefore = inventory.Read("narrow-before", 0, node, narrowLedger, narrow);
                 long prepared = node.Counters.Arena.PreparedBytes;
                 var grew = false;
                 node.ArmGrowthSwitch(set.EntityType, () => grew = true);
@@ -129,7 +129,7 @@ internal static class ManagedPeakWitness
                 catch (LatticeException exception) when (exception.Error == LatticeErrorEnum.WriteRejected &&
                     exception.Limit == LatticeLimitEnum.Memory && exception.OperationIndex is null)
                 {
-                    refused = inventory.Read("narrow-refused", 0, node, narrowLedger, narrow, [queue, .. old]);
+                    refused = inventory.Read("narrow-refused", 0, node, narrowLedger, narrow);
                     ChurnAudit.Require(!grew && ReferenceEquals(original, index.TableAndVersion(out var existing)) &&
                         version == existing && node.Position == position && !set.TryGet(Keys[8], out _) &&
                         narrowBefore.IndependentBytes == refused.IndependentBytes && narrowBefore.Native == refused.Native &&
@@ -141,7 +141,7 @@ internal static class ManagedPeakWitness
                 node.DrainRetired();
                 ChurnAudit.Require((await set.InsertAsync(Row(set, Keys[8]), token)).Changed && !grew,
                     "The refused insert did not reuse the same table after a peer key left.");
-                reused = inventory.Read("narrow-reused", 0, node, narrowLedger, narrow, [queue, .. old]);
+                reused = inventory.Read("narrow-reused", 0, node, narrowLedger, narrow);
                 ChurnAudit.Require(reused.Native == narrowBefore.Native, "Recovery obtained a new native grant.");
             }
             finally
@@ -177,7 +177,7 @@ internal static class ManagedPeakWitness
             Schema = schema,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             MemoryLimit = limit,
-        }, new EngineTestInputs { ObserveBudgetBackings = true, Allocator = ledger, DisableBackgroundMaintenance = true, IndexSeed = 0 });
+        }, new EngineTestInputs { Allocator = ledger, DisableBackgroundMaintenance = true, IndexSeed = 0 });
 
     private static async Task SeedAsync(ILatticeSet set, CancellationToken token)
     {
@@ -198,7 +198,7 @@ internal static class ManagedPeakWitness
             index = (PrimaryIndex)Field(parts.Tables.Stored(1), "_index")!;
             parts.Retired.Reserve(8);
             parts.Retired.Release(7);
-            queue = (Array)Field(Field(parts.Retired, "_items")!, "_array")!;
+            queue = (Array)Field(Field(parts.Retired, "_items")!, "_ring")!;
         }) && queue is { Length: >= 8 }, "Could not keep an independently observed retirement array.");
         return (index!, queue!);
     }
@@ -212,6 +212,6 @@ internal static class ManagedPeakWitness
         var pages = (OverflowPage[])Field(overflow, "_pages")!;
         int used = (int)Field(overflow, "_pageCount")!;
         ChurnAudit.Require(used > 0 && table.Bytes > 0, "The collision fixture did not allocate overflow pages.");
-        return [table, Field(table, "_words")!, overflow, pages, .. pages.Take(used).Select(page => page.Words)];
+        return [Field(table, "_words")!, pages, .. pages.Take(used).Select(page => page.Words)];
     }
 }

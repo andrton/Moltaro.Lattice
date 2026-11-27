@@ -22,7 +22,7 @@ public sealed class ChildMemoryWaitTests
     private const long ChildLimit = 16L * Segment;
     private static readonly TimeSpan FarPause = TimeSpan.FromMinutes(10);
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Memory_freed_between_the_refusal_and_the_registration_of_the_wait_resumes_the_child_at_once()
     {
         await using var fixture = await PausingChild.OpenAsync(releaseAtPause: true);
@@ -37,7 +37,7 @@ public sealed class ChildMemoryWaitTests
         fixture.ExpectSameAsMaster();
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_paused_child_keeps_its_reads_and_resumes_in_order_once_when_memory_is_freed()
     {
         await using var fixture = await PausingChild.OpenAsync(releaseAtPause: false);
@@ -67,7 +67,7 @@ public sealed class ChildMemoryWaitTests
             "The child did not acknowledge the changes it resumed.");
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Close_ends_the_wait_of_a_paused_child()
     {
         var fixture = await PausingChild.OpenAsync(releaseAtPause: false);

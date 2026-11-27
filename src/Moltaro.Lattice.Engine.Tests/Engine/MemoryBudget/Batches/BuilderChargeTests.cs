@@ -15,7 +15,7 @@ public sealed class BuilderChargeTests
 {
     private const long Limit = 16L * Segment;
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Two_builders_and_the_publishing_thread_competing_for_the_last_bytes_never_admit_more_than_the_limit()
     {
         var allocator = new CountingNativeAllocator();
@@ -56,7 +56,7 @@ public sealed class BuilderChargeTests
         ExpectAtRest(node, allocator);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task An_abandoned_builder_returns_its_whole_charge_when_it_is_collected()
     {
         var allocator = new CountingNativeAllocator();

@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Budgeting;
+namespace Moltaro.Lattice.Storage.Budgeting;
 
 // A controlled refusal before publication. An allocator exception is a different failure.
 internal sealed class BudgetRefusedException(LatticeLimitEnum limit) : Exception

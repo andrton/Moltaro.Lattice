@@ -59,7 +59,7 @@ internal ref struct ValueHolder
     public readonly LatticeStringEncodingEnum Encoding => Layout.StringEncoding;
 
     // The bytes of the block from the offset Origin on.
-    public Span<byte> Bytes { readonly get; set; }
+    public Span<byte> Bytes { get; }
 
     public int Origin { get; }
 

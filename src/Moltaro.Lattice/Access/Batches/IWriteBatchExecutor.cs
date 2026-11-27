@@ -1,6 +1,5 @@
 using System.Buffers;
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Batches;
@@ -22,10 +21,9 @@ internal interface IWriteBatchExecutor
     // that the Add refuses it as a single write refuses it before its conditions.
     ReadOnlySequence<byte> EncodeRoot(LatticeEntityType entityType, object?[]? values);
 
-    ReadOnlySequence<byte> EncodeRoot(LatticeEntityType entityType, object?[]? values, MemoryLease? lease) =>
-        EncodeRoot(entityType, values);
-
-    void CheckUpdate(LatticeEntityType entityType, UpdateInput update);
+    // Checks the update against the layout of its entity type and returns the encoded length of its
+    // commands, which the batch reserves as the input of the member (BatchInputCharge).
+    long CheckUpdate(LatticeEntityType entityType, UpdateInput update);
 
     // Reserves bytes of the input of a batch in the budget of the instance (BatchInputCharge); false
     // when the instance cannot hold them. It writes nothing when it refuses.
@@ -37,6 +35,6 @@ internal interface IWriteBatchExecutor
     // Executes the operations, of which there is at least one, as one write after the position the session
     // depends on, if one is given, and moves the session to its position: the outcome of
     // ILatticeWriteBatch.CommitAsync. Everything the database decides comes through the task, its close
-    // included. It reads the operations before it returns, and keeps nothing of the list.
-    ValueTask<LatticeWriteResult> ExecuteAsync(IReadOnlyList<WriteBatchOperation> operations, LatticeSession? session, CancellationToken cancellationToken);
+    // included. It reads the operations before it returns, and keeps nothing of the array.
+    ValueTask<LatticeWriteResult> ExecuteAsync(ArraySegment<WriteBatchOperation> operations, LatticeSession? session, CancellationToken cancellationToken);
 }

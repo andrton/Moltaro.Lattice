@@ -79,6 +79,10 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
 
     public LatticeRevision? ExpectedRevision { get; private set; }
 
+    // The estimate an ordinary write reserved in the budget at its first preparation, released at its end
+    // (WriteCoordinator.MarkCompleted); 0 when it reserved none. Under the lock of the writes.
+    public long Estimate { get; set; }
+
     // The session the write moves to its position when it succeeds; null for none.
     public LatticeSession? Session { get; private set; }
 

@@ -19,7 +19,7 @@ public sealed class ChildApplyBudgetTests
     private const int FirstKey = 10_000;
     private const int ExistingKey = 1;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(5, "insert", "resume")]
     [InlineData(5, "replace", "close")]
     [InlineData(1_025, "insert", "resume")]

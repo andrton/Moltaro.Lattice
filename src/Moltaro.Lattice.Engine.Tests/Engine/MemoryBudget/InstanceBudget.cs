@@ -12,8 +12,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
 internal static class InstanceBudget
 {
-    // The one reason the tests of the budget by structure are skipped until it is built.
-    public const string Pending = "Charging the memory budget by structure is not implemented yet.";
     public const int Segment = 4 * 1024 * 1024;
     public const long OneSegmentWithReceive = 2L * Segment - 256 * 1024;
 

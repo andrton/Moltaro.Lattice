@@ -14,8 +14,7 @@ internal readonly struct EditedRecords(
     IEnumerator<EditedEntry> entries,
     int perBlock) : IRecordSource, IDisposable
 {
-    private readonly EditedEntry[] _records = arena.Budget?.Allocate<EditedEntry>(perBlock, nameof(EditedRecords))
-        ?? ArrayPool<EditedEntry>.Shared.Rent(perBlock);
+    private readonly EditedEntry[] _records = ArrayPool<EditedEntry>.Shared.Rent(perBlock);
 
     public int BlockLength(StructureLayout element, int first, int count)
     {
@@ -106,17 +105,7 @@ internal readonly struct EditedRecords(
         }
     }
 
-    public void Dispose()
-    {
-        if (arena.Budget is { } budget)
-        {
-            budget.Release(_records);
-        }
-        else
-        {
-            ArrayPool<EditedEntry>.Shared.Return(_records, clearArray: true);
-        }
-    }
+    public void Dispose() => ArrayPool<EditedEntry>.Shared.Return(_records, clearArray: true);
 
     private int NewInline(StructureLayout element, int position, object? value) =>
         value is not null ? NestedValues.InlineBytes(element, position, value, encoding) : 0;

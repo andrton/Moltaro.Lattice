@@ -1,4 +1,3 @@
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Values;
@@ -19,18 +18,13 @@ internal static class FieldValues
     // checks of the write. For the types a primary key may have, the integers, String and Guid, the rule is
     // that of a key given as an argument.
     public static object Normalize(LatticeField field, object value, string parameterName) =>
-        value.GetType() == field.Declaration.ValueType ? value : Converted(field, value, parameterName).ToObject()!;
+        value.GetType() == field.Declaration.ValueType ? value : Converted(field, value, parameterName);
 
     // A value of another type than that of the field, converted as a part of a search key is, or refused.
-    private static IndexValue Converted(LatticeField field, object value, string parameterName)
-    {
-        if (!IndexValue.Of(value).TryConvertTo(field.Declaration.ScalarType, out var converted))
-        {
-            throw CannotBeUsed(field, value, parameterName);
-        }
-
-        return converted;
-    }
+    private static object Converted(LatticeField field, object value, string parameterName) =>
+        IndexValue.Of(value).TryConvertTo(field.Declaration.ScalarType, out var converted)
+            ? converted.ToObject()!
+            : throw CannotBeUsed(field, value, parameterName);
 
     // The refusal of a value, not null, that cannot be used for the field, for the parameter named: of a
     // value given by itself here, and of a value of an index key or a bound (IndexValue.Bind).
@@ -44,29 +38,6 @@ internal static class FieldValues
     {
         ArgumentNullException.ThrowIfNull(key);
         return NormalizeArgument(entityType.Key, key, nameof(key));
-    }
-
-    public static object NormalizeBatchKey(LatticeEntityType entityType, object key, MemoryBudget? budget, out MemoryLease? lease)
-    {
-        lease = null;
-        var field = entityType.Key;
-        if (budget is null || key.GetType() == field.Declaration.ValueType)
-        {
-            return NormalizeArgument(field, key, nameof(key));
-        }
-
-        // Validate the conversion before reserving the integer box a batch owns.
-        var converted = Converted(field, key, nameof(key));
-        lease = MemoryLease.Create(budget);
-        try
-        {
-            return lease.Allocate(MemoryBudget.ObjectBytes(sizeof(long)), nameof(FieldValues), () => converted.ToObject()!);
-        }
-        catch
-        {
-            lease.Dispose();
-            throw;
-        }
     }
 
     // A value given as an argument to look an entity up with by its primary key. Normalized as

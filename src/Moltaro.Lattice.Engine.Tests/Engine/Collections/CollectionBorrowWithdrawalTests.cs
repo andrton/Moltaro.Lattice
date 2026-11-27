@@ -12,7 +12,7 @@ public sealed class CollectionBorrowWithdrawalTests
 {
     // A sparse update that shrinks a chunked Map leaves its collection a tail, whose arrays the
     // collection tails report and the budget charges.
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task A_shrunk_collection_keeps_its_tail_in_the_inventory_at_rest()
     {
         await using var pair = await OpenAsync(false, false, Full, duplicateTarget: true);

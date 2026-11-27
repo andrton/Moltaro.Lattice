@@ -1,9 +1,9 @@
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
 
@@ -17,33 +17,87 @@ namespace Moltaro.Lattice.Engine;
 // a child's catch-up. Each member says what it costs an instance whose tests do not use it.
 internal sealed partial class EngineDatabase
 {
-    // Test-only observation of live owned backings, independent of the budget's byte totals.
-    // The callback must not retain the backing objects or call the database.
-    internal BudgetCapacitySample InspectBudget(Action<string, object>? observeBacking = null)
+    // For the tests of the engine and the measurement program: the charge of the budget beside what the
+    // structures hold, taken under the lock of the writes, which a test hook that already holds it takes
+    // again. A test reads it at a point of rest, with no write unit in flight, and sizes each array itself
+    // (docs/design/storage-and-maintenance.md, the memory budget). The connections are read under the lock
+    // of the listener, which no thread holds while it takes the lock of the writes.
+    internal HeldMemory InspectHeld() => InTestWriteLock(parts =>
     {
-        var (charged, peak, native) = _budget.Inspect(observeBacking);
-        return new BudgetCapacitySample(charged, peak, native, _parts?.Delivery.CapacityBytes ?? 0);
-    }
+        var held = new List<HeldArray>();
+        parts.Arena.ReportHeld(held);
+        parts.Roots.ReportHeld(held);
+        foreach (var table in parts.Tables.InSchemaOrder)
+        {
+            table.ReportHeld(held);
+        }
 
-    // Under the writes lock: the charge of the budget beside what the structures hold. A test reads
-    // it at a point of rest, with no write unit in flight, and sizes each array itself.
-    internal HeldMemory InspectHeld() => throw new NotSupportedException("Charging memory by structure is not implemented yet.");
+        parts.Arena.Texts.ReportHeld(held);
+        parts.Arena.CollectionTails?.ReportHeld(held);
+        parts.Retired.ReportHeld(held);
+        parts.Publisher.ReportHeld(held);
+        parts.Coordinator.ReportHeld(held);
+        _listener?.ReportHeld(held);
+        _master?.ReportHeld(held);
+        _follower?.ReportHeld(held);
+        if (_heldBackings is { } backings)
+        {
+            lock (backings)
+            {
+                foreach (var backing in backings)
+                {
+                    backing.ReportHeld(held);
+                }
+            }
+        }
+
+        return new HeldMemory(_budget.Charged, _budget.Peak, _budget.Headroom, parts.Arena.GrantedSegments, parts.Arena.SegmentSize,
+            held, parts.Delivery.CapacityBytes);
+    });
 
     internal void ResetBudgetPeak() => _budget.ResetPeak();
 
-    // A test can hold a real charged allocation to align capacity return with a wire frame.
-    internal IDisposable HoldBudgetBacking(int length) => new HeldBudgetBacking(_budget, length);
-
-    private sealed class HeldBudgetBacking(MemoryBudget budget, int length) : IDisposable
+    // A test can hold a charged array of the length given until it disposes it, to leave the room it needs.
+    internal IDisposable HoldBudgetBacking(int length)
     {
-        private byte[]? _backing = budget.Allocate<byte>(length, nameof(HeldBudgetBacking));
+        var backing = new HeldBudgetBacking(this, length);
+        var backings = LazyInitializer.EnsureInitialized(ref _heldBackings);
+        lock (backings)
+        {
+            backings.Add(backing);
+        }
+
+        return backing;
+    }
+
+    // The arrays the tests hold through HoldBudgetBacking, which the inspection reports; made by the first
+    // of them, so an instance whose tests hold none pays nothing for it, and guarded by itself.
+    private List<HeldBudgetBacking>? _heldBackings;
+
+    private sealed class HeldBudgetBacking(EngineDatabase database, int length) : IDisposable
+    {
+        private byte[]? _backing = database._budget.Allocate<byte>(length);
+
+        public void ReportHeld(List<HeldArray> held)
+        {
+            if (_backing is { Length: > 0 } backing)
+            {
+                held.Add(new HeldArray(nameof(HeldBudgetBacking), typeof(byte), backing.Length));
+            }
+        }
 
         public void Dispose()
         {
             var backing = Interlocked.Exchange(ref _backing, null);
             if (backing is not null)
             {
-                budget.Release(backing);
+                var backings = database._heldBackings!;
+                lock (backings)
+                {
+                    backings.Remove(this);
+                }
+
+                database._budget.Release(backing);
             }
         }
     }

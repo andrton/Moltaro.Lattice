@@ -1,7 +1,7 @@
 using System.Buffers;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Writes;
@@ -10,6 +10,7 @@ using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Children;
 
@@ -53,6 +54,13 @@ namespace Moltaro.Lattice.Engine.Children;
 // without a token for the reads that hold retired memory; a read leaves within one step (exception X6).
 // Until then the Applied and the later requests of that child wait as well. So they wait while a batch is
 // checked, every root of it on this task, and prepared and published in one hold of the lock of the writes.
+//
+// Memory. The pieces a request is received in and the import that checks its roots are buffers of the
+// connection, charged to the budget of the master (MessageAssembler, Replication.Load.BlockImport). A whole
+// request also reserves its estimate, PerMemberBytes for each member and the encoded length of the commands
+// of each update; a request the budget cannot hold is refused with WriteRejected and Memory as its reply.
+// The charge of its pieces and its estimate pass to its record (Writes.ForwardedOrigin), which releases them
+// when the write ends (docs/design/storage-and-maintenance.md, the memory budget).
 internal sealed class RequestReceiver : IDisposable
 {
     private readonly ForwardedWrites _writes;
@@ -60,9 +68,11 @@ internal sealed class RequestReceiver : IDisposable
     private readonly RecordedReplies _replies;
 
     private readonly MessageAssembler _requests;
-    private readonly Action<RequestReceiver>? _observeFrame;
 
     private readonly BlockImport _import;
+
+    // What the tests of the engine observe after each frame (EngineTestInputs.ObserveMasterRequestFrame).
+    private readonly Action<RequestReceiver>? _observeFrame;
 
     // The correlation id of the last request of the connection.
     private ulong _lastId;
@@ -74,6 +84,20 @@ internal sealed class RequestReceiver : IDisposable
         _observeFrame = observeFrame;
         _requests = new MessageAssembler(writes.Budget);
         _import = writes.NewImport();
+    }
+
+    // Adds the pieces of the request being received and the arrays of the import.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        _requests.ReportHeld(held);
+        _import.ReportHeld(held);
+    }
+
+    // At the end of the connection: the request in progress and the import are let go of.
+    public void Dispose()
+    {
+        _requests.Reset();
+        _import.Dispose();
     }
 
     // Takes one WriteRequest frame (see the class). ValidationFailed for a request that is not valid.
@@ -91,63 +115,45 @@ internal sealed class RequestReceiver : IDisposable
 
         var memoryLimit = _writes.MemoryLimit;
 
-        var result = _requests.Accept(frame, memoryLimit, out var correlationId, out var body);
+        var step = _requests.Accept(frame, memoryLimit, out var correlationId, out var body);
         _observeFrame?.Invoke(this);
-        switch (result)
+        switch (step)
         {
             case MessageStepEnum.Refused:
                 _replies.Refuse(correlationId, new LatticeException(
                     LatticeErrorEnum.WriteRejected,
-                    $"The forwarded write announces more bytes than the memory budget of the master, {memoryLimit} bytes, can hold.")
+                    $"The forwarded write takes more bytes than the memory budget of the master, {memoryLimit} bytes, can hold.")
                 {
                     Limit = LatticeLimitEnum.Memory,
                 },
-                indexId: null, reserved: false);
+                indexId: null);
                 break;
 
             case MessageStepEnum.Whole:
-                var lease = _requests.TakeLease();
-                if (!_replies.TryReserve())
-                {
-                    lease?.Dispose();
-                    _replies.Refuse(correlationId, new BudgetRefusedException(LatticeLimitEnum.Memory).WriteRejected(),
-                        indexId: null, reserved: false);
-                    break;
-                }
-
+                var charged = _requests.TakeCharge();
                 try
                 {
-                    Submit(correlationId, body, lease);
+                    Submit(correlationId, body, ref charged);
                 }
-                catch (BudgetRefusedException exception)
+                finally
                 {
-                    lease?.Dispose();
-                    _replies.Refuse(correlationId, exception.WriteRejected(), indexId: null);
+                    // A request that did not reach its record, refused or not valid, keeps no charge.
+                    _writes.Budget.Release(charged);
                 }
-                catch
-                {
-                    _replies.ReleaseReservation();
-                    lease?.Dispose();
-                    throw;
-                }
+
                 break;
         }
     }
 
-    public void Dispose()
-    {
-        _requests.Reset();
-        _import.Dispose();
-    }
-
-    // Checks the request and submits it (see the class).
-    private void Submit(ulong correlationId, ReadOnlySequence<byte> body, MemoryLease? lease)
+    // Checks the request and submits it (see the class). The charge given passes to the record of the
+    // write, and is 0 then.
+    private void Submit(ulong correlationId, ReadOnlySequence<byte> body, ref long charged)
     {
         var reader = new SequenceReader<byte>(body);
 
         if (ForwardEncoding.IsBatch(reader))
         {
-            SubmitBatch(correlationId, ref reader, lease);
+            SubmitBatch(correlationId, ref reader, ref charged);
 
             return;
         }
@@ -155,33 +161,44 @@ internal sealed class RequestReceiver : IDisposable
         var request = ForwardEncoding.ReadRequestHead(ref reader);
         var table = TableOf(request.TypeId);
         var key = table.Keys.ReadKey(ref reader);
-        var update = UpdateOf(table, request.Kind, ref reader, lease);
+        var update = UpdateOf(table, request.Kind, ref reader);
         var root = update is null ? RootOf(table, request, key, ref reader) : default;
 
         ForwardEncoding.ExpectEnd(reader);
 
-        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root, table.EntityType, lease),
-            request.ExpectedRevision, SessionOf(request.MinimumPosition), update);
+        var estimate = BatchInputCharge.PerMemberBytes + (update is null ? 0 : UpdateCommands.Length(table.Layout.Structure, update.Commands));
+        if (!TryReserve(correlationId, estimate, ref charged))
+        {
+            return;
+        }
+
+        var origin = new ForwardedOrigin(_replies, correlationId, root, table.EntityType, _writes.Budget, charged);
+        charged = 0;
+        _writes.Coordinator.Forward(table, request.Kind, key, origin, request.ExpectedRevision, SessionOf(request.MinimumPosition), update);
+    }
+
+    // Reserves the estimate of a whole request beside the charge of its pieces, or refuses the request with
+    // WriteRejected and Memory as its reply.
+    private bool TryReserve(ulong correlationId, long estimate, ref long charged)
+    {
+        if (!_writes.Budget.TryReserve(estimate))
+        {
+            _replies.Refuse(correlationId, new BudgetRefusedException(LatticeLimitEnum.Memory).WriteRejected(), indexId: null);
+            return false;
+        }
+
+        charged += estimate;
+        return true;
     }
 
     // Checks a write batch, every member and the batch as a whole, and submits it as one write (see the
     // class). The members' roots are slices of the body of the request.
-    private void SubmitBatch(ulong correlationId, ref SequenceReader<byte> reader, MemoryLease? lease)
+    private void SubmitBatch(ulong correlationId, ref SequenceReader<byte> reader, ref long charged)
     {
         var (minimumPosition, count) = ForwardEncoding.ReadBatchHead(ref reader);
-        var members = lease?.Allocate<BatchMember>(count, nameof(RequestReceiver)) ?? new BatchMember[count];
-        var entityTypes = lease?.Allocate<LatticeEntityType>(count, nameof(RequestReceiver)) ?? new LatticeEntityType[count];
-        var keys = PublicationKeys.Create(count, lease?.Budget);
-        try
-        {
-            lease?.Own(keys, static (_, owned) => owned.Dispose());
-        }
-        catch
-        {
-            keys.Dispose();
-            throw;
-        }
-
+        var members = new BatchMember[count];
+        var entityTypes = new LatticeEntityType[count];
+        var keys = new PublicationKeys(count);
         var commands = 0L;
 
         for (var place = 0; place < count; place++)
@@ -189,7 +206,7 @@ internal sealed class RequestReceiver : IDisposable
             var member = ForwardEncoding.ReadMemberHead(ref reader);
             var table = TableOf(member.TypeId);
             var key = table.Keys.ReadKey(ref reader);
-            var update = UpdateOf(table, member.Kind, ref reader, lease);
+            var update = UpdateOf(table, member.Kind, ref reader);
             var root = update is null ? RootOf(table, member, key, ref reader) : default;
             commands += update?.Commands.Length ?? 0;
             if (commands > int.MaxValue)
@@ -208,10 +225,26 @@ internal sealed class RequestReceiver : IDisposable
 
         ForwardEncoding.ExpectEnd(reader);
 
-        _writes.Coordinator.Forward(members, keys, new ForwardedOrigin(_replies, correlationId, entityTypes, lease), SessionOf(minimumPosition));
+        var estimate = count * BatchInputCharge.PerMemberBytes;
+        foreach (ref readonly var member in members.AsSpan())
+        {
+            if (member.Update is { } update)
+            {
+                estimate += UpdateCommands.Length(member.Table.Layout.Structure, update.Commands);
+            }
+        }
+
+        if (!TryReserve(correlationId, estimate, ref charged))
+        {
+            return;
+        }
+
+        var origin = new ForwardedOrigin(_replies, correlationId, entityTypes, _writes.Budget, charged);
+        charged = 0;
+        _writes.Coordinator.Forward(members, keys, origin, SessionOf(minimumPosition));
     }
 
-    private static UpdateInput? UpdateOf(EntityTable table, WriteKindEnum kind, ref SequenceReader<byte> reader, MemoryLease? lease)
+    private static UpdateInput? UpdateOf(EntityTable table, WriteKindEnum kind, ref SequenceReader<byte> reader)
     {
         if (kind != WriteKindEnum.Update)
         {
@@ -219,9 +252,7 @@ internal sealed class RequestReceiver : IDisposable
         }
 
         var commands = new SequenceReader<byte>(ForwardEncoding.ReadRoot(ref reader));
-        var decoded = UpdateCommands.ReadRequest(table.Layout, ref commands, lease);
-        var outcome = lease?.Allocate(MemoryBudget.ObjectBytes(2L * IntPtr.Size), nameof(UpdateOutcome), static () => new UpdateOutcome()) ?? new();
-        return UpdateInput.Create(decoded, outcome, lease);
+        return new UpdateInput(UpdateCommands.ReadRequest(table.Layout, ref commands), new UpdateOutcome());
     }
 
     // The table of an entity type the master stores.

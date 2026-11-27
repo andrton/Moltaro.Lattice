@@ -61,23 +61,15 @@ internal static class BudgetChurnScenario
                 Schema = schema,
                 PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
                 MemoryLimit = limit,
-            }, ChurnInputs.Create(ledger, off: false, turns, observeBudgetBackings: true));
+            }, ChurnInputs.Create(ledger, off: false, turns));
             await node.OpenAsync(stop);
-            try
-            {
-                _ = node.InspectBudget();
-            }
-            catch (NotSupportedException exception)
-            {
-                throw new InvalidOperationException("S24 budget observations require the implemented engine.", exception);
-            }
 
             ledger.BeforeGrant = (held, requested) =>
             {
-                var reserved = node.InspectBudget();
-                ChurnAudit.Require(reserved.NativeBytes == held && reserved.ChargedBytes >= held + requested &&
-                    reserved.ChargedBytes <= limit, "The independent allocator saw an unreserved native grant.");
-                grantAdmissions.Add(new GrantAdmission(Stopwatch.GetTimestamp(), held, requested, reserved.ChargedBytes, reserved.PeakBytes));
+                var reserved = node.InspectHeld();
+                ChurnAudit.Require((long)reserved.GrantedSegments * reserved.SegmentBytes == held && reserved.Charged >= held + requested &&
+                    reserved.Charged <= limit, "The independent allocator saw an unreserved native grant.");
+                grantAdmissions.Add(new GrantAdmission(Stopwatch.GetTimestamp(), held, requested, reserved.Charged, reserved.Peak));
             };
 
             await SeedAsync(node, fixture, model, stop);
@@ -332,8 +324,8 @@ internal static class BudgetChurnScenario
     private static ProgressFence ReadFence(EngineDatabase node, ChurnReads readers)
     {
         var progress = readers.Progress();
-        var budget = node.InspectBudget();
-        return new ProgressFence(Stopwatch.GetTimestamp(), node.Position.Sequence, budget.PeakBytes, progress);
+        var budget = node.InspectHeld();
+        return new ProgressFence(Stopwatch.GetTimestamp(), node.Position.Sequence, budget.Peak, progress);
     }
 
     private static Outcome OfferUser(EngineDatabase node, ILatticeSet users, ChurnTrace.Frame frame,

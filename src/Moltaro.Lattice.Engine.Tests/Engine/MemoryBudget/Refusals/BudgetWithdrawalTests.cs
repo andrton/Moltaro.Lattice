@@ -14,7 +14,7 @@ public sealed class BudgetWithdrawalTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_late_batch_failure_returns_the_blocks_and_handles_it_acquired_before_commit(bool allocationFails)
@@ -66,7 +66,7 @@ public sealed class BudgetWithdrawalTests
         Assert.Null(pieces.Get(3L));
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Cancellation_before_dispatch_releases_a_writes_real_backing_while_an_earlier_commit_remains_held()
     {
         var storage = new HeldPersistence(holding: false);
@@ -117,7 +117,7 @@ public sealed class BudgetWithdrawalTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Cancellation_while_resolving_memory_refusal_keeps_the_refused_write_from_running_after_reclamation()
     {
         var allocator = new CountingNativeAllocator();

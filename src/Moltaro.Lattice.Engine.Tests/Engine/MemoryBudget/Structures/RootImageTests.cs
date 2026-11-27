@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Structures;
 // is charged and no longer held by the arena.
 public sealed class RootImageTests
 {
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_arena_keeps_one_root_image_that_fits_and_replaces_it_when_a_wider_one_is_needed()
     {
         var allocator = new CountingNativeAllocator();

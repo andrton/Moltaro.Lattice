@@ -16,7 +16,7 @@ public sealed class PrimaryTableBoundaryTests
 {
     private const int Inserts = 16;
 
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(0)]
     [InlineData(1)]

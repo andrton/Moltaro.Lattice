@@ -16,7 +16,7 @@ public sealed class PhysicalArenaBudgetTests
     private const int Payload = 3_200;
     private static readonly RootHandle Owner = new(1, 1);
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_minimum_option_opens_a_small_master_and_cannot_fund_its_first_segment()
     {
         var allocator = new CountingNativeAllocator();
@@ -27,7 +27,7 @@ public sealed class PhysicalArenaBudgetTests
         Assert.Equal(0, NativeBytes(ExpectAtRest(node, allocator)));
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task Idle_slots_and_region_tails_are_already_charged_and_the_reserve_keeps_the_whole_grant()
     {
         var allocator = new CountingNativeAllocator();

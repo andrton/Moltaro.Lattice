@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
 public sealed class ChildReusableCapacityTests
 {
-    [Theory(Skip = Pending)]
+    [Theory]
     [InlineData(LatticeLimitEnum.Memory, false)]
     [InlineData(LatticeLimitEnum.RootSlots, false)]
     [InlineData(LatticeLimitEnum.Memory, true)]

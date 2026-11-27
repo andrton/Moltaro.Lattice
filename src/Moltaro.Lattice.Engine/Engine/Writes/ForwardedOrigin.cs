@@ -1,9 +1,7 @@
 using System.Buffers;
-using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Delivery;
-using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -17,6 +15,11 @@ namespace Moltaro.Lattice.Engine.Writes;
 // it when it prepares the write, with the sequence it publishes at as its last mutation. The root is the
 // request's own memory and lives as long as this record.
 //
+// Memory. The record owns what the request charged to the budget of the master: the pieces its body was
+// received in and the estimate of the request (docs/design/storage-and-maintenance.md, the memory budget),
+// one figure, released once when the write ends (ReleaseInput), whether it succeeded or was refused. Only
+// the call that ends the write releases it.
+//
 // The identity of a unique index a refusal names, which the reply carries in place of the name
 // (Replication.Forwarding.ForwardEncoding), is that of the index within one entity type: of the write, or for
 // a batch of the member the refusal names in LatticeException.OperationIndex, which a refusal of a batch for a
@@ -29,26 +32,33 @@ internal sealed class ForwardedOrigin
     private readonly LatticeEntityType? _entityType;
 
     // The entity types of the members of a batch, in their order; null for one write.
-    private LatticeEntityType[]? _memberTypes;
-    private MemoryLease? _lease;
+    private readonly LatticeEntityType[]? _memberTypes;
 
-    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, ReadOnlySequence<byte> root, LatticeEntityType entityType, MemoryLease? lease = null)
+    // What the request charged to the budget, 0 once it is released.
+    private readonly MemoryBudget _budget;
+
+    private long _charged;
+
+    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, ReadOnlySequence<byte> root, LatticeEntityType entityType,
+        MemoryBudget budget, long charged)
     {
         Replies = replies;
         CorrelationId = correlationId;
-        _lease = lease;
         Root = root;
         _entityType = entityType;
+        _budget = budget;
+        _charged = charged;
     }
 
     // The origin of a write batch, with the entity types of its members, in their order.
-    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, LatticeEntityType[] memberTypes, MemoryLease? lease = null)
+    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, LatticeEntityType[] memberTypes, MemoryBudget budget, long charged)
     {
         Replies = replies;
         CorrelationId = correlationId;
-        _lease = lease;
         Root = ReadOnlySequence<byte>.Empty;
         _memberTypes = memberTypes;
+        _budget = budget;
+        _charged = charged;
     }
 
     public RecordedReplies Replies { get; }
@@ -57,7 +67,7 @@ internal sealed class ForwardedOrigin
 
     // The root after its envelope: its layout version, its root payload and its values out of line
     // (Replication.Load.BlockImport); empty for a delete and for a batch.
-    public ReadOnlySequence<byte> Root { get; private set; }
+    public ReadOnlySequence<byte> Root { get; }
 
     // Outside the lock of the writes, before the write leaves the barrier of the close: records the
     // refusal of the write as its reply (WriteCoordinator, "Forwarded writes"). A LatticeException as it
@@ -70,8 +80,7 @@ internal sealed class ForwardedOrigin
 
         try
         {
-            Replies.Refuse(CorrelationId, refusal, refusal.IndexName is { } name &&
-                EntityTypeOf(refusal.OperationIndex).TryGetIndex(name, out var index) ? index.Id : null);
+            Replies.Refuse(CorrelationId, refusal, refusal.IndexName is { } name && EntityTypeOf(refusal.OperationIndex).TryGetIndex(name, out var index) ? index.Id : null);
         }
         finally
         {
@@ -79,16 +88,12 @@ internal sealed class ForwardedOrigin
         }
     }
 
-    public void Succeed(in LatticeWriteResult result, in UpdateBitmap updates)
-    {
-        Replies.Succeed(CorrelationId, result, updates);
-    }
-
+    // The write has ended: what the request charged is released, once.
     public void ReleaseInput()
     {
-        Root = default;
-        _memberTypes = null;
-        Interlocked.Exchange(ref _lease, null)?.Dispose();
+        var charged = _charged;
+        _charged = 0;
+        _budget.Release(charged);
     }
 
     private static LatticeException RefusalOf(Exception exception) => exception switch

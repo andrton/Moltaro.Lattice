@@ -184,14 +184,10 @@ metadata, immediately reusable free space, allocation slack, retired/pinned data
 segment capacity and temporary operation buffers. OS resident memory and virtual
 address reservations are additional observations, not synonyms for live payload.
 Categories must be defined without double-counting; thresholds remain Q14/Q17 work.
-MemoryOnly enforces peak preparation and publication capacity in one instance budget.
-It charges whole segment grants and their empty reserve, together with the owned
-managed backing. A refused preparation returns its exclusive capacity and leaves
-data, revisions and position unchanged. A ready child keeps local reads and its
-applied position while the next frame or transaction is blocked, and resumes in order
-on the same connection when capacity permits. A child that cannot hold its initial
-state fails before readiness. Public pressure diagnostics, retention limits for slow
-children and reconnect or reload remain separate work. The [engine contract](milestone-1-engine-contract.md#initial-bounded-settings)
+MemoryOnly enforces peak preparation and publication capacity in one instance budget,
+which [the memory budget](#the-memory-budget) below describes. Public pressure
+diagnostics, retention limits for slow children and reconnect or reload remain separate
+work. The [engine contract](milestone-1-engine-contract.md#initial-bounded-settings)
 defines the accounting boundary.
 
 By the owner's decision of 15 November 2026 an entity has no size limit of its own, and the
@@ -210,6 +206,115 @@ tail latency and reclamation delay. Include active readers and checkpoint/transf
 retention. Compare correctness and steady-state memory, not only operations/second.
 These are required evidence dimensions, not a load test being started now or
 numerical acceptance thresholds already chosen.
+
+## The memory budget
+
+A MemoryOnly instance admits its work against one budget, its memory limit (by default
+half of the memory available to the process; see the
+[engine contract](milestone-1-engine-contract.md#initial-bounded-settings)). The budget
+guarantees two things: a write that does not fit is refused before it has any effect,
+and a Ready child at the limit pauses and keeps its reads. It is not an exact cap of the
+memory of the process: it charges memory by structure, exactly where memory grows with
+the data and by fixed estimates elsewhere.
+
+The budget is one counter of charged bytes (`Storage/Budgeting/MemoryBudget` in the
+engine). A reservation is a compare-and-swap that never passes the limit, a release an
+interlocked subtraction; neither takes a lock, except a child that waits for memory and a
+release that has such a waiter to wake. Every instance has one; a structure made alone in
+a test has an unlimited one.
+
+**What is charged, and when.**
+
+- *Native segments*, at their grant, with their managed metadata — the segment object and
+  its arrays of regions and slot bitmaps — and the empty reserve; released when a segment
+  is returned to the allocator. A block inside a charged segment, a root or a node of a
+  secondary index, is not charged again.
+- *The managed structures that grow with the data*: the root pages, the tables and
+  overflow buckets of the primary indexes, the arrays of the text table, the collection
+  tails, the retirement queue, the publication scratch, the buffers of connections and of
+  a load in transfer, and a child's key set. Each is charged by the bytes
+  of its backing array — a header of 24 bytes and the elements, rounded up to 8 bytes —
+  when it grows: the new array is reserved before it is allocated, and the old one is
+  released once it is dropped, or, for a generation a reader may still hold, such as the
+  replaced table of a primary index, when its retirement is freed. A growth therefore holds
+  both arrays for a moment, and a structure keeps the capacity it reached.
+- *The root image of an ordinary write*: one workspace of the arena, charged at its size
+  and grown under the writes lock when a wider root is written. A write whose image fits
+  allocates none.
+- *The input of a batch*, when a member is added, after every check of the addition and
+  after the snapshot it builds: its encoded length and `BatchInputCharge.PerMemberBytes`
+  (1,280 bytes), and with the first member `PerBuilderBytes` (640 bytes). One finalizable
+  owner per batch returns the whole charge when the execution of the batch ends, or when an
+  abandoned batch is collected.
+- *A write in progress*: an ordinary write, a child transaction, a write a child forwards
+  and the request it arrives as on the master reserve one estimate when they start —
+  `PerMemberBytes` for each member, and the encoded commands of a partial update — and
+  release it when they end; the child's write ends with the reply of its master. Their
+  values are charged where they land: in the root image, in the native blocks, and, for a
+  transaction or a forwarded request, in the connection buffers that carry it.
+- *The headroom*, once, when the parts of the instance are made: at open on a master, when
+  the schema arrives with the load on a child.
+
+Not charged: the owner objects of the structures (their arrays are), the working objects
+of a write under its estimate — edits, claims, decoded commands and keys, replies —
+application memory and garbage awaiting collection, the workspace of an enumeration,
+which the read budget bounds, and the delivery tail of a master, which is reported as its
+own figure until its retention policy is built.
+
+**The headroom.** The small fixed bookkeeping that the budget does not charge object by
+object — the owner objects of the structures, weak references, fixed directories, the
+headers of each entity type and each index — is covered by a headroom computed from the
+schema and the options (`Storage/Budgeting/Headroom`):
+
+| Part | Bytes |
+| --- | ---: |
+| Every instance | 24,576 |
+| Each entity type | 1,152 |
+| Each index: the primary index of each entity type and each secondary index | 1,024 |
+| A child | 20,480 |
+| A master that listens for children | 4,608 |
+
+The figures were measured on Windows x64 with .NET 10 as what the heap retains once an
+instance is open, beside the arrays its structures report and its segment objects, for
+schemas of 1 to 32 entity types and 0 to 32 secondary indexes and for the reference
+fixture, and rounded up; the constants in the code state each measured figure. A child
+retains more for each type and index than a master, and the parts of a type and of an
+index follow the child. For the schema of the reference fixture, four entity types and six
+secondary indexes, the headroom is 39,424 bytes on a master, 44,032 on a master that
+listens and 59,904 on a child.
+
+**The balance.** At a point of rest — no write, no child transaction, no forwarded request
+and no batch alive — the charge equals the native grants with their metadata, the arrays the
+structures hold and the headroom; while batches or writes are alive it exceeds that by at
+most their estimates. The tests of the engine check it through an inspection of what the
+instance holds (`EngineDatabase.InspectHeld`). After close the charge is zero and every
+native grant is returned.
+
+**What a refusal returns.** A write whose reservation does not fit is refused with
+`WriteRejected` and `Memory` before commit and before any effect; a new entity that finds
+no addressable root slot is refused with `RootSlots`. Before it refuses, the write
+coordinator frees what is retired and tries once more, then waits outside every lock for
+the reads that hold retired memory, frees it and tries again. The refused attempt returns
+the reservations it did not use and its estimate, its native blocks and root slots, its
+root handles, the texts it added, its index reservations, its retirement places and its
+loans of collection tails; installed data, revisions and position stay unchanged. The
+arrays it grew stay with their structures, charged and reusable, so the next write that
+needs the same growth takes no new charge for it. A segment it left empty goes to the
+reserve or is returned, as any empty segment. A batch addition that does not fit reports
+`WriteRejected` with `Memory` at once, keeps the earlier members and can be retried.
+
+**The wait of a child.** A Ready child whose budget refuses a frame or a transaction keeps
+it on the live connection and pauses there; reads continue at its applied position, and no
+later frame or acknowledgement passes it. After the refused attempt has given back what it
+prepared, the child marks itself as the waiter of the budget, which hands it a ticket, the
+count of frees so far, and tries once more. Refused again, it waits for the first free
+counted after its ticket — a release of bytes, or a native block or a root slot made
+reusable — or at most the retry pause, and tries again, until the change applies, once and
+in order. The two marks answer two races: memory freed before the mark is seen by the
+attempt that follows it, and memory freed after it moves the count past the ticket. The
+attempt's own rollback is not counted as a free, so the child does not wake itself. Close
+and cancellation end the wait. Before Ready, a child that cannot hold its initial state
+ends its open with `Unavailable`.
 
 <a id="backup-and-restore-q09.4"></a>
 

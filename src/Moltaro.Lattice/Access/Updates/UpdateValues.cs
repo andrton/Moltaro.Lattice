@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access.Values;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Updates;
@@ -104,7 +103,7 @@ internal static class UpdateValues
         {
             foreach (var property in properties)
             {
-                if (property.Get(value, null) is { } child)
+                if (property.Get(value) is { } child)
                 {
                     owned.Values[property.Field.Ordinal] = CaptureExact(property.Field.Declaration, child, property.Update, property.Field.Name);
                 }
@@ -138,8 +137,7 @@ internal static class UpdateValues
     private static ArgumentException WrongType(LatticeValueDeclaration declaration, string field, Type type) =>
         new($"Field '{field}' is {declaration.Type}; a {type.Name} cannot be used at this position.", "value");
 
-    public static object? Validate(LatticeValueDeclaration declaration, object? snapshot, LatticeEntityType entityType, LatticeField field,
-        MemoryLease? lease = null)
+    public static object? Validate(LatticeValueDeclaration declaration, object? snapshot, LatticeEntityType entityType, LatticeField field)
     {
         if (snapshot is null)
         {
@@ -152,10 +150,10 @@ internal static class UpdateValues
         {
             case LatticeFieldTypeEnum.Owned:
                 var source = (LatticeOwnedValue)snapshot;
-                var owned = LatticeOwnedValue.Snapshot(source.OwnedType, lease);
+                var owned = new LatticeOwnedValue(source.OwnedType);
                 foreach (var member in source.OwnedType.FieldsByOrdinal)
                 {
-                    owned.Values[member.Ordinal] = Validate(member.Declaration, source.Values[member.Ordinal], entityType, member, lease);
+                    owned.Values[member.Ordinal] = Validate(member.Declaration, source.Values[member.Ordinal], entityType, member);
                 }
 
                 return owned;
@@ -164,10 +162,10 @@ internal static class UpdateValues
             case LatticeFieldTypeEnum.Set:
                 var elements = (List<object?>)snapshot;
                 var sequence = declaration.Sequence!;
-                var collection = sequence.Create(elements.Count, lease);
+                var collection = sequence.Create(elements.Count);
                 foreach (var element in elements)
                 {
-                    sequence.Add(collection, Validate(declaration.Element!, element, entityType, field, lease), lease);
+                    sequence.Add(collection, Validate(declaration.Element!, element, entityType, field));
                 }
 
                 return collection;
@@ -175,12 +173,12 @@ internal static class UpdateValues
             case LatticeFieldTypeEnum.Map:
                 var entries = (List<KeyValuePair<object, object?>>)snapshot;
                 var map = declaration.Map!;
-                var result = map.Create(entries.Count, lease);
+                var result = map.Create(entries.Count);
                 foreach (var (key, value) in entries)
                 {
-                    var validatedKey = Validate(declaration.Key!, key, entityType, field, lease)!;
-                    var validatedValue = Validate(declaration.Value!, value, entityType, field, lease);
-                    if (!map.TryAdd(result, validatedKey, validatedValue, lease))
+                    var validatedKey = Validate(declaration.Key!, key, entityType, field)!;
+                    var validatedValue = Validate(declaration.Value!, value, entityType, field);
+                    if (!map.TryAdd(result, validatedKey, validatedValue))
                     {
                         throw Refuse(entityType, field, $"holds the Map key '{validatedKey}' more than once under the schema comparison.");
                     }
@@ -190,13 +188,6 @@ internal static class UpdateValues
         }
 
         RecordValues.CheckCopiedLeaf(declaration, snapshot, entityType, field);
-        if (declaration.Type == LatticeFieldTypeEnum.Binary)
-        {
-            // The command owns this copy until Consume. A successful Add transfers the
-            // same array while a refused Add leaves it available for another attempt.
-            lease?.AdoptArray((byte[])snapshot, nameof(LatticeUpdate));
-        }
-
         return snapshot;
     }
 

@@ -1,6 +1,5 @@
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access;
@@ -342,27 +341,26 @@ public sealed class LatticeUpdate
         _assigned = null;
     }
 
-    internal UpdateInput ValidateContent(MemoryLease? lease = null) => ValidateContent(_commands!, lease);
+    internal UpdateInput ValidateContent() => ValidateContent(_commands!);
 
-    private UpdateInput ValidateContent(List<UpdateCommand> commands, MemoryLease? lease = null)
+    private UpdateInput ValidateContent(List<UpdateCommand> commands)
     {
-        var validated = lease?.Allocate<UpdateCommand>(commands.Count, nameof(LatticeUpdate)) ?? new UpdateCommand[commands.Count];
+        var validated = new UpdateCommand[commands.Count];
         for (var index = 0; index < validated.Length; index++)
         {
             var command = commands[index];
             var field = command.Path[^1];
             var declaration = field.Declaration;
             var first = UpdateCommand.FirstOf(command.Kind, declaration) is { } firstDeclaration
-                ? UpdateValues.Validate(firstDeclaration, command.First, EntityType, field, lease)
+                ? UpdateValues.Validate(firstDeclaration, command.First, EntityType, field)
                 : null;
             var second = command.Kind == UpdateCommandKindEnum.MapSet
-                ? UpdateValues.Validate(declaration.Value!, command.Second, EntityType, field, lease)
+                ? UpdateValues.Validate(declaration.Value!, command.Second, EntityType, field)
                 : null;
-            lease?.AdoptArray(command.Path, nameof(LatticeUpdate));
             validated[index] = command with { First = first, Second = second };
         }
 
-        return UpdateInput.Create(validated, _outcome, lease);
+        return new UpdateInput(validated, _outcome);
     }
 
     private ValueTask<LatticeWriteResult> Commit(LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)

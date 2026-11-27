@@ -19,7 +19,7 @@ public sealed class MeasuredSizesTests
 {
     private const int Members = 1_024;
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void ArrayBytes_is_what_the_runtime_allocates_for_an_array_with_its_header_of_24_bytes()
     {
         Assert.Equal(24, Allocated(() => new byte[0]));
@@ -37,7 +37,7 @@ public sealed class MeasuredSizesTests
         }
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_builder_and_member_constants_cover_what_a_batch_of_the_reference_fixture_allocates_beside_its_input()
     {
         var schema = LatticeSchema.Compile(ReferenceFixture.SchemaJson);
@@ -80,7 +80,7 @@ public sealed class MeasuredSizesTests
         GC.KeepAlive(batch);
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public async Task The_member_constant_covers_what_an_ordinary_and_a_partial_write_of_the_reference_fixture_allocate()
     {
         var schema = LatticeSchema.Compile(ReferenceFixture.SchemaJson);

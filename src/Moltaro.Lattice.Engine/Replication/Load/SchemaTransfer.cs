@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Buffers.Binary;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Replication.Load;
@@ -24,59 +23,36 @@ internal static class SchemaTransfer
     }
 
     // Adds the Schema frames of the saved schema and of the counts to the connection.
-    public static void Add(FrameConnection connection, byte[] savedSchema, ReadOnlySpan<long> counts, MemoryBudget? budget = null)
+    public static void Add(FrameConnection connection, byte[] savedSchema, ReadOnlySpan<long> counts)
     {
-        var length = checked(savedSchema.Length + counts.Length * sizeof(ulong));
-        var bytes = budget?.Allocate<byte>(length, nameof(SchemaTransfer)) ?? new byte[length];
-        try
-        {
-            savedSchema.CopyTo(bytes, 0);
-            for (var index = 0; index < counts.Length; index++)
-            {
-                BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(savedSchema.Length + (index * sizeof(ulong))), (ulong)counts[index]);
-            }
+        var bytes = new byte[savedSchema.Length + (counts.Length * sizeof(ulong))];
 
-            var unsent = bytes.AsSpan();
-            do
-            {
-                var part = Math.Min(unsent.Length, Protocol.MaxDataPayload);
-                connection.Add(FrameKindEnum.Schema, part == unsent.Length ? Protocol.EndsABody : 0, unsent[..part]);
-                unsent = unsent[part..];
-            }
-            while (!unsent.IsEmpty);
-        }
-        finally
+        savedSchema.CopyTo(bytes, 0);
+
+        for (var index = 0; index < counts.Length; index++)
         {
-            budget?.Release(bytes);
+            BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(savedSchema.Length + (index * sizeof(ulong))), (ulong)counts[index]);
         }
+
+        var unsent = bytes.AsSpan();
+
+        do
+        {
+            var part = Math.Min(unsent.Length, Protocol.MaxDataPayload);
+
+            unsent = unsent[part..];
+            connection.Add(FrameKindEnum.Schema, unsent.IsEmpty ? Protocol.EndsABody : 0, bytes.AsSpan(bytes.Length - unsent.Length - part, part));
+        }
+        while (!unsent.IsEmpty);
     }
 
     // Reads what the Schema frames of a load carried: the schema, and the count of roots of each of its
     // entity types, in their order. ValidationFailed when the counts are not one UInt64 for each entity
     // type after the schema, or one of them is beyond what a count can be; InvalidSchema from
     // LatticeSchema.Load when the schema is not one.
-    public static (LatticeSchema Schema, long[] Counts) Read(ReadOnlySequence<byte> bytes, MemoryBudget? budget = null)
+    public static (LatticeSchema Schema, long[] Counts) Read(ReadOnlySequence<byte> bytes)
     {
-        if (budget is null)
-        {
-            return Read(bytes.ToArray());
-        }
-
-        var joined = budget.Allocate<byte>(checked((int)bytes.Length), nameof(SchemaTransfer));
-        try
-        {
-            bytes.CopyTo(joined);
-            return Read(joined);
-        }
-        finally
-        {
-            budget.Release(joined);
-        }
-    }
-
-    private static (LatticeSchema Schema, long[] Counts) Read(byte[] bytes)
-    {
-        using var stream = new MemoryStream(bytes, writable: false);
+        using var stream = new MemoryStream(bytes.ToArray(), writable: false);
         var schema = LatticeSchema.Load(stream);
         var rest = stream.Length - stream.Position;
         var types = schema.EntityTypes.Count;

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
+using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -15,44 +16,26 @@ namespace Moltaro.Lattice.Engine.Entities;
 // - The set of a child: the keys the effects of the transaction being applied name, so that it names each
 //   once (Child.Loading.ReceivedChanges). Only the thread that applies uses it, under the lock of the writes of
 //   the child, and empties it for the next transaction (Clear).
-internal sealed class PublicationKeys : IDisposable
+//
+// Memory. The entities are kept in a ChargedSet. The set of a child stays between its transactions and is
+// charged to the budget of the child by the bytes of its array (docs/design/storage-and-maintenance.md, the
+// memory budget). The set of a batch lives as long as the batch and is a working object under the estimates
+// of its members, so it charges an unlimited budget of its own.
+internal sealed class PublicationKeys
 {
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size) + BudgetSet<(EntityTable, EntityKey)>.OwnerBytes;
+    private readonly ChargedSet<(EntityTable Table, EntityKey Key)> _keys;
 
-    private readonly BudgetSet<(EntityTable Table, EntityKey Key)> _keys;
-    private MemoryBudget? _budget;
-
-    private PublicationKeys(MemoryBudget? budget, bool restoresPreparation)
+    // The set of a batch (see the class).
+    public PublicationKeys(int capacity)
+        : this(capacity, new MemoryBudget())
     {
-        _budget = budget;
-        _keys = new BudgetSet<(EntityTable, EntityKey)>(budget, nameof(PublicationKeys), Comparer.Instance, restoresPreparation);
     }
 
-    public static PublicationKeys Create(int capacity, MemoryBudget? budget = null, bool restoresPreparation = false)
+    // The set of a child, charged to its budget (see the class).
+    public PublicationKeys(int capacity, MemoryBudget budget)
     {
-        budget?.Reserve(OwnerBytes);
-        PublicationKeys? keys = null;
-        try
-        {
-            keys = new PublicationKeys(budget, restoresPreparation);
-            budget?.Own(keys, nameof(PublicationKeys));
-            budget?.Own(keys._keys, nameof(PublicationKeys));
-            keys._keys.EnsureCapacity(capacity);
-            return keys;
-        }
-        catch
-        {
-            if (keys is null)
-            {
-                budget?.Release(OwnerBytes);
-            }
-            else
-            {
-                keys.Dispose();
-            }
-
-            throw;
-        }
+        _keys = new ChargedSet<(EntityTable, EntityKey)>(Comparer.Instance, budget);
+        _keys.EnsureCapacity(capacity);
     }
 
     public int Count => _keys.Count;
@@ -65,26 +48,21 @@ internal sealed class PublicationKeys : IDisposable
     // Empties the set and keeps its room.
     public void Clear() => _keys.Clear();
 
-    public void Dispose()
-    {
-        _keys.Dispose();
-        if (Interlocked.Exchange(ref _budget, null) is { } budget)
-        {
-            budget.Forget(_keys);
-            budget.Release(OwnerBytes, this);
-        }
-    }
+    // Empties the set and releases its room, for an owner that lets it go.
+    public void Release() => _keys.Release();
+
+    public void ReportHeld(List<HeldArray> held) => _keys.ReportHeld(held);
 
     // Whether the two sets hold an entity in common, looked up in the larger for each entity of the smaller.
     public bool Overlaps(PublicationKeys other)
     {
         var (smaller, larger) = Count <= other.Count ? (this, other) : (other, this);
 
-        return larger._keys.Overlaps(smaller._keys);
+        return smaller._keys.Overlaps(larger._keys);
     }
 
     // The comparison of the entity type of the table, its hash the hash of the key in the primary index.
-    private sealed class Comparer : IEqualityComparer<(EntityTable Table, EntityKey Key)>
+    internal sealed class Comparer : IEqualityComparer<(EntityTable Table, EntityKey Key)>
     {
         public static readonly Comparer Instance = new();
 

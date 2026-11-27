@@ -4,6 +4,7 @@ using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Children;
 
@@ -101,24 +102,30 @@ internal sealed class ChildConnection
         _helloTimeout = helloTimeout;
         _testInputs = testInputs;
         _connection = new FrameConnection(socket, writes.Budget);
-        try
-        {
-            _replies = new RecordedReplies(capture.Tail, writes.Budget, Reset);
-        }
-        catch
-        {
-            _connection.ReleaseBacking();
-            throw;
-        }
+        _replies = new RecordedReplies(capture.Tail);
     }
+
+    // The buffer of the roots the load copies, while it runs, and the receiver of forwarded requests, from
+    // the registration of the child until the connection ends, for the inspection of what the connection
+    // holds (ReportHeld).
+    private TransferBuffer? _copies;
+
+    private RequestReceiver? _requests;
 
     // Ends the connection at once, by a reset: for the close of the master, for a connection that did not
     // end within the time the listener gives it; RunAsync then ends.
     public void Reset() => _connection.Reset();
-    public void ReleaseBacking()
+
+    // Releases the buffers of the connection, once its loops are done with them.
+    public void ReleaseBacking() => _connection.ReleaseBacking();
+
+    // For the inspection of the tests (EngineDatabase.InspectHeld), between two steps of the
+    // connection: the arrays of its frame buffers, of the load in progress and of the request being received.
+    public void ReportHeld(List<HeldArray> held)
     {
-        _replies.Close();
-        _connection.ReleaseBacking();
+        _connection.ReportHeld(held);
+        _copies?.ReportHeld(held);
+        _requests?.ReportHeld(held);
     }
 
     // The master closes, and its admitted writes have ended (see the class): the connection sends what it
@@ -155,19 +162,14 @@ internal sealed class ChildConnection
                 return;
             }
 
-            var start = _capture.Register(out var counts);
+            var start = _capture.Register();
 
+            // The receiver of forwarded requests, with its charged buffers, exists from before the load,
+            // so that the child cannot be Ready before the master holds it.
+            _requests = new RequestReceiver(_writes, _replies, _testInputs?.ObserveMasterRequestFrame);
             cursor = start.Cursor;
-            try
-            {
-                _connection.AddHello(FrameKindEnum.HelloReply, _capture.Hello);
-                SchemaTransfer.Add(_connection, _capture.SavedSchema, counts, _writes.Budget);
-            }
-            finally
-            {
-                _writes.Budget?.Release(counts);
-                counts = [];
-            }
+            _connection.AddHello(FrameKindEnum.HelloReply, _capture.Hello);
+            SchemaTransfer.Add(_connection, _capture.SavedSchema, start.Counts);
 
             var readiness = await LoadAsync(start, finishing).ConfigureAwait(false);
 
@@ -190,6 +192,7 @@ internal sealed class ChildConnection
                 _connection.Reset();
             }
 
+            _requests?.Dispose();
             ReleaseBacking();
             if (cursor is not null)
             {
@@ -204,7 +207,8 @@ internal sealed class ChildConnection
         await _connection.SendAsync(closing).ConfigureAwait(false);
 
         using var buffer = new TransferBuffer(_writes.Budget);
-        using var framer = new RootFramer(_connection, _writes.Budget);
+        var framer = new RootFramer(_connection);
+        _copies = buffer;
 
         for (var slot = 0; slot < start.SlotExtent; slot++)
         {
@@ -217,6 +221,7 @@ internal sealed class ChildConnection
         }
 
         await framer.FlushAsync(closing).ConfigureAwait(false);
+        _copies = null;
 
         var readiness = _capture.End(start.Cursor);
 
@@ -397,12 +402,10 @@ internal sealed class ChildConnection
                 continue;
             }
 
-            var correlationId = reply.CorrelationId;
-            using var body = EncodeReply(reply);
-            reply = default;
+            var body = EncodeReply(reply);
             for (var index = 0; index < body.FrameCount; index++)
             {
-                _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, correlationId, body.Frame(index));
+                _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, reply.CorrelationId, body.Frame(index));
 
                 if (_connection.PendingBytes >= Protocol.MaxFrame)
                 {
@@ -412,33 +415,22 @@ internal sealed class ChildConnection
         }
     }
 
-    private OutgoingMessage EncodeReply(in RecordedReply reply)
+    // The body of a reply that does not fit one frame of a result: a refusal, or a result with the outcomes
+    // of the commands of an update.
+    private static OutgoingMessage EncodeReply(in RecordedReply reply)
     {
-        OutgoingMessage? body = null;
-        try
+        var body = new OutgoingMessage();
+        if (reply.Refusal is { } refusal)
         {
-            body = new OutgoingMessage(_writes.Budget);
-            if (reply.Refusal is { } refusal)
-            {
-                ForwardEncoding.WriteReply(body, refusal, reply.IndexId);
-            }
-            else
-            {
-                ForwardEncoding.WriteReply(body, reply.Result, reply.Updates);
-            }
+            ForwardEncoding.WriteReply(body, refusal, reply.IndexId);
+        }
+        else
+        {
+            ForwardEncoding.WriteReply(body, reply.Result, reply.Updates);
+        }
 
-            body.Complete();
-            return body;
-        }
-        catch
-        {
-            body?.Dispose();
-            throw;
-        }
-        finally
-        {
-            _replies.ReleaseBody(reply);
-        }
+        body.Complete();
+        return body;
     }
 
     // The reply of a write that succeeded, one frame: its announced length and its body.
@@ -480,7 +472,7 @@ internal sealed class ChildConnection
     // one the child cannot have applied, and a forwarded write that is not valid end it.
     private async Task ReceiveAsync(DeliveryCursor cursor, ulong readiness, CancellationToken cancellationToken)
     {
-        using var requests = new RequestReceiver(_writes, _replies, _testInputs?.ObserveMasterRequestFrame);
+        var requests = _requests!;
 
         while (true)
         {
