@@ -5,6 +5,7 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
@@ -28,9 +29,9 @@ public sealed class TableFieldOrderTests
         var schema = KeySchema.Of("Utf8", "Ordinal", "Int64");
         Assert.True(schema.TryGetEntityType("Int64", out var entityType));
         var owner = new object();
-        var roots = new RootTable();
+        var roots = new RootTable(new InstanceMemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize }, new InstanceMemoryBudget());
         var table = EntityTable.Open(entityType, schema, arena, roots, epochs, new RetiredMemory(epochs, arena, roots), new PositionClock(1, owner), seed: 0);
 
         ref var indexes = ref Unsafe.As<SecondaryIndex[], byte>(ref IndexesOf(table));

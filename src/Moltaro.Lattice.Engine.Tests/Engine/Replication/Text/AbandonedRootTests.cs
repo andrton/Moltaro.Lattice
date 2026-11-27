@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -61,7 +62,7 @@ public sealed class AbandonedRootTests
         var allocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
-            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, ObserveChildPressure = state => pressure.TrySetResult(state) });
+            new EngineTestInputs { Allocator = allocator, ObserveChildPressure = state => pressure.TrySetResult(state) });
         var readiness = child.Position;
 
         tally.ExpectHeldBy(child);
@@ -83,7 +84,7 @@ public sealed class AbandonedRootTests
         Assert.Null(child.Set<TextSchema.Place>().Get(6L));
         tally.ExpectHeldBy(child);
         EntryCounts.ExpectEqual(tally, child);
-        Assert.True(ExpectCapacity(child, allocator).NativeBytes > 0);
+        Assert.True(NativeBytes(ExpectInFlight(child, allocator, UnitEstimate(2))) > 0);
     }
 
     [Fact]

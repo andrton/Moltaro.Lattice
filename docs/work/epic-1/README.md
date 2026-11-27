@@ -206,7 +206,7 @@ Why this order:
 | [S24](sprints/s24.md) | The memory budget | Full, critical | Merged at `895651e3`. Acceptance reopened after independent reproduction. [Original measurements](sprints/s24.md#s24--the-memory-budget) |
 | [S24A](sprints/s24a.md) | Budget ownership, withdrawal and dictionary growth | Full, critical | Done on 26 November 2026. [Brief and acceptance](sprints/s24a.md#s24a--budget-ownership-withdrawal-and-dictionary-growth) |
 | [S24R](sprints/s24r.md) | Capacity wait and ownership cleanup | Refactoring | Done on 26 November 2026. [Brief and verification](sprints/s24r.md#s24r--capacity-wait-and-ownership-cleanup) |
-| [S24B](sprints/s24b.md) | Budget accounting by structure | Full, critical | Not started. The owner's decision of 27 November 2026 |
+| [S24B](sprints/s24b.md) | Budget accounting by structure | Full, critical | Done on 27 November 2026. [Record and closing measurement](sprints/s24b.md#closing-measurement) |
 | [S24BR](sprints/s24br.md) | Refactoring after S24B | Refactoring | Not started |
 | [S25](sprints/s25.md) | Reference fixture, managed reference, the memory gate | Full | Not started |
 | [S25L](sprints/s25l.md) | One lifecycle of the instance | Full, critical | Not started |

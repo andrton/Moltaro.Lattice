@@ -25,7 +25,8 @@ internal static class MergedTransaction
         Assert.Equal(TransactionPayload.SequenceOf(second), BinaryPrimitives.ReadUInt64LittleEndian(rest.AsSpan(TransactionPayload.WriteLastMutationAt)));
         BinaryPrimitives.WriteUInt64LittleEndian(rest.AsSpan(TransactionPayload.WriteLastMutationAt), sequence);
 
-        var opening = TransactionPayload.Make(sequence, (ulong)effects.Length + TransactionPayload.AnnouncedLengthOf(second), effects);
+        var count = TransactionPayload.CountOf(first) + TransactionPayload.CountOf(second);
+        var opening = TransactionPayload.Make(sequence, count, (ulong)effects.Length + TransactionPayload.AnnouncedLengthOf(second), effects);
 
         return
         [

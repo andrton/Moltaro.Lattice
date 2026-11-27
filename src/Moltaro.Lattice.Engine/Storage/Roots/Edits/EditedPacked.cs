@@ -23,8 +23,7 @@ internal ref struct EditedPacked(StructureLayout element, StoredCollection? stor
             return;
         }
 
-        var budget = holder.Arena.Budget;
-        var scratch = budget?.Allocate<byte>(element.Size, nameof(EditedPacked)) ?? ArrayPool<byte>.Shared.Rent(element.Size);
+        var scratch = ArrayPool<byte>.Shared.Rent(element.Size);
         try
         {
             var source = new EditedPacked(element, stored, entries, scratch.AsSpan(0, element.Size));
@@ -32,14 +31,7 @@ internal ref struct EditedPacked(StructureLayout element, StoredCollection? stor
         }
         finally
         {
-            if (budget is not null)
-            {
-                budget.Release(scratch);
-            }
-            else
-            {
-                ArrayPool<byte>.Shared.Return(scratch);
-            }
+            ArrayPool<byte>.Shared.Return(scratch);
         }
     }
 

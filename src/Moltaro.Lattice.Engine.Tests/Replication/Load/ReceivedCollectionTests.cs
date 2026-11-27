@@ -14,6 +14,7 @@ using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
@@ -63,8 +64,8 @@ public sealed class ReceivedCollectionTests
     public void A_short_hashed_Set_exports_only_its_entries_and_reexports_the_same_bytes_under_another_seed()
     {
         var options = new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit };
-        using var master = new Arena(options, new NativeAllocator(), textSeed: 111, writes: null);
-        using var child = new Arena(options, new NativeAllocator(), textSeed: 222, writes: null);
+        using var master = new Arena(options, new NativeAllocator(), textSeed: 111, writes: null, collectionTime: null, new MemoryBudget());
+        using var child = new Arena(options, new NativeAllocator(), textSeed: 222, writes: null, collectionTime: null, new MemoryBudget());
         var layout = Layout();
         var expected = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 };
         var forwarded = Encode(layout, 1, expected);
@@ -89,7 +90,7 @@ public sealed class ReceivedCollectionTests
     [Fact]
     public void A_received_duplicate_in_an_inline_packed_Set_refuses_placement_without_retaining_any_bytes()
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit }, new MemoryBudget());
         var layout = Layout();
         var input = Encode(layout, 1, [1, 2]);
         Assert.Equal((uint)DescriptorKindEnum.Inline, BinaryPrimitives.ReadUInt32LittleEndian(input.AsSpan(Descriptor)));
@@ -223,9 +224,9 @@ public sealed class ReceivedCollectionTests
     [InlineData(9)]
     public void A_stale_write_with_a_duplicate_Set_member_refuses_the_transaction_and_releases_an_earlier_prepared_insert(int count)
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit }, new MemoryBudget());
         var owner = new object();
-        var roots = new RootTable();
+        var roots = new RootTable(new MemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);
         var retired = new RetiredMemory(epochs, arena, roots);
         var clock = new PositionClock(1, owner);
@@ -251,7 +252,7 @@ public sealed class ReceivedCollectionTests
         WriteEffect(effects, Encode(layout, 1, [3, 4]), member: 0);
         WriteEffect(effects, stale, member: 1);
 
-        var error = Assert.Throws<LatticeException>(() => received.Apply(2, new ReadOnlySequence<byte>(effects.WrittenMemory), CancellationToken.None));
+        var error = Assert.Throws<LatticeException>(() => received.Apply(2, new ReadOnlySequence<byte>(effects.WrittenMemory), 2, CancellationToken.None));
 
         Assert.Equal(LatticeErrorEnum.ValidationFailed, error.Error);
         Assert.Contains("Bytes", error.Message, StringComparison.Ordinal);

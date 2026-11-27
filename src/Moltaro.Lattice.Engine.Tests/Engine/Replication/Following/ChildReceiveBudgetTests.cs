@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -32,8 +33,12 @@ public sealed class ChildReceiveBudgetTests
         var source = master.Set<PieceSchema.Piece>();
         var readiness = await source.InsertAsync(PieceSchema.Of(1, 8));
         var lowerBound = await ShortRequestRoomAsync(master.ListenUri!, PieceSchema.Of(1, 21));
-        var pieceBytes = ManagedObjectSize(new byte[TransferBuffer.PieceSize]);
-        var shortRoom = checked((int)(2 * lowerBound));
+        var pieceBytes = ArrayBytes(typeof(byte), TransferBuffer.PieceSize);
+
+        // The room left beside the waiting frame: the estimates of the short writes the case submits
+        // while it waits, the second write and, before a disconnect, the signal, each with the length of its
+        // request and each at most the forwarding peak of a short write; below one piece.
+        var shortRoom = 2 * lowerBound;
         Assert.InRange(shortRoom, lowerBound + 32, pieceBytes - 1);
         ulong blocked = PositionSequence.Of(readiness.Position) + 1;
         await using var relay = FrameRelay.Start(master.ListenUri!);
@@ -54,7 +59,6 @@ public sealed class ChildReceiveBudgetTests
         EngineDatabase? receiving = null;
         await using var child = EngineDatabase.Create(options, new EngineTestInputs
         {
-            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
             BeforeChildTransactionFrame = (sequence, received) =>
@@ -65,10 +69,23 @@ public sealed class ChildReceiveBudgetTests
                     if (held is null)
                     {
                         var node = receiving!;
-                        var room = ChildLimit - ExpectCapacity(node, allocator).ChargedBytes;
+
+                        // The first write of the child releases its estimate and the length of its request
+                        // with its reply, in the continuation of its caller, which may run after this frame
+                        // arrives: the write unit ends with its reply. The room is read once the child holds
+                        // nothing beyond its inventory and its headroom.
+                        if (!SpinWait.SpinUntil(() => HoldsNothingInFlight(node), Bound))
+                        {
+                            paused.TrySetException(new TimeoutException(
+                                "The child still held the estimate of its forwarded write when the frame of its transaction arrived."));
+                            return;
+                        }
+
+                        var room = ChildLimit - ExpectAtRest(node, allocator).Charged;
                         atFrame = ReceiveBackings(node);
-                        held = node.HoldBudgetBacking(checked((int)room - shortRoom));
-                        Assert.InRange(ChildLimit - node.InspectBudget().ChargedBytes, lowerBound, pieceBytes - 1);
+                        // The held array is charged with its header, and its bytes are whole words.
+                        held = node.HoldBudgetBacking(checked((int)((room - shortRoom - ArrayHeaderBytes) / 8 * 8)));
+                        Assert.InRange(ChildLimit - node.InspectHeld().Charged, lowerBound, pieceBytes - 1);
                     }
                 }
             },
@@ -126,7 +143,6 @@ public sealed class ChildReceiveBudgetTests
                 .SelectMany((frame, index) => index == 0 ? frame.Payload[TransactionPayload.HeaderSize..] : frame.Payload).ToArray();
             Assert.Equal(prefix, prepared.Item3);
             Assert.Equal(prefix, retained.Prefix);
-            _ = ExpectCapacity(child, allocator, out _, [retained.Receive, .. retained.Pieces]);
 
             const int laterBytes = 2 * 1024 * 1024 + 64;
             var later = await source.InsertAsync(PieceSchema.Of(4, 8, data: laterBytes)).AsTask().WaitAsync(Bound);
@@ -146,11 +162,12 @@ public sealed class ChildReceiveBudgetTests
                 Assert.True(owners.Count >= 2);
                 return owners.ToArray();
             });
-            var budgetBackings = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            var physical = master.InspectBudget((_, backing) => budgetBackings.Add(backing)).DeliveryCapacityBytes;
-            Assert.Equal(ownedTail.Sum(block => ManagedObjectSize(block) + ManagedObjectSize(block.Bytes)), physical);
-            Assert.All(ownedTail, block => Assert.DoesNotContain(block.Bytes, budgetBackings));
-            ExpectCapacity(master, masterAllocator);
+            var physical = ownedTail.Sum(block => ArrayBytes(typeof(byte), block.Bytes.Length));
+            var masterHeld = master.InspectHeld();
+            Assert.Equal(physical, masterHeld.DeliveryCapacityBytes);
+            Assert.DoesNotContain(masterHeld.Arrays, array =>
+                array.ElementType == typeof(byte) && ownedTail.Any(block => block.Bytes.Length == array.Length));
+            ExpectAtRest(master, masterAllocator);
             var logical = master.Counters.PendingDeliveryBytes;
             Assert.True(logical > 2L * 1024 * 1024);
             Assert.True(physical > logical);
@@ -162,15 +179,7 @@ public sealed class ChildReceiveBudgetTests
             Assert.Null(local.Get(4L));
             Assert.False(first.IsCompleted);
             Assert.False(second.IsCompleted);
-            Assert.DoesNotContain(Acknowledged(relay), sequence => sequence >= blocked);
-            var follower = Backing<Follower>(child, "_follower");
-            var pending = Backing<object>(follower, "_pending");
-            var sender = Backing<object>(follower, "_sender");
-            var calls = DictionaryArrays(Backing<object>(pending, "_calls"));
-            Assert.NotEmpty(calls);
-            var queued = Backing<Array>(Backing<object>(sender, "_queue"), "_array");
-            Assert.NotEmpty(queued);
-            _ = ExpectCapacity(child, allocator, out _, [queued, .. calls]);
+            Assert.DoesNotContain(Acknowledged.By(relay), sequence => sequence >= blocked);
 
             using var cancellation = new CancellationTokenSource();
             var wait = child.WaitForPositionAsync(later.Position, ReplicationNodes.BeyondTheBound, cancellation.Token).AsTask();
@@ -197,7 +206,7 @@ public sealed class ChildReceiveBudgetTests
             }
             if (end == "disconnect")
             {
-                var beforeEnd = child.InspectBudget();
+                var beforeEnd = child.InspectHeld();
                 var followingTask = Backing<Task>(child, "_following");
                 relay.Cut();
                 // The sender observes the broken connection independently of the held receive body.
@@ -210,7 +219,7 @@ public sealed class ChildReceiveBudgetTests
                 Assert.Equal(blocked, PositionSequence.Of(known.CommittedPosition!.Value));
                 var unknown = await Assert.ThrowsAsync<LatticeException>(() => second.WaitAsync(Bound));
                 Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, unknown.Error);
-                Assert.True(beforeEnd.ChargedBytes - ExpectCapacity(child, allocator).ChargedBytes >= 64 * 1024);
+                Assert.True(beforeEnd.Charged - ExpectAtRest(child, allocator).Charged >= 64 * 1024);
                 Assert.Equal(readiness.Position, child.Position);
                 Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
                 Assert.Null(local.Get(2L));
@@ -229,10 +238,10 @@ public sealed class ChildReceiveBudgetTests
             Assert.Equal(laterBytes, local.Get(4L)?.Data?.Length);
             Assert.Equal(later.Position, child.Position);
             Assert.Equal(4, local.Enumerate().Count());
-            await Eventually.HoldsAsync(() => Acknowledged(relay).Contains(PositionSequence.Of(later.Position)),
+            await Eventually.HoldsAsync(() => Acknowledged.By(relay).Contains(PositionSequence.Of(later.Position)),
                 "The child did not acknowledge the resumed prefix.");
             await Eventually.HoldsAsync(() => master.Counters.PendingDeliveryBytes == 0, "The master did not dequeue the applied transactions.");
-            ExpectCapacity(child, allocator);
+            ExpectAtRest(child, allocator);
         }
         finally
         {
@@ -251,12 +260,16 @@ public sealed class ChildReceiveBudgetTests
         var allocator = new CountingNativeAllocator();
         var readyToPrepare = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var receivedPressure = false;
+
+        // The room the second transaction finds: the estimate of a unit of its one member, and less than
+        // one more piece.
+        var room = UnitEstimate(1) + 1_024;
+        Assert.True(room < ArrayBytes(typeof(byte), TransferBuffer.PieceSize));
         IDisposable? held = null;
         EngineDatabase? receiving = null;
         await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, ChildLimit),
             new EngineTestInputs
             {
-                ObserveBudgetBackings = true,
                 Allocator = allocator,
                 DisableBackgroundMaintenance = true,
                 BeforeChildTransactionFrame = (sequence, frame) =>
@@ -264,7 +277,7 @@ public sealed class ChildReceiveBudgetTests
                     if (sequence == second && frame == 0 && held is null)
                     {
                         var node = receiving!;
-                        held = node.HoldBudgetBacking(checked((int)(ChildLimit - node.InspectBudget().ChargedBytes - 1_024)));
+                        held = node.HoldBudgetBacking(checked((int)(ChildLimit - node.InspectHeld().Charged - room)));
                     }
                 },
                 BeforeChildPreparationMember = _ =>
@@ -282,15 +295,14 @@ public sealed class ChildReceiveBudgetTests
         await child.WaitForPositionAsync(seed.Position, Bound);
         var pieces = PiecesOf(child);
         Assert.True(pieces.Length >= 3);
-        var rawBytes = pieces.Select(PieceBytes).ToArray();
-        ExpectCapacity(child, allocator, out _, rawBytes);
+        ExpectOwners(ExpectAtRest(child, allocator), "TransferBuffer");
         try
         {
             var repeat = await source.InsertAsync(PieceSchema.Of(3, 8, data: BinaryLength));
             await readyToPrepare.Task.WaitAsync(Bound);
             Assert.False(receivedPressure);
             Assert.Equal(pieces, PiecesOf(child));
-            ExpectCapacity(child, allocator, out _, rawBytes);
+            ExpectInFlight(child, allocator, UnitEstimate(1));
             held!.Dispose();
             await child.WaitForPositionAsync(repeat.Position, Bound);
             Assert.Equal(BinaryLength, child.Set<PieceSchema.Piece>().Get(3L)?.Data?.Length);
@@ -329,8 +341,8 @@ public sealed class ChildReceiveBudgetTests
         var paused = new TaskCompletionSource<ChildPressureSample>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, limit),
-            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = pressure => paused.TrySetResult(pressure) });
-        var before = ExpectCapacity(child, allocator);
+            new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = pressure => paused.TrySetResult(pressure) });
+        var before = ExpectAtRest(child, allocator);
         var announced = await source.InsertAsync(PieceSchema.Of(2, 8, data: 8 * 1024 * 1024)).AsTask().WaitAsync(Bound);
         Assert.Equal(sequence, PositionSequence.Of(announced.Position));
 
@@ -344,21 +356,18 @@ public sealed class ChildReceiveBudgetTests
             Assert.Equal(new ChildPressureSample(sequence, LatticeLimitEnum.Memory, true, 0), await paused.Task.WaitAsync(Bound));
             var original = relay.FromMaster.First(frame => frame.Kind == FrameKindEnum.Transaction);
             Assert.True(TransactionPayload.AnnouncedLengthOf(original) > (ulong)limit);
-            Assert.Equal(before.ChargedBytes, ExpectCapacity(child, allocator).ChargedBytes);
-            Assert.Equal(before.NativeBytes, allocator.OutstandingBytes);
+            Assert.InRange(ExpectInFlight(child, allocator, UnitEstimate(1)).Charged, before.Charged,
+                before.Charged + UnitEstimate(1));
+            Assert.Equal(NativeBytes(before), allocator.OutstandingBytes);
         }
 
         Assert.Equal(initial.Position, child.Position);
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Null(child.Set<PieceSchema.Piece>().Get(2L));
-        Assert.DoesNotContain(Acknowledged(relay), applied => applied >= sequence);
+        Assert.DoesNotContain(Acknowledged.By(relay), applied => applied >= sequence);
         await child.CloseAsync().AsTask().WaitAsync(Bound);
         allocator.ExpectEverythingReturned();
     }
-
-    internal static ulong[] Acknowledged(FrameRelay relay) =>
-        [.. relay.FromChild.Where(frame => frame.Kind == FrameKindEnum.Applied)
-            .Select(frame => BinaryPrimitives.ReadUInt64LittleEndian(frame.Payload))];
 
     internal static async Task<long> ShortRequestRoomAsync<TEntity>(Uri master, TEntity existing)
         where TEntity : class
@@ -378,7 +387,6 @@ public sealed class ChildReceiveBudgetTests
         var allocator = new CountingNativeAllocator();
         await using var control = await ReplicationNodes.OpenChildAsync(relay.Address, new EngineTestInputs
         {
-            ObserveBudgetBackings = true,
             Allocator = allocator,
             DisableBackgroundMaintenance = true,
         });
@@ -386,7 +394,7 @@ public sealed class ChildReceiveBudgetTests
         // The duplicate check happens on the master. This sends a complete short
         // request without changing the real master's starting position. Size the
         // owned forwarding peak, which excludes transient CLR/JIT allocations.
-        var before = ExpectCapacity(control, allocator);
+        var before = ExpectAtRest(control, allocator);
         control.ResetBudgetPeak();
         var writing = set.InsertAsync(existing).AsTask();
         long forwardingBytes;
@@ -394,15 +402,12 @@ public sealed class ChildReceiveBudgetTests
         {
             await hasReply.Task.WaitAsync(Bound);
             Assert.False(writing.IsCompleted);
-            var follower = Backing<Follower>(control, "_follower");
-            var pending = Backing<object>(follower, "_pending");
-            var sender = Backing<object>(follower, "_sender");
-            var calls = DictionaryArrays(Backing<object>(pending, "_calls"));
-            var offers = Backing<Array>(Backing<object>(sender, "_queue"), "_array");
-            Assert.NotEmpty(calls);
-            var held = ExpectCapacity(control, allocator, out _, [offers, .. calls]);
-            forwardingBytes = held.PeakBytes - before.ChargedBytes;
-            Assert.True(forwardingBytes > 512);
+
+            // The estimate of the write and the encoded length of its request, which the first frame of the
+            // request announces.
+            var request = relay.FromChild.First(frame => frame.Kind == FrameKindEnum.WriteRequest);
+            var held = ExpectInFlight(control, allocator, UnitEstimate(1) + (long)BinaryPrimitives.ReadUInt64LittleEndian(request.Payload));
+            forwardingBytes = held.Peak - before.Charged;
         }
         finally
         {
@@ -412,6 +417,13 @@ public sealed class ChildReceiveBudgetTests
         var reply = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
         Assert.Equal(LatticeErrorEnum.DuplicateKey, reply.Error);
         return forwardingBytes;
+    }
+
+    // The charge of the node is its inventory and its headroom: no estimate is in flight.
+    private static bool HoldsNothingInFlight(EngineDatabase node)
+    {
+        var held = node.InspectHeld();
+        return held.Charged == Inventory(held) + held.Headroom;
     }
 
     internal static (byte[] Receive, byte[][] Pieces, byte[] Prefix) ReceiveBackings(EngineDatabase child)
@@ -430,7 +442,4 @@ public sealed class ChildReceiveBudgetTests
         var transfer = Backing<object>(Backing<object>(follower, "_assembler"), "_large");
         return Backing<System.Collections.IList>(transfer, "_pieces").Cast<object>().ToArray();
     }
-
-    private static byte[] PieceBytes(object piece) =>
-        Assert.IsType<byte[]>(piece.GetType().GetProperty("Bytes")!.GetValue(piece));
 }

@@ -12,6 +12,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -933,7 +934,7 @@ public sealed class AutomaticRelocationTests
         Inspect(node, parts =>
         {
             var queue = RetiredItems(parts.Retired);
-            result = (queue.Count, queue.EnsureCapacity(0));
+            result = (queue.Count, queue.Capacity);
         });
         return result;
     }
@@ -1098,9 +1099,6 @@ public sealed class AutomaticRelocationTests
         (location.Address.Segment, location.Address.Offset / Arena.MaxBlockSize);
 
     private static long CheckOf(long key) => key * -11;
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_regionsWithFreeSlot")]
     private static extern ref long[] ClassHeads(Arena arena);

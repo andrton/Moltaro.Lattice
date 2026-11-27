@@ -78,7 +78,7 @@ public sealed class SparseUpdateTests(ITestOutputHelper output)
             var firstLength = checked((int)BinaryPrimitives.ReadUInt64LittleEndian(effects.AsSpan(1)));
             var sparseOffset = 1 + sizeof(ulong) + firstLength;
             BinaryPrimitives.WriteUInt64LittleEndian(effects.AsSpan(sparseOffset + SparseUpdatePayload.BaseSequenceAt), 1);
-            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame),
+            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), TransactionPayload.CountOf(frame),
                 malformedTail ? [.. effects, byte.MaxValue] : effects))];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);

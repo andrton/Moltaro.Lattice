@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -81,11 +82,10 @@ public sealed class DeliveryCapacityBudgetTests
         {
             DeliveryBlock[] blocks = [];
             long logical = 0;
-            var charged = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            BudgetCapacitySample snapshot = default;
+            HeldMemory held = default;
             master.WithOwnershipAudit(() =>
             {
-                snapshot = master.InspectBudget((_, backing) => charged.Add(backing));
+                held = master.InspectHeld();
                 var observed = new HashSet<DeliveryBlock>(ReferenceEqualityComparer.Instance);
                 TakeChain(Backing<DeliveryBlock?>(tail, "_first"));
                 TakeChain(Backing<DeliveryBlock?>(tail, "_taken"));
@@ -101,9 +101,10 @@ public sealed class DeliveryCapacityBudgetTests
                     }
                 }
             });
-            Assert.All(blocks, block => Assert.DoesNotContain(block.Bytes, charged));
-            var bytes = blocks.Sum(block => ManagedObjectSize(block) + ManagedObjectSize(block.Bytes));
-            Assert.Equal(bytes, snapshot.DeliveryCapacityBytes);
+            var bytes = blocks.Sum(block => ArrayBytes(typeof(byte), block.Bytes.Length));
+            Assert.Equal(bytes, held.DeliveryCapacityBytes);
+            Assert.DoesNotContain(held.Arrays, array =>
+                array.ElementType == typeof(byte) && blocks.Any(block => block.Bytes.Length == array.Length));
             return (blocks, bytes, logical);
         }
     }

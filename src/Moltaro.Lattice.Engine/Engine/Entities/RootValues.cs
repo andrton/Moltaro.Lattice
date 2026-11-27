@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -233,12 +232,9 @@ internal static class RootValues
     // used in part: a root just above one piece takes two, up to twice its length, and a root of 3 MiB
     // takes 2 % more than its length. The root writer
     // refuses what it refuses for a write of values, and keeps nothing then.
-    public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values,
-        MemoryLease? snapshot = null)
+    public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values)
     {
-        using var working = snapshot is null ? null : MemoryLease.Create(snapshot.Budget);
-        var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working));
-        BudgetByteWriter bytes;
+        var writer = new RootWriter(layout, ExportedValues.OfRoot(layout));
 
         try
         {
@@ -248,29 +244,27 @@ internal static class RootValues
 
             if (length > TransferBuffer.PieceSize)
             {
-                var pieces = snapshot is null ? new TransferBuffer() : TransferBuffer.ForSnapshot(snapshot);
+                // The builder of the batch charges the snapshot by its encoded length (the input of a
+                // batch, docs/design/storage-and-maintenance.md, the memory budget); the pieces keep it off
+                // the large object heap and hold a root of any size, and charge nothing of their own.
+                var pieces = new TransferBuffer();
 
                 writer.Export(pieces);
 
                 return pieces.Sequence;
             }
 
-            bytes = working is null
-                ? new BudgetByteWriter(null, (int)length, nameof(RootValues))
-                : working.Allocate(BudgetByteWriter.OwnerBytes, nameof(RootValues),
-                    () => new BudgetByteWriter(working.Budget, (int)length, nameof(RootValues)), static (_, writer) => writer.Dispose());
+            var bytes = new ArrayBufferWriter<byte>((int)length);
 
             writer.Export(bytes);
+
+            return new ReadOnlySequence<byte>(bytes.WrittenMemory);
         }
         catch
         {
             writer.Abandon();
             throw;
         }
-
-        // The writer has ended. A refused transfer leaves the bytes with the working lease.
-        var written = snapshot is null ? bytes.WrittenMemory : bytes.Take(snapshot);
-        return new ReadOnlySequence<byte>(written);
     }
 
     // The Lists of the value of the place at the position of the structure, the place itself and those

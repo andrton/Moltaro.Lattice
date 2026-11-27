@@ -1,7 +1,6 @@
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access.Values;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Binding;
@@ -67,12 +66,12 @@ internal sealed class EntityBinding<TEntity>
     // the fields of the entity, checked to be byte[] as a copy is: the engine copies each once, into
     // its own memory, while the write runs, and the caller keeps the entity unchanged until the write
     // completes (BoundProperty.Take; RecordValues.Submit says the same of a record).
-    public object?[] ValuesForWrite(TEntity entity, MemoryLease? lease = null)
+    public object?[] ValuesForWrite(TEntity entity)
     {
-        var values = lease?.Allocate<object?>(_properties.Length, nameof(EntityBinding<TEntity>)) ?? new object?[_properties.Length];
+        var values = new object?[_properties.Length];
         foreach (var property in _properties)
         {
-            var value = property.Get(entity, lease);
+            var value = property.Get(entity);
             if (value is not null)
             {
                 if (!ValueBound.Holds(property.Field.Declaration, value, EntityType.StringEncoding))
@@ -80,7 +79,7 @@ internal sealed class EntityBinding<TEntity>
                     throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"{EntityType.Name}.{property.Field.Name} {ValueBound.Problem}");
                 }
 
-                values[property.Field.Ordinal] = property.Take(value, lease);
+                values[property.Field.Ordinal] = property.Take(value);
             }
             else if (!property.Field.Declaration.IsNullable)
             {

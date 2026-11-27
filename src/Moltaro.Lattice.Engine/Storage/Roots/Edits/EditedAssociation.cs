@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Roots.Edits;
@@ -7,52 +6,39 @@ namespace Moltaro.Lattice.Storage.Roots.Edits;
 // Changes keyed by original ordinal, plus new entries under the declared
 // comparison. Native probes consult the old lookup. Final placement reads
 // the active original ordinals and then the surviving new entries.
-internal sealed class EditedAssociation : IDisposable
+internal sealed class EditedAssociation
 {
     private static readonly object NullMember = new();
 
     private readonly StoredCollection? _stored;
-    private readonly MemoryBudget? _budget;
-    private readonly MemoryLease? _work;
-    private Dictionary<int, EditedEntry> _changed;
+    private readonly Dictionary<int, EditedEntry> _changed = [];
     private readonly List<EditedEntry> _added = [];
-    private Dictionary<object, int> _newKeys = null!;
+    private readonly Dictionary<object, int> _newKeys;
 
-    public EditedAssociation(StructureLayout element, StoredCollection? stored, object? assigned, MemoryBudget? budget, MemoryLease? work)
+    public EditedAssociation(StructureLayout element, StoredCollection? stored, object? assigned)
     {
         _stored = stored;
-        _budget = budget;
-        _work = work;
         Count = stored?.Count ?? 0;
         var declaration = element.DeclarationOf(0);
-        _changed = BudgetDictionaries.Create<int, EditedEntry>(budget, nameof(EditedAssociation));
-        try
+        _newKeys = new Dictionary<object, int>(new KeyComparison(declaration.TextComparison));
+
+        if (assigned is not null)
         {
-            _newKeys = BudgetDictionaries.Create<object, int>(budget, nameof(EditedAssociation),
-                new KeyComparison(declaration.TextComparison));
-            if (assigned is not null)
+            var collection = element.Collection!;
+            if (collection.Map is { } map)
             {
-                var collection = element.Collection!;
-                if (collection.Map is { } map)
+                foreach (var (key, value) in map.Entries(assigned))
                 {
-                    foreach (var (key, value) in map.Entries(assigned))
-                    {
-                        Add(key, value);
-                    }
-                }
-                else
-                {
-                    foreach (var member in collection.Sequence!.Elements(assigned))
-                    {
-                        Add(member, null);
-                    }
+                    Add(key, value);
                 }
             }
-        }
-        catch
-        {
-            Dispose();
-            throw;
+            else
+            {
+                foreach (var member in collection.Sequence!.Elements(assigned))
+                {
+                    Add(member, null);
+                }
+            }
         }
     }
 
@@ -74,16 +60,11 @@ internal sealed class EditedAssociation : IDisposable
 
             if (key is string)
             {
-                resolved = new ResolvedCommand(command with { First = _stored!.Value.Spelling(original, _work) }, setsValue);
+                resolved = new ResolvedCommand(command with { First = _stored!.Value.Spelling(original) }, setsValue);
             }
             else if (setsValue)
             {
                 resolved = new ResolvedCommand(command, ReplacesMapValue: true);
-            }
-
-            if (!_changed.ContainsKey(original))
-            {
-                _changed.EnsureCapacity(_changed.Count + 1, _budget, nameof(EditedAssociation));
             }
 
             if (setsValue)
@@ -153,35 +134,9 @@ internal sealed class EditedAssociation : IDisposable
 
     private void Add(object? key, object? value)
     {
-        _newKeys.EnsureCapacity(_newKeys.Count + 1, _budget, nameof(EditedAssociation));
-        _added.EnsureCapacity(_added.Count + 1, _budget, nameof(EditedAssociation));
         _newKeys.Add(key ?? NullMember, _added.Count);
         _added.Add(new EditedEntry(EditedEntry.New, key, value));
         Count++;
-    }
-
-    public void Dispose()
-    {
-        var changed = _changed;
-        var newKeys = _newKeys;
-        _changed = null!;
-        _newKeys = null!;
-        var backing = BudgetCollections.Items(_added);
-        _added.Clear();
-        _added.Capacity = 0;
-        if (_budget is { } budget)
-        {
-            budget.Release(backing);
-            if (changed is not null)
-            {
-                budget.ReleaseDictionary(changed, includesOwner: true);
-            }
-
-            if (newKeys is not null)
-            {
-                budget.ReleaseDictionary(newKeys, includesOwner: true);
-            }
-        }
     }
 
     private sealed class KeyComparison(TextComparison? text) : IEqualityComparer<object>

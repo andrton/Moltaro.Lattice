@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
-
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Allocation;
 
@@ -32,10 +31,15 @@ internal sealed unsafe class ArenaSegment
     // takes another class without metadata of another size.
     public const int SlotWordsPerRegion = RegionSize / SizeClasses.Smallest / 64;
 
+    // The bytes of a segment object, which belongs to its grant (Arena charges both together): its
+    // object header and method table, the native memory, the regions and the three bitmaps, five
+    // words, and its three counters, 68 bytes rounded up to 72 on a 64-bit runtime.
+    public const int ObjectBytes = 72;
+
+    // The bytes of the metadata arrays of a segment of that many regions: the regions and the three
+    // bitmaps of their slots.
     public static long MetadataBytes(int regions) =>
-        MemoryBudget.ObjectBytes(5L * IntPtr.Size + 3 * sizeof(int) + 1) +
-        MemoryBudget.ArrayBytes<ArenaRegion>(regions) +
-        3 * MemoryBudget.ArrayBytes<ulong>(regions * SlotWordsPerRegion);
+        MemoryBudget.ArrayBytes<ArenaRegion>(regions) + 3 * MemoryBudget.ArrayBytes<ulong>(regions * SlotWordsPerRegion);
 
     // One bit per slot, SlotWordsPerRegion words for each region in the order of the regions: set
     // while the slot holds an allocated block. Every bit of a region that serves no class is clear,
@@ -81,26 +85,13 @@ internal sealed unsafe class ArenaSegment
     // Prepared and retired index nodes also prevent returning this segment.
     public int AllocatedIndexNodes { get; set; }
 
-    // An empty grant used only by unpublished preparations is returned even when the
-    // ordinary reserve has room. Multiple preparations can use it before it is published.
-    public bool ReturnWhenEmpty { get; set; }
-
-    public void RecordBacking(MemoryBudget budget)
+    // Adds the metadata arrays of the segment, which the arena reports for it (Arena.ReportHeld).
+    public void ReportHeld(List<HeldArray> held)
     {
-        budget.Own(this, nameof(ArenaSegment));
-        budget.Own(Regions, nameof(ArenaSegment));
-        budget.Own(_slotBits, nameof(ArenaSegment));
-        budget.Own(_preparedBits, nameof(ArenaSegment));
-        budget.Own(_retiredBits, nameof(ArenaSegment));
-    }
-
-    public void DropBacking(MemoryBudget budget)
-    {
-        budget.Forget(this);
-        budget.Forget(Regions);
-        budget.Forget(_slotBits);
-        budget.Forget(_preparedBits);
-        budget.Forget(_retiredBits);
+        held.Add(new HeldArray(nameof(Arena), typeof(ArenaRegion), Regions.Length));
+        held.Add(new HeldArray(nameof(Arena), typeof(ulong), _slotBits.Length));
+        held.Add(new HeldArray(nameof(Arena), typeof(ulong), _preparedBits.Length));
+        held.Add(new HeldArray(nameof(Arena), typeof(ulong), _retiredBits.Length));
     }
 
     // Marks the lowest free slot among the first slotCount slots of the region as allocated and

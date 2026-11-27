@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -16,7 +17,7 @@ public sealed class NativeMemoryTests
     public void A_segment_left_empty_beyond_the_reserve_is_returned_by_Free_and_Dispose_returns_every_other_segment_once()
     {
         var allocator = new CountingNativeAllocator();
-        var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize, ReservedSegments = 1 }, allocator);
+        var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize, ReservedSegments = 1 }, allocator, new MemoryBudget());
         var blocks = Arenas.AllocateUntilSegments(arena, 3);
 
         Assert.Equal(3, allocator.Obtained);
@@ -54,7 +55,7 @@ public sealed class NativeMemoryTests
         // leaves every segment empty; the last round keeps some, so that Dispose meets live blocks.
         var random = new Random(15_112_026);
         var allocator = new CountingNativeAllocator();
-        var arena = new Arena(new ArenaOptions { MemoryLimit = 32L * Arenas.SegmentSize }, allocator);
+        var arena = new Arena(new ArenaOptions { MemoryLimit = 32L * Arenas.SegmentSize }, allocator, new MemoryBudget());
         var kept = new List<ArenaAddress>();
 
         for (var round = 0; round < 6; round++)
@@ -92,7 +93,7 @@ public sealed class NativeMemoryTests
     public void When_the_native_allocator_fails_TryAllocate_lets_the_failure_out_and_the_arena_is_as_it_was()
     {
         var allocator = new CountingNativeAllocator();
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize }, allocator);
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize }, allocator, new MemoryBudget());
 
         // The first segment cannot be obtained: the arena holds nothing.
         allocator.FailNextAllocation = true;
@@ -140,7 +141,7 @@ public sealed class NativeMemoryTests
     public void A_segment_obtained_after_one_was_freed_takes_a_segment_number_that_was_in_use_before()
     {
         var allocator = new CountingNativeAllocator();
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize, ReservedSegments = 0 }, allocator);
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize, ReservedSegments = 0 }, allocator, new MemoryBudget());
         var blocks = Arenas.AllocateUntilSegments(arena, 3);
         var numbersInUse = blocks.Select(block => block.Segment).Distinct().ToList();
 
@@ -190,7 +191,7 @@ public sealed class NativeMemoryTests
     {
         var allocator = new CountingNativeAllocator();
         var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 8L * Arena.MaxBlockSize };
-        using var arena = new Arena(options, allocator);
+        using var arena = new Arena(options, allocator, new MemoryBudget());
 
         Arenas.AllocateUntilSegments(arena, segmentsBefore);
 

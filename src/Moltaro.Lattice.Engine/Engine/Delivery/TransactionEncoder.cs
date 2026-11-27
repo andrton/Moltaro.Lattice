@@ -47,28 +47,28 @@ internal static class TransactionEncoder
         {
             if (updates?.EffectOf(change.Member) is { } update)
             {
-                WriteUpdate(tail, sequence, effects, header, change, update);
+                WriteUpdate(tail, sequence, effects, (uint)changes.Length, header, change, update);
             }
             else if (change.Kind == ChangeKindEnum.Delete)
             {
-                WriteDelete(tail, sequence, effects, header, change);
+                WriteDelete(tail, sequence, effects, (uint)changes.Length, header, change);
             }
             else
             {
-                WriteRoot(tail, sequence, effects, header, change, arena);
+                WriteRoot(tail, sequence, effects, (uint)changes.Length, header, change, arena);
             }
 
             header = 0;
         }
     }
 
-    private static void WriteUpdate(DeliveryTail tail, ulong sequence, long effects, int header, in PreparedChange change, in SparseChange update)
+    private static void WriteUpdate(DeliveryTail tail, ulong sequence, long effects, uint count, int header, in PreparedChange change, in SparseChange update)
     {
         var start = header + TransactionFormat.UpdateEnvelopeSize;
         var bytes = tail.GetSpan(start);
         if (header != 0)
         {
-            TransactionFormat.WriteHeader(bytes, sequence, effects);
+            TransactionFormat.WriteHeader(bytes, sequence, effects, count);
         }
 
         var table = change.Table;
@@ -80,7 +80,7 @@ internal static class TransactionEncoder
     }
 
     // A Write of the root of the change, after the header of the transaction when header is its size.
-    private static void WriteRoot(DeliveryTail tail, ulong sequence, long effects, int header, in PreparedChange change, Arena arena)
+    private static void WriteRoot(DeliveryTail tail, ulong sequence, long effects, uint count, int header, in PreparedChange change, Arena arena)
     {
         var layout = change.Table.Layout;
         var start = header + TransactionFormat.WriteEnvelopeSize + RootEnvelope.Size;
@@ -89,7 +89,7 @@ internal static class TransactionEncoder
 
         if (header != 0)
         {
-            TransactionFormat.WriteHeader(bytes, sequence, effects);
+            TransactionFormat.WriteHeader(bytes, sequence, effects, count);
         }
 
         TransactionFormat.WriteEnvelopeOfWrite(envelope, RootLength(change, arena));
@@ -102,7 +102,7 @@ internal static class TransactionEncoder
     // A Delete of the key of the change, after the header of the transaction when header is its size. The
     // key goes into the spans the tail gives (Entities.PrimaryKeys.WriteKey): the text of a String key may
     // be longer than a block.
-    private static void WriteDelete(DeliveryTail tail, ulong sequence, long effects, int header, in PreparedChange change)
+    private static void WriteDelete(DeliveryTail tail, ulong sequence, long effects, uint count, int header, in PreparedChange change)
     {
         var start = header + TransactionFormat.DeleteEnvelopeSize;
         var bytes = tail.GetSpan(start);
@@ -110,7 +110,7 @@ internal static class TransactionEncoder
 
         if (header != 0)
         {
-            TransactionFormat.WriteHeader(bytes, sequence, effects);
+            TransactionFormat.WriteHeader(bytes, sequence, effects, count);
         }
 
         TransactionFormat.WriteEnvelopeOfDelete(effect, (uint)change.Table.EntityType.Id);
@@ -131,7 +131,7 @@ internal static class TransactionEncoder
 
         var bytes = tail.GetSpan(Length);
 
-        TransactionFormat.WriteHeader(bytes, sequence, TransactionFormat.UnchangedSize);
+        TransactionFormat.WriteHeader(bytes, sequence, TransactionFormat.UnchangedSize, effectCount: 1);
         TransactionFormat.WriteUnchanged(bytes[TransactionFormat.HeaderSize..]);
         tail.Advance(Length);
     }

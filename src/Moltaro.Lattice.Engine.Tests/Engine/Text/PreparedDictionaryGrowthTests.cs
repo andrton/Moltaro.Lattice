@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
@@ -10,6 +11,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Text;
 using Moltaro.Lattice.TestSupport.Concurrency;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.Engine.Tests.Engine.Text.TextMetadataTestAccess;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
@@ -30,7 +32,6 @@ public sealed class PreparedDictionaryGrowthTests
         var persistence = new HeldPersistence(holding: true);
         await using var node = await ReplicationNodes.OpenMasterAsync(TextSchema.Utf8, new EngineTestInputs
         {
-            ObserveBudgetBackings = true,
             IndexSeed = Seed,
             Allocator = allocator,
             Persistence = persistence,
@@ -50,8 +51,6 @@ public sealed class PreparedDictionaryGrowthTests
         }
 
         var before = node.Position;
-        var originalBuckets = BucketBacking(node);
-        var originalBytes = originalBuckets.Sum(ManagedObjectSize);
 
         try
         {
@@ -59,18 +58,19 @@ public sealed class PreparedDictionaryGrowthTests
             await persistence.NextAsync();
             using var stop = new CancellationTokenSource();
             var batch = node.CreateWriteBatch();
+            var estimates = UnitEstimate(1) + BuilderEstimate;
             for (var id = 1; id <= entries; id++)
             {
-                batch.Insert(Depot(id, DistinctText(id)));
+                var depot = Depot(id, DistinctText(id));
+                estimates += MemberEstimate(node, depot);
+                batch.Insert(depot);
             }
 
             var writing = batch.CommitAsync(stop.Token).AsTask();
             await CountersWait.UntilAsync(node, counters => counters.QueuedWrites == 2 && counters.TextEntries == entries + installedCount,
                 "the cold batch owns all dictionary entries before publication");
-            var grownBuckets = BucketBacking(node);
             var capacity = Capacity(node);
             ExpectAccounting(node, capacity);
-            Assert.True(grownBuckets.Sum(ManagedObjectSize) > originalBytes);
             // The old preparation path leaves a cold or one-entry table on
             // its initial pair of buckets. Exact chain work is measured separately.
             var populated = UnderWrites(node, parts =>
@@ -91,14 +91,10 @@ public sealed class PreparedDictionaryGrowthTests
             Assert.Equal(before, node.Position);
             Assert.Null(local.Get(1L));
             Assert.Null(local.Get((long)entries));
-            ExpectCapacity(node, allocator, out _, grownBuckets);
+            ExpectInFlight(node, allocator, estimates);
 
             await stop.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => writing.WaitAsync(Bound));
-            var restored = BucketBacking(node);
-            Assert.Equal(originalBytes, restored.Sum(ManagedObjectSize));
-            var abandoned = grownBuckets.Except(originalBuckets, ReferenceEqualityComparer.Instance);
-            Assert.DoesNotContain(restored, backing => abandoned.Contains(backing, ReferenceEqualityComparer.Instance));
             Assert.Equal(installedCount, node.TextReferences().Count);
             if (existing)
             {
@@ -112,7 +108,7 @@ public sealed class PreparedDictionaryGrowthTests
             Assert.Equal(before, node.Position);
             Assert.Null(local.Get(1L));
             Assert.Null(local.Get((long)entries));
-            ExpectCapacity(node, allocator, out _, restored);
+            ExpectInFlight(node, allocator, UnitEstimate(1));
 
             persistence.ReleaseAll();
             await blocker.WaitAsync(Bound);
@@ -137,71 +133,52 @@ public sealed class PreparedDictionaryGrowthTests
         }
     }
 
+    // The batch places its roots and their new texts first, then reserves the room of the primary
+    // indexes in the order of its members: the full table of Depot grows once for its fourteen new
+    // rows, where the test holds all of the memory but a few bytes, and the room of the full table of
+    // Place, which its last member needs, is refused. The texts the batch added are given back; the
+    // buckets they grew stay.
     [Fact]
     public async Task Refused_dictionary_bucket_growth_keeps_installed_mappings_and_the_same_data_can_be_retried()
     {
         const long limit = 8L * Segment;
         var allocator = new CountingNativeAllocator();
-        IDisposable? holder = null;
-        long availableAtGrowth = 0;
-        var watching = false;
-        EngineDatabase? receiving = null;
-        var inputs = new EngineTestInputs
-        {
-            IndexSeed = Seed,
-            Allocator = allocator,
-            DisableBackgroundMaintenance = true,
-            ObserveBudgetBackings = true,
-            BeforePreparedTextBucketGrowth = () =>
-            {
-                if (!watching || holder is not null)
-                {
-                    return;
-                }
-
-                var current = Assert.IsType<EngineDatabase>(receiving);
-                var owned = ExpectCapacity(current, allocator);
-                availableAtGrowth = limit - owned.ChargedBytes;
-                Assert.True(availableAtGrowth > ManagedObjectSize(Array.Empty<byte>()));
-                holder = current.HoldBudgetBacking(checked((int)(availableAtGrowth - ManagedObjectSize(Array.Empty<byte>()))));
-                Assert.Equal(limit, current.InspectBudget().ChargedBytes);
-            },
-        };
         await using var node = EngineDatabase.Create(new LatticeDatabaseOptions
         {
             Schema = TextSchema.Utf8,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             MemoryLimit = limit,
-        }, inputs);
-        receiving = node;
+        }, new EngineTestInputs { IndexSeed = Seed, Allocator = allocator, DisableBackgroundMaintenance = true });
         await node.OpenAsync().AsTask().WaitAsync(Bound);
         var depots = node.Set<TextSchema.Depot>();
+        var places = node.Set<TextSchema.Place>();
         var first = await depots.InsertAsync(Depot(1L, "existing")).AsTask().WaitAsync(Bound);
-        var second = await depots.InsertAsync(Depot(2L, "existing")).AsTask().WaitAsync(Bound);
+        await depots.InsertAsync(Depot(2L, "existing")).AsTask().WaitAsync(Bound);
+        for (var key = 1L; key <= 8; key++)
+        {
+            await places.InsertAsync(Place(key)).AsTask().WaitAsync(Bound);
+        }
+
+        var seeded = node.Position;
         var expectedIds = TextIds(node, "Depot", "Area", [1L, 2L]);
         Assert.Equal(expectedIds[1L], expectedIds[2L]);
         Assert.True(depots.TryGet(1L, out _, out var firstRevision));
         Assert.True(depots.TryGet(2L, out _, out var secondRevision));
-        var prior = Capacity(node);
-        var originalBuckets = BucketBacking(node);
-        ExpectAccounting(node, prior);
-        ExpectCapacity(node, allocator, out _, originalBuckets);
-        var data = Enumerable.Range(3, 64).Select(id => Depot(id, DistinctText(id))).ToArray();
-        var batch = SubmitData();
+        var references = node.TextReferences().Count;
+        var data = Enumerable.Range(3, 14).Select(id => Depot(id, DistinctText(id))).ToArray();
+        IDisposable? holder = null;
+        var placesGrew = false;
 
         try
         {
-            watching = true;
-            await RefusedAsync(batch.CommitAsync().AsTask(), LatticeLimitEnum.Memory);
-            watching = false;
+            node.ArmGrowthSwitch(depots.EntityType, () => holder = LeaveAbout(node, 32, out _));
+            node.ArmGrowthSwitch(places.EntityType, () => placesGrew = true);
+            var refused = SubmitData();
+            refused.Insert(Place(9L));
+            await RefusedAsync(refused.CommitAsync().AsTask(), LatticeLimitEnum.Memory);
             Assert.NotNull(holder);
-            Assert.True(availableAtGrowth > 0);
-            var restored = Capacity(node);
-            var restoredBuckets = BucketBacking(node);
-            ExpectAccounting(node, restored);
-            Assert.Equal(TextBytes(prior), TextBytes(restored));
-            Assert.Equal(originalBuckets.Sum(ManagedObjectSize), restoredBuckets.Sum(ManagedObjectSize));
-            Assert.Equal(second.Position, node.Position);
+            Assert.False(placesGrew);
+            Assert.Equal(seeded, node.Position);
             Assert.True(depots.TryGet(1L, out var retainedFirst, out var retainedFirstRevision));
             Assert.Equal(firstRevision, retainedFirstRevision);
             Assert.True(depots.TryGet(2L, out var retainedSecond, out var retainedSecondRevision));
@@ -214,19 +191,21 @@ public sealed class PreparedDictionaryGrowthTests
             }
 
             Assert.Equal(2, References(node, "existing", "Utf8"));
-            Assert.Single(node.TextReferences());
+            Assert.Equal(references, node.TextReferences().Count);
             Assert.Equal(0, node.Counters.Arena.PreparedBytes);
             Assert.All(data, item => Assert.Null(depots.Get(item.Id)));
-            ExpectCapacity(node, allocator, out _, restoredBuckets);
+            Assert.Null(places.Get(9L));
+            ExpectAtRest(node, allocator);
 
             holder!.Dispose();
             holder = null;
             var committed = await SubmitData().CommitAsync().AsTask().WaitAsync(Bound);
-            Assert.Equal(first.Position.Sequence + 2, committed.Position.Sequence);
+            Assert.Equal(seeded.Sequence + 1, committed.Position.Sequence);
             Assert.Equal(committed.Position, node.Position);
             Assert.All(data, item => Assert.Equal(item.Area, depots.Get(item.Id)?.Area));
             Assert.Equal(expectedIds[1L], TextIds(node, "Depot", "Area", [1L])[1L]);
             Assert.Equal(2, References(node, "existing", "Utf8"));
+            Assert.True(first.Position.Sequence < committed.Position.Sequence);
             OwnershipAudit.Expect(node);
         }
         finally
@@ -244,10 +223,6 @@ public sealed class PreparedDictionaryGrowthTests
 
             return adding;
         }
-
-        static long TextBytes(TextCapacitySnapshot snapshot) =>
-            Bytes(snapshot.ActiveBuckets) + Bytes(snapshot.OldBuckets) + Bytes(snapshot.LocatorDirectory) +
-            Bytes(snapshot.LocatorLeaves) + Bytes(snapshot.WriterMetadata) + Bytes(snapshot.RetiredLocator);
     }
 
     [Fact]
@@ -324,12 +299,11 @@ public sealed class PreparedDictionaryGrowthTests
     public async Task A_surviving_prepared_owner_keeps_its_text_id_when_the_first_owner_withdraws()
     {
         Assert.Equal(32, Unsafe.SizeOf<TextSlot>());
-        var control = await PreparedSurvivorAsync(withdraw: false);
-        var withdrawal = await PreparedSurvivorAsync(withdraw: true);
-        Assert.Equal(control, withdrawal);
+        await PreparedSurvivorAsync(withdraw: false);
+        await PreparedSurvivorAsync(withdraw: true);
     }
 
-    private static async Task<(int Heads, long Active, long Old)> PreparedSurvivorAsync(bool withdraw)
+    private static async Task PreparedSurvivorAsync(bool withdraw)
     {
         const int seededCount = 512;
         var persistence = new HeldPersistence(holding: false);
@@ -338,7 +312,6 @@ public sealed class PreparedDictionaryGrowthTests
             IndexSeed = Seed,
             Persistence = persistence,
             DisableBackgroundMaintenance = true,
-            ObserveBudgetBackings = true,
         });
         var rows = node.Set<TextSchema.Depot>();
         var seed = node.CreateWriteBatch();
@@ -377,12 +350,12 @@ public sealed class PreparedDictionaryGrowthTests
                 var many = node.CreateWriteBatch();
                 var ordinal = 10_000L;
                 foreach (var text in Enumerable.Range(1_000, 32 * seededCount).Select(DistinctText)
-                    .Where(value => PageOf(value) == anchorPage).Take(4 * original.Capacity - 1))
+                    .Where(value => PageOf(value) == anchorPage).Take(4 * original.Capacity))
                 {
                     many.Insert(Depot(ordinal++, text));
                 }
 
-                Assert.Equal(4 * original.Capacity - 1, many.Count);
+                Assert.Equal(4 * original.Capacity, many.Count);
                 many.Insert(Depot(ordinal, shared));
                 predecessor = many.CommitAsync(cancel.Token).AsTask();
                 await CountersWait.UntilAsync(node, counts => counts.QueuedWrites == 2 && counts.TextEntries == many.Count + 1,
@@ -405,9 +378,7 @@ public sealed class PreparedDictionaryGrowthTests
             Assert.Equal(prior, node.Position);
             Assert.Equal(anchor, rows.Get(1L)?.Area);
             Assert.Null(rows.Get(2L));
-            var prepared = Capacity(node);
-            var heads = UnderWrites(node, parts => Backing<TextBucketSet>(parts.Arena.Texts, "_active").Capacity);
-            ExpectAccounting(node, prepared);
+            ExpectAccounting(node, Capacity(node));
 
             persistence.ReleaseAll();
             var previous = await blocker.WaitAsync(Bound);
@@ -419,7 +390,6 @@ public sealed class PreparedDictionaryGrowthTests
             Assert.Equal(sharedId, ids[2L]);
             Assert.Equal(shared, rows.Get(2L)?.Area);
             OwnershipAudit.Expect(node);
-            return (heads, Bytes(prepared.ActiveBuckets), Bytes(prepared.OldBuckets));
         }
         finally
         {
@@ -447,20 +417,9 @@ public sealed class PreparedDictionaryGrowthTests
         }
     }
 
-    private static object[] BucketBacking(EngineDatabase node)
-    {
-        var backings = new List<object>();
-        node.InspectBudget((owner, backing) =>
-        {
-            if (owner == nameof(TextBucketSet))
-            {
-                backings.Add(backing);
-            }
-        });
-        return [.. backings];
-    }
-
     private static TextSchema.Depot Depot(long id, string text) => new() { Id = id, Area = text };
+
+    private static TextSchema.Place Place(long id) => new() { Id = id, Number = id, Region = $"place {id}", Label = "label" };
 
     private static string DistinctText(int id) => $"dictionary-{id:D5}";
 }

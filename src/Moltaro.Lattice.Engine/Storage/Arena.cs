@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Text;
 
 namespace Moltaro.Lattice.Storage;
@@ -20,6 +20,13 @@ namespace Moltaro.Lattice.Storage;
 // everything still held. Whoever owns the arena disposes it; from S06 on that is the database, when
 // it closes and no read is in progress any more. The arena has no finalizer, so an arena that is
 // never disposed keeps its native memory until the process ends.
+//
+// Memory. The arena charges the budget of its instance (Budget): a segment at its grant, with its
+// object and its metadata arrays, before the native memory is obtained, until it is returned; the
+// arrays of the segment table and the one root image of the ordinary writes (RootImage) by their
+// bytes when they grow (docs/design/storage-and-maintenance.md, the memory budget). An arena made
+// alone, in a test, has an unlimited budget of its own. Free and the release of a root slot tell the
+// budget when space becomes reusable, which wakes a child that waits for memory.
 //
 // The states of a block. A block is free, prepared, live or retired. TryAllocatePrepared gives a
 // prepared block, which no reader can reach, taken for a write that has not published it yet or held in
@@ -66,19 +73,15 @@ internal sealed unsafe class Arena : IDisposable
 
     private readonly NativeAllocator _allocator;
     private readonly TimeProvider? _collectionTime;
-    public MemoryBudget? Budget { get; }
     private CollectionTails? _collectionTails;
 
-    // Only the weak owner stays in the budget between writes. The saved width
-    // lets a writer reject a mismatch without taking a strong reference to it.
-    private WeakReference<byte[]>? _idleRootImage;
-    private int _idleRootImageLength;
-    private static long RootImageOwnerBytes => MemoryBudget.ObjectBytes(IntPtr.Size);
+    // The one root image of the ordinary writes of the arena (RootImage), charged at its length.
+    private byte[] _rootImage = [];
 
     // The segments by their slot, which is the segment of an ArenaAddress; null where no segment
-    // is held. Slot 0 is never used, so that no block has the address zero, which is null.
+    // is held. Slot 0 is never used, so that no block has the address zero, which is null. With the
+    // two arrays of slots below it is the directory of the arena, charged at its length.
     private ArenaSegment?[] _segments;
-    private SegmentDirectory? _smallerDirectory;
 
     // Slots of the table whose segment was freed, to be given to the next new segment. Its capacity
     // is kept at the length of the table, so that Free never allocates to push a slot.
@@ -102,28 +105,36 @@ internal sealed unsafe class Arena : IDisposable
 
     private bool _disposed;
 
-    // Takes the settings; segments are obtained on demand. Refuses null options with
-    // ArgumentNullException, and with ArgumentOutOfRangeException a MemoryLimit smaller than one
-    // segment, a SegmentSize smaller than MaxBlockSize or not a whole multiple of it, and a
-    // negative ReservedSegments.
-    public Arena(ArenaOptions options)
-        : this(options, new NativeAllocator())
+    // An arena made alone, by a test of the engine or the measurement program, with the settings and the
+    // budget given; segments are obtained on demand, and ArenaOptions.MemoryLimit bounds its native
+    // segments. Refuses null options with ArgumentNullException, and with ArgumentOutOfRangeException a
+    // MemoryLimit smaller than one segment, a SegmentSize smaller than MaxBlockSize or not a whole
+    // multiple of it, and a negative ReservedSegments.
+    internal Arena(ArenaOptions options, MemoryBudget budget)
+        : this(options, new NativeAllocator(), budget)
     {
     }
 
     // The same, with the allocator through which the arena obtains and returns the native memory of
     // its segments. Only a test of the engine passes another than NativeAllocator itself (exception
-    // X3). The text table hashes with the seed 0 and knows no lock of the writes: an arena a test of the
-    // engine makes by itself has no database around it.
-    internal Arena(ArenaOptions options, NativeAllocator allocator)
-        : this(options, allocator, textSeed: 0, writes: null)
+    // X3). The text table hashes with the seed 0 and knows no lock of the writes: an arena made alone
+    // has no database around it.
+    internal Arena(ArenaOptions options, NativeAllocator allocator, MemoryBudget budget)
+        : this(options, allocator, textSeed: 0, writes: null, collectionTime: null, budget, limitsSegments: true)
     {
     }
 
     // The arena of a database: its text table hashes with the seed of the instance and, in a Debug
-    // build, asserts at every change of a count that the thread holds the lock of the writes given.
-    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes,
-        TimeProvider? collectionTime = null, MemoryBudget? budget = null, Action? beforePreparedTextBucketGrowth = null)
+    // build, asserts at every change of a count that the thread holds the lock of the writes given. It
+    // charges the budget of the instance, which bounds its native segments with everything else.
+    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes, TimeProvider? collectionTime,
+        MemoryBudget budget)
+        : this(options, allocator, textSeed, writes, collectionTime, budget, limitsSegments: false)
+    {
+    }
+
+    private Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes, TimeProvider? collectionTime,
+        MemoryBudget budget, bool limitsSegments)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.SegmentSize, MaxBlockSize);
@@ -140,82 +151,57 @@ internal sealed unsafe class Arena : IDisposable
         _segmentSize = options.SegmentSize;
         _regionsPerSegment = options.SegmentSize / ArenaSegment.RegionSize;
         _memoryLimit = options.MemoryLimit;
-        _nativeCapacityLimit = options.NativeCapacityLimit ?? (budget is null ? options.MemoryLimit : long.MaxValue);
+        _nativeCapacityLimit = options.NativeCapacityLimit ?? (limitsSegments ? options.MemoryLimit : long.MaxValue);
         _reserveLimit = options.ReservedSegments;
         _allocator = allocator;
         _collectionTime = collectionTime;
         Budget = budget;
-        budget?.Reserve(SegmentDirectoryBytes(FirstSegmentTableLength) + MemoryBudget.ArrayBytes<long>(SizeClasses.Count));
+        budget.Reserve(DirectoryBytes(FirstSegmentTableLength));
         _segments = new ArenaSegment?[FirstSegmentTableLength];
         _freedSegmentSlots = new int[FirstSegmentTableLength];
         _reservedSegments = new int[FirstSegmentTableLength];
         _regionsWithFreeSlot = new long[SizeClasses.Count];
-        if (budget is not null)
-        {
-            OwnSegmentDirectory(budget, _segments, _freedSegmentSlots, _reservedSegments);
-            budget.Own(_regionsWithFreeSlot, nameof(Arena));
-        }
-
         HashSeed = textSeed;
-        budget?.Reserve(TextTable.OwnerBytes);
-        Texts = new TextTable(this, textSeed, writes, beforePreparedTextBucketGrowth);
-        budget?.Own(Texts, nameof(TextTable));
-
-        if (budget is not null)
-        {
-            budget.Reserve(RootImageOwnerBytes);
-            try
-            {
-                _idleRootImage = new WeakReference<byte[]>(null!);
-                budget.Own(_idleRootImage, nameof(Arena));
-            }
-            catch
-            {
-                budget.Release(RootImageOwnerBytes, _idleRootImage);
-                throw;
-            }
-        }
+        Texts = new TextTable(this, textSeed, writes);
     }
 
-    // Under the writes lock: pay for the exact image before making it live.
-    public byte[] TakeRootImage(int length)
+    // The budget that every structure of the database charges: the instance's, or an unlimited one.
+    public MemoryBudget Budget { get; }
+
+    // Under the writes lock: the arena's one root image, at least length bytes long, grown when it
+    // is shorter. A write whose image fits allocates none. The image is a workspace of the writer
+    // that holds the lock; no two writers of an arena place a root at the same time.
+    public byte[] RootImage(int length)
     {
-        var budget = Budget!;
-        var bytes = MemoryBudget.ArrayBytes<byte>(length);
-        budget.Reserve(bytes);
-        byte[]? image = null;
-        try
+        if (_rootImage.Length < length)
         {
-            var idle = _idleRootImage!;
-            byte[]? reusable = null;
-            if (_idleRootImageLength == length)
-            {
-                idle.TryGetTarget(out reusable);
-            }
-
-            image = reusable ?? new byte[length];
-            budget.Own(image, nameof(Roots.RootWriter));
-            if (reusable is not null)
-            {
-                idle.SetTarget(null!);
-                _idleRootImageLength = 0;
-            }
-
-            return image;
+            var image = Budget.Allocate<byte>(length);
+            var previous = _rootImage;
+            _rootImage = image;
+            Budget.Release(previous);
         }
-        catch
-        {
-            budget.Release(bytes, image);
-            throw;
-        }
+
+        return _rootImage;
     }
 
-    // Under the writes lock: make the returned image eligible for collection.
-    public void ReturnRootImage(byte[] image)
+    // The native segments the arena holds, in use or reserved.
+    public int GrantedSegments => _tally.SegmentCount;
+
+    // Adds the arrays of the segment table, the root image and the metadata arrays of each segment.
+    public void ReportHeld(List<HeldArray> held)
     {
-        _idleRootImage!.SetTarget(image);
-        _idleRootImageLength = image.Length;
-        Budget!.Release(image);
+        held.Add(new HeldArray(nameof(Arena), typeof(ArenaSegment), _segments.Length));
+        held.Add(new HeldArray(nameof(Arena), typeof(int), _freedSegmentSlots.Length));
+        held.Add(new HeldArray(nameof(Arena), typeof(int), _reservedSegments.Length));
+        if (_rootImage.Length != 0)
+        {
+            held.Add(new HeldArray(nameof(Arena), typeof(byte), _rootImage.Length));
+        }
+
+        foreach (var segment in _segments)
+        {
+            segment?.ReportHeld(held);
+        }
     }
 
     // The text entries of the database, in this arena (see the class).
@@ -517,9 +503,7 @@ internal sealed unsafe class Arena : IDisposable
 
         segment.SetPrepared(regionIndex, slot, prepared: false);
         segment.Regions[regionIndex].Live++;
-        segment.ReturnWhenEmpty = false;
         segment.LiveSlotBytes += blockSize;
-        UseDirectoryAt(address.Segment);
 
         _tally.PreparedBytes -= blockSize;
         _tally.LiveBytes += BlockHeader.Size + payloadLength;
@@ -633,7 +617,7 @@ internal sealed unsafe class Arena : IDisposable
             if (wasFull)
             {
                 PushFront(ref _regionsWithFreeSlot[sizeClass], regionNumber);
-                Budget?.ReusableSpace();
+                Budget.NoteReusable();
             }
 
             return;
@@ -647,7 +631,7 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         ReturnRegion((int)address.Segment, segment, regionIndex);
-        Budget?.ReusableSpace();
+        Budget.NoteReusable();
     }
 
     private void RemoveLiveSlot(ArenaSegment segment, ref ArenaRegion region, int blockSize, uint payloadLength)
@@ -715,7 +699,7 @@ internal sealed unsafe class Arena : IDisposable
     internal CollectionTails? CollectionTails => _collectionTails;
 
     internal CollectionTails TrackCollectionTails() =>
-        _collectionTails ??= CollectionTails.Create(this, _collectionTime ?? TimeProvider.System);
+        _collectionTails ??= new CollectionTails(this, _collectionTime ?? TimeProvider.System);
 
     internal void ReleaseCollectionTail() => _collectionTails?.ReleaseOne();
 
@@ -834,22 +818,15 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         _disposed = true;
-        if (_idleRootImage is { } owner)
-        {
-            _idleRootImage = null;
-            Budget!.Release(RootImageOwnerBytes, owner);
-        }
 
         for (var slot = 1; slot < _segments.Length; slot++)
         {
             if (_segments[slot] is { } segment)
             {
-                DetachSegment(slot);
+                _segments[slot] = null;
                 ReleaseSegment(segment);
             }
         }
-
-        UseDirectoryAt(uint.MaxValue);
 
         _collectionTails = null;
     }
@@ -957,111 +934,36 @@ internal sealed unsafe class Arena : IDisposable
 
     // Obtains a new segment through the allocator, puts it into the table and returns its slot: the
     // slot of a segment freed before when there is one, so that the table does not grow with the
-    // number of segments ever obtained. Everything that can fail comes first: growing the table, the
-    // segment's metadata and its native memory. Only then does the arena change, so a failure leaves
-    // it as it was and holds nothing it obtained.
+    // number of segments ever obtained. False, with nothing obtained, when a new segment would pass
+    // the native limit or the budget cannot hold the grant with its metadata, which is charged
+    // before the segment is made. Everything that can fail comes first: growing the table, the
+    // segment's metadata and its native memory. A table that grew stays, charged, for the next
+    // segment; otherwise a failure leaves the arena as it was and holds nothing it obtained.
     private bool TryObtainSegment(out int slot)
     {
         var reuseSlot = _freedSegmentCount > 0;
         slot = reuseSlot ? _freedSegmentSlots[_freedSegmentCount - 1] : _tally.NextUnusedSegmentSlot;
-        var grows = slot == _segments.Length;
-        var nextLength = grows ? _segments.Length * 2 : 0;
-        var budget = Budget;
-        var remembersPrevious = grows && budget is not null;
-        var capacity = _segmentSize + ArenaSegment.MetadataBytes(_regionsPerSegment) +
-            (grows ? SegmentDirectoryBytes(nextLength) : 0) + (remembersPrevious ? SegmentDirectory.OwnerBytes : 0);
         if ((_tally.SegmentCount + 1L) * _segmentSize > _nativeCapacityLimit ||
-            (budget is not null && !budget.TryReserve(capacity)))
+            (slot == _segments.Length && !TryGrowSegmentTable()))
         {
             return false;
         }
 
-        ArenaSegment? segment = null;
-        var grown = _segments;
-        var freed = _freedSegmentSlots;
-        var reserved = _reservedSegments;
-        SegmentDirectory? previous = null;
+        var grant = GrantBytes;
+        if (!Budget.TryReserve(grant))
+        {
+            return false;
+        }
+
+        ArenaSegment segment;
         try
         {
-            // Keep the current directory and both stacks until the grant succeeds.
-            if (grows)
-            {
-                grown = new ArenaSegment?[nextLength];
-                freed = new int[nextLength];
-                reserved = new int[nextLength];
-                Array.Copy(_segments, grown, _segments.Length);
-                Array.Copy(_freedSegmentSlots, freed, _freedSegmentCount);
-                Array.Copy(_reservedSegments, reserved, _reservedSegmentCount);
-                if (budget is not null)
-                {
-                    OwnSegmentDirectory(budget, grown, freed, reserved);
-                }
-
-                if (remembersPrevious)
-                {
-                    previous = new SegmentDirectory(_segments, _freedSegmentSlots, _reservedSegments, _smallerDirectory);
-                    budget!.Own(previous, nameof(Arena));
-                }
-            }
-
-            segment = new ArenaSegment(_segmentSize, _allocator) { ReturnWhenEmpty = budget?.IsPreparing == true };
-            budget?.GrantedNative(_segmentSize);
-            if (budget is not null)
-            {
-                segment.RecordBacking(budget);
-            }
+            segment = new ArenaSegment(_segmentSize, _allocator);
         }
         catch
         {
-            if (grows && budget is not null)
-            {
-                if (previous is not null)
-                {
-                    budget.Forget(previous);
-                }
-
-                if (!ReferenceEquals(grown, _segments))
-                {
-                    budget.Forget(grown);
-                }
-
-                if (!ReferenceEquals(freed, _freedSegmentSlots))
-                {
-                    budget.Forget(freed);
-                }
-
-                if (!ReferenceEquals(reserved, _reservedSegments))
-                {
-                    budget.Forget(reserved);
-                }
-            }
-
-            if (segment is null)
-            {
-                budget?.Release(capacity);
-            }
-            else
-            {
-                segment.Release(_allocator);
-                if (budget is not null)
-                {
-                    segment.DropBacking(budget);
-                    budget.ReleasedNative(_segmentSize, capacity);
-                }
-            }
-
+            Budget.Release(grant);
             throw;
-        }
-
-        if (grows)
-        {
-            Volatile.Write(ref _segments, grown);
-            _freedSegmentSlots = freed;
-            _reservedSegments = reserved;
-            if (previous is not null)
-            {
-                _smallerDirectory = previous;
-            }
         }
 
         _segments[slot] = segment;
@@ -1078,115 +980,54 @@ internal sealed unsafe class Arena : IDisposable
         return true;
     }
 
-    // A published address adopts the directory that holds it. Smaller backings can no longer
-    // be restored, while another preparation may still be the only owner of a larger one.
-    private void UseDirectoryAt(uint slot)
+    // Doubles the segment table, and with it the capacity of the two arrays of slots, which can never
+    // hold more slots than the table has. The three new arrays are charged before they are made. A
+    // reader that still has the old table finds the same segments in it, so the old table keeps its
+    // charge until the reads that could hold it have left (MemoryBudget.ReleaseAfterReads); room for it
+    // there is made first. Only the writer reads the two arrays of slots, so the old ones are released
+    // once the new ones are in place.
+    private bool TryGrowSegmentTable()
     {
-        if (_smallerDirectory is null)
+        var length = _segments.Length * 2;
+        var bytes = DirectoryBytes(length);
+        if (!Budget.TryReserveAfterReads() || !Budget.TryReserve(bytes))
         {
-            return;
+            return false;
         }
 
-        var retained = _smallerDirectory;
-        if (slot >= retained.Segments.Length)
+        ArenaSegment?[] grown;
+        int[] freed;
+        int[] reserved;
+        try
         {
-            _smallerDirectory = null;
+            grown = new ArenaSegment?[length];
+            freed = new int[length];
+            reserved = new int[length];
         }
-        else
+        catch
         {
-            while (retained.Smaller is { } smaller && slot < smaller.Segments.Length)
-            {
-                retained = smaller;
-            }
-
-            var keep = retained;
-            retained = keep.Smaller;
-            keep.Smaller = null;
+            Budget.Release(bytes);
+            throw;
         }
 
-        while (retained is not null)
-        {
-            var unused = retained;
-            retained = unused.Smaller;
-            unused.Smaller = null;
-            Budget!.Release(unused.Segments);
-            Budget.Release(unused.Freed);
-            Budget.Release(unused.Reserved);
-            Budget.Release(SegmentDirectory.OwnerBytes, unused);
-        }
-    }
-
-    private void RestoreUnusedDirectory()
-    {
-        while (_smallerDirectory is { } previous)
-        {
-            var discardedSegments = _segments;
-            var discardedFreed = _freedSegmentSlots;
-            var discardedReserved = _reservedSegments;
-            if (!TryRestoreDirectory(previous.Segments, previous.Freed, previous.Reserved))
-            {
-                return;
-            }
-
-            _smallerDirectory = previous.Smaller;
-            previous.Smaller = null;
-            Budget!.Release(discardedSegments);
-            Budget.Release(discardedFreed);
-            Budget.Release(discardedReserved);
-            Budget.Release(SegmentDirectory.OwnerBytes, previous);
-        }
-    }
-
-    private sealed class SegmentDirectory(ArenaSegment?[] segments, int[] freed, int[] reserved, SegmentDirectory? smaller)
-    {
-        public static long OwnerBytes => MemoryBudget.ObjectBytes(4L * IntPtr.Size);
-        public readonly ArenaSegment?[] Segments = segments;
-        public readonly int[] Freed = freed;
-        public readonly int[] Reserved = reserved;
-        public SegmentDirectory? Smaller = smaller;
-    }
-
-    // Under Writes, after the failed operation has given back its blocks. A directory which still
-    // addresses a grant must stay. Lower address entries keep their current segment references.
-    private bool TryRestoreDirectory(ArenaSegment?[] previous, int[] previousFreed, int[] previousReserved)
-    {
-        for (var slot = previous.Length; slot < _tally.NextUnusedSegmentSlot; slot++)
-        {
-            if (_segments[slot] is not null)
-            {
-                return false;
-            }
-        }
-
-        var freed = 0;
-        for (var index = 0; index < _freedSegmentCount; index++)
-        {
-            var slot = _freedSegmentSlots[index];
-            if (slot < previous.Length)
-            {
-                previousFreed[freed++] = slot;
-            }
-        }
-
-        Array.Copy(_segments, previous, previous.Length);
-        Array.Copy(_reservedSegments, previousReserved, _reservedSegmentCount);
-        _freedSegmentCount = freed;
-        _freedSegmentSlots = previousFreed;
-        _reservedSegments = previousReserved;
-        _tally.NextUnusedSegmentSlot = previous.Length;
-        Volatile.Write(ref _segments, previous);
+        Array.Copy(_segments, grown, _segments.Length);
+        Array.Copy(_freedSegmentSlots, freed, _freedSegmentCount);
+        Array.Copy(_reservedSegments, reserved, _reservedSegmentCount);
+        var previous = _segments;
+        _segments = grown;
+        _freedSegmentSlots = freed;
+        _reservedSegments = reserved;
+        Budget.Release(2 * MemoryBudget.ArrayBytes<int>(previous.Length));
+        Budget.ReleaseAfterReads(previous);
         return true;
     }
 
-    private static long SegmentDirectoryBytes(int length) =>
-        MemoryBudget.ArrayBytes<ArenaSegment?>(length) + 2 * MemoryBudget.ArrayBytes<int>(length);
+    // What one native grant charges: its native bytes, the segment object and its metadata arrays.
+    private long GrantBytes => _segmentSize + ArenaSegment.ObjectBytes + ArenaSegment.MetadataBytes(_regionsPerSegment);
 
-    private static void OwnSegmentDirectory(MemoryBudget budget, ArenaSegment?[] segments, int[] freed, int[] reserved)
-    {
-        budget.Own(segments, nameof(Arena));
-        budget.Own(freed, nameof(Arena));
-        budget.Own(reserved, nameof(Arena));
-    }
+    // The three arrays of the directory at a length.
+    private static long DirectoryBytes(int length) =>
+        MemoryBudget.ArrayBytes<ArenaSegment?>(length) + 2 * MemoryBudget.ArrayBytes<int>(length);
 
     // An empty segment, new or from the reserve, goes into use: every region but the first becomes a
     // free region, and the first is returned for the class that needs it.
@@ -1223,7 +1064,7 @@ internal sealed unsafe class Arena : IDisposable
             }
         }
 
-        if (!segment.ReturnWhenEmpty && _reservedSegmentCount < _reserveLimit)
+        if (_reservedSegmentCount < _reserveLimit)
         {
             _reservedSegments[_reservedSegmentCount++] = segmentSlot;
 
@@ -1232,34 +1073,17 @@ internal sealed unsafe class Arena : IDisposable
 
         // Nothing refers to the segment any more: no block, no list and, after this, no slot of the
         // table. Its native memory goes back to the allocator, and its slot to the next new segment.
-        DetachSegment(segmentSlot);
+        _segments[segmentSlot] = null;
         _freedSegmentSlots[_freedSegmentCount++] = segmentSlot;
         _tally.SegmentCount--;
         ReleaseSegment(segment);
-        RestoreUnusedDirectory();
     }
 
-    private void DetachSegment(int segmentSlot)
-    {
-        _segments[segmentSlot] = null;
-        for (var directory = _smallerDirectory; directory is not null; directory = directory.Smaller)
-        {
-            var previous = directory.Segments;
-            if (segmentSlot < previous.Length)
-            {
-                previous[segmentSlot] = null;
-            }
-        }
-    }
-
+    // Returns the native memory of a segment and releases its grant with its metadata.
     private void ReleaseSegment(ArenaSegment segment)
     {
         segment.Release(_allocator);
-        if (Budget is { } budget)
-        {
-            segment.DropBacking(budget);
-            budget.ReleasedNative(_segmentSize, _segmentSize + ArenaSegment.MetadataBytes(_regionsPerSegment));
-        }
+        Budget.Release(GrantBytes);
     }
 
     private void AddFreeRegion(long regionNumber)

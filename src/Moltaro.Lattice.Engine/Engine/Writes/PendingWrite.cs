@@ -65,7 +65,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     // The members of a write batch, in their order, and their entities as one set; null for a single write.
     public BatchMember[]? Members { get; private set; }
 
-    public PublicationKeys? Keys { get; private set; }
+    public HashSet<(EntityTable Table, EntityKey Key)>? Keys { get; private set; }
 
     // The values of a complete entity for an insert, a replace and an upsert; null for a delete, and for
     // a write a child forwarded, which brings its root instead (Forwarded).
@@ -78,6 +78,10 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public ForwardedOrigin? Forwarded { get; private set; }
 
     public LatticeRevision? ExpectedRevision { get; private set; }
+
+    // The estimate an ordinary write reserved in the budget at its first preparation, released at its end
+    // (WriteCoordinator.MarkCompleted); 0 when it reserved none. Under the lock of the writes.
+    public long Estimate { get; set; }
 
     // The session the write moves to its position when it succeeds; null for none.
     public LatticeSession? Session { get; private set; }
@@ -169,7 +173,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     // For a write batch, after Begin: its members and their entities. Apart from Begin, so that a single write,
     // whose record holds none (ResetAfterItsCall), stores nothing for them (JIT listing at full optimization:
     // a store of a reference that is not a constant is a call of the write barrier).
-    public void BeginBatch(BatchMember[] members, PublicationKeys keys)
+    public void BeginBatch(BatchMember[] members, HashSet<(EntityTable Table, EntityKey Key)> keys)
     {
         Members = members;
         Keys = keys;
@@ -195,12 +199,18 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     {
         if (Keys is { } keys)
         {
-            return other.Keys is { } theirs ? keys.Overlaps(theirs) : keys.Contains(other.Table, other.Key);
+            if (other.Keys is not { } theirs)
+            {
+                return keys.Contains((other.Table, other.Key));
+            }
+
+            // Each entity of the smaller set is looked up in the larger.
+            return keys.Count <= theirs.Count ? theirs.Overlaps(keys) : keys.Overlaps(theirs);
         }
 
         if (other.Keys is { } otherKeys)
         {
-            return otherKeys.Contains(Table, Key);
+            return otherKeys.Contains((Table, Key));
         }
 
         return ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.Keys.KeysEqual(Key, other.Key);

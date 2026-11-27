@@ -41,7 +41,7 @@ public sealed class MalformedTextTransactionTests
 
             Assert.Equal(TransactionPayload.Write, effects[0]);
 
-            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), MarkedTextRoot.Damaged(effects, damage, RootLengthAt)))];
+            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), TransactionPayload.CountOf(frame), MarkedTextRoot.Damaged(effects, damage, RootLengthAt)))];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
         var readiness = child.Position;

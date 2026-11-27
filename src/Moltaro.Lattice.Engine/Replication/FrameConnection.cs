@@ -1,8 +1,8 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Net.Sockets;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Replication;
 
@@ -33,10 +33,15 @@ namespace Moltaro.Lattice.Replication;
 // call ends the wait, and the close of the node cancels it (exception X6 until S33). A receive waits for
 // the next whole frame at most for the time given, and fails with TimeoutException when it passes; null
 // waits until the peer sends, ends the connection, or the token ends the wait.
+//
+// Memory. The buffer of the received bytes and that of the frames to send are charged to the budget of
+// the node from the moment the connection is made until its owner releases them (ReleaseBacking), once
+// both loops are done with their memory (docs/design/storage-and-maintenance.md, the memory budget).
 internal sealed class FrameConnection : IDisposable
 {
     private readonly Socket _socket;
-    private readonly MemoryBudget? _budget;
+
+    private readonly MemoryBudget _budget;
 
     // Received bytes: the unread ones lie from _start to _end.
     private byte[] _received;
@@ -56,19 +61,19 @@ internal sealed class FrameConnection : IDisposable
     // Takes the socket, which is connected. The frames of the transport are written whole and the
     // handshake waits for the reply to a small frame, so the socket sends at once, without the delay
     // that holds back a small segment.
-    public FrameConnection(Socket socket, MemoryBudget? budget = null)
+    public FrameConnection(Socket socket, MemoryBudget budget)
     {
         _socket = socket;
         _socket.NoDelay = true;
         _budget = budget;
-        _received = budget?.Allocate<byte>(2 * Protocol.MaxFrame, nameof(FrameConnection)) ?? new byte[2 * Protocol.MaxFrame];
+        _received = budget.Allocate<byte>(2 * Protocol.MaxFrame);
         try
         {
-            _outgoing = new BudgetByteWriter(budget, Protocol.MaxFrame, nameof(FrameConnection));
+            _outgoing = new BudgetByteWriter(budget, Protocol.MaxFrame);
         }
         catch
         {
-            budget?.Release(_received);
+            budget.Release(_received);
             throw;
         }
     }
@@ -85,7 +90,7 @@ internal sealed class FrameConnection : IDisposable
     // Writes a Hello or a HelloReply.
     public void AddHello(FrameKindEnum kind, in HelloBody hello)
     {
-        using var body = new BudgetByteWriter(_budget, Protocol.HelloPayloadSize, nameof(FrameConnection));
+        var body = new ArrayBufferWriter<byte>(Protocol.HelloPayloadSize);
 
         FrameCodec.WriteHelloBody(body, hello);
         Add(kind, 0, body.WrittenSpan);
@@ -94,7 +99,7 @@ internal sealed class FrameConnection : IDisposable
     // Writes a Refuse with the reason.
     public void AddRefuse(RefuseReasonEnum reason)
     {
-        using var body = new BudgetByteWriter(_budget, Protocol.RefusePayloadSize, nameof(FrameConnection));
+        var body = new ArrayBufferWriter<byte>(Protocol.RefusePayloadSize);
 
         FrameCodec.WriteRefuseBody(body, reason);
         Add(FrameKindEnum.Refuse, 0, body.WrittenSpan);
@@ -224,15 +229,25 @@ internal sealed class FrameConnection : IDisposable
         _socket.Dispose();
     }
 
-    // Socket shutdown can race with the send and receive loops. Their owner returns the
-    // buffers only once both loops are done with their borrowed memory.
+    // Releases the two buffers. Socket shutdown can race with the send and receive loops, so their
+    // owner calls this only once both loops are done with their memory; a second call does nothing.
     public void ReleaseBacking()
     {
         var received = Interlocked.Exchange(ref _received, []);
         if (received.Length != 0)
         {
             _outgoing.Dispose();
-            _budget?.Release(received);
+            _budget.Release(received);
+        }
+    }
+
+    // Adds the buffer of the received bytes and that of the frames to send, until they are released.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        if (_received.Length != 0)
+        {
+            held.Add(new HeldArray(nameof(FrameConnection), typeof(byte), _received.Length));
+            held.Add(new HeldArray(nameof(FrameConnection), typeof(byte), _outgoing.Capacity));
         }
     }
 

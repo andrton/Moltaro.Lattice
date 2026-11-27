@@ -1,5 +1,5 @@
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
@@ -68,7 +68,17 @@ namespace Moltaro.Lattice.Engine.Protection;
 // beside the places the writes prepared before it and not published yet reserved, so that retiring it
 // after its publication allocates nothing; the place is taken when it retires and given back when the
 // write is withdrawn (Release). The tree of a secondary index reserves as many places as it reserves
-// nodes (docs/design/ordered-index.md, "The reservation").
+// nodes (docs/design/ordered-index.md, "The reservation"). The places are those of the ring of the
+// queue (RetiredQueue), charged to the budget of the arena when it grows; a retired table of a primary
+// index keeps its charge until it is freed here (docs/design/storage-and-maintenance.md, the memory
+// budget).
+//
+// Replaced directories. The table of segments of the arena, the directory of pages of the table of root
+// entries and the directory of the overflow pages of a primary index grow by a larger copy, which a read
+// may not have seen yet; each structure hands the old array to the budget, which keeps it charged
+// (MemoryBudget.ReleaseAfterReads). They take no place in the queue: every look, drain and maintenance
+// step tags those handed over since the last one with the current epoch and releases those no read
+// inside can still hold, and the close releases what is left.
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
@@ -86,10 +96,8 @@ internal sealed class RetiredMemory
 
     private readonly Action<int, int, int>? _beforePublishedTrim;
 
-    private readonly Action<int>? _observeBackingRefusal;
-
     // In the order they were retired, and so in the order of their epochs.
-    private readonly Queue<RetiredItem> _items = new();
+    private readonly RetiredQueue _items = new();
 
     // Only the FIFO head can be partial. A safe head stays safe across yields,
     // even when later publications enqueue younger items.
@@ -122,14 +130,6 @@ internal sealed class RetiredMemory
     // The epoch of the last thing retired.
     private long _newest;
 
-    // The capacity of the list, as EnsureCapacity reports it.
-    private int _capacity;
-
-    // Growth for reservations stays provisional until actual retirements need it.
-    // Earlier arrays hold no items: a withdrawal copies the current FIFO into
-    // the smallest backing still needed by the published or prepared work.
-    private WorkspaceCapacity<RetiredItem> _backing;
-
     // The places reserved for things that writes prepared and not published yet will retire: while a
     // group is in the persistence step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator).
@@ -144,20 +144,36 @@ internal sealed class RetiredMemory
     // which runs it once.
     private Action? _waitSwitch;
 
-    public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots, Action<int, int, int>? beforePublishedTrim = null,
-        Action<int>? observeBackingRefusal = null)
+    public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots, Action<int, int, int>? beforePublishedTrim = null)
     {
         _epochs = epochs;
         _arena = arena;
         _roots = roots;
         _beforePublishedTrim = beforePublishedTrim;
-        _observeBackingRefusal = observeBackingRefusal;
         _itemsPerLook = epochs.SlotCount;
         _bytesPerLook = arena.SegmentSize;
     }
 
+    // The budget of the arena, which a retired table is released into when it is freed.
+    public MemoryBudget Budget => _arena.Budget;
+
     // The bytes of the retired tables of the primary indexes, counted as an index counts its table.
     public long IndexBytes { get; private set; }
+
+    // Adds the ring of the queue and the arrays of the retired generations not freed yet, the replaced
+    // directories among them.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        _items.ReportHeld(held);
+        Budget.ReportAfterReads(held, nameof(RetiredMemory));
+        for (var index = 0; index < _items.Count; index++)
+        {
+            if (_items[index].Owner is IndexTable table)
+            {
+                table.ReportHeld(held, nameof(RetiredMemory));
+            }
+        }
+    }
 
     // Under the writes lock: the full native slot sizes of pending physical relocations.
     public int RelocationBytes { get; private set; }
@@ -185,7 +201,7 @@ internal sealed class RetiredMemory
             return false;
         }
 
-        if (_capacity == 0)
+        if (_items.Capacity == 0)
         {
             try
             {
@@ -197,7 +213,7 @@ internal sealed class RetiredMemory
             }
         }
 
-        if (_items.Count + _reserved == _capacity)
+        if (_items.Count + _reserved == _items.Capacity)
         {
             return false;
         }
@@ -216,71 +232,10 @@ internal sealed class RetiredMemory
     // Gives back the place a write reserved and does not use, because it was withdrawn.
     public void Release() => Release(1);
 
-    // Gives back that many places reserved and not used.
-    public void Release(int places)
-    {
-        _reserved -= places;
-        ReturnUnusedBacking();
-    }
+    // Gives back that many places reserved and not used. The ring keeps its length.
+    public void Release(int places) => _reserved -= places;
 
-    private void EnsureCapacity(int needed)
-    {
-        if (needed <= _capacity)
-        {
-            return;
-        }
-
-        if (_arena.Budget is not { } budget)
-        {
-            _capacity = _items.EnsureCapacity(needed);
-            return;
-        }
-
-        var previous = BudgetCollections.Items(_items);
-        var replacement = previous;
-        try
-        {
-            // A bulk reservation can later be released in part. Prepay the
-            // same doubling steps that a smaller surviving demand would use.
-            while (replacement.Length < needed)
-            {
-                var capacity = BudgetCollections.CapacityFor(replacement.Length, replacement.Length + 1);
-                replacement = _backing.AllocateGrowth(replacement, capacity, budget, nameof(RetiredMemory));
-            }
-        }
-        catch (Exception exception)
-        {
-            _backing.DiscardGrowth(replacement, previous, budget);
-            if (exception is BudgetRefusedException)
-            {
-                _observeBackingRefusal?.Invoke(needed);
-            }
-
-            throw;
-        }
-
-        _items.UseBacking(replacement);
-        _capacity = replacement.Length;
-        Array.Clear(previous);
-    }
-
-    private void ReturnUnusedBacking()
-    {
-        var inUse = _items.Count + _reserved;
-        if (!_backing.CanRelease(inUse) || _arena.Budget is not { } budget)
-        {
-            return;
-        }
-
-        var previous = BudgetCollections.Items(_items);
-        var replacement = _backing.SelectRetained(previous, inUse, budget);
-        if (!ReferenceEquals(replacement, previous))
-        {
-            _items.UseBacking(replacement);
-            _capacity = replacement.Length;
-            budget.Release(previous);
-        }
-    }
+    private void EnsureCapacity(int needed) => _items.EnsureRoom(needed, _arena.Budget);
 
     // Retires the root a replace replaced: its blocks become retired in the arena (RootStorage.Retire).
     public void RetireRoot(RootLayout layout, ArenaAddress root) =>
@@ -336,10 +291,18 @@ internal sealed class RetiredMemory
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workLimit);
 
-        var spent = 0;
-        long? safe = null;
-        while (spent < workLimit && _items.TryPeek(out var item))
+        // The replaced directories are a few arrays at most, and their release is not a unit of the work.
+        if (Budget.HasAfterReads)
         {
+            ReleaseReplacedDirectories();
+        }
+
+        var spent = 0;
+
+        long? safe = null;
+        while (spent < workLimit && _items.Count != 0)
+        {
+            var item = _items.Peek();
             if (!_headActive)
             {
                 safe ??= _epochs.Advance();
@@ -460,6 +423,7 @@ internal sealed class RetiredMemory
     // failure from the final drain. It frees the arena even when the drain fails.
     public void DrainAtClose(Action? beforeTrim)
     {
+        Budget.ReleaseAllAfterReads();
         if (DrainAndCanTrim())
         {
             beforeTrim?.Invoke();
@@ -471,6 +435,10 @@ internal sealed class RetiredMemory
     {
         _itemsSinceLook = 0;
         _bytesSinceLook = 0;
+        if (Budget.HasAfterReads)
+        {
+            ReleaseReplacedDirectories();
+        }
 
         if (_items.Count == 0)
         {
@@ -490,10 +458,9 @@ internal sealed class RetiredMemory
         if (_items.Count != 0)
         {
             var safe = _epochs.Advance();
-            while (_items.TryPeek(out var item) && item.Epoch <= safe)
+            while (_items.Count != 0 && _items.Peek().Epoch <= safe)
             {
-                _items.Dequeue();
-                Free(item);
+                Free(_items.Dequeue());
             }
         }
 
@@ -503,7 +470,7 @@ internal sealed class RetiredMemory
         // large: a read held for a second beside a million writes a second leaves a million places.
         // Once it is empty and its capacity is more than 64 looks' worth (8,192 places, 384 KiB with
         // 128 slots), it lets the places go, unless places are reserved for writes not published yet;
-        // emptied, the trim replaces its backing without copying any items. It grows again by doubling
+        // emptied, the trim releases its ring without copying any items. It grows again by doubling
         // before a publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
         // one or two looks' worth, from trimming and growing again: only a peak of 64 looks' worth
         // does, and its growth costs about as much as it retired.
@@ -511,34 +478,22 @@ internal sealed class RetiredMemory
     }
 
     private bool CanTrimEmptyQueue() =>
-        _items.Count == 0 && _reserved == 0 && _capacity > 64 * _itemsPerLook;
+        _items.Count == 0 && _reserved == 0 && _items.Capacity > 64 * _itemsPerLook;
 
     private void TryTrimEmptyQueue(Action<int, int, int>? inspectPublishedTrim = null)
     {
         try
         {
-            inspectPublishedTrim?.Invoke(_items.Count, _reserved, _capacity);
+            inspectPublishedTrim?.Invoke(_items.Count, _reserved, _items.Capacity);
             TrimEmptyQueue();
         }
         catch (OutOfMemoryException)
         {
-            // The empty-array allocation was refused. Keep the backing for reuse
-            // or a later trim.
+            // An allocation failure the trim met leaves the ring for reuse or a later trim.
         }
     }
 
-    private void TrimEmptyQueue()
-    {
-        var backing = _arena.Budget is null ? null : BudgetCollections.Items(_items);
-        _items.TrimExcess();
-        if (backing is not null)
-        {
-            _arena.Budget!.Release(backing);
-        }
-
-        _capacity = 0;
-        _backing.Reset();
-    }
+    private void TrimEmptyQueue() => _items.TrimWhenEmpty(_arena.Budget);
 
     // For a write the arena refused, under the lock of the writes: the epoch below which the reads
     // still inside could reach something of the arena retired so far, or 0 when none can, because
@@ -547,7 +502,12 @@ internal sealed class RetiredMemory
     // drain after it frees everything retired up to now.
     public long ReadsToWaitFor()
     {
-        if (_items.Count == 0)
+        if (Budget.TagAfterReads(_epochs.Current))
+        {
+            _newest = _epochs.Current;
+        }
+
+        if (_items.Count == 0 && !Budget.HasAfterReads)
         {
             return 0;
         }
@@ -558,8 +518,9 @@ internal sealed class RetiredMemory
 
     public bool HasReusableRootSlot()
     {
-        foreach (var item in _items)
+        for (var index = 0; index < _items.Count; index++)
         {
+            ref readonly var item = ref _items[index];
             if (item.Kind == RetiredKindEnum.DeletedRoot && item.Handle.Generation < uint.MaxValue)
             {
                 return true;
@@ -591,8 +552,6 @@ internal sealed class RetiredMemory
     {
         _items.Clear();
         _reserved = 0;
-        _backing.Reset();
-        ReturnUnusedBacking();
         _rootWork?.Clear();
         _nodeWork = default;
         _headActive = false;
@@ -616,18 +575,21 @@ internal sealed class RetiredMemory
         _newest = _epochs.Current;
         _items.Enqueue(new RetiredItem(kind, _newest, owner, address, handle, bytes));
         _reserved--;
-        if (_arena.Budget is { } budget)
-        {
-            _backing.Keep(_items.Count, _capacity, budget);
-            if (_backing.HasEarlier && _reserved == 0)
-            {
-                ReturnUnusedBacking();
-            }
-        }
-
         _itemsSinceLook++;
         _bytesSinceLook += bytes;
         _retiredSincePublication = true;
+    }
+
+    // The replaced directories handed over since the last look wait for the reads of the current epoch,
+    // and those no read inside can still hold are released (see the class).
+    private void ReleaseReplacedDirectories()
+    {
+        if (Budget.TagAfterReads(_epochs.Current))
+        {
+            _newest = _epochs.Current;
+        }
+
+        Budget.ReleaseAfterReadsUpTo(_epochs.Advance());
     }
 
     private void Free(in RetiredItem item)

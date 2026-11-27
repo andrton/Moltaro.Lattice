@@ -97,7 +97,7 @@ public sealed class ClosedFrameTests
         await using var forwarded = await ClosingRelay.StartAsync(reply =>
             inside == "a reply"
                 ? [ForwardPayload.Frames(ForwardPayload.WriteReply, reply.CorrelationId, 0, ForwardPayload.BodyOf([reply]), framePayload: 8)[0], ForwardPayload.ClosedFrame(0)]
-                : [WireFrame.Make(FrameKindEnum.Transaction, flags: 0, correlationId: 0, streamSequence: 0, TransactionPayload.Make(1, announcedLength: 2, [TransactionPayload.Unchanged])), ForwardPayload.ClosedFrame(0)]);
+                : [WireFrame.Make(FrameKindEnum.Transaction, flags: 0, correlationId: 0, streamSequence: 0, TransactionPayload.Make(1, count: 1, announcedLength: 2, [TransactionPayload.Unchanged])), ForwardPayload.ClosedFrame(0)]);
 
         var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(Bound));
         await forwarded.Relay.ChildEndedAsync();

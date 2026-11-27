@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using Moltaro.Lattice.Replication.Transactions;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Delivery;
 
@@ -60,6 +61,9 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
     // spare for more often.
     public const int BlockSize = 1024 * 1024;
 
+    // The bytes of the array of one block, which the physical capacity of the tail counts (CapacityBytes).
+    private static readonly long BlockArrayBytes = MemoryBudget.ArrayBytes<byte>(BlockSize);
+
     // The cursors of the children registered, few: one for each child connected or loading.
     private readonly List<DeliveryCursor> _cursors = [];
 
@@ -115,6 +119,9 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
     // The bytes of the transactions appended and not released (EngineCounters.PendingDeliveryBytes).
     public long PendingBytes => _appendedBytes - _releasedBytes;
 
+    // The physical capacity of the tail: the arrays of the blocks it holds, the spare included. It is
+    // reported beside the budget and not charged to it (docs/design/storage-and-maintenance.md, the memory
+    // budget).
     public long CapacityBytes => Volatile.Read(ref _capacityBytes);
 
     // Begins the transaction of the sequence, whose effects take the bytes given: its bytes are written
@@ -304,7 +311,7 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
         if (_spare is not { } block)
         {
             block = new DeliveryBlock(BlockSize);
-            Volatile.Write(ref _capacityBytes, _capacityBytes + DeliveryBlock.CapacityBytes);
+            Volatile.Write(ref _capacityBytes, _capacityBytes + BlockArrayBytes);
         }
 
         _spare = null;
@@ -386,7 +393,7 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
             }
             else
             {
-                Volatile.Write(ref _capacityBytes, _capacityBytes - DeliveryBlock.CapacityBytes);
+                Volatile.Write(ref _capacityBytes, _capacityBytes - BlockArrayBytes);
             }
         }
     }

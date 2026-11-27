@@ -13,6 +13,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -873,8 +874,8 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
             var originalPayloads = addresses.Select(address => arena.Payload(address).ToArray()).ToArray();
             var originalCounters = arena.Counters;
             var queue = RetiredItems(parts.Retired);
-            var items = queue.ToArray();
-            var capacity = queue.EnsureCapacity(0);
+            var items = ItemsOf(queue);
+            var capacity = queue.Capacity;
             var reserved = RetirementReservations(parts.Retired);
             var relocationBytes = parts.Retired.RelocationBytes;
             var size = Arena.BlockSizeFor((int)arena.Header(source).PayloadLength);
@@ -883,8 +884,8 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
             Assert.False(CompoundRelocation.TryMove(parts, root.Handle, source, Arena.RegionOf(hole), out _, out _));
             Assert.Equal(root.Address, parts.Roots.Entry(root.Handle).Root);
             Assert.Equal(originalCounters, arena.Counters);
-            Assert.Equal(items, queue.ToArray());
-            Assert.Equal(capacity, queue.EnsureCapacity(0));
+            Assert.Equal(items, ItemsOf(queue));
+            Assert.Equal(capacity, queue.Capacity);
             Assert.Equal(reserved, RetirementReservations(parts.Retired));
             Assert.Equal(relocationBytes, parts.Retired.RelocationBytes);
             Assert.Equal(beforeHole, FreeSlotBytes(arena, neighbor, hole, size));
@@ -953,12 +954,9 @@ public sealed class CompoundCollectionRelocationTests(ITestOutputHelper output)
     }
 
     private static Task<RetiredItem[]> RetirementOfAsync(EngineDatabase node) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired)
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => ItemsOf(RetiredItems(parts.Retired))
             .Where(item => item.Kind is RetiredKindEnum.RelocatedBlock or RetiredKindEnum.Root or RetiredKindEnum.DeletedRoot)
             .ToArray());
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_reserved")]
     private static extern ref int RetirementReservations(RetiredMemory retired);

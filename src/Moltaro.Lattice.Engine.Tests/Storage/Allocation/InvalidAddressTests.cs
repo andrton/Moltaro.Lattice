@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -38,7 +39,7 @@ public sealed class InvalidAddressTests
     public void A_block_whose_segment_was_freed_is_refused()
     {
         // Without a reserve, the segment that loses its last block is freed at once.
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 4L * Arenas.SegmentSize, ReservedSegments = 0 });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 4L * Arenas.SegmentSize, ReservedSegments = 0 }, new MemoryBudget());
         var freed = Arenas.Allocate(arena, LivePayloadLength);
 
         arena.Free(freed);

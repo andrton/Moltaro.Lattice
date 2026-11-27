@@ -162,7 +162,7 @@ public sealed class ReleasedTransactionsTests
     private static void Append(DeliveryTail tail, ulong sequence, long effectsLength)
     {
         tail.Begin(sequence, effectsLength);
-        TransactionFormat.WriteHeader(tail.GetSpan(TransactionFormat.HeaderSize), sequence, effectsLength);
+        TransactionFormat.WriteHeader(tail.GetSpan(TransactionFormat.HeaderSize), sequence, effectsLength, effectCount: 1);
         tail.Advance(TransactionFormat.HeaderSize);
 
         for (var left = effectsLength; left > 0;)

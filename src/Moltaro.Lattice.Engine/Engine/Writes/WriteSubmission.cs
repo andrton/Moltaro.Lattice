@@ -13,6 +13,6 @@ internal readonly record struct WriteSubmission(
     object?[]? Values = null,
     LatticeRevision? ExpectedRevision = null,
     BatchMember[]? Members = null,
-    PublicationKeys? Keys = null,
+    HashSet<(EntityTable Table, EntityKey Key)>? Keys = null,
     ForwardedOrigin? Forwarded = null,
     UpdateInput? Update = null);

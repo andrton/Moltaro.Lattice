@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
@@ -18,97 +17,50 @@ namespace Moltaro.Lattice.Engine.Entities;
 // and the batch waits to be prepared again, when it is prepared again, and when the record serves the next
 // write; once the batch is published nothing asks it any more, and it goes with the record of the batch. Only
 // the holder of the lock of the writes uses it.
-internal sealed class UniqueClaims : IDisposable
+internal sealed class UniqueClaims
 {
     private readonly ChangePublisher _publisher;
 
     private readonly Arena _arena;
 
     private readonly PreparedChange[] _changes;
-    private readonly MemoryLease? _lease;
 
     // One entry for each unique index of an entity type in which a change sets a value: the table, the place
     // of the index among its indexes, and the places of the changes, sorted.
-    private readonly List<(EntityTable Table, int Index, List<int> Places)> _claims;
+    private readonly List<(EntityTable Table, int Index, List<int> Places)> _claims = [];
 
     // The root entries of the changes of a stored entity, sorted, with the place of each change.
     private readonly (ulong Handle, int Place)[] _owners;
 
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(6L * IntPtr.Size);
-
-    public static UniqueClaims Create(ChangePublisher publisher, Arena arena, PreparedChange[] changes, int count)
-    {
-        var budget = arena.Budget;
-        budget?.Reserve(OwnerBytes);
-        UniqueClaims? claims = null;
-        try
-        {
-            claims = new UniqueClaims(publisher, arena, changes, count);
-            budget?.Own(claims, nameof(UniqueClaims));
-            return claims;
-        }
-        catch
-        {
-            if (claims is null)
-            {
-                budget?.Release(OwnerBytes);
-            }
-            else
-            {
-                claims.Dispose();
-            }
-
-            throw;
-        }
-    }
-
-    private UniqueClaims(ChangePublisher publisher, Arena arena, PreparedChange[] changes, int count)
+    public UniqueClaims(ChangePublisher publisher, Arena arena, PreparedChange[] changes, int count)
     {
         _publisher = publisher;
         _arena = arena;
         _changes = changes;
 
-        _lease = arena.Budget is { } budget ? MemoryLease.Create(budget) : null;
         var owners = new List<(ulong Handle, int Place)>();
-        try
+
+        for (var place = 0; place < count; place++)
         {
-            _claims = MakeList<(EntityTable, int, List<int>)>();
-            for (var place = 0; place < count; place++)
+            ref readonly var change = ref changes[place];
+
+            if (change.Kind != ChangeKindEnum.Insert)
             {
-                ref readonly var change = ref changes[place];
-
-                if (change.Kind != ChangeKindEnum.Insert)
-                {
-                    owners.EnsureCapacity(owners.Count + 1, arena.Budget, nameof(UniqueClaims));
-                    owners.Add((change.Handle.Packed, place));
-                }
-
-                if (change.Kind != ChangeKindEnum.Delete && change.Table.HasUniqueIndex)
-                {
-                    AddClaims(change, place);
-                }
+                owners.Add((change.Handle.Packed, place));
             }
 
-            _owners = _lease?.Allocate<(ulong Handle, int Place)>(owners.Count, nameof(UniqueClaims)) ?? new (ulong Handle, int Place)[owners.Count];
-            owners.CopyTo(_owners, 0);
-            _owners.AsSpan().Sort();
-
-            foreach (var (table, index, places) in _claims)
+            if (change.Kind != ChangeKindEnum.Delete && change.Table.HasUniqueIndex)
             {
-                CollectionsMarshal.AsSpan(places).Sort(new ClaimOrder(table.Indexes[index].Order, arena, table.Layout, changes));
+                AddClaims(change, place);
             }
         }
-        catch
+
+        _owners = [.. owners];
+        _owners.AsSpan().Sort();
+
+        foreach (var (table, index, places) in _claims)
         {
-            _lease?.Dispose();
-            throw;
-        }
-        finally
-        {
-            if (arena.Budget is { } account)
-            {
-                account.Release(BudgetCollections.Items(owners));
-            }
+            CollectionsMarshal.AsSpan(places).Sort(new ClaimOrder(table.Indexes[index].Order, arena, table.Layout, changes));
         }
     }
 
@@ -182,9 +134,7 @@ internal sealed class UniqueClaims : IDisposable
                 continue;
             }
 
-            var places = PlacesOf(change.Table, index);
-            places.EnsureCapacity(places.Count + 1, _arena.Budget, nameof(UniqueClaims));
-            places.Add(place);
+            PlacesOf(change.Table, index).Add(place);
         }
     }
 
@@ -201,22 +151,11 @@ internal sealed class UniqueClaims : IDisposable
             }
         }
 
-        var places = MakeList<int>();
+        var places = new List<int>();
 
-        _claims.EnsureCapacity(_claims.Count + 1, _arena.Budget, nameof(UniqueClaims));
         _claims.Add((table, index, places));
 
         return places;
-    }
-
-    private List<T> MakeList<T>() =>
-        _lease?.Allocate(MemoryBudget.ObjectBytes(IntPtr.Size + 2L * sizeof(int)), nameof(UniqueClaims),
-            static () => new List<T>(), static (budget, values) => budget.Release(BudgetCollections.Items(values))) ?? [];
-
-    public void Dispose()
-    {
-        _lease?.Dispose();
-        _arena.Budget?.Release(OwnerBytes, this);
     }
 
     // The order of the claims of one unique index: the order of the index applied to the new roots of the

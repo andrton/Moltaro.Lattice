@@ -6,6 +6,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
@@ -47,12 +48,12 @@ internal sealed class StandaloneKeys : IDisposable
         Assert.True(schema.TryGetEntityType(keyType, out var entityType));
 
         var owner = new object();
-        var roots = new RootTable();
+        var roots = new RootTable(new InstanceMemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);
 
         _keyType = keyType;
         _textLength = textLength;
-        _arena = new Arena(new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize });
+        _arena = new Arena(new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize }, new InstanceMemoryBudget());
         _table = EntityTable.Open(entityType, schema, _arena, roots, epochs, new RetiredMemory(epochs, _arena, roots), new PositionClock(1, owner), Seed);
         _layout = _table.Layout!;
         _fixedPart = new byte[RootReader.FixedPartLength(_layout)];

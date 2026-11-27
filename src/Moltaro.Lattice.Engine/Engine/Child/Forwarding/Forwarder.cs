@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -10,6 +10,7 @@ using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
@@ -68,6 +69,17 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 // applies the transaction of the batch at its one position (Loading.ReceivedChanges), so once its clock has
 // that position every member is visible, and it acknowledges no part of it.
 //
+// Memory. A write of the child reserves its estimate in the budget of the child in two steps: before its
+// request is encoded, BatchInputCharge.PerUnitBytes and BatchInputCharge.PerMemberBytes, and for a partial
+// update the encoded length of its commands; once its request is encoded and before it is queued, the
+// encoded length of the request, which holds the root once more. A batch is charged by its builder and
+// reserves here the encoded length of its request alone, which copies the roots of its members once more.
+// Both are released once the reply has come or the call has ended without one, and the charge of the
+// builder at the same point, before the wait for the application of the batch, since nothing of its input
+// is needed any more (docs/design/storage-and-maintenance.md, the memory budget). A write the budget cannot
+// hold is WriteRejected with Memory: its request is dropped, and nothing is sent. The registration of a
+// call and its reply are working objects under the base of the unit.
+//
 // The wait for the application ends otherwise: at the timeout, or at once when the child lost its master
 // or faulted, in SynchronizationTimeout with the committed position, since the write is committed and must
 // not be repeated, and an application retries on Unavailable; at the close of the child, with the result,
@@ -87,16 +99,16 @@ internal sealed class Forwarder
 {
     private readonly PositionClock _clock;
     private readonly ReadEpochs _epochs;
+    private readonly MemoryBudget _budget;
 
     // How long a write waits for its application when its session does not say.
     private readonly TimeSpan _synchronizationTimeout;
-    private readonly MemoryBudget? _budget;
 
     // The sender of the connection while the child follows its master; null before and once it has lost
     // it (Following.Follower).
     private volatile ChildSender? _sender;
 
-    public Forwarder(PositionClock clock, ReadEpochs epochs, TimeSpan synchronizationTimeout, MemoryBudget? budget = null)
+    public Forwarder(PositionClock clock, ReadEpochs epochs, TimeSpan synchronizationTimeout, MemoryBudget budget)
     {
         _clock = clock;
         _epochs = epochs;
@@ -130,49 +142,86 @@ internal sealed class Forwarder
     {
         ChildSender sender;
         ForwardedCall call;
-        MemoryLease? retained = null;
+        var estimate = 0L;
 
         try
         {
             sender = Begin(session, cancellationToken);
-            retained = update is not null && _budget is not null ? MemoryLease.Create(_budget) : null;
-            var replies = UpdateReplies.Of(update, retained, receives: true);
-            call = new ForwardedCall(Request(table, kind, key, values, update, expectedRevision, session?.MinPosition), table.EntityType, replies, retained);
+            estimate = Reserve(table, update);
+            var request = Request(table, kind, key, values, update, expectedRevision, session?.MinPosition);
+            if (!_budget.TryReserve(request.BodyLength))
+            {
+                throw RootWriter.RefusalForMemory(table.Layout);
+            }
+
+            estimate += request.BodyLength;
+            call = new ForwardedCall(request, table.EntityType, UpdateReplies.Of(update));
         }
         catch (Exception exception)
         {
-            retained?.Dispose();
+            Release(estimate);
             return Refused(exception, cancellationToken);
         }
 
-        return ForwardAsync(sender, call, session, cancellationToken);
+        return ForwardAsync(sender, call, session, estimate, charge: null, cancellationToken);
     }
 
     // A write batch of the child (see the class): its members, in their order, as one request, which its master
     // executes as one write (Writes.WriteCoordinator, "A write batch"), with the roots the batch of the core
     // encoded when they were added. The members are not kept once the request is written, so their roots are
     // held only until then. Every refusal comes through the task.
-    public ValueTask<LatticeWriteResult> WriteBatchAsync(BatchMember[] members, LatticeSession? session, CancellationToken cancellationToken)
+    public ValueTask<LatticeWriteResult> WriteBatchAsync(BatchMember[] members, BatchInputCharge charge, LatticeSession? session,
+        CancellationToken cancellationToken)
     {
         ChildSender sender;
         ForwardedCall call;
-        MemoryLease? retained = null;
+        var estimate = 0L;
 
         try
         {
             sender = Begin(session, cancellationToken);
-            retained = _budget is null ? null : MemoryLease.Create(_budget);
-            var entityTypes = EntityTypesOf(members, retained);
-            var replies = UpdateReplies.Of(members, retained, receives: true);
-            call = new ForwardedCall(BatchRequest(members, session?.MinPosition), entityTypes, replies, retained);
+            var request = BatchRequest(members, session?.MinPosition);
+            if (!_budget.TryReserve(request.BodyLength))
+            {
+                throw new BudgetRefusedException(LatticeLimitEnum.Memory).WriteRejected();
+            }
+
+            estimate = request.BodyLength;
+            call = new ForwardedCall(request, EntityTypesOf(members), UpdateReplies.Of(members));
         }
         catch (Exception exception)
         {
-            retained?.Dispose();
+            Release(estimate);
             return Refused(exception, cancellationToken);
         }
 
-        return ForwardAsync(sender, call, session, cancellationToken);
+        return ForwardAsync(sender, call, session, estimate, charge, cancellationToken);
+    }
+
+    // Reserves the estimate of a write of the child (see the class) and returns it; WriteRejected with
+    // Memory, with nothing reserved, when the budget cannot hold it.
+    private long Reserve(EntityTable table, UpdateInput? update)
+    {
+        var estimate = BatchInputCharge.PerUnitBytes + BatchInputCharge.PerMemberBytes;
+        if (update is not null)
+        {
+            estimate += UpdateCommands.Length(table.Layout.Structure, update.Commands);
+        }
+
+        if (!_budget.TryReserve(estimate))
+        {
+            throw RootWriter.RefusalForMemory(table.Layout);
+        }
+
+        return estimate;
+    }
+
+    private void Release(long estimate)
+    {
+        if (estimate != 0)
+        {
+            _budget.Release(estimate);
+        }
     }
 
     private static LatticeException NoMaster() =>
@@ -182,7 +231,7 @@ internal sealed class Forwarder
     private static ValueTask<LatticeWriteResult> Refused(Exception exception, CancellationToken cancellationToken) =>
         exception is OperationCanceledException && cancellationToken.IsCancellationRequested
             ? ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken)
-            : ValueTask.FromException<LatticeWriteResult>(exception is BudgetRefusedException pressure ? pressure.WriteRejected() : exception);
+            : ValueTask.FromException<LatticeWriteResult>(exception);
 
     // The checks of step 1 of a call (see the class): the token, the close
     // and the fault, the session bound before anything is queued, and the sender of the connection, which
@@ -208,27 +257,32 @@ internal sealed class Forwarder
 
     // Steps 3 and 4 of a call (see the class): the queue of the sender, the reply, and the wait until this child
     // has applied the position of a write its master committed.
-    private async ValueTask<LatticeWriteResult> ForwardAsync(ChildSender sender, ForwardedCall call, LatticeSession? session, CancellationToken cancellationToken)
+    // The estimate of the write, the length of its request included, and the charge of a batch, are released
+    // once its reply has come or its call has ended.
+    private async ValueTask<LatticeWriteResult> ForwardAsync(ChildSender sender, ForwardedCall call, LatticeSession? session, long estimate,
+        BatchInputCharge? charge, CancellationToken cancellationToken)
     {
-        using var lifetime = call;
-        call.WithdrawOn(cancellationToken);
+        ForwardedReply reply;
 
-        // The sender ended since it was read: the call ends here, and its registration with it.
         try
         {
+            call.WithdrawOn(cancellationToken);
+
+            // The sender ended since it was read: the call ends here, and its registration with it.
             if (!sender.TryQueue(call))
             {
                 call.TryEnd();
+
                 throw NoMaster();
             }
-        }
-        catch (BudgetRefusedException exception)
-        {
-            call.TryEnd();
-            throw exception.WriteRejected();
-        }
 
-        var reply = await call.Outcome.ConfigureAwait(false);
+            reply = await call.Outcome.ConfigureAwait(false);
+        }
+        finally
+        {
+            Release(estimate);
+            charge?.Dispose();
+        }
 
         if (reply.Refusal is { } refusal)
         {
@@ -247,104 +301,87 @@ internal sealed class Forwarder
             session?.Advance(result.Position);
         }
 
-        call.Updates?.Apply(reply.Bits!);
+        call.Updates?.Apply(reply.Bits);
         return result;
     }
 
     // The request of the write (see the class, step 2).
-    private OutgoingMessage Request(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values,
+    private static OutgoingMessage Request(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values,
         UpdateInput? update, LatticeRevision? expectedRevision, LatticePosition? minimumPosition)
     {
-        var request = new OutgoingMessage(_budget);
-        try
+        var request = new OutgoingMessage();
+        var layout = table.Layout;
+
+        ForwardEncoding.WriteRequestHead(request, kind, (uint)table.EntityType.Id, expectedRevision, minimumPosition);
+        table.Keys.WriteKey(key, request);
+
+        if (update is not null)
         {
-            var layout = table.Layout;
-
-            ForwardEncoding.WriteRequestHead(request, kind, (uint)table.EntityType.Id, expectedRevision, minimumPosition);
-            table.Keys.WriteKey(key, request);
-
-            if (update is not null)
-            {
-                WriteUpdate(request, layout.Structure, update);
-            }
-            else if (kind != WriteKindEnum.Delete)
-            {
-                using var working = _budget is null ? null : MemoryLease.Create(_budget);
-                var writer = new RootWriter(layout, ExportedValues.OfRoot(layout, working));
-
-                try
-                {
-                    RootValues.Write(ref writer, table.EntityType, values!);
-                    ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + writer.ExportLength);
-                    RootEnvelope.Write(request, (uint)table.EntityType.Id, lastMutation: 0, member: 0);
-                    writer.Export(request);
-                }
-                catch
-                {
-                    writer.Abandon();
-                    throw;
-                }
-            }
-
-            request.Complete();
-
-            return request;
+            WriteUpdate(request, layout.Structure, update);
         }
-        catch
+        else if (kind != WriteKindEnum.Delete)
         {
-            request.Dispose();
-            throw;
+            var writer = new RootWriter(layout, ExportedValues.OfRoot(layout));
+
+            try
+            {
+                RootValues.Write(ref writer, table.EntityType, values!);
+                ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + writer.ExportLength);
+                RootEnvelope.Write(request, (uint)table.EntityType.Id, lastMutation: 0, member: 0);
+                writer.Export(request);
+            }
+            catch
+            {
+                writer.Abandon();
+                throw;
+            }
         }
+
+        request.Complete();
+
+        return request;
     }
 
     // The request of a write batch (Replication.Forwarding.ForwardEncoding): its head, then each member as the
     // part of a request before its minimum position, its key, and but for a delete the length of its root and
     // the root after its envelope, the last mutation and the member 0.
-    private OutgoingMessage BatchRequest(BatchMember[] members, LatticePosition? minimumPosition)
+    private static OutgoingMessage BatchRequest(BatchMember[] members, LatticePosition? minimumPosition)
     {
-        var request = new OutgoingMessage(_budget);
-        try
+        var request = new OutgoingMessage();
+
+        ForwardEncoding.WriteBatchHead(request, minimumPosition, members.Length);
+
+        foreach (ref readonly var member in members.AsSpan())
         {
+            var table = member.Table;
+            var typeId = (uint)table.EntityType.Id;
 
-            ForwardEncoding.WriteBatchHead(request, minimumPosition, members.Length);
+            ForwardEncoding.WriteMemberHead(request, member.Kind, typeId, member.ExpectedRevision);
+            table.Keys.WriteKey(member.Key, request);
 
-            foreach (ref readonly var member in members.AsSpan())
+            if (member.Update is { } update)
             {
-                var table = member.Table;
-                var typeId = (uint)table.EntityType.Id;
-
-                ForwardEncoding.WriteMemberHead(request, member.Kind, typeId, member.ExpectedRevision);
-                table.Keys.WriteKey(member.Key, request);
-
-                if (member.Update is { } update)
-                {
-                    WriteUpdate(request, table.Layout.Structure, update);
-                    continue;
-                }
-
-                if (member.Kind == WriteKindEnum.Delete)
-                {
-                    continue;
-                }
-
-                ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + member.Root.Length);
-                RootEnvelope.Write(request, typeId, lastMutation: 0, member: 0);
-
-                foreach (var piece in member.Root)
-                {
-                    request.Write(piece.Span);
-                }
+                WriteUpdate(request, table.Layout.Structure, update);
+                continue;
             }
 
-            request.Complete();
+            if (member.Kind == WriteKindEnum.Delete)
+            {
+                continue;
+            }
 
-            return request;
+            ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + member.Root.Length);
+            RootEnvelope.Write(request, typeId, lastMutation: 0, member: 0);
+
+            foreach (var piece in member.Root)
+            {
+                request.Write(piece.Span);
+            }
         }
-        catch
-        {
-            request.Dispose();
-            throw;
-        }
+
+        request.Complete();
+
+        return request;
     }
 
     private static void WriteUpdate(OutgoingMessage request, StructureLayout layout, UpdateInput update)
@@ -354,9 +391,9 @@ internal sealed class Forwarder
     }
 
     // The entity types of the members, in their order, in which a refusal of the batch names its unique index.
-    private static LatticeEntityType[] EntityTypesOf(BatchMember[] members, MemoryLease? retained)
+    private static LatticeEntityType[] EntityTypesOf(BatchMember[] members)
     {
-        var entityTypes = retained?.Allocate<LatticeEntityType>(members.Length, nameof(ForwardedCall)) ?? new LatticeEntityType[members.Length];
+        var entityTypes = new LatticeEntityType[members.Length];
 
         for (var place = 0; place < members.Length; place++)
         {

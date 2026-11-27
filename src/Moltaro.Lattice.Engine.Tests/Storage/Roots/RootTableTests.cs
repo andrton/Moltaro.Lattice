@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Roots;
@@ -19,7 +20,7 @@ public sealed class RootTableTests
     [Fact]
     public void Every_new_slot_starts_at_generation_1()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
 
         var handles = Enumerable.Range(0, 10).Select(_ => table.Add(TypeId)).ToList();
 
@@ -32,7 +33,7 @@ public sealed class RootTableTests
     [Fact]
     public void A_new_entry_is_prepared_with_its_generation_and_type_and_every_other_field_zero()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
 
         var handle = table.Add(TypeId);
 
@@ -42,7 +43,7 @@ public sealed class RootTableTests
     [Fact]
     public void The_default_handle_is_never_current()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
 
         AssertNotCurrent(table, default);
 
@@ -55,7 +56,7 @@ public sealed class RootTableTests
     [Fact]
     public void A_handle_is_current_from_Add_until_it_is_released()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handle = table.Add(TypeId);
         var other = table.Add(TypeId);
 
@@ -71,7 +72,7 @@ public sealed class RootTableTests
     [Fact]
     public void Release_leaves_the_entry_free()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handle = table.Add(TypeId);
 
         // The reference names the slot's entry in its page, whatever lifetime the slot holds.
@@ -85,7 +86,7 @@ public sealed class RootTableTests
     [Fact]
     public void Release_looks_at_neither_the_reserved_word_nor_the_state()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         RootStateEnum[] states = [RootStateEnum.Prepared, RootStateEnum.Live, RootStateEnum.Deleted];
 
         foreach (var state in states)
@@ -106,7 +107,7 @@ public sealed class RootTableTests
     [Fact]
     public void A_handle_that_names_no_lifetime_is_not_current_and_is_refused()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handle = table.Add(TypeId);
         var slots = (uint)(table.Pages * RootTable.EntriesPerPage);
 
@@ -134,7 +135,7 @@ public sealed class RootTableTests
     [Fact]
     public void A_released_slot_is_given_out_again_with_its_next_generation_and_the_old_handle_does_not_match()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handles = AddUntilFull(table);
         var pages = table.Pages;
         var old = handles[^1];
@@ -165,7 +166,7 @@ public sealed class RootTableTests
     [Fact]
     public void A_slot_released_at_the_last_generation_is_retired_and_never_given_out_again()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handles = AddUntilFull(table);
         var first = handles[0];
 
@@ -205,7 +206,7 @@ public sealed class RootTableTests
     [Fact]
     public void Count_tells_how_many_slots_hold_a_lifetime()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
 
         Assert.Equal(0, table.Count);
 
@@ -226,7 +227,7 @@ public sealed class RootTableTests
     [Fact]
     public void The_table_adds_a_page_of_4096_entries_only_when_every_slot_holds_a_lifetime()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         table.Add(TypeId);
         var pages = table.Pages;
 
@@ -248,7 +249,7 @@ public sealed class RootTableTests
     [Fact]
     public void Adding_a_page_copies_no_entry_and_a_reference_taken_before_names_the_same_entry_after()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handles = AddUntilFull(table);
 
         for (var index = 0; index < handles.Count; index++)

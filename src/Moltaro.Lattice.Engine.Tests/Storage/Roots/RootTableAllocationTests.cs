@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Roots;
@@ -37,7 +38,7 @@ public sealed class RootTableAllocationTests
     // released slots, and releases them all. Returns every call with what it allocated.
     private static List<Call> Run()
     {
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handles = new RootHandle[Lifetimes];
         var calls = new List<Call>(4 * Lifetimes);
 

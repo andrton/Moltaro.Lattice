@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Children;
 
@@ -56,7 +56,7 @@ internal sealed class ChildListener
     private readonly Lock _lock = new();
 
     // The connections that run, with their tasks; none is added once the listener stops.
-    private Dictionary<ChildConnection, Task> _connections = [];
+    private readonly Dictionary<ChildConnection, Task> _connections = [];
 
     private bool _stopping;
 
@@ -154,11 +154,19 @@ internal sealed class ChildListener
         }
 
         await ended.ConfigureAwait(false);
+    }
+
+    // For the inspection of the tests (EngineDatabase.InspectHeld): the arrays each connection holds. It
+    // takes the lock of the connections, which no thread holds while it takes the lock of the writes: a
+    // connection begins its work only after it was added (RunAsync).
+    public void ReportHeld(List<HeldArray> held)
+    {
         lock (_lock)
         {
-            var connectionsEnded = _connections;
-            _connections = [];
-            _writes.Budget?.ReleaseDictionary(connectionsEnded);
+            foreach (var connection in _connections.Keys)
+            {
+                connection.ReportHeld(held);
+            }
         }
     }
 
@@ -231,17 +239,10 @@ internal sealed class ChildListener
             keepsAccepting = !_stopping;
             if (keepsAccepting)
             {
-                try
-                {
-                    _connections.EnsureCapacity(_connections.Count + 1, _writes.Budget, nameof(ChildListener));
-                    // StopAsync finds every running connection. RunAsync yields before any connection work.
-                    _connections.Add(connection, RunAsync(connection));
-                    return true;
-                }
-                catch (BudgetRefusedException)
-                {
-                    // Only this socket was refused. A later acceptance can use returned capacity.
-                }
+                // StopAsync finds every running connection. RunAsync yields before any connection work,
+                // so nothing of the connection runs under the lock.
+                _connections.Add(connection, RunAsync(connection));
+                return true;
             }
         }
 

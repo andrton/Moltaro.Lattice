@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
@@ -98,7 +99,7 @@ internal sealed class EntityTable
         _roots = roots;
         _epochs = epochs;
         _clock = clock;
-        _index = new PrimaryIndex(retired, arena.Budget);
+        _index = new PrimaryIndex(retired);
         _indexes = [.. entityType.Indexes.Select(index => SecondaryIndex.Open(index, layout, arena, retired))];
         HasUniqueIndex = _indexes.Any(index => index.IsUnique);
     }
@@ -152,6 +153,10 @@ internal sealed class EntityTable
     // writes.
     public void Presize(long count) => _index.Presize(count);
 
+    // Adds the arrays of the primary index, for the inspection of the tests (EngineDatabase.InspectHeld).
+    public void ReportHeld(List<HeldArray> held) => _index.ReportHeld(held);
+
+    // What sizing the primary index for count entries charges, 0 when it is that size already.
     public long PresizeCapacity(long count) => _index.PresizeCapacity(count);
 
     // The table of an entity type of the schema, when the database opens, whose primary index hashes
@@ -205,7 +210,7 @@ internal sealed class EntityTable
     public void Reserve(in EntityKey key) => _index.Reserve(Keys.HashOf(key));
 
     // Gives back the room an insert reserved, when it is withdrawn. Under the lock of the writes.
-    public void ReleaseReservation(in EntityKey key) => _index.Release(Keys.HashOf(key));
+    public void ReleaseReservation() => _index.Release();
 
     // Maps an absent key to the root entry of its new root, after Reserve.
     public void Add(in EntityKey key, RootHandle handle) => _index.Add(Keys.HashOf(key), handle.Slot);

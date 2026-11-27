@@ -64,7 +64,7 @@ internal static class ChurnScenario
         string fixtureDigest = ReferenceFixture.Digest(fixture);
         ChurnAudit.Require(fixtureDigest == FullDigest, "The pinned reference fixture digest changed.");
         var audit = new ChurnAudit(fixture);
-        int users = smoke ? ChurnTrace.UsersInSmoke : (quick || cyclicSmoke) ? 12_288 : FixtureRecords.Users;
+        int users = smoke ? ChurnTrace.UsersInSmoke : (quick || cyclicSmoke) ? ChurnTrace.UsersInShortRuns : FixtureRecords.Users;
         var trace = new ChurnTrace(smoke, users, quick, cyclic, cyclicSmoke);
         var seed = SeedRecords(fixture, users, reduced);
         var volume = cyclic ? ChurnVolume.Model(seed, trace) : null;

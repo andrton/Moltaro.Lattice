@@ -9,6 +9,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -99,7 +100,6 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         var childAllocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!, new EngineTestInputs
         {
-            ObserveBudgetBackings = true,
             Allocator = childAllocator,
             DisableBackgroundMaintenance = true,
             IndexSeed = 91,
@@ -137,8 +137,8 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         {
             OwnershipAudit.Expect(master);
             OwnershipAudit.Expect(child);
-            Assert.True(ExpectCapacity(master, masterAllocator).NativeBytes > 0);
-            Assert.True(ExpectCapacity(child, childAllocator).NativeBytes > 0);
+            Assert.True(NativeBytes(ExpectAtRest(master, masterAllocator)) > 0);
+            Assert.True(NativeBytes(ExpectAtRest(child, childAllocator)) > 0);
         }
     }
 
@@ -166,7 +166,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         var allocator = new CountingNativeAllocator();
         await using var child = await ReplicationNodes.OpenChildAsync(
             ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, OneSegmentWithReceive),
-            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = sample => pressure.TrySetResult(sample) });
+            new EngineTestInputs { Allocator = allocator, DisableBackgroundMaintenance = true, ObserveChildPressure = sample => pressure.TrySetResult(sample) });
         var mirror = child.Set("Item");
         Assert.True(mirror.TryGet(first, out _, out var revision));
         var taken = await MaintenanceStep.RunAfterAdmissionAsync(child, parts =>
@@ -181,7 +181,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
             return held;
         });
         Assert.NotEmpty(taken);
-        var before = ExpectCapacity(child, allocator);
+        var before = ExpectAtRest(child, allocator);
         var earlierPrepared = child.Counters.Arena.PreparedBytes;
         Assert.Equal((long)taken.Count * 65_536, earlierPrepared);
         var input = profile.Values(count, Replaced);
@@ -207,7 +207,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         Assert.Equal(revision, still);
         Assert.Equal(1, child.Counters.RootEntries);
         Assert.Equal(earlierPrepared, child.Counters.Arena.PreparedBytes);
-        Assert.Equal(before.NativeBytes, ExpectCapacity(child, allocator).NativeBytes);
+        Assert.Equal(NativeBytes(before), NativeBytes(ExpectInFlight(child, allocator, UnitEstimate(1))));
 
         _ = await MaintenanceStep.RunAfterAdmissionAsync(child, parts =>
         {
@@ -221,7 +221,7 @@ public sealed class ReplicatedCollectionShapeTests(ITestOutputHelper output)
         await child.WaitForPositionAsync(committed.Position, Bound);
         ExpectBoth(master, child, profile, sparse ? first : second, sparse ? 1 : count, Replaced, input, profile.ExpectedShape(entries, count));
         OwnershipAudit.Expect(child);
-        ExpectCapacity(child, allocator);
+        ExpectAtRest(child, allocator);
     }
 
     [Fact]

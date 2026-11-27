@@ -1,6 +1,7 @@
-using Moltaro.Lattice.Budgeting;
+using System.Buffers;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
@@ -26,22 +27,28 @@ internal sealed class PendingRequests
 {
     private readonly Lock _lock = new();
 
-    private Dictionary<ulong, ForwardedCall> _calls = [];
+    private readonly Dictionary<ulong, ForwardedCall> _calls = [];
 
     private readonly MessageAssembler _replies;
-    private readonly MemoryBudget? _budget;
+
+    private readonly MemoryBudget _budget;
 
     // The history of the child, which every position of a reply belongs to.
     private readonly ulong _history;
 
     private bool _closed;
 
-    public PendingRequests(ulong history, MemoryBudget? budget = null)
+    // The pieces of a reply of several frames are charged to the budget of the child while it is put
+    // together and released once it is read (MessageAssembler).
+    public PendingRequests(ulong history, MemoryBudget budget)
     {
         _history = history;
         _budget = budget;
-        _replies = new MessageAssembler(budget, borrowsSingleFrame: true);
+        _replies = new MessageAssembler(budget);
     }
+
+    // Adds the pieces of the reply being put together.
+    public void ReportHeld(List<HeldArray> held) => _replies.ReportHeld(held);
 
     // For the sender: the call it has taken waits for its reply. False once the connection has ended.
     public bool TryRegister(ForwardedCall call)
@@ -53,7 +60,6 @@ internal sealed class PendingRequests
                 return false;
             }
 
-            _calls.EnsureCapacity(_calls.Count + 1, _budget, nameof(PendingRequests));
             _calls.Add(call.CorrelationId, call);
 
             return true;
@@ -77,18 +83,24 @@ internal sealed class PendingRequests
     // sequence given; the call it answers gets the reply once the reply is whole.
     public void Receive(in ReceivedFrame frame, ulong applied)
     {
-        var step = _replies.Accept(frame, long.MaxValue, out var correlationId, out var body);
-        if (step == MessageStepEnum.Refused)
-        {
-            throw new BudgetRefusedException(LatticeLimitEnum.Memory);
-        }
-
-        if (step != MessageStepEnum.Whole)
+        if (_replies.Accept(frame, long.MaxValue, out var correlationId, out var body) != MessageStepEnum.Whole)
         {
             return;
         }
 
-        using var lease = _replies.TakeLease();
+        try
+        {
+            Answer(correlationId, body, applied);
+        }
+        finally
+        {
+            _budget.Release(_replies.TakeCharge());
+        }
+    }
+
+    // The call the whole reply answers gets it, read out of its pieces.
+    private void Answer(ulong correlationId, ReadOnlySequence<byte> body, ulong applied)
+    {
         if (correlationId == 0)
         {
             throw Protocol.Invalid("The master sent a reply with the correlation id 0, which no request has.");
@@ -106,8 +118,7 @@ internal sealed class PendingRequests
             throw Protocol.Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
         }
 
-        var updates = call.Updates;
-        var reply = ForwardEncoding.ReadReply(body, updates?.Count ?? 0, updates?.OnlyUpdates ?? false, updates?.ReceiveBuffer);
+        var reply = ForwardEncoding.ReadReply(body, call.Updates?.Count ?? 0, call.Updates?.OnlyUpdates ?? false);
         if (reply.Result is { } result)
         {
             if (result.Position.History != _history)
@@ -157,9 +168,7 @@ internal sealed class PendingRequests
         {
             _closed = true;
             left = [.. _calls.Values];
-            var calls = _calls;
-            _calls = [];
-            _budget?.ReleaseDictionary(calls);
+            _calls.Clear();
         }
 
         _replies.Reset();

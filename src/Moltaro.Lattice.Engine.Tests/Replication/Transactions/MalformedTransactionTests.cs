@@ -8,8 +8,9 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 
-// A transaction a child receives is checked by the check of its frames, its announced length and its
-// sequence, which follows the one before, and what its effects carry is checked before it is used
+// A transaction a child receives is checked by the check of its frames, its announced length, the number
+// of effects it states and its sequence, which follows the one before, and what its effects carry is
+// checked before it is used
 // (brief of Epic 1, sprint S11, Acceptance: the encoding "refuses malformed input"; decided after the
 // study, point 6). The root of a Write carries the sequence of its transaction as its last mutation, and
 // one that carries an earlier or a later sequence is malformed (the coordinator's decision of 17 November
@@ -50,6 +51,9 @@ public sealed class MalformedTransactionTests
         new("a sequence that skips one"),
         new("an announced length shorter than its effects"),
         new("an announced length longer than its effects"),
+        new("a number of effects one more than it carries"),
+        new("a number of effects one fewer than it carries"),
+        new("a number of effects beyond what its length can carry"),
         new("an unknown kind of effect"),
         new("an unknown type id in a Write"),
         new(DeleteOfAnUnknownType),
@@ -197,7 +201,7 @@ public sealed class MalformedTransactionTests
             Assert.Equal(7L, BinaryPrimitives.ReadInt64LittleEndian(effects.AsSpan(keyAt)));
             BinaryPrimitives.WriteInt64LittleEndian(effects.AsSpan(keyAt), 300);
 
-            forged = frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), effects));
+            forged = frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), TransactionPayload.CountOf(frame), effects));
             return [forged];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
@@ -220,6 +224,7 @@ public sealed class MalformedTransactionTests
     private static WireFrame Damaged(WireFrame frame, string damage)
     {
         var sequence = TransactionPayload.SequenceOf(frame);
+        var count = TransactionPayload.CountOf(frame);
         var effects = TransactionPayload.EffectsOf(frame);
 
         Assert.Equal((ulong)effects.Length, TransactionPayload.AnnouncedLengthOf(frame));
@@ -227,13 +232,24 @@ public sealed class MalformedTransactionTests
         switch (damage)
         {
             case "a sequence that skips one":
-                return frame.WithPayload(TransactionPayload.Make(sequence + 1, effects));
+                return frame.WithPayload(TransactionPayload.Make(sequence + 1, count, effects));
 
             case "an announced length shorter than its effects":
-                return frame.WithPayload(TransactionPayload.Make(sequence, (ulong)effects.Length - 1, effects));
+                return frame.WithPayload(TransactionPayload.Make(sequence, count, (ulong)effects.Length - 1, effects));
 
             case "an announced length longer than its effects":
-                return frame.WithPayload(TransactionPayload.Make(sequence, (ulong)effects.Length + 1, effects));
+                return frame.WithPayload(TransactionPayload.Make(sequence, count, (ulong)effects.Length + 1, effects));
+
+            case "a number of effects one more than it carries":
+                return frame.WithPayload(TransactionPayload.Make(sequence, count + 1, effects));
+
+            case "a number of effects one fewer than it carries":
+                return frame.WithPayload(TransactionPayload.Make(sequence, count - 1, effects));
+
+            // An estimate for so many effects passes every memory limit: without the check of the header a
+            // Ready child would wait for memory instead of refusing the transaction.
+            case "a number of effects beyond what its length can carry":
+                return frame.WithPayload(TransactionPayload.Make(sequence, uint.MaxValue, effects));
 
             case "an unknown kind of effect":
                 effects[0] = 99;
@@ -299,7 +315,7 @@ public sealed class MalformedTransactionTests
                 throw new ArgumentOutOfRangeException(nameof(damage), damage, "No such damage.");
         }
 
-        return frame.WithPayload(TransactionPayload.Make(sequence, effects));
+        return frame.WithPayload(TransactionPayload.Make(sequence, count, effects));
     }
 
     // One transaction in the place of two, at the place and the sequence of the first: the Write of the
@@ -317,7 +333,8 @@ public sealed class MalformedTransactionTests
             DamageDescriptor(member);
         }
 
-        return first.WithPayload(TransactionPayload.Make(sequence, [.. TransactionPayload.EffectsOf(first), .. member]));
+        var count = TransactionPayload.CountOf(first) + TransactionPayload.CountOf(second);
+        return first.WithPayload(TransactionPayload.Make(sequence, count, [.. TransactionPayload.EffectsOf(first), .. member]));
     }
 
     // The last mutation of the root of the Write, which the master wrote as the sequence of the

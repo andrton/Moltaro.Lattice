@@ -8,6 +8,7 @@ using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Loading;
 
@@ -19,7 +20,7 @@ internal sealed class ReceivedScratchFixture
     private const string Name = "nnnnnn";
 
     private readonly Arena _arena;
-    private readonly RootTable _roots = new();
+    private readonly RootTable _roots = new(new InstanceMemoryBudget(), pageLimit: null);
     private readonly RootLayout _layout;
     private readonly EntityTable _table;
     private readonly PositionClock _clock;
@@ -85,14 +86,14 @@ internal sealed class ReceivedScratchFixture
             WriteEffect(effects, sequence, (uint)key, Encode(key, data));
         }
 
-        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), CancellationToken.None);
+        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), (uint)members, CancellationToken.None);
     }
 
     public void ApplyOne(ulong sequence, long key)
     {
         var effects = new ArrayBufferWriter<byte>();
         WriteEffect(effects, sequence, member: 1, Encode(key));
-        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), CancellationToken.None);
+        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), 1, CancellationToken.None);
     }
 
     public void ExpectState(ulong sequence, int members, int? followUp = null)

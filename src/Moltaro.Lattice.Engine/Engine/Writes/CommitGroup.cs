@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Budgeting;
-
 namespace Moltaro.Lattice.Engine.Writes;
 
 // A short run of prepared writes that share one commit of the persistence step. A batch is never split
@@ -25,10 +23,7 @@ internal sealed class CommitGroup
 
     public const long MaxEncodedSize = 8L * 1024 * 1024;
 
-    private readonly List<PreparedWrite> _writes = [];
-
-    public CommitGroup(MemoryBudget? budget = null) =>
-        _writes.EnsureCapacity(MaxOperations, budget, nameof(CommitGroup));
+    private readonly List<PreparedWrite> _writes = new(MaxOperations);
 
     public IReadOnlyList<PreparedWrite> Writes => _writes;
 

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -14,7 +15,7 @@ internal static class Arenas
 
     // An arena with the default options and a limit of 64 segments, more than any test that opens
     // it allocates. The arena obtains segments only as allocations need them.
-    public static Arena Open() => new(new ArenaOptions { MemoryLimit = 64L * SegmentSize });
+    public static Arena Open() => new(new ArenaOptions { MemoryLimit = 64L * SegmentSize }, new MemoryBudget());
 
     // Allocates a block of kind Value with this payload length; the test fails when the arena
     // refuses the allocation for its budget.

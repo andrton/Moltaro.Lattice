@@ -61,16 +61,16 @@ namespace Moltaro.Lattice.Storage.Roots;
 // InvalidOperationException, and so is Abandon after a Complete that returned. Abandon after a
 // failed Complete, and a second Abandon, do nothing.
 //
-// How it works. The fixed part and the inline values are collected in a byte array that holds the
-// image of the root block. A budgeted arena writer reserves the exact array capacity before taking
-// a matching image from the arena's single weak slot or allocating an array. It holds the charge
-// through placement and releases it when it returns the array to that slot. A forwarded writer
-// with a working lease keeps its image charged until the lease is disposed. A writer without a
-// budget rents from ArrayPool<byte>.Shared and returns the array when it ends. Returned arrays can
-// still hold bytes of the last root until overwritten. Those bytes hold no references.
-// The size of the root block is known only when every value is placed, so Complete allocates the
-// root block, copies the canonical image and encodes its descriptors in the native format.
-// A value too long to lie inline is copied into native memory at its Set… member, into its value
+// How it works. The fixed part and the inline values are collected in an image of the root block, a
+// byte array: for a writer in an arena, the arena's one root image, charged to its budget and grown
+// when a wider image is needed (Arena.RootImage), so that a write whose image fits allocates none;
+// for a forwarded write, an array rented from ArrayPool<byte>.Shared when the writer starts and
+// returned when it ends. The bytes of the last root stay in the array until its next user overwrites
+// them. They are bytes and reference nothing, so they keep no memory alive, and clearing them would
+// protect nothing. The size of the root block is known only when every value
+// is placed, so Complete allocates the root block, copies the canonical image and encodes its
+// descriptors in the native format. A
+// value too long to lie inline is copied into native memory at its Set… member, into its value
 // block or its chunks, because the span it comes in lives only for that call. A value is stored
 // whole or not at all (ValueBlocks.TryStore), so a descriptor in the image names a whole value or
 // nothing, and everything the writer holds is reachable from the image, where Complete or Abandon
@@ -111,6 +111,8 @@ internal ref struct RootWriter
     // index into it; after them, one bit for each field, by LatticeField.Ordinal, set once the field
     // was set.
     private byte[]? _scratch;
+
+    // Whether the array was rented, for a forwarded write, and goes back to the pool at the end.
     private readonly bool _rented;
 
     // The image of the root as the block its values are placed into (ValueHolder): the arena and the root,
@@ -134,9 +136,7 @@ internal ref struct RootWriter
         ArgumentNullException.ThrowIfNull(layout);
 
         _layout = layout;
-        _rented = arena.Budget is null;
-        var length = layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount);
-        _scratch = _rented ? ArrayPool<byte>.Shared.Rent(length) : arena.TakeRootImage(length);
+        _scratch = arena.RootImage(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
         _values = new ValueHolder(arena, layout, root, Image, origin: 0, address: default, layout.FixedSize);
         Start();
     }
@@ -149,10 +149,8 @@ internal ref struct RootWriter
         ArgumentNullException.ThrowIfNull(exported);
 
         _layout = layout;
-        var working = exported.Lease;
-        _rented = working is null;
-        var length = layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount);
-        _scratch = working?.Allocate<byte>(length, nameof(RootWriter)) ?? ArrayPool<byte>.Shared.Rent(length);
+        _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
+        _rented = true;
         _values = new ValueHolder(null!, layout, default, Image, origin: 0, address: default, layout.FixedSize) { Exported = exported };
         Start();
     }
@@ -649,22 +647,15 @@ internal ref struct RootWriter
             Limit = LatticeLimitEnum.Memory,
         };
 
-    // Returns the image when this writer had its own backing; an export's workspace
-    // lease releases the image together with the other export work.
+    // Returns a rented image to the pool; nothing reads or writes the image afterwards.
     private void End(WriterStateEnum state)
     {
-        var scratch = _scratch!;
-        _scratch = null;
-        _values.Bytes = default;
         if (_rented)
         {
-            ArrayPool<byte>.Shared.Return(scratch);
-        }
-        else
-        {
-            _values.Arena?.ReturnRootImage(scratch);
+            ArrayPool<byte>.Shared.Return(_scratch!);
         }
 
+        _scratch = null;
         _state = state;
     }
 

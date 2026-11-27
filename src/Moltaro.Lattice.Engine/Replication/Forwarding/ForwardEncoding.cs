@@ -263,7 +263,7 @@ internal static class ForwardEncoding
     }
 
     // The reply in the body (see the class).
-    public static ForwardedReply ReadReply(ReadOnlySequence<byte> body, int commands = 0, bool onlyUpdates = false, byte[]? receiveBuffer = null)
+    public static ForwardedReply ReadReply(ReadOnlySequence<byte> body, int commands = 0, bool onlyUpdates = false)
     {
         var reader = new SequenceReader<byte>(body);
 
@@ -276,7 +276,7 @@ internal static class ForwardEncoding
                 throw Protocol.Invalid("The reply of a forwarded write ends before Changed, or Changed is neither 0 nor 1.");
             }
 
-            var bits = commands == 0 ? null : ReadOutcomes(ref reader, commands, changed != 0, onlyUpdates, receiveBuffer);
+            var bits = commands == 0 ? null : ReadOutcomes(ref reader, commands, changed != 0, onlyUpdates);
             ExpectEndOfReply(reader);
 
             return new ForwardedReply(new LatticeWriteResult(position, changed == 1), null, null, bits);
@@ -357,7 +357,7 @@ internal static class ForwardEncoding
         }, indexId);
     }
 
-    private static byte[] ReadOutcomes(ref SequenceReader<byte> reader, int commands, bool changed, bool onlyUpdates, byte[]? receiveBuffer)
+    private static byte[] ReadOutcomes(ref SequenceReader<byte> reader, int commands, bool changed, bool onlyUpdates)
     {
         var expected = UpdateOutcome.BitmapLength(commands);
         if (UpdateOperands.ReadUInt32(ref reader) != (uint)commands || reader.Remaining != expected)
@@ -376,8 +376,7 @@ internal static class ForwardEncoding
             }
         }
 
-        var bits = receiveBuffer ?? new byte[expected];
-        body.CopyTo(bits);
+        var bits = body.ToArray();
         var hasChange = Array.Exists(bits, static value => value != 0);
         if ((hasChange && !changed) || (onlyUpdates && hasChange != changed))
         {

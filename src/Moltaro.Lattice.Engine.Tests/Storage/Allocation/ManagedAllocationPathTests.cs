@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -82,7 +83,7 @@ public sealed class ManagedAllocationPathTests
         var random = new Random(4_096_001);
         var calls = new List<Call>();
         var kept = new List<ArenaAddress>();
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, ReservedSegments = 1 });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, ReservedSegments = 1 }, new MemoryBudget());
 
         for (var round = 0; round < 4; round++)
         {
@@ -129,7 +130,7 @@ public sealed class ManagedAllocationPathTests
     private static List<Call> FreeEverySegment(int reservedSegments)
     {
         var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 2L * SegmentsHeld * Arena.MaxBlockSize, ReservedSegments = reservedSegments };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
         var blocks = Arenas.AllocateUntilSegments(arena, SegmentsHeld);
         var calls = new List<Call>();
 

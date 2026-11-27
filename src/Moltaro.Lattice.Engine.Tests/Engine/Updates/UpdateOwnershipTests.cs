@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Tests.Engine.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Ownership;
@@ -9,6 +10,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 using Moltaro.Lattice.TestSupport.PartialUpdates;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -188,15 +190,18 @@ public sealed class UpdateOwnershipTests
         var tooLarge = items.CreateUpdate("grace");
         var larger = new byte[tooLargeBytes];
         tooLarge.MapSet("Options", "large", new UpdateHome { City = "Paris", Data = larger });
+        var linus = UpdateSchema.Item("linus");
+        var estimates = BuilderEstimate + UpdateEstimate(database, update) + MemberEstimate(database, linus) +
+            UpdateEstimate(database, tooLarge);
         var batch = database.CreateWriteBatch();
         batch.Update(update);
-        batch.Insert(UpdateSchema.Item("linus"));
+        batch.Insert(linus);
         batch.Update(tooLarge);
 
         Assert.Equal(3, batch.Count);
-        var built = ExpectCapacity(database, allocator);
-        Assert.InRange(built.ChargedBytes, Segment + ManagedObjectSize(larger), limit - 1);
-        Assert.Equal(Segment, built.NativeBytes);
+        var built = ExpectInFlight(database, allocator, estimates);
+        Assert.InRange(built.Charged, Segment + ArrayBytes(typeof(byte), larger.Length), limit - 1);
+        Assert.Equal(Segment, NativeBytes(built));
         var requests = allocator.Requests;
         var reachedLastMember = false;
         allocator.HoldNextAllocation(() =>
@@ -207,24 +212,24 @@ public sealed class UpdateOwnershipTests
             reachedLastMember = true;
         });
         LatticeException error;
-        var length = checked((int)(limit - built.ChargedBytes - roomForPreparation - ManagedObjectSize(Array.Empty<byte>())));
-        using (database.HoldBudgetBacking(length))
+        using (LeaveAbout(database, roomForPreparation, out _))
         {
-            var held = ExpectCapacity(database, allocator);
-            Assert.Equal(roomForPreparation, limit - held.ChargedBytes);
+            _ = ExpectInFlight(database, allocator, estimates);
             error = await Assert.ThrowsAsync<LatticeException>(() => batch.CommitAsync().AsTask().WaitAsync(Bound));
         }
 
         Assert.True(reachedLastMember);
         Assert.True(allocator.Requests > requests);
         Assert.Equal(2L * Segment, allocator.PeakBytes);
-        Assert.Equal(built.NativeBytes, allocator.OutstandingBytes);
+        // The segment the refused attempt obtained stays as the reserve, as any empty segment.
+        Assert.Equal(NativeBytes(built) + Segment, allocator.OutstandingBytes);
+        Assert.Equal(1, database.Counters.Arena.ReservedSegments);
         Assert.Equal(LatticeErrorEnum.WriteRejected, error.Error);
         Assert.Equal(LatticeLimitEnum.Memory, error.Limit);
         Assert.Null(error.OperationIndex);
         Assert.Throws<InvalidOperationException>(() => changed.Changed);
         OwnershipAudit.Expect(database);
-        _ = ExpectCapacity(database, allocator);
+        _ = ExpectAtRest(database, allocator);
         var after = database.Counters;
         Assert.Equal(before.PublishedSequence, after.PublishedSequence);
         Assert.Equal(before.Arena.LiveBytes, after.Arena.LiveBytes);

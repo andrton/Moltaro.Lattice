@@ -1,9 +1,10 @@
-using Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+using Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Capacity;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
@@ -22,7 +23,7 @@ public sealed class ChildOpenBudgetTests
         var allocator = new CountingNativeAllocator();
         await using var child = EngineDatabase.Create(
             ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, 64L * Segment),
-            new EngineTestInputs { ObserveBudgetBackings = true, Allocator = allocator, RootPageLimit = 1 });
+            new EngineTestInputs { Allocator = allocator, RootPageLimit = 1 });
         var opening = child.OpenAsync().AsTask();
         if (fits)
         {
@@ -30,7 +31,7 @@ public sealed class ChildOpenBudgetTests
             Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
             Assert.Equal(master.Position, child.Position);
             Assert.Equal(count, child.Set<PieceSchema.Piece>().Enumerate().Count());
-            Assert.True(ExpectCapacity(child, allocator).NativeBytes > 0);
+            Assert.True(NativeBytes(ExpectAtRest(child, allocator)) > 0);
         }
         else
         {

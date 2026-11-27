@@ -1,6 +1,5 @@
 using System.Buffers;
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Roots.Edits;
@@ -62,28 +61,28 @@ internal static class UpdateCommands
         }
     }
 
-    public static UpdateCommand[] ReadRequest(RootLayout root, ref SequenceReader<byte> input, MemoryLease? lease = null)
+    public static UpdateCommand[] ReadRequest(RootLayout root, ref SequenceReader<byte> input)
     {
         var count = Count(ref input);
-        using var scalars = new BudgetSet<int>(lease?.Budget, nameof(UpdateCommands), EqualityComparer<int>.Default);
-        var commands = lease?.Allocate<UpdateCommand>(count, nameof(UpdateCommands)) ?? new UpdateCommand[count];
+        var scalars = new HashSet<int>();
+        var commands = new UpdateCommand[count];
         for (var index = 0; index < commands.Length; index++)
         {
-            commands[index] = Read(root, ref input, scalars, lease, resolved: false).Command;
+            commands[index] = Read(root, ref input, scalars, resolved: false).Command;
         }
 
         ExpectEnd(input);
         return commands;
     }
 
-    public static ResolvedCommand[] ReadEffect(RootLayout root, ref SequenceReader<byte> input, MemoryLease? lease = null)
+    public static ResolvedCommand[] ReadEffect(RootLayout root, ref SequenceReader<byte> input)
     {
         var count = Count(ref input);
-        using var scalars = new BudgetSet<int>(lease?.Budget, nameof(UpdateCommands), EqualityComparer<int>.Default);
-        var commands = lease?.Allocate<ResolvedCommand>(count, nameof(UpdateCommands)) ?? new ResolvedCommand[count];
+        var scalars = new HashSet<int>();
+        var commands = new ResolvedCommand[count];
         for (var index = 0; index < commands.Length; index++)
         {
-            commands[index] = Read(root, ref input, scalars, lease, resolved: true);
+            commands[index] = Read(root, ref input, scalars, resolved: true);
         }
 
         ExpectEnd(input);
@@ -110,7 +109,7 @@ internal static class UpdateCommands
         }
     }
 
-    private static ResolvedCommand Read(RootLayout root, ref SequenceReader<byte> input, BudgetSet<int> scalars, MemoryLease? lease, bool resolved)
+    private static ResolvedCommand Read(RootLayout root, ref SequenceReader<byte> input, HashSet<int> scalars, bool resolved)
     {
         if (!input.TryRead(out var opcode))
         {
@@ -165,40 +164,31 @@ internal static class UpdateCommands
                 throw Protocol.Invalid($"An update assigns target {ordinal} more than once.");
             }
 
-            first = UpdateOperands.Read(ref input, root.EntityType, structure, target, lease);
+            first = UpdateOperands.Read(ref input, root.EntityType, structure, target);
         }
         else if (kind != UpdateCommandKindEnum.ListRemove)
         {
             var entry = structure.ElementOf(target);
-            first = UpdateOperands.Read(ref input, root.EntityType, entry, 0, lease);
+            first = UpdateOperands.Read(ref input, root.EntityType, entry, 0);
             if (kind == UpdateCommandKindEnum.MapSet)
             {
-                second = UpdateOperands.Read(ref input, root.EntityType, entry, 1, lease);
+                second = UpdateOperands.Read(ref input, root.EntityType, entry, 1);
             }
         }
 
-        var name = NameOf(path, lease);
+        var name = path.Length == 1 ? path[0].Name : string.Join('.', path.Select(field => field.Name));
         return new ResolvedCommand(new UpdateCommand(kind, name, path, position, first, second, target), opcode == MapReplace);
     }
 
-    private static string NameOf(LatticeField[] path, MemoryLease? lease)
-    {
-        if (path.Length == 1)
-        {
-            return path[0].Name;
-        }
-
-        string Join() => string.Join('.', path.Select(field => field.Name));
-        return lease?.Allocate(MemoryBudget.StringBytes(path.Sum(field => field.Name.Length) + path.Length - 1),
-            nameof(UpdateCommands), Join) ?? Join();
-    }
-
+    // The length of the command as it is written. A command whose target is not bound yet, as the batch
+    // of the core validated it, is measured at the position its path names in the structure.
     private static long Length(StructureLayout structure, in UpdateCommand command)
     {
         var length = (long)CommandHeadSize + (HasPosition(command.Kind) ? sizeof(int) : 0);
+        var target = command.Target >= 0 ? command.Target : structure.PositionOf(command.Path);
         if (command.Kind == UpdateCommandKindEnum.Assign)
         {
-            return length + UpdateOperands.Length(structure, command.Target, command.First);
+            return length + UpdateOperands.Length(structure, target, command.First);
         }
 
         if (command.Kind == UpdateCommandKindEnum.ListRemove)
@@ -206,7 +196,7 @@ internal static class UpdateCommands
             return length;
         }
 
-        var entry = structure.ElementOf(command.Target);
+        var entry = structure.ElementOf(target);
         length += UpdateOperands.Length(entry, 0, command.First);
         return command.Kind == UpdateCommandKindEnum.MapSet ? length + UpdateOperands.Length(entry, 1, command.Second) : length;
     }

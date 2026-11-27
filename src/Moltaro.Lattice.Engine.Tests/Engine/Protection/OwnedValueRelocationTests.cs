@@ -15,6 +15,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -572,15 +573,15 @@ public sealed class OwnedValueRelocationTests
         {
             Assert.True(parts.Arena.TryFindRelocationDestination(source.Value, destination, out _));
             var queue = RetiredItems(parts.Retired);
-            Assert.Empty(queue);
-            var capacity = queue.EnsureCapacity(0);
+            Assert.Equal(0, queue.Count);
+            var capacity = queue.Capacity;
             Assert.True(capacity > 0);
             parts.Retired.Reserve(capacity);
             try
             {
                 Assert.False(CompoundRelocation.TryMove(parts, source.Handle, source.Value, destination, out _, out _));
-                Assert.Empty(queue);
-                Assert.Equal(capacity, queue.EnsureCapacity(0));
+                Assert.Equal(0, queue.Count);
+                Assert.Equal(capacity, queue.Capacity);
             }
             finally
             {
@@ -702,17 +703,14 @@ public sealed class OwnedValueRelocationTests
         MaintenanceStep.RunAfterAdmissionAsync(node, parts => CompoundRelocation.TryMove(parts, handle, source, destination, out _, out _));
 
     private static Task<RetiredItem[]> RetirementOfAsync(EngineDatabase node) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired).ToArray());
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => ItemsOf(RetiredItems(parts.Retired)));
 
     private static Task<(RetiredItem[] Items, int Capacity)> QueueStateAsync(EngineDatabase node) =>
         MaintenanceStep.RunAfterAdmissionAsync(node, parts =>
         {
             var queue = RetiredItems(parts.Retired);
-            return (queue.ToArray(), queue.EnsureCapacity(0));
+            return (ItemsOf(queue), queue.Capacity);
         });
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
 
     private static void ExpectRetirement(RetiredItem item, RetiredKindEnum kind, ArenaAddress address)
     {

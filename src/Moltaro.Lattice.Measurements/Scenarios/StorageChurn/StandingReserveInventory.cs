@@ -103,7 +103,7 @@ internal sealed class StandingReserveInventory
                 Record(OrderedArrays, $"Pool.{field}", Field(pool, field));
             }
 
-            Record(RetirementQueue, "_items._array", Field(Field(parts.Retired, "_items")!, "_array"));
+            Record(RetirementQueue, "_items._ring", Field(Field(parts.Retired, "_items")!, "_ring"));
             foreach (string field in new[] { "_tablesOf", "_claims", "_freed" })
             {
                 Record(PublicationWorkspace, field, Field(parts.Publisher, field));

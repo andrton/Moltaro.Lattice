@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
+using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -8,51 +9,27 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the schema compares them (PrimaryKeys.KeysEqual), so that two spellings of a String key compared without
 // case are one entity, and the same key in another entity type is another one
 // (docs/decisions/mutation-commands.md, "Repeated roots inside an explicit WriteBatch").
-// - The set of a batch: the write coordinator asks it whether another write shares an entity with the batch
-//   (Writes.PendingWrite.SharesEntityWith), and the receiver of a child's connection refuses a forwarded batch
-//   that names an entity twice by it (Children.RequestReceiver). It is made before the batch is admitted,
-//   outside every lock, and not changed afterwards, so any thread may read it.
-// - The set of a child: the keys the effects of the transaction being applied name, so that it names each
-//   once (Child.Loading.ReceivedChanges). Only the thread that applies uses it, under the lock of the writes of
-//   the child, and empties it for the next transaction (Clear).
-internal sealed class PublicationKeys : IDisposable
+// - The set of a batch (OfBatch): a plain set, a working object of the batch under the estimate its members
+//   already hold (docs/design/storage-and-maintenance.md, the memory budget). The write coordinator asks it
+//   whether another write shares an entity with the batch (Writes.PendingWrite.SharesEntityWith), and the
+//   receiver of a child's connection refuses a forwarded batch that names an entity twice by it
+//   (Children.RequestReceiver). It is made before the batch is admitted, outside every lock, and not changed
+//   afterwards, so any thread may read it.
+// - The set of a child, an instance of this class: the keys the effects of the transaction being applied
+//   name, so that it names each once (Child.Loading.ReceivedChanges). It stays between the transactions, so
+//   it is kept in a ChargedSet, publication scratch charged to the budget of the child by the bytes of its
+//   array. Only the thread that applies uses it, under the lock of the writes of the child, and empties it for
+//   the next transaction (Clear).
+internal sealed class PublicationKeys
 {
-    private static long OwnerBytes => MemoryBudget.ObjectBytes(2L * IntPtr.Size) + BudgetSet<(EntityTable, EntityKey)>.OwnerBytes;
+    private readonly ChargedSet<(EntityTable Table, EntityKey Key)> _keys;
 
-    private readonly BudgetSet<(EntityTable Table, EntityKey Key)> _keys;
-    private MemoryBudget? _budget;
-
-    private PublicationKeys(MemoryBudget? budget, bool restoresPreparation)
+    // The set of a child with room for capacity entities, charged to the budget; BudgetRefusedException
+    // when the budget cannot hold its array.
+    public PublicationKeys(int capacity, MemoryBudget budget)
     {
-        _budget = budget;
-        _keys = new BudgetSet<(EntityTable, EntityKey)>(budget, nameof(PublicationKeys), Comparer.Instance, restoresPreparation);
-    }
-
-    public static PublicationKeys Create(int capacity, MemoryBudget? budget = null, bool restoresPreparation = false)
-    {
-        budget?.Reserve(OwnerBytes);
-        PublicationKeys? keys = null;
-        try
-        {
-            keys = new PublicationKeys(budget, restoresPreparation);
-            budget?.Own(keys, nameof(PublicationKeys));
-            budget?.Own(keys._keys, nameof(PublicationKeys));
-            keys._keys.EnsureCapacity(capacity);
-            return keys;
-        }
-        catch
-        {
-            if (keys is null)
-            {
-                budget?.Release(OwnerBytes);
-            }
-            else
-            {
-                keys.Dispose();
-            }
-
-            throw;
-        }
+        _keys = new ChargedSet<(EntityTable, EntityKey)>(Comparer.Instance, budget);
+        _keys.EnsureCapacity(capacity);
     }
 
     public int Count => _keys.Count;
@@ -65,23 +42,13 @@ internal sealed class PublicationKeys : IDisposable
     // Empties the set and keeps its room.
     public void Clear() => _keys.Clear();
 
-    public void Dispose()
-    {
-        _keys.Dispose();
-        if (Interlocked.Exchange(ref _budget, null) is { } budget)
-        {
-            budget.Forget(_keys);
-            budget.Release(OwnerBytes, this);
-        }
-    }
+    // Empties the set and releases its room, for an owner that lets it go.
+    public void Release() => _keys.Release();
 
-    // Whether the two sets hold an entity in common, looked up in the larger for each entity of the smaller.
-    public bool Overlaps(PublicationKeys other)
-    {
-        var (smaller, larger) = Count <= other.Count ? (this, other) : (other, this);
+    public void ReportHeld(List<HeldArray> held) => _keys.ReportHeld(held);
 
-        return larger._keys.Overlaps(smaller._keys);
-    }
+    // The set of the entities of a batch with room for capacity entities (see the class).
+    public static HashSet<(EntityTable Table, EntityKey Key)> OfBatch(int capacity) => new(capacity, Comparer.Instance);
 
     // The comparison of the entity type of the table, its hash the hash of the key in the primary index.
     private sealed class Comparer : IEqualityComparer<(EntityTable Table, EntityKey Key)>

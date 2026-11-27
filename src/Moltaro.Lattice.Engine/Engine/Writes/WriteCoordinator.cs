@@ -1,12 +1,15 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Updates;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -333,7 +336,7 @@ internal sealed class WriteCoordinator
     {
         _writes = writes;
         _executor = executor;
-        _group = new CommitGroup(executor.Budget);
+        _group = new CommitGroup();
         _changes = changes;
         _retired = retired;
         _epochs = epochs;
@@ -412,29 +415,17 @@ internal sealed class WriteCoordinator
     // call when two members are of one entity, which the batch of the core never submits.
     public ValueTask<LatticeWriteResult> SubmitBatchAsync(BatchMember[] members, LatticeSession? session, CancellationToken cancellationToken)
     {
-        return SubmitBatchWithKeysAsync(members, session, cancellationToken);
-    }
+        var keys = PublicationKeys.OfBatch(members.Length);
 
-    private async ValueTask<LatticeWriteResult> SubmitBatchWithKeysAsync(BatchMember[] members, LatticeSession? session,
-        CancellationToken cancellationToken)
-    {
-        try
+        foreach (ref readonly var member in members.AsSpan())
         {
-            using var keys = PublicationKeys.Create(members.Length, _executor.Budget);
-            foreach (ref readonly var member in members.AsSpan())
+            if (!keys.Add((member.Table, member.Key)))
             {
-                if (!keys.TryAdd(member.Table, member.Key))
-                {
-                    throw new ArgumentException($"The batch has two members for {member.Table.EntityType.Name} '{member.Key}'.", nameof(members));
-                }
+                throw new ArgumentException($"The batch has two members for {member.Table.EntityType.Name} '{member.Key}'.", nameof(members));
             }
+        }
 
-            return await SubmitLocal(new WriteSubmission(Members: members, Keys: keys), session, cancellationToken).ConfigureAwait(false);
-        }
-        catch (BudgetRefusedException exception)
-        {
-            throw exception.WriteRejected();
-        }
+        return SubmitLocal(new WriteSubmission(Members: members, Keys: keys), session, cancellationToken);
     }
 
     // Submits a write a child forwarded, of an entity type the engine stores, which brings its root and
@@ -449,7 +440,7 @@ internal sealed class WriteCoordinator
     // root, and the set of their entities, which names none twice (Children.RequestReceiver): one write, as a
     // batch of SubmitBatchAsync is (see the class, "A write batch"), whose outcome is its reply as for one
     // forwarded write, with the refusals of SubmitBatchAsync.
-    public void Forward(BatchMember[] members, PublicationKeys keys, ForwardedOrigin forwarded, LatticeSession? session) =>
+    public void Forward(BatchMember[] members, HashSet<(EntityTable Table, EntityKey Key)> keys, ForwardedOrigin forwarded, LatticeSession? session) =>
         SubmitForwarded(new WriteSubmission(Members: members, Keys: keys, Forwarded: forwarded), session);
 
     // A forwarded write or batch enters the barrier of the close and is admitted, once the position of its
@@ -515,7 +506,7 @@ internal sealed class WriteCoordinator
 
                 case PendingWriteStateEnum.Prepared:
                     _prepared.Remove(write);
-                    _executor.Withdraw(write.Prepared!);
+                    _changes.Release(write.Prepared!.Changes);
                     DecideFailure(write, cancelled, ref hold);
                     break;
 
@@ -778,11 +769,6 @@ internal sealed class WriteCoordinator
                 forwarded.Refuse(failure);
             }
 
-            if (failure is null)
-            {
-                forwarded.ReleaseInput();
-            }
-
             _barrier.Exit();
 
             return default;
@@ -954,7 +940,7 @@ internal sealed class WriteCoordinator
     {
         if (write.Token.IsCancellationRequested)
         {
-            _executor.Withdraw(prepared);
+            _changes.Release(prepared.Changes);
             DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
             return false;
@@ -1007,18 +993,24 @@ internal sealed class WriteCoordinator
     // (DecideTakenValue) or one a prepared write claims (WaitsForClaim). Inlined, so that a preparation
     // makes the one call of the executor it made before there were unique indexes: left out of line, this
     // try is a call of its own on every write (JIT listing at full optimization).
+    //
+    // The first try of an ordinary write reserves its estimate in the budget (Estimate), which its end
+    // releases (MarkCompleted): a refusal of the estimate is a refusal for memory, before anything is
+    // prepared. A structure that cannot grow in the budget refuses with BudgetRefusedException, after the
+    // preparation gave back what it took: a refusal for memory, or for a root slot the table cannot address.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private PreparationEnum TryPrepare(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
     {
-        var budget = _executor.Budget;
-        var keeps = false;
-        prepared = null;
-        budget?.BeginPreparation();
+        if (write.Estimate == 0 && !TryReserveEstimate(write))
+        {
+            prepared = null;
+            refusal = RootWriter.RefusalForMemory(write.Table.Layout);
+            return PreparationEnum.RefusedForMemory;
+        }
+
         try
         {
-            var preparation = PrepareWrite(write, ref hold, out prepared, out refusal);
-            keeps = preparation == PreparationEnum.Prepared;
-            return preparation;
+            return PrepareWrite(write, ref hold, out prepared, out refusal);
         }
         catch (BudgetRefusedException exception)
         {
@@ -1026,11 +1018,32 @@ internal sealed class WriteCoordinator
             refusal = exception.WriteRejected();
             return PreparationEnum.RefusedForMemory;
         }
-        finally
+    }
+
+    // Under the lock: reserves the estimate of an ordinary write, PerUnitBytes and PerMemberBytes and, for
+    // a partial update, the encoded length of its commands (docs/design/storage-and-maintenance.md, the
+    // memory budget). The members of a batch are charged by its builder and a forwarded write by its
+    // request (ForwardedOrigin), so they reserve nothing here. False when the budget cannot hold it.
+    private bool TryReserveEstimate(PendingWrite write)
+    {
+        if (write.Members is not null || write.Forwarded is not null)
         {
-            budget?.EndPreparation(keeps);
-            _executor.EndPreparation(keeps, prepared);
+            return true;
         }
+
+        var estimate = BatchInputCharge.PerUnitBytes + BatchInputCharge.PerMemberBytes;
+        if (write.Update is { } update)
+        {
+            estimate += UpdateCommands.Length(write.Table.Layout.Structure, update.Commands);
+        }
+
+        if (!_retired.Budget.TryReserve(estimate))
+        {
+            return false;
+        }
+
+        write.Estimate = estimate;
+        return true;
     }
 
     private PreparationEnum PrepareWrite(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
@@ -1121,28 +1134,19 @@ internal sealed class WriteCoordinator
     // entity type with a unique index (TryPrepare).
     private bool WaitsForClaim(PendingWrite write, PreparedWrite prepared)
     {
-        try
+        foreach (ref readonly var change in prepared.Changes)
         {
-            foreach (ref readonly var change in prepared.Changes)
+            if (change.Kind != ChangeKindEnum.Delete && change.Table.HasUniqueIndex && FindClaimant(change) is { } holder)
             {
-                if (change.Kind != ChangeKindEnum.Delete && change.Table.HasUniqueIndex && FindClaimant(change) is { } holder)
-                {
-                    _executor.Withdraw(prepared);
-                    prepared.Withdraw();
-                    WaitForWrite(write, holder);
+                _changes.Release(prepared.Changes);
+                prepared.Withdraw();
+                WaitForWrite(write, holder);
 
-                    return true;
-                }
+                return true;
             }
+        }
 
-            return false;
-        }
-        catch (BudgetRefusedException)
-        {
-            _executor.Withdraw(prepared);
-            prepared.Withdraw();
-            throw;
-        }
+        return false;
     }
 
     // Under the lock, while writes hold prepared memory: the prepared and unpublished write of another
@@ -1353,6 +1357,9 @@ internal sealed class WriteCoordinator
     // write withdrawn there ends.
     public bool HoldsPreparedMemory() => !_prepared.IsEmpty || _groupPending;
 
+    // Under the lock: the arrays of the executor, for the inspection of the tests (EngineDatabase.InspectHeld).
+    public void ReportHeld(List<HeldArray> held) => _executor.ReportHeld(held);
+
     private bool CanReturnRootSlot()
     {
         if (_retired.HasReusableRootSlot())
@@ -1560,7 +1567,7 @@ internal sealed class WriteCoordinator
             if (write.Token.IsCancellationRequested)
             {
                 _prepared.TakeFirst();
-                _executor.Withdraw(write.Prepared!);
+                _changes.Release(write.Prepared!.Changes);
                 DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
                 continue;
@@ -1723,7 +1730,7 @@ internal sealed class WriteCoordinator
 
         while (_prepared.TakeFirst() is { } prepared)
         {
-            _executor.Withdraw(prepared.Prepared!);
+            _changes.Release(prepared.Prepared!.Changes);
             DecideFailure(prepared, ReadEpochs.FaultedRefusal(), ref hold);
         }
 
@@ -1790,6 +1797,12 @@ internal sealed class WriteCoordinator
     {
         write.State = PendingWriteStateEnum.Completed;
         _queued--;
+
+        if (write.Estimate != 0)
+        {
+            _retired.Budget.Release(write.Estimate);
+            write.Estimate = 0;
+        }
 
         // The end of the oldest write that waited makes the next one the oldest: when it waits in step 1
         // of its resolution, it is resolved now (see the class, "The refusal").
@@ -1873,10 +1886,6 @@ internal sealed class WriteCoordinator
             if (write.Failure is { } refusal)
             {
                 forwarded.Refuse(refusal);
-            }
-            else
-            {
-                forwarded.ReleaseInput();
             }
         }
         else if (write.Failure is { } failure)

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -55,7 +56,7 @@ public sealed class SegmentTests
     [InlineData(2)]
     public void A_segment_left_empty_enters_the_reserve_while_it_has_room_and_is_freed_at_once_otherwise(int reservedSegments)
     {
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize, ReservedSegments = reservedSegments });
+        using var arena = new Arena(new ArenaOptions { MemoryLimit = 8L * Arenas.SegmentSize, ReservedSegments = reservedSegments }, new MemoryBudget());
         var blocks = Arenas.AllocateUntilSegments(arena, 3);
 
         foreach (var block in blocks)

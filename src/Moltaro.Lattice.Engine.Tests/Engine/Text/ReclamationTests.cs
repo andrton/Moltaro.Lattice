@@ -5,6 +5,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -301,7 +302,7 @@ public sealed class ReclamationTests
     {
         using var item = new RootArena(ItemSchema.Compile("{ 'Id': 2, 'Name': 'Region', 'Type': 'String', 'StringStorage': 'Dictionary' }"));
         var epochs = new ReadEpochs(new object());
-        var retired = new RetiredMemory(epochs, item.Arena, new RootTable());
+        var retired = new RetiredMemory(epochs, item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
         var written = new string('N', length);
         var root = Write(item, 1, written);
 

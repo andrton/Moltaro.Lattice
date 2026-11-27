@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
@@ -22,7 +23,7 @@ public sealed class ContradictionTests
     {
         using var item = new RootArena(IndexSchema.Utf8, "Counted");
         var epochs = new ReadEpochs(new object());
-        var retired = new RetiredMemory(epochs, item.Arena, new RootTable());
+        var retired = new RetiredMemory(epochs, item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
         Assert.True(item.EntityType.TryGetIndex("ByNumber", out var definition));
         var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
 

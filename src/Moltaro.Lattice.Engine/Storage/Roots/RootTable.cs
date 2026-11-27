@@ -1,6 +1,4 @@
-using System.Numerics;
-using System.Runtime.CompilerServices;
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Storage.Roots;
 
@@ -14,7 +12,13 @@ namespace Moltaro.Lattice.Storage.Roots;
 // one. A slot released at generation uint.MaxValue is retired for good.
 //
 // The table holds at most MostPages pages, 2^31 - 4,096 slots, because Count and the slot numbers
-// are counted in an int. A refusal for a new address or its backing leaves the table as it was.
+// are counted in an int, or fewer when a test of the engine bounds it. Add that would need one more
+// page than that is refused with BudgetRefusedException and the limit RootSlots, and the table stays
+// as it was. Each page and the directory are charged to the budget of the instance before they are
+// allocated (docs/design/storage-and-maintenance.md, the memory budget): a refusal by memory leaves
+// the table as it was, and a page added for a write that is refused or cancelled stays, its slots free.
+// A directory replaced by a larger copy keeps its charge until the reads that could hold it have left
+// (MemoryBudget.ReleaseAfterReads).
 //
 // The table takes no lock; its owner says who may call what at the same time. In the database Add
 // and Release, which change the list of free slots, are called only by the thread that holds the
@@ -32,7 +36,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // the fields of an entry one by one, so that the state is never read torn. The protection of reads keeps
 // a slot from being released while a read that could have found it is inside: the entry of a deleted
 // root is retired and released only after those reads have left (Engine.Protection.RetiredMemory).
-internal sealed class RootTable : MemoryBudget.PreparationChange
+internal sealed class RootTable
 {
     // The number of entries in one page.
     public const int EntriesPerPage = 4096;
@@ -40,31 +44,18 @@ internal sealed class RootTable : MemoryBudget.PreparationChange
     // The most pages the table holds: as many whole pages as an int can count slots of.
     private const int MostPages = int.MaxValue / EntriesPerPage;
 
-    private readonly MemoryBudget? _budget;
+    private readonly MemoryBudget _budget;
+
+    // The most pages this table holds: MostPages, or fewer for a test of the address limit.
     private readonly int _pageLimit;
 
     // The pages in the order they were added; the directory holds references to them, and growing
     // the directory copies those references, never an entry. Only the first Pages are pages.
     private RootEntry[][] _pages = [];
 
-    // Each smaller directory remains owned until a published slot needs a bigger one or an
-    // abandoned trailing page permits reuse. There is one entry per doubling, including zero.
-    private readonly RootEntry[][][] _smallerDirectories;
-    private int _smallerDirectoryCount;
-    private int _pagesAtGrowth = -1;
-    private int _publishedExtent;
-    private int _retiredPages;
-
     // The slots below this were given out at least once. The slots from here to the end of the last
     // page never were; their entries are as the page was allocated, Free at generation 0.
     private int _nextUnusedSlot;
-
-    // Slots have been issued in sequence up to this fence, including on pages already returned.
-    // Their last generation is one unless a never-published page has an exception here.
-    private int _everIssuedExtent;
-    private uint _generationSlot;
-    private uint _generation;
-    private Dictionary<uint, uint>? _generations;
 
     // The list of released slots that Add gives out again, the last released first: the first slot
     // plus one, 0 when no slot is free. A free entry has no entity type, so its TypeId holds the
@@ -75,96 +66,48 @@ internal sealed class RootTable : MemoryBudget.PreparationChange
     // With the count, on lines of their own (RootTableCounts).
     private RootTableCounts _counts;
 
-    public RootTable() : this(null, null)
-    {
-    }
-
-    private RootTable(MemoryBudget? budget, int? pageLimit)
+    // The table of a database, which charges its budget; a test of the address limit bounds its
+    // pages.
+    public RootTable(MemoryBudget budget, int? pageLimit)
     {
         _budget = budget;
         _pageLimit = pageLimit ?? MostPages;
         ArgumentOutOfRangeException.ThrowIfLessThan(_pageLimit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(_pageLimit, MostPages);
-        _smallerDirectories = budget?.Allocate<RootEntry[][]>(BitOperations.Log2((uint)_pageLimit) + 2, nameof(RootTable)) ?? [];
     }
 
-    public static RootTable Create(MemoryBudget budget, int? pageLimit)
-    {
-        var bytes = MemoryBudget.ObjectBytes(5L * IntPtr.Size + 10 * sizeof(int) + Unsafe.SizeOf<RootTableCounts>());
-        budget.Reserve(bytes);
-        try
-        {
-            var table = new RootTable(budget, pageLimit);
-            budget.Own(table, nameof(RootTable));
-            return table;
-        }
-        catch
-        {
-            budget.Release(bytes);
-            throw;
-        }
-    }
+    // The bytes of one page, which a child checks its load against before it places a root.
+    public static long PageBytes => MemoryBudget.ArrayBytes<RootEntry>(EntriesPerPage);
+
+    // The slots the table can address at most.
+    public long AddressableSlots => (long)_pageLimit * EntriesPerPage;
 
     // Takes a free slot for a new lifetime of a root of the entity type typeId and returns its
     // handle, which carries the slot's next generation. When no slot is free, the table adds a
     // page; adding a page copies no existing entry. The entry gets the generation and typeId,
     // every other field zero, and the state Prepared: it belongs to a write that has not published
-    // it yet. A new page can be refused for slot address space or for its backing.
+    // it yet. BudgetRefusedException, RootSlots, when the table would need more pages than it may
+    // hold, and Memory when the budget cannot hold the page.
     public RootHandle Add(uint typeId)
     {
-        if (_budget is not { IsPreparing: false } budget)
+        uint slot;
+
+        if (_counts.FreeSlots != 0)
         {
-            return TakeSlot(typeId);
+            slot = _counts.FreeSlots - 1;
+            _counts.FreeSlots = EntryAt(slot).TypeId;
+        }
+        else
+        {
+            slot = TakeUnusedSlot();
         }
 
-        // Standalone budgeted callers still need the same page rollback as a master or replay
-        // preparation if the history cannot be extended after taking room for a page.
-        budget.BeginPreparation();
-        var keeps = false;
-        try
-        {
-            var handle = TakeSlot(typeId);
-            keeps = true;
-            return handle;
-        }
-        finally
-        {
-            budget.EndPreparation(keeps);
-        }
-    }
-
-    private RootHandle TakeSlot(uint typeId)
-    {
-        var usesFreeSlot = _counts.FreeSlots != 0;
-        var slot = usesFreeSlot ? _counts.FreeSlots - 1 : NextUnusedSlot();
         ref var entry = ref EntryAt(slot);
 
         // A released slot keeps the generation of its last lifetime, and a slot never given out has
         // generation 0, so the next lifetime has the next generation, 1 for the first. A slot at
         // uint.MaxValue was retired and is never taken, so the generation cannot wrap.
         var generation = entry.Generation + 1;
-        if (_budget is { } budget)
-        {
-            if (generation > 1 && slot / EntriesPerPage >= PermanentPages)
-            {
-                RememberGeneration(slot, generation, budget);
-            }
-
-            if (slot >= _everIssuedExtent)
-            {
-                _everIssuedExtent = (int)slot + 1;
-            }
-        }
-
-        // The history reservation can fail. Neither way of selecting a slot consumes it early.
-        if (usesFreeSlot)
-        {
-            _counts.FreeSlots = entry.TypeId;
-        }
-        else
-        {
-            _nextUnusedSlot++;
-        }
 
         // Field by field, each an aligned word written whole, and not as one assignment of the struct, which
         // the compiler may copy in pieces of its choosing: the capture of a load reads the state of any slot
@@ -238,24 +181,13 @@ internal sealed class RootTable : MemoryBudget.PreparationChange
         if (entry.Generation == uint.MaxValue)
         {
             entry.State = RootStateEnum.Retired;
-            var pages = (int)(handle.Slot / EntriesPerPage) + 1;
-            if (pages > _retiredPages)
-            {
-                var previous = PermanentPages;
-                _retiredPages = pages;
-                if (pages > previous && _budget is { } budget)
-                {
-                    ForgetPermanentGenerations((uint)(pages * EntriesPerPage), budget);
-                    ReleasePermanentDirectories();
-                }
-            }
         }
         else
         {
             entry.State = RootStateEnum.Free;
             entry.TypeId = _counts.FreeSlots;
             _counts.FreeSlots = handle.Slot + 1;
-            _budget?.ReusableSpace();
+            _budget.NoteReusable();
         }
 
         _counts.Count--;
@@ -265,242 +197,31 @@ internal sealed class RootTable : MemoryBudget.PreparationChange
     // not counted.
     public int Count => _counts.Count;
 
-    // The current addressed extent, including prepared lifetimes. Every slot that holds a
-    // lifetime is below it. Capture has its own monotonic published fence.
+    // The slots below this one were given out at least once; every slot that holds a lifetime is
+    // below it. For the capture of a load on a master, which walks the slots below it, taken under the
+    // lock of the writes as the fence of the capture: every root live at the start of the capture lies
+    // below it.
     public int SlotExtent => _nextUnusedSlot;
-
-    // A capture can only have reached a lifetime that published. A root publishing after
-    // the capture began arrives in the transaction stream, regardless of the slot it uses.
-    public int CaptureExtent => _publishedExtent;
-
-    public void NotePublished(RootHandle handle)
-    {
-        var oldPages = PermanentPages;
-        _publishedExtent = Math.Max(_publishedExtent, checked((int)handle.Slot + 1));
-        var pages = PermanentPages;
-        if (pages > oldPages && _budget is { } budget)
-        {
-            ForgetPermanentGenerations((uint)(pages * EntriesPerPage), budget);
-        }
-    }
-
-    private void RememberGeneration(uint slot, uint generation, MemoryBudget budget)
-    {
-        if (_generations is { } generations)
-        {
-            if (!generations.ContainsKey(slot))
-            {
-                generations.EnsureCapacity(generations.Count + 1, budget, nameof(RootTable));
-            }
-
-            generations[slot] = generation;
-        }
-        else if (_generation == 0 || _generationSlot == slot)
-        {
-            _generationSlot = slot;
-            _generation = generation;
-        }
-        else
-        {
-            var history = BudgetDictionaries.Create<uint, uint>(budget, nameof(RootTable));
-            try
-            {
-                history.EnsureCapacity(2, budget, nameof(RootTable));
-                history.Add(_generationSlot, _generation);
-                history.Add(slot, generation);
-                _generation = 0;
-                _generations = history;
-            }
-            catch
-            {
-                budget.ReleaseDictionary(history, includesOwner: true);
-                throw;
-            }
-        }
-    }
-
-    // A permanent page already contains every issued generation, even in its unissued suffix
-    // since reconstruction. Its slots can no longer need the separate history.
-    private void ForgetPermanentGenerations(uint extent, MemoryBudget budget)
-    {
-        if (_generations is { } generations)
-        {
-            foreach (var (slot, _) in generations)
-            {
-                if (slot < extent)
-                {
-                    generations.Remove(slot);
-                }
-            }
-
-            if (generations.Count <= 1)
-            {
-                foreach (var (slot, generation) in generations)
-                {
-                    _generationSlot = slot;
-                    _generation = generation;
-                }
-
-                _generations = null;
-                budget.ReleaseDictionary(generations, includesOwner: true);
-            }
-        }
-        else if (_generationSlot < extent)
-        {
-            _generation = 0;
-        }
-    }
-
-    public void ReleasePermanentDirectories()
-    {
-        if (_smallerDirectoryCount == 0 || _budget is not { IsPreparing: false } budget)
-        {
-            return;
-        }
-
-        var obsolete = FirstDirectoryFor(PermanentPages);
-        for (var index = 0; index < obsolete; index++)
-        {
-            var previous = _smallerDirectories[index];
-            _smallerDirectories[index] = null!;
-            budget.Release(previous);
-        }
-
-        if (obsolete == 0)
-        {
-            return;
-        }
-
-        var remain = _smallerDirectoryCount - obsolete;
-        Array.Copy(_smallerDirectories, obsolete, _smallerDirectories, 0, remain);
-        Array.Clear(_smallerDirectories, remain, obsolete);
-        _smallerDirectoryCount = remain;
-    }
-
-    private int PermanentPages => Math.Max(_retiredPages, (_publishedExtent + EntriesPerPage - 1) / EntriesPerPage);
-
-    private int FirstDirectoryFor(int pages)
-    {
-        var index = 0;
-        while (index < _smallerDirectoryCount && _smallerDirectories[index].Length < pages)
-        {
-            index++;
-        }
-
-        return index;
-    }
-
-    // Under Writes after a queued preparation has released its insert lifetimes. A capture
-    // or reader can still name a page that ever held a published lifetime. Another preparation
-    // or a permanently retired generation can also hold a slot above the published fence. A
-    // synchronous failed preparation only returns pages beyond the extent it started with.
-    public void WithdrawUnusedPages() => WithdrawUnusedPages(priorPages: 0);
-
-    public override void Finish(MemoryBudget budget, bool keeps)
-    {
-        var priorPages = _pagesAtGrowth;
-        _pagesAtGrowth = -1;
-        if (!keeps)
-        {
-            WithdrawUnusedPages(priorPages);
-        }
-    }
-
-    private void WithdrawUnusedPages(int priorPages)
-    {
-        if (_budget is not { IsPreparing: false } budget)
-        {
-            return;
-        }
-
-        var keep = Pages;
-        var permanent = Math.Max(PermanentPages, priorPages);
-        while (keep > permanent && IsWhollyFree(_pages[keep - 1]))
-        {
-            keep--;
-        }
-
-        if (keep == Pages)
-        {
-            return;
-        }
-
-        RemoveFreeSlotsAtOrAbove(keep * EntriesPerPage);
-        _nextUnusedSlot = keep * EntriesPerPage;
-        // A historical directory may still reach an unused page. Drop its copy before
-        // signalling that another thread can take the page's memory from the budget.
-        for (var index = 0; index < _smallerDirectoryCount; index++)
-        {
-            var previous = _smallerDirectories[index];
-            if (previous.Length > keep)
-            {
-                Array.Clear(previous, keep, previous.Length - keep);
-            }
-        }
-
-        while (Pages > keep)
-        {
-            var index = --Pages;
-            var page = _pages[index];
-            _pages[index] = null!;
-            budget.Release(page);
-        }
-
-        var saved = FirstDirectoryFor(keep);
-        if (saved != _smallerDirectoryCount)
-        {
-            var previous = _smallerDirectories[saved];
-            var discarded = _pages;
-            Array.Copy(discarded, previous, keep);
-            _pages = previous;
-            budget.Release(discarded);
-            while (_smallerDirectoryCount - 1 > saved)
-            {
-                var unused = _smallerDirectories[--_smallerDirectoryCount];
-                _smallerDirectories[_smallerDirectoryCount] = null!;
-                budget.Release(unused);
-            }
-
-            _smallerDirectories[--_smallerDirectoryCount] = null!;
-        }
-    }
-
-    private static bool IsWhollyFree(RootEntry[] page)
-    {
-        foreach (ref readonly var entry in page.AsSpan())
-        {
-            if (entry.State != RootStateEnum.Free)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
     // How many pages the table has. Times EntriesPerPage, this is the number of its slots.
     public int Pages { get; private set; }
-
-    public static long PageBytes => MemoryBudget.ArrayBytes<RootEntry>(EntriesPerPage);
-
-    public long AddressableSlots => (long)_pageLimit * EntriesPerPage;
 
     private ref RootEntry EntryAt(uint slot) =>
         ref _pages[slot / EntriesPerPage][slot % EntriesPerPage];
 
     // The lowest slot never given out, after adding a page when every slot of the table was.
-    private uint NextUnusedSlot()
+    private uint TakeUnusedSlot()
     {
         if (_nextUnusedSlot == Pages * EntriesPerPage)
         {
             AddPage();
         }
 
-        return (uint)_nextUnusedSlot;
+        return (uint)_nextUnusedSlot++;
     }
 
-    // Adds a page of free entries. The new page is allocated before anything changes, so a failure
-    // leaves the table as it was.
+    // Adds a page of free entries. The new page, and a larger directory when it is full, are charged
+    // and allocated before anything changes, so a failure leaves the table as it was.
     private void AddPage()
     {
         if (Pages == _pageLimit)
@@ -508,94 +229,58 @@ internal sealed class RootTable : MemoryBudget.PreparationChange
             throw new BudgetRefusedException(LatticeLimitEnum.RootSlots);
         }
 
-        var previous = _pages;
-        var grows = Pages == previous.Length;
-        var length = grows ? Math.Min(_pageLimit, Math.Max(1, previous.Length * 2)) : previous.Length;
+        var grows = Pages == _pages.Length;
+        var length = grows ? Math.Min(_pageLimit, Math.Max(1, _pages.Length * 2)) : _pages.Length;
         var bytes = PageBytes + (grows ? MemoryBudget.ArrayBytes<RootEntry[]>(length) : 0);
-        _budget?.Reserve(bytes);
 
-        var directory = previous;
-        var index = Pages;
-        RootEntry[]? page = null;
+        // A read that still has the old directory finds the same pages in it, so the old directory keeps
+        // its charge until the reads that could hold it have left; room for it is made first.
+        if (grows && _pages.Length != 0)
+        {
+            _budget.ReserveAfterReads();
+        }
+
+        _budget.Reserve(bytes);
+
+        RootEntry[] page;
+        var directory = _pages;
         try
         {
             page = new RootEntry[EntriesPerPage];
-            var first = index * EntriesPerPage;
-            var lastIssued = Math.Min(first + EntriesPerPage, _everIssuedExtent);
-            for (var slot = first; slot < lastIssued; slot++)
-            {
-                var stored = (uint)slot;
-                var generation = _generationSlot == stored && _generation != 0 ? _generation : 1u;
-                if (_generations is { } generations && generations.TryGetValue(stored, out var saved))
-                {
-                    generation = saved;
-                }
-
-                page[slot - first].Generation = generation;
-            }
-
-            _budget?.Own(page, nameof(RootTable));
             if (grows)
             {
                 directory = new RootEntry[length][];
-                Array.Copy(previous, directory, previous.Length);
-                _budget?.Own(directory, nameof(RootTable));
-            }
-
-            if (_budget is { IsPreparing: true } budget)
-            {
-                if (_pagesAtGrowth < 0)
-                {
-                    _pagesAtGrowth = Pages;
-                    budget.WhenPreparationEnds(this);
-                }
-            }
-            else if (grows)
-            {
-                _budget?.Release(previous);
             }
         }
         catch
         {
-            if (page is not null)
-            {
-                _budget?.Forget(page);
-            }
-
-            if (!ReferenceEquals(directory, previous))
-            {
-                _budget?.Forget(directory);
-            }
-
-            _budget?.Release(bytes);
+            _budget.Release(bytes);
             throw;
         }
 
-        directory[Pages] = page;
-        if (grows && _budget is { IsPreparing: true })
+        if (grows)
         {
-            _smallerDirectories[_smallerDirectoryCount++] = previous;
+            var previous = _pages;
+            Array.Copy(previous, directory, previous.Length);
+            _pages = directory;
+            _budget.ReleaseAfterReads(previous);
         }
 
-        _pages = directory;
+        _pages[Pages] = page;
         Pages++;
     }
 
-    private void RemoveFreeSlotsAtOrAbove(int first)
+    // Adds the directory and every page.
+    public void ReportHeld(List<HeldArray> held)
     {
-        ref var link = ref _counts.FreeSlots;
-        while (link != 0)
+        if (_pages.Length != 0)
         {
-            var slot = link - 1;
-            ref var next = ref EntryAt(slot).TypeId;
-            if (slot >= first)
-            {
-                link = next;
-            }
-            else
-            {
-                link = ref next;
-            }
+            held.Add(new HeldArray(nameof(RootTable), typeof(RootEntry[]), _pages.Length));
+        }
+
+        for (var page = 0; page < Pages; page++)
+        {
+            held.Add(new HeldArray(nameof(RootTable), typeof(RootEntry), EntriesPerPage));
         }
     }
 }

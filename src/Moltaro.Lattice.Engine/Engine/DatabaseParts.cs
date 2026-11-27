@@ -52,6 +52,10 @@ internal sealed class DatabaseParts
 
     public required Dictionary<LatticeEntityType, RecordSet> RecordSets { get; init; }
 
-    // The sets of classes, made once for each class and shared.
-    public ConcurrentDictionary<Type, object> ClassSets { get; } = new();
+    // The sets of classes, made once for each class and shared. Its concurrency level is 1: the default
+    // is the number of processors, and the dictionary would keep a lock and a count for each, which grow
+    // with the host and which no part of the headroom covers (Headroom). A set is added once for each
+    // class, and reads take no lock, so one lock costs nothing that matters. The capacity is the default
+    // of ConcurrentDictionary.
+    public ConcurrentDictionary<Type, object> ClassSets { get; } = new(concurrencyLevel: 1, capacity: 31);
 }

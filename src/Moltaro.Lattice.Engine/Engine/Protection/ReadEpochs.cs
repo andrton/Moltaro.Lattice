@@ -92,12 +92,16 @@ internal sealed class ReadEpochs
     public ReadEpochs(object owner)
     {
         _owner = owner;
-        _slots = new EpochSlot[(int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(128, 2 * Environment.ProcessorCount))];
+        _slots = new EpochSlot[HostSlotCount()];
         _mask = _slots.Length - 1;
     }
 
     // The number of slots: how many reads can be inside at once without waiting.
     public int SlotCount => _slots.Length;
+
+    // The number of slots a table has on this host: two for each processor, at least 128, rounded up to a
+    // power of two. The headroom holds what the slots take and what a read on each can hold (Headroom).
+    public static int HostSlotCount() => (int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(128, 2 * Environment.ProcessorCount));
 
     // The current epoch: the tag of what the writer retires now. Read by the writer, which is the
     // only one that moves it on besides the close.

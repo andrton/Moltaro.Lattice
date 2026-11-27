@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Views;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Maintenance;
@@ -9,11 +10,14 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Views;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.HeldInventory;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -34,6 +38,12 @@ public sealed class CompoundRelocationTests
     private const sbyte ChangedCode = 28;
 
     private static readonly LatticeSchema Schema = MakeSchema();
+
+    // The room of the arena for what the tests stage, and beside it, in whole blocks, the estimate of the
+    // staging batch (BatchInputCharge: PerBuilderBytes and PerUnitBytes, and the encoded root and
+    // PerMemberBytes of each member) and the buffers that the connection of a child holds on the master. The
+    // same for both roles.
+    private static readonly long MemoryLimit = 32L * Arena.MaxBlockSize + WholeBlocks(StagingEstimate() + ConnectionBuffers());
 
     [Theory]
     [InlineData(LatticeRoleEnum.Master)]
@@ -438,8 +448,8 @@ public sealed class CompoundRelocationTests
         var arena = parts.Arena;
         var native = arena.Counters;
         var queue = RetiredItems(parts.Retired);
-        var entries = queue.ToArray();
-        var capacity = queue.EnsureCapacity(0);
+        var entries = ItemsOf(queue);
+        var capacity = queue.Capacity;
         var reserved = RetirementReservations(parts.Retired);
         var addresses = new[] { source.Root, source.Directory, source.First, source.Tail };
         var headers = addresses.Select(address => arena.Header(address)).ToArray();
@@ -450,8 +460,8 @@ public sealed class CompoundRelocationTests
         Assert.False(CompoundRelocation.TryMove(parts, source.Handle, candidate, Arena.RegionOf(liveNeighbor), out _, out _));
 
         Assert.Equal(native, arena.Counters);
-        Assert.Equal(entries, queue.ToArray());
-        Assert.Equal(capacity, queue.EnsureCapacity(0));
+        Assert.Equal(entries, ItemsOf(queue));
+        Assert.Equal(capacity, queue.Capacity);
         Assert.Equal(reserved, RetirementReservations(parts.Retired));
         Assert.Equal(rootAddress, parts.Roots.Entry(source.Handle).Root);
         Assert.Equal(destinations, holes.Select(hole => FreeSlotHeader(arena, liveNeighbor, hole)).ToArray());
@@ -481,20 +491,9 @@ public sealed class CompoundRelocationTests
         var batch = master.CreateWriteBatch();
         var small = master.Set("SmallFiller");
         var big = master.Set("BigFiller");
-        for (var key = 1L; key <= SmallFillers; key++)
+        foreach (var record in StagingRecords())
         {
-            batch.Insert(new LatticeRecord(small.EntityType)
-            {
-                ["Id"] = key,
-                ["A"] = 1L,
-                ["B"] = 2L,
-                ["C"] = 3L,
-            });
-        }
-
-        for (var key = 1L; key <= BigFillers; key++)
-        {
-            batch.Insert(new LatticeRecord(big.EntityType) { ["Id"] = key });
+            batch.Insert(record);
         }
 
         Assert.True((await batch.CommitAsync().AsTask().WaitAsync(Bound)).Changed);
@@ -678,12 +677,9 @@ public sealed class CompoundRelocationTests
             parts => CompoundRelocation.TryMove(parts, candidate.Handle, address, Arena.RegionOf(destination), out _, out _));
 
     private static Task<(RetiredKindEnum, ArenaAddress)[]> RetirementOfAsync(EngineDatabase node) =>
-        MaintenanceStep.RunAfterAdmissionAsync(node, parts => RetiredItems(parts.Retired)
+        MaintenanceStep.RunAfterAdmissionAsync(node, parts => ItemsOf(RetiredItems(parts.Retired))
             .Where(item => item.Kind is RetiredKindEnum.RelocatedBlock or RetiredKindEnum.Root or RetiredKindEnum.DeletedRoot)
             .Select(item => (item.Kind, item.Address)).ToArray());
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_reserved")]
     private static extern ref int RetirementReservations(RetiredMemory retired);
@@ -752,10 +748,62 @@ public sealed class CompoundRelocationTests
 
     private static EngineTestInputs Inputs(CountingNativeAllocator? allocator) => new()
     {
-        Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 32L * Arena.MaxBlockSize },
+        Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = MemoryLimit },
         Allocator = allocator,
         DisableBackgroundMaintenance = true,
     };
+
+    // The fillers the staging batch inserts, in its order.
+    private static IEnumerable<LatticeRecord> StagingRecords()
+    {
+        Assert.True(Schema.TryGetEntityType("SmallFiller", out var small));
+        Assert.True(Schema.TryGetEntityType("BigFiller", out var big));
+        for (var key = 1L; key <= SmallFillers; key++)
+        {
+            yield return new LatticeRecord(small)
+            {
+                ["Id"] = key,
+                ["A"] = 1L,
+                ["B"] = 2L,
+                ["C"] = 3L,
+            };
+        }
+
+        for (var key = 1L; key <= BigFillers; key++)
+        {
+            yield return new LatticeRecord(big) { ["Id"] = key };
+        }
+    }
+
+    // What the builder of the staging batch is charged: PerBuilderBytes and PerUnitBytes (BuilderEstimate),
+    // and for each member its encoded root and PerMemberBytes.
+    private static long StagingEstimate()
+    {
+        var layouts = new Dictionary<LatticeEntityType, RootLayout>();
+        var estimate = BuilderEstimate;
+        foreach (var record in StagingRecords())
+        {
+            if (!layouts.TryGetValue(record.EntityType, out var layout))
+            {
+                layout = RootLayout.Compile(record.EntityType, Schema);
+                layouts.Add(record.EntityType, layout);
+            }
+
+            estimate += RootValues.Export(layout, record.EntityType, record.ValuesForWrite()).Length + BatchInputCharge.PerMemberBytes;
+        }
+
+        return estimate;
+    }
+
+    // The buffers of the connection of one child on the master: the receive buffer of two frames and the
+    // send buffer of one frame (FrameConnection), and the scratch of the import of its forwarded roots, a
+    // block payload, a chunk payload and the descriptors of a chunk (BlockImport).
+    private static long ConnectionBuffers() =>
+        ArrayBytes(typeof(byte), 2 * Protocol.MaxFrame) + ArrayBytes(typeof(byte), Protocol.MaxFrame) +
+        ArrayBytes(typeof(byte), Arena.MaxBlockSize - BlockHeader.Size) + ArrayBytes(typeof(byte), ValueBlocks.ChunkPayload) +
+        ArrayBytes(typeof(uint), ValueBlocks.ChunkPayload / ValueBlocks.DescriptorSize);
+
+    private static long WholeBlocks(long bytes) => (bytes + Arena.MaxBlockSize - 1) / Arena.MaxBlockSize * Arena.MaxBlockSize;
 
     private static LatticeSchema MakeSchema()
     {

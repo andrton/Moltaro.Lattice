@@ -1,6 +1,3 @@
-using Moltaro.Lattice.Budgeting;
-using Moltaro.Lattice.Storage;
-
 namespace Moltaro.Lattice.Engine.Delivery;
 
 // One block of the tail a master delivers to its children (DeliveryTail): an array of
@@ -17,10 +14,6 @@ namespace Moltaro.Lattice.Engine.Delivery;
 // EndAppended are read and written under the lock alone.
 internal sealed class DeliveryBlock
 {
-    public static long CapacityBytes =>
-        MemoryBudget.ObjectBytes(2L * IntPtr.Size + 2 * sizeof(long) + 2 * sizeof(int)) +
-        MemoryBudget.ArrayBytes<byte>(DeliveryTail.BlockSize);
-
     private int _used;
 
     private DeliveryBlock? _next;

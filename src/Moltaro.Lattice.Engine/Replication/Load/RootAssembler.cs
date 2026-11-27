@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
-using Moltaro.Lattice.Budgeting;
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Replication.Load;
 
@@ -23,27 +22,21 @@ namespace Moltaro.Lattice.Replication.Load;
 // A small root is handed out where it lies, in the payload of its frame, so it is valid only until the
 // next frame is received. A root of several frames is collected in a TransferBuffer, which takes the
 // pieces the root needs as its bytes arrive and keeps them for the next large root: a child holds one
-// root at a time outside its arena.
-internal sealed class RootAssembler : IDisposable
+// root at a time outside its arena. The pieces are charged to the budget of the child as they are
+// taken, and released when the assembler is disposed at the end of the load (TransferBuffer); a piece
+// the budget cannot hold ends the load with BudgetRefusedException.
+internal sealed class RootAssembler(long largestRoot, MemoryBudget budget) : IDisposable
 {
     // The type id, the last mutation sequence and the layout version that begin every root.
     public const int EnvelopeSize = RootEnvelope.Size + sizeof(uint);
 
-    private readonly TransferBuffer _large;
-    private readonly MemoryBudget? _budget;
+    private readonly TransferBuffer _large = new(budget);
 
     // The root in progress, whose bytes are still to arrive.
     private AnnouncedBody _root;
 
     // The most bytes one root may announce: the memory the child may take for its database.
-    private readonly long _largestRoot;
-
-    public RootAssembler(long largestRoot, MemoryBudget? budget = null)
-    {
-        _largestRoot = largestRoot;
-        _budget = budget;
-        _large = new TransferBuffer(budget);
-    }
+    private readonly long _largestRoot = largestRoot;
 
     // Whether a root is in progress: at the end of a load none may be.
     public bool InProgress => _root.InProgress;
@@ -99,7 +92,6 @@ internal sealed class RootAssembler : IDisposable
 
             if (available >= length)
             {
-                completed.EnsureCapacity(completed.Count + 1, _budget, nameof(RootAssembler));
                 completed.Add(new ReadOnlySequence<byte>(payload.Slice(offset, (int)length)));
                 offset += (int)length;
 
@@ -130,6 +122,9 @@ internal sealed class RootAssembler : IDisposable
         }
     }
 
+    // Releases the pieces of the large roots, once the load is done with them.
+    public void Dispose() => _large.Dispose();
+
     // The next bytes of the root in progress.
     private void Continue(in ReceivedFrame frame, List<ReadOnlySequence<byte>> completed)
     {
@@ -140,10 +135,7 @@ internal sealed class RootAssembler : IDisposable
 
         if (complete)
         {
-            completed.EnsureCapacity(completed.Count + 1, _budget, nameof(RootAssembler));
             completed.Add(_large.Sequence);
         }
     }
-
-    public void Dispose() => _large.Dispose();
 }

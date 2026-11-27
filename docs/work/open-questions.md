@@ -81,6 +81,15 @@ in the meantime.
 | **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
 | **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1/README.md), "Measured results" |
 
+### Q67. A forwarded request refused for memory before the resolution
+
+| | |
+| --- | --- |
+| **Found** | 27 November 2026, review of the estimates of the write units, Epic 1, sprint S24B |
+| **Question** | A write a child forwards is refused on the master, before it is admitted, at three places: when a piece of its body cannot be held in the connection's buffers, when its estimate is reserved as the master starts to handle the request — `PerUnitBytes` and `PerMemberBytes` for each member, 3,328 B for one — and when the import grows to check its root. Each refusal is replied at once with `WriteRejected` and `Memory`, without the resolution of Q14 (free what is retired, wait for the reads that hold it, try once more alone), which the same write submitted on the master goes through. Should the refusals of the receiver go through the resolution? |
+| **Until answered** | Taken by the coordinator of S24B: the three refusals are replied at once, as since the first round of review of S24B |
+| **Decides** | The planner, with the contract of the memory gate (S25) |
+
 ## Answered
 
 ### Q54. What the binding of an index value does where the documents do not say

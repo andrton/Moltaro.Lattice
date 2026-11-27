@@ -132,8 +132,9 @@ public sealed class MasterAndChildTests
     // A refusal of the master reaches the caller of the child as the master gave it (brief of Epic 1,
     // sprint S12, the planner's block of 15 November 2026): the same error, message, limit, operation
     // index and committed position as the same write made on the master. In the memory case the master
-    // holds 3 MiB of its budget of 8 MiB, and the write of 6 MiB, which announces less than the budget,
-    // is refused by its write path in both.
+    // holds 3 MiB of its budget of 11 MiB, and the write of 6 MiB, which announces less than the budget,
+    // is refused by its write path in both. The write through the child comes first: the segment a
+    // refused write obtained stays in the reserve, and the forwarded body would not fit beside it.
     public static IEnumerable<TheoryDataRow<string>> Refusals =>
     [
         new("a duplicate key"),
@@ -173,8 +174,8 @@ public sealed class MasterAndChildTests
             _ => set => set.InsertAsync(Setting(set, "large", 6 * Mebibyte)),
         };
 
-        var onTheMaster = await Assert.ThrowsAsync<LatticeException>(async () => await write(master.Set("Setting")));
         var throughTheChild = await Assert.ThrowsAsync<LatticeException>(async () => await write(child.Set("Setting")));
+        var onTheMaster = await Assert.ThrowsAsync<LatticeException>(async () => await write(master.Set("Setting")));
 
         Assert.Equal(onTheMaster.Error, throughTheChild.Error);
         Assert.Equal(onTheMaster.Message, throughTheChild.Message);

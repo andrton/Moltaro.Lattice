@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values;
@@ -33,7 +34,7 @@ internal sealed class RootArena : IDisposable
         Schema = schema;
         EntityType = entityType;
         Layout = RootLayout.Compile(entityType, schema);
-        Arena = allocator is null ? new Arena(options) : new Arena(options, allocator);
+        Arena = allocator is null ? new Arena(options, new MemoryBudget()) : new Arena(options, allocator, new MemoryBudget());
     }
 
     public LatticeSchema Schema { get; }

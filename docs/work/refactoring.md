@@ -47,6 +47,19 @@ path says otherwise.
   ordinary single-member MemoryOnly path and immediate group do not show
   that cost.
 
+## Found in S24B, 27 November 2026
+
+**Taken (S24BR):**
+
+- The key set of a batch is spelled `HashSet<(EntityTable Table, EntityKey Key)>` in five
+  signatures and made by the static `PublicationKeys.OfBatch`, while every instance of
+  `PublicationKeys` is a child's set (`Engine/Writes/WriteCoordinator.cs`,
+  `Engine/Children/RequestReceiver.cs`): one name for each of the two sets.
+- The rule of `ReadEpochs.HostSlotCount` is copied into three tests
+  (`FinalNativeCleanupTests`, `PublishedRetirementTrimTests`,
+  `HeadroomOnManyProcessorsTests`), because the function reads the processors of its own
+  process: it takes their number, and the tests call it.
+
 ## Reviews after S24R, 27 November 2026
 
 Two read-only reviews of `main` at `2d8ff204`, started by the planner at the owner's

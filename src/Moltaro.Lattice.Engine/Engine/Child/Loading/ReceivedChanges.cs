@@ -1,6 +1,6 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
-using Moltaro.Lattice.Budgeting;
+using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -9,6 +9,7 @@ using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Roots.Edits;
 
@@ -63,8 +64,10 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // same state. The keys its effects name, prepared or skipped, are one set of (table, key) by the comparison
 // of the entity type (Entities.PublicationKeys), as the keys of a batch are on the master, so the check costs
 // one look into the set for each effect. The list of the prepared changes and that set serve every
-// transaction; after one that named more keys than ChangePublisher.KeptRoom both are let go, so a child does
-// not keep the room of the largest transaction it applied.
+// transaction, charged to the budget of the child by their arrays when they grow (docs/design/storage-and-
+// maintenance.md, the memory budget); after a published one that named more keys than
+// ChangePublisher.KeptRoom both are let go, so a child does not keep the room of the largest transaction it
+// applied, while an attempt that was refused keeps the room it grew for the next.
 //
 // Publication. A transaction at sequence s is published in the three steps of every publication: each
 // change makes its stores before the position, the position of the child becomes s once, then each change
@@ -104,7 +107,17 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // be held: the open of the child ends with Unavailable and the reason. A transaction refused again waits
 // for the reads that hold retired memory, what they held is freed, and it is tried a last time; refused
 // then, it cannot be held: Apply ends with Unavailable, which fails the open of a child that is not Ready
-// yet and ends the following of one that is (Following.Follower).
+// yet. A Ready child tries a transaction once for each call instead, and returns the limit that refused it,
+// after it gave back what the attempt prepared; its follower pauses and tries it again when memory is freed
+// (Following.Follower). A retry first frees what is retired and gives back the reserves of the indexes.
+//
+// The estimate of a transaction. A transaction is a write unit: each attempt reserves PerUnitBytes, the base
+// of a write unit, and PerMemberBytes for each effect before it prepares the first, and releases it once
+// the attempt ends, published or given back (docs/design/storage-and-maintenance.md, the memory budget).
+// The number of the effects is the one the header of the transaction states
+// (Replication.Transactions.TransactionFormat), so nothing is read twice; the attempt checks it against the
+// effects it reads, and a transaction whose number disagrees is malformed. An estimate the budget cannot
+// hold refuses the attempt as the arena does, so a Ready child pauses at the transaction with the same wait.
 internal sealed class ReceivedChanges
 {
     private readonly Arena _arena;
@@ -138,8 +151,9 @@ internal sealed class ReceivedChanges
     // effects of their transaction are prepared, and reserved together once every one is (TryReserve).
     private List<PreparedChange>? _prepared = [];
 
-    // The keys the effects named since the last Publish, prepared or skipped (see the class, "Each key once").
-    // Both scratch fields are null between attempts after oversized scratch was discarded.
+    // The keys the effects named since the last Publish, prepared or skipped (see the class, "Each key once"),
+    // as the comparison of their entity types tells them apart (Entities.PublicationKeys.Comparer). Both
+    // scratch fields are null between attempts after oversized scratch was discarded.
     private PublicationKeys? _keys;
 
     // The states the rule skipped since the last Publish.
@@ -193,7 +207,20 @@ internal sealed class ReceivedChanges
         _beforeScratchAllocation = beforeScratchAllocation;
         _beforePreparationMember = beforePreparationMember;
         _import = new BlockImport(arena);
-        _keys = PublicationKeys.Create(0, arena.Budget, restoresPreparation: true);
+        _keys = new PublicationKeys(0, arena.Budget);
+    }
+
+    // For the inspection of the tests (EngineDatabase.InspectHeld), between two applications: the list of
+    // the prepared changes, the set of the keys named and the arrays of the import.
+    public void ReportHeld(List<HeldArray> held)
+    {
+        if (_prepared is { Capacity: > 0 } prepared)
+        {
+            held.Add(new HeldArray(nameof(ReceivedChanges), typeof(PreparedChange), prepared.Capacity));
+        }
+
+        _keys?.ReportHeld(held);
+        _import.ReportHeld(held);
     }
 
     // Places and publishes a root of the load of the entity type of the table, whose last mutation is given
@@ -260,8 +287,6 @@ internal sealed class ReceivedChanges
                     throw Protocol.Invalid($"The child reached readiness with {missing.Count} missing update targets without a Delete.");
                 }
 
-                _missingUpdates?.Dispose();
-
                 _missingUpdates = null;
 
                 foreach (var table in _tables.InSchemaOrder)
@@ -289,7 +314,6 @@ internal sealed class ReceivedChanges
     {
         lock (_writes)
         {
-            _missingUpdates?.Dispose();
             _missingUpdates = null;
         }
     }
@@ -313,26 +337,24 @@ internal sealed class ReceivedChanges
     }
 
     // Applies one transaction whole, by the rule of a write refused for memory (see the class).
-    public void Apply(ulong sequence, ReadOnlySequence<byte> effects, CancellationToken cancellationToken) =>
-        Apply(sequence, effects, ready: false, retry: false, cancellationToken);
+    public void Apply(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, CancellationToken cancellationToken) =>
+        Apply(sequence, effects, effectCount, ready: false, retry: false, cancellationToken);
 
-    public LatticeLimitEnum? Apply(ulong sequence, ReadOnlySequence<byte> effects, bool ready, bool retry, CancellationToken cancellationToken)
+    // Applies one transaction: before Ready by the rule of a write refused for memory, Unavailable when it
+    // cannot be held; once Ready by one attempt, which returns the limit that refused it, null when it was
+    // applied (see the class). A retry frees what is retired and gives back the reserves before it.
+    public LatticeLimitEnum? Apply(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool ready, bool retry, CancellationToken cancellationToken)
     {
         _barrier.Enter();
 
         try
         {
-            if (retry)
+            if (ready)
             {
-                // A maintenance turn can make usable room before finishing the safe FIFO head.
-                // Keep the reclamation-before-retry order while the follower's wait is asynchronous.
-                lock (_writes)
-                {
-                    _retired.Drain();
-                }
+                return ApplyOnce(sequence, effects, effectCount, retry);
             }
 
-            if (ApplyAttempt(sequence, effects, topsUp: true) is null)
+            if (ApplyAttempt(sequence, effects, effectCount, topsUp: true) is null)
             {
                 return null;
             }
@@ -344,7 +366,7 @@ internal sealed class ReceivedChanges
                 _retired.Drain();
             }
 
-            if (ApplyAttempt(sequence, effects, topsUp: true) is null)
+            if (ApplyAttempt(sequence, effects, effectCount, topsUp: true) is null)
             {
                 return null;
             }
@@ -357,10 +379,7 @@ internal sealed class ReceivedChanges
             if (epoch != 0)
             {
                 _retired.RunWaitSwitch();
-                if (!ready)
-                {
-                    _epochs.WaitForReadsBefore(epoch, cancellationToken);
-                }
+                _epochs.WaitForReadsBefore(epoch, cancellationToken);
             }
 
             lock (_writes)
@@ -369,10 +388,9 @@ internal sealed class ReceivedChanges
                 _publisher.GiveBackReserves();
             }
 
-            var pressure = ApplyAttempt(sequence, effects, topsUp: false);
-            if (ready || pressure is null)
+            if (ApplyAttempt(sequence, effects, effectCount, topsUp: false) is null)
             {
-                return pressure;
+                return null;
             }
 
             throw new LatticeException(LatticeErrorEnum.Unavailable, $"The memory limit of this child cannot hold the transaction {sequence} of its master.");
@@ -393,15 +411,58 @@ internal sealed class ReceivedChanges
         }
     }
 
-    private LatticeLimitEnum? ApplyAttempt(ulong sequence, ReadOnlySequence<byte> effects, bool topsUp)
+    // One attempt of a Ready child (see the class): a retry first frees what is retired and gives back the
+    // reserves, and tops nothing up. A refusal while reads hold retired memory runs the wait switch of the
+    // tests, since the follower now waits for memory to be freed.
+    private LatticeLimitEnum? ApplyOnce(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool retry)
     {
+        if (retry)
+        {
+            lock (_writes)
+            {
+                _retired.Drain();
+                _publisher.GiveBackReserves();
+            }
+        }
+
+        var pressure = ApplyAttempt(sequence, effects, effectCount, topsUp: !retry);
+        if (pressure is not null)
+        {
+            long epoch;
+            lock (_writes)
+            {
+                epoch = _retired.ReadsToWaitFor();
+            }
+
+            if (epoch != 0)
+            {
+                _retired.RunWaitSwitch();
+            }
+        }
+
+        return pressure;
+    }
+
+    // One attempt with its estimate (see the class).
+    private LatticeLimitEnum? ApplyAttempt(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool topsUp)
+    {
+        var estimate = BatchInputCharge.PerUnitBytes + (effectCount * BatchInputCharge.PerMemberBytes);
+        if (!_arena.Budget.TryReserve(estimate))
+        {
+            return LatticeLimitEnum.Memory;
+        }
+
         try
         {
-            return TryApply(sequence, effects, topsUp) ? null : LatticeLimitEnum.Memory;
+            return TryApply(sequence, effects, effectCount, topsUp) ? null : LatticeLimitEnum.Memory;
         }
         catch (BudgetRefusedException exception) when (!_needsFault)
         {
             return exception.Limit;
+        }
+        finally
+        {
+            _arena.Budget.Release(estimate);
         }
     }
 
@@ -413,116 +474,96 @@ internal sealed class ReceivedChanges
     {
         lock (_writes)
         {
-            var budget = _arena.Budget;
-            budget?.BeginPreparation();
-            var keeps = false;
+            PrepareScratch();
+
             try
             {
-                PrepareScratch();
-
-                try
-                {
-                    if (!TryPrepareWrite(table, lastMutation, member, ref rest) || !TryReserve())
-                    {
-                        GiveBack();
-
-                        return false;
-                    }
-                }
-                catch
+                if (!TryPrepareWrite(table, lastMutation, member, ref rest) || !TryReserve())
                 {
                     GiveBack();
-                    throw;
+
+                    return false;
                 }
-
-                if (topsUp)
-                {
-                    _publisher.TopUp(CollectionsMarshal.AsSpan(_prepared));
-                }
-
-                keeps = true;
-                Publish(lastMutation, publishesPosition: false);
-
-                return true;
             }
-            finally
+            catch
             {
-                budget?.EndPreparation(keeps);
-                _roots.ReleasePermanentDirectories();
-                _arena.Texts.EndPreparation(keeps);
+                GiveBack();
+                throw;
             }
+
+            if (topsUp)
+            {
+                _publisher.TopUp(CollectionsMarshal.AsSpan(_prepared));
+            }
+
+            Publish(lastMutation, publishesPosition: false);
+
+            return true;
         }
     }
 
     // Under the lock of the writes: prepares every effect of the transaction and publishes them, or none of
     // them, and tops the standing reserves of the indexes up once all are prepared when topsUp is true (see
     // the class, "Memory"). False when the arena refused one, with nothing of the transaction left.
-    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects, bool topsUp)
+    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool topsUp)
     {
         lock (_writes)
         {
-            var budget = _arena.Budget;
-            budget?.BeginPreparation();
-            var keeps = false;
+            PrepareScratch();
+
+            var reader = new SequenceReader<byte>(effects);
+            string? divergence = null;
+            var effect = 0u;
+
             try
             {
-                PrepareScratch();
-
-                var reader = new SequenceReader<byte>(effects);
-                string? divergence = null;
-                var effect = 0u;
-
-                try
+                while (!reader.End)
                 {
-                    while (!reader.End)
-                    {
-                        if (!TryPrepareEffect(ref reader, sequence, ++effect, ref divergence))
-                        {
-                            GiveBack();
-
-                            return false;
-                        }
-                    }
-
-                    if (divergence is not null)
-                    {
-                        // The whole body was valid. A malformed suffix would have
-                        // left through the protocol path before faulting the node.
-                        _needsFault = true;
-                        _epochs.Fault();
-                        throw new LatticeException(LatticeErrorEnum.Unavailable, divergence);
-                    }
-
-                    _missingUpdates?.Reserve();
-                    if (!TryReserve())
+                    if (!TryPrepareEffect(ref reader, sequence, ++effect, ref divergence))
                     {
                         GiveBack();
 
                         return false;
                     }
                 }
-                catch
+
+                // The number of the effects reserved for is the one the header states (see the class).
+                if (effect != effectCount)
+                {
+                    throw Protocol.Invalid($"The transaction {sequence} states {effectCount} effects and carries {effect}.");
+                }
+
+                if (divergence is not null)
+                {
+                    // The whole body was valid. A malformed suffix would have
+                    // left through the protocol path before faulting the node.
+                    _needsFault = true;
+                    _epochs.Fault();
+                    throw new LatticeException(LatticeErrorEnum.Unavailable, divergence);
+                }
+
+                _missingUpdates?.Reserve();
+                if (!TryReserve())
                 {
                     GiveBack();
-                    throw;
+
+                    return false;
                 }
-
-                if (topsUp)
-                {
-                    _publisher.TopUp(CollectionsMarshal.AsSpan(_prepared));
-                }
-
-                keeps = true;
-                Publish(sequence, publishesPosition: true);
-
-                return true;
             }
-            finally
+            catch
             {
-                budget?.EndPreparation(keeps);
-                _roots.ReleasePermanentDirectories();
-                _arena.Texts.EndPreparation(keeps);
+                GiveBack();
+                throw;
             }
+
+            if (topsUp)
+            {
+                _publisher.TopUp(CollectionsMarshal.AsSpan(_prepared));
+            }
+
+            Publish(sequence, publishesPosition: true);
+
+            return true;
         }
     }
 
@@ -602,7 +643,7 @@ internal sealed class ReceivedChanges
         if (preparedCount == prepared.Capacity)
         {
             _beforeRootListGrowth?.Invoke(preparedCount, member, _arena, _roots);
-            prepared.EnsureCapacity(preparedCount + 1, _arena.Budget, nameof(ReceivedChanges), restoresPreparation: true);
+            _arena.Budget.EnsureCapacity(prepared, preparedCount + 1);
         }
 
         // A new lifetime for a key the child does not hold; the lifetime of the entity for one it holds.
@@ -643,13 +684,12 @@ internal sealed class ReceivedChanges
         ref SequenceReader<byte> body, ref string? divergence)
     {
         var key = table.Keys.ReadKey(ref body);
-        using var decoded = _arena.Budget is { } budget ? MemoryLease.Create(budget) : null;
-        var commands = UpdateCommands.ReadEffect(table.Layout, ref body, decoded);
-        return TryPrepareUpdate(table, sequence, predecessor, member, key, commands, decoded, ref divergence);
+        var commands = UpdateCommands.ReadEffect(table.Layout, ref body);
+        return TryPrepareUpdate(table, sequence, predecessor, member, key, commands, ref divergence);
     }
 
     private bool TryPrepareUpdate(EntityTable table, ulong sequence, ulong predecessor, uint member,
-        in EntityKey key, ResolvedCommand[] commands, MemoryLease? decoded, ref string? divergence)
+        in EntityKey key, ResolvedCommand[] commands, ref string? divergence)
     {
         NameOnce(table, key);
         if (divergence is not null)
@@ -663,7 +703,7 @@ internal sealed class ReceivedChanges
         {
             if (!held)
             {
-                (_missingUpdates ??= new MissingUpdateTargets(_arena.MemoryLimit, _arena.Budget)).Add(table, key);
+                (_missingUpdates ??= new MissingUpdateTargets(_arena.MemoryLimit)).Add(table, key);
                 _skipped++;
                 return true;
             }
@@ -684,7 +724,7 @@ internal sealed class ReceivedChanges
         RootUpdate plan;
         try
         {
-            plan = new RootUpdate(_arena, table.Layout, replaced, commands.AsSpan(), decoded);
+            plan = new RootUpdate(_arena, table.Layout, replaced, commands.AsSpan());
         }
         catch (LatticeException exception) when (exception.Error is LatticeErrorEnum.UpdateTargetMissing or LatticeErrorEnum.ValidationFailed)
         {
@@ -692,19 +732,16 @@ internal sealed class ReceivedChanges
             return true;
         }
 
-        using (plan)
+        var prepared = _prepared!;
+        _arena.Budget.EnsureCapacity(prepared, prepared.Count + 1);
+        var root = RootValues.Place(_arena, table.Layout, handle, values: null, out _, out _, plan);
+        if (root.IsNull)
         {
-            var prepared = _prepared!;
-            prepared.EnsureCapacity(prepared.Count + 1, _arena.Budget, nameof(ReceivedChanges), restoresPreparation: true);
-            var root = RootValues.Place(_arena, table.Layout, handle, values: null, out _, out _, plan);
-            if (root.IsNull)
-            {
-                return false;
-            }
-
-            prepared.Add(new PreparedChange(ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
-            return true;
+            return false;
         }
+
+        prepared.Add(new PreparedChange(ChangeKindEnum.Replace, table, key, handle, root, replaced) { Member = member });
+        return true;
     }
 
     private void Diverge(ref string? divergence, string reason)
@@ -737,7 +774,7 @@ internal sealed class ReceivedChanges
         }
 
         var prepared = _prepared!;
-        prepared.EnsureCapacity(prepared.Count + 1, _arena.Budget, nameof(ReceivedChanges), restoresPreparation: true);
+        _arena.Budget.EnsureCapacity(prepared, prepared.Count + 1);
         prepared.Add(new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default, replaced));
 
         return true;
@@ -791,7 +828,7 @@ internal sealed class ReceivedChanges
 
         AppliedStates += _prepared!.Count;
         SkippedStates += _skipped;
-        EndAttempt(published: true);
+        EndAttempt();
         _retired.AfterWrite();
     }
 
@@ -801,7 +838,7 @@ internal sealed class ReceivedChanges
     private void GiveBack()
     {
         _publisher.GiveBack(CollectionsMarshal.AsSpan(_prepared));
-        EndAttempt(published: false);
+        EndAttempt();
     }
 
     // Under the lock of the writes, before an attempt takes ownership of any change.
@@ -815,11 +852,13 @@ internal sealed class ReceivedChanges
 
         _beforeScratchAllocation?.Invoke();
         var prepared = new List<PreparedChange>();
-        var keys = PublicationKeys.Create(0, _arena.Budget, restoresPreparation: true);
+        var keys = new PublicationKeys(0, _arena.Budget);
         _prepared = prepared;
         _keys = keys;
     }
 
+    // At the end of the connection to the master: the scratch and the import are let go of, with their
+    // charge.
     public void ReleaseTransferBacking()
     {
         lock (_writes)
@@ -831,27 +870,25 @@ internal sealed class ReceivedChanges
 
     private void ReleaseScratch()
     {
-        var prepared = _prepared;
-        var keys = _keys;
-        _prepared = null;
-        _keys = null;
-        if (prepared is not null && _arena.Budget is { } budget)
+        if (_prepared is { Capacity: > 0 } prepared)
         {
-            budget.Release(BudgetCollections.Items(prepared));
+            _arena.Budget.Release(MemoryBudget.ArrayBytes<PreparedChange>(prepared.Capacity));
         }
 
-        keys?.Dispose();
+        _keys?.Release();
+        _prepared = null;
+        _keys = null;
     }
 
     // Under the lock of the writes, after publication or rollback. Drop oversized scratch
-    // without allocating. A later attempt obtains its own scratch before it prepares anything.
-    // The named keys count the room of both containers because every prepared change names
-    // its key. At the limit (ChangePublisher.KeptRoom), 1,024 changes of 96 bytes and 1,931
-    // key entries of 56 bytes with their buckets keep about 210 KiB between attempts.
-    private void EndAttempt(bool published)
+    // without allocating, with its charge. A later attempt obtains its own scratch before it
+    // prepares anything. The named keys count the room of both containers because every prepared
+    // change names its key. At the limit (ChangePublisher.KeptRoom), 1,024 changes and the set of
+    // their keys stay between attempts.
+    private void EndAttempt()
     {
         var keys = _keys!;
-        if (keys.Count > ChangePublisher.KeptRoom && (published || _arena.Budget is null))
+        if (keys.Count > ChangePublisher.KeptRoom)
         {
             ReleaseScratch();
         }

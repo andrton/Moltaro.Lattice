@@ -13,6 +13,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
+using static Moltaro.Lattice.Engine.Tests.Engine.Protection.RetiredQueueItems;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -555,13 +556,10 @@ public sealed class FixedRootRelocationTests
         Assert.True(database.TryRunMaintenanceStep(parts =>
         {
             var queue = RetiredItems(parts.Retired);
-            observed = (queue.Count, queue.EnsureCapacity(0));
+            observed = (queue.Count, queue.Capacity);
         }));
         return observed;
     }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_items")]
-    private static extern ref Queue<RetiredItem> RetiredItems(RetiredMemory retired);
 
     private static bool TryMove(EngineDatabase database, Location location, ArenaAddress destination)
     {

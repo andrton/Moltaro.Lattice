@@ -1,10 +1,10 @@
 using System.Net.Sockets;
-using Moltaro.Lattice.Budgeting;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Child.Loading;
@@ -68,7 +68,7 @@ internal static class ChildLoad
     {
         var leastRoots = 0L;
         var announcedSlots = 0L;
-        var indexCapacity = budget.Inspect(null).Charged;
+        var indexCapacity = budget.Charged;
 
         for (var index = 0; index < tables.Count; index++)
         {

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
@@ -54,7 +55,7 @@ public sealed class CounterTests
         const int MostKept = 400;
         var random = new Random(20_261_115);
         var options = new ArenaOptions { MemoryLimit = 256L * Arenas.SegmentSize };
-        using var arena = new Arena(options);
+        using var arena = new Arena(options, new MemoryBudget());
         var tally = new ArenaTally();
         var everAllocated = new HashSet<ArenaAddress>();
 
