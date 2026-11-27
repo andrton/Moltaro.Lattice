@@ -113,7 +113,7 @@ S01 ground
                              └─ S19 maps, sets ── S20 partial updates
                                  └─ S21 views by name ── S21I List traversal ── S22 typed views
                                      └─ S22C position-wait cancellation ── S23 compaction ── S23A segment evacuation
-                                         └─ S24 memory budget ── S24A budget corrections ── S24R budget refactoring ── S25 memory gate ── S26 operation identity
+                                         └─ S24 memory budget ── S24A budget corrections ── S24R budget refactoring ── S24B budget by structure ── S24BR ── S25 memory gate ── S25L one lifecycle ── S26 operation identity
                                              └─ S27 provider ── S28 durable commit
                                                  └─ S29 storage failures ── S30 saved base
                                                      └─ S31 journal limits ── S32 recovery
@@ -195,7 +195,10 @@ Why this order:
 | [S24](sprints/s24.md) | The memory budget | Full, critical | Merged at `895651e3`. Acceptance reopened after independent reproduction. [Original measurements](sprints/s24.md#s24--the-memory-budget) |
 | [S24A](sprints/s24a.md) | Budget ownership, withdrawal and dictionary growth | Full, critical | Done on 26 November 2026. [Brief and acceptance](sprints/s24a.md#s24a--budget-ownership-withdrawal-and-dictionary-growth) |
 | [S24R](sprints/s24r.md) | Capacity wait and ownership cleanup | Refactoring | Done on 26 November 2026. [Brief and verification](sprints/s24r.md#s24r--capacity-wait-and-ownership-cleanup) |
+| [S24B](sprints/s24b.md) | Budget accounting by structure | Full, critical | Not started. The owner's decision of 27 November 2026 |
+| [S24BR](sprints/s24br.md) | Refactoring after S24B | Refactoring | Not started |
 | [S25](sprints/s25.md) | Reference fixture, managed reference, the memory gate | Full | Not started |
+| [S25L](sprints/s25l.md) | One lifecycle of the instance | Full, critical | Not started |
 | [S26](sprints/s26.md) | Operation identity and safe retry | Full | Not started |
 | [S27](sprints/s27.md) | PostgreSQL provider and Durable open | Full | Not started |
 | [S28](sprints/s28.md) | Durable commit | Full | Not started |

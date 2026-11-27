@@ -47,6 +47,106 @@ path says otherwise.
   ordinary single-member MemoryOnly path and immediate group do not show
   that cost.
 
+## Reviews after S24R, 27 November 2026
+
+Two read-only reviews of `main` at `2d8ff204`, started by the planner at the owner's
+request for an outside view of the work since S19: an architect's review of the code and
+the architecture, and an engineering review of the algorithms, the structures and the
+measured cost of S24. Both found the rules of `AGENTS.md` kept in the large — one type per
+file, `internal` by default, the direction of the assemblies and of Storage ← Replication
+← Engine, no new comment that cites a sprint, test projects foldered by area — and the
+mechanisms of S19 to S23 sound: reads take no lock, the epochs follow Tsavorite's
+`LightEpoch`, compaction is bounded per turn, Map and Set lookups are compact, no lock is
+held across an `await`. Both traced most of what they found to one choice of S24: byte-exact
+charges of managed objects and the return of capacity a failed preparation grew, which
+the decision record [Q14](../decisions/write-admission.md) does not ask for. The owner
+decided on 27 November 2026 to charge memory by structure instead; that is
+[S24B](epic-1/sprints/s24b.md).
+
+Gone through by the planner the same day. Line numbers are those of `2d8ff204`.
+
+**Joined (S24B)**, removed by the change of the accounting rule or carried out with it:
+
+- **Byte-exact charges of managed objects.** 49 hand-computed object-size formulas, for
+  example `Storage/Text/TextTable.cs:35`, `Storage/CollectionTails.cs:27-31`, and the
+  charge of one `WeakReference` in `Storage/Arena.cs:76,164-176`.
+- **One rule, nine implementations.** "Growth during a preparation is provisional, keep
+  the smaller predecessor, reinstate it on failure": `WorkspaceCapacity` with
+  `BackingHistory`, the journal of `MemoryBudget.cs:51-97`, the segment directory of
+  `Arena.cs:1083-1147`, `Roots/RootTable.cs:52-55`, `Hashing/OverflowBuckets.cs:56,301`,
+  `Indexes/PrimaryIndex.cs:59,323`, `Text/TextTable.cs:470-570,749`,
+  `Text/TextLocator.cs:196-277`, `Text/TextWriterSlots.cs:17,219` and
+  `CollectionTails.cs:23,277`. The cold batch of 4,096 texts does about 3.6 times the work
+  of pre-S24 for it.
+- **Private members of runtime types.** `src/Moltaro.Lattice/Budgeting/BudgetCollections.cs:13-38`
+  reads `List<T>._items` and rewrites `Queue<T>._array`, `_head`, `_tail` and `_version`,
+  used by the retirement queue (`Engine/Protection/RetiredMemory.cs:262,279`), where a wrong
+  head would free native memory early; `BudgetDictionaries.cs:86-87` calls
+  `HashHelpers.GetPrime`, and `BudgetDictionaries.cs:111` and `BudgetHashSets.cs:72` mirror
+  private layouts. Not in the exceptions register.
+- **The budget's three jobs.** `MemoryBudget` is a counter, an undo journal bound to a
+  thread id (`MemoryBudget.cs:20-49`, with `IsPreparing` changing behavior in `RootTable`,
+  `TextTable`, `TextLocator`, `TextWriterSlots` and `Arena`) and a test inventory
+  (`observesBackings`, `BudgetBackings`); `RootTable` inherits a journal node.
+- **A nullable budget the product never leaves null.** About 190 `budget?.` and
+  `is null` sites; `EngineDatabase.cs:143` always constructs one, and the modes differ.
+- **The root image charged and allocated per write.** `Arena.cs:181-219`,
+  `Roots/RootWriter.cs:139,665`: a reservation, a weak-slot check, `new byte[]` when the
+  width changes, a release; 704 of the 824 B of the Windows public pair.
+- **One global lock for every reservation and release**, also only to signal:
+  `MemoryBudget.cs:269`, `Arena.cs:636,650`, `RootTable.cs:258`.
+- **A finalizable lease per batch addition, partial update and child transaction**
+  (`MemoryLease.cs:245`, `WriteBatch.cs:102,163`, `Engine/Writes/PreparedUpdates.cs:20`,
+  `Engine/Child/Loading/ReceivedChanges.cs:646`, `Engine/Entities/UniqueClaims.cs:71`).
+- **A child's wake after a release before its registration** waits for the retry pause,
+  up to 5 s (`Engine/Child/Following/Follower.cs:358-377`, `Replication/RetryPause.cs`).
+- **No check of the balance** at run time or at close.
+- **Engine-only budgeting in the contract assembly**: what the batch builder does not
+  need moves into the engine.
+- **Tests that read private fields by name** for the budget (`Backing<T>(owner, "_field")`,
+  helper at `Moltaro.Lattice.Engine.Tests/Engine/MemoryBudget/InstanceBudget.cs:113`), as
+  S24B rewrites those tests.
+- **No design document describes the budget**; its narrative is only in the sprint records.
+
+**Taken (S24BR):**
+
+- One preparation bracket for the master and the child (`WriteCoordinator.cs:1016-1033`
+  with `WriteExecutor.cs:109-126`, against `ReceivedChanges.cs:417-453,465-525`), one
+  refusal ladder (`ReceivedChanges.cs:209-227,325-378` against
+  `WriteCoordinator.cs:975-1000`), one preparer of an update member
+  (`WriteExecutor.cs:299-323` against `:536-573`).
+- A refusal by memory reported one way: a result and `BudgetRefusedException`, caught at
+  18 sites, carry the same expected outcome.
+- Test scaffolding in shipped code in three styles (`Arm*Switch` fields,
+  `EngineFaultPointEnum`, `EngineTestInputs`, which grew from 5 members at S19 to 28, threaded
+  as `Action?` parameters); measurement-only members in `TextTable.cs:136-192,292` and four
+  snapshot types in `Storage/Text`. One hook mechanism; inspection in `TestAccess` partials.
+- The remaining test reads of private fields by name (169 in 26 files at `2d8ff204`),
+  replaced with named internal inspection members, each assertion keeping its meaning.
+- Two folder cycles: Engine.Writes ↔ Engine.Delivery (`Engine/Delivery/TransactionEncoder.cs:2,24`)
+  and Access.Binding ↔ Access.Updates (`src/Moltaro.Lattice/Access/Updates/UpdateValueBinding.cs:13`);
+  a test of the direction between folders.
+- Heads far over twenty lines (`WriteCoordinator` 235, `ReceivedChanges` 91,
+  `WriteExecutor` 74, `RetiredMemory` 67), with the narrative moved to the design
+  reference; `HeldPersistence.cs` exists in both `Moltaro.Lattice.Engine.Tests` and
+  `Moltaro.Lattice.Measurements`; `Moltaro.Lattice.Measurements/Scenarios` is a flat
+  folder of 49 files.
+
+**Planned as a sprint (S25L):** the lifecycle kept as separate marks with the precedence
+of Closed, Faulted, Lost, cancellation and timeout decided at each call site
+(`Engine/EngineDatabase.cs:96,100,134,167-177,540-561`, `Engine/Protection/ReadEpochs.cs:75-77`,
+`Engine/Positions/PositionClock.cs:43-54,183-209,248-279`, `Engine/Sets/SetOperations.cs:166`,
+`Engine/Child/Forwarding/Forwarder.cs:376`, the close barrier entered at
+`WriteCoordinator.cs:587` and left at six places); `PositionClock.Publish` takes its lock
+with no wait registered. See [S25L](epic-1/sprints/s25l.md).
+
+**Accepted:** encoding a packed Map with owned values boxes each entry through
+`KeyValuePair<object?, object?>`; it is on the write path only.
+
+**For later briefs:** S23C to S23F inject managed allocation failures at trims and at close.
+Q14 does not claim that every process-wide allocation failure can be caught safely; a
+brief asks for it only where a decision record does.
+
 ## Order
 
 Gone through by the planner and the coordinator on 18 November 2026.

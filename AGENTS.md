@@ -26,6 +26,7 @@ This repository is public. Nothing specific to a private product goes into it.
 | `src/Moltaro.Lattice` | The core library: the public contract except its entry point. No package dependencies |
 | `src/Moltaro.Lattice.Engine` | The engine, and `LatticeDatabase`, the entry point that opens a database. Depends on the core library and on no package |
 | `src/Moltaro.Lattice.DependencyInjection` | Registration in a container; a thin separate package |
+| `src/Moltaro.Lattice.Generators` | The build-time generator of typed protected views, packed as an analyzer |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity; a separate package, contract only so far |
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
 | `src/*.Tests` | Tests, one project per library. `Moltaro.Lattice.Engine.Tests` may also test internal mechanisms of the engine |

@@ -143,7 +143,10 @@ at xhigh, no breaker.
 - [S24 · The memory budget](sprints/s24.md)
 - [S24A · Budget ownership, withdrawal and dictionary growth](sprints/s24a.md)
 - [S24R · Capacity wait and ownership cleanup](sprints/s24r.md)
+- [S24B · Budget accounting by structure](sprints/s24b.md)
+- [S24BR · Refactoring after S24B](sprints/s24br.md)
 - [S25 · Reference fixture, managed reference, the memory gate](sprints/s25.md)
+- [S25L · One lifecycle of the instance](sprints/s25l.md)
 
 ## Stage 6. Durability
 
