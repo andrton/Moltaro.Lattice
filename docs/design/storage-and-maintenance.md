@@ -29,7 +29,7 @@ persistence remains a separate implementation.
 | Q17 | Size-class reuse, bounded compaction, empty-segment reserve and release, and automatic collection shrink are implemented in MemoryOnly | E01/E02/E03. Q14 covers instance memory pressure. |
 | Q09.4 | PostgreSQL-native Durable backup and infrastructure-owned execution, without Lattice API launch commands; isolated replacement restore with former storage preserved until verification and one arena, plus new history/full child reload accepted. Same-history Durable restart preserves identity. Deployment procedure/objectives and activation/validation details remain work | E06/E07; Q09.1/Q09.2 supply durability and journal contracts |
 | Q09.5 | Accepted v1 selection at instance open time: Durable default or explicit MemoryOnly | E06/E07; Q08.1.3 supplies resume/reload rules and Q15 the configured endpoint/lifecycle contract |
-| Q09.6 | PostgreSQL accepted as the first Durable backend; production format/provider implementation remains engineering work | E06; Q09.1/Q09.2 commit/recovery rules and Q09.4 restore validation |
+| Q09.6 | PostgreSQL accepted as the first Durable backend; on 27 November 2026 a public provider contract, with SQL Server as a second provider, the engine owning the format and recovery; production format/provider implementation remains engineering work | E06; Q09.1/Q09.2 commit/recovery rules and Q09.4 restore validation |
 | Q18 | First-release scope accepted: diagnostic DI services and library-owned HTTP endpoints under a host-selected prefix; local/master status through a child. Automatic maintenance remains; manual maintenance commands, CLI/GUI and backup/restore launch commands are outside v1 | Host integration and E07 internal request/reply transport; engine-owned status collection |
 | Q19 | Accepted: schema index definitions and local construction on every node; no physical index images persisted/transferred in v1 | E04/E06/E07: bounded builders and startup measurements; Q10.1 supplies full-readiness targets |
 
@@ -76,8 +76,8 @@ now requires reliable storage acknowledgment before Durable write success.
 PostgreSQL as the first Durable backend. [Q09.2](../decisions/checkpoint-and-journal.md#q09.2-postgresql-base-and-compact-journal)
 accepts a compact PostgreSQL journal and recoverable saved state, maintained by
 background application with coalescing and atomic saved-data/position commits. This is
-a provider representation choice, not a journal mandate for MemoryOnly or every
-future backend. Automatic size/age triggers and a hard retained-journal limit with
+the engine's representation, which every provider stores, and no journal mandate for
+MemoryOnly. Automatic size/age triggers and a hard retained-journal limit with
 write refusal, a 256-byte baseline saved unit and short bounded application batches
 with immediate catch-up are accepted. Transient applier failures permit healthy
 journal appends within budget and paced retries inside the master process. Detailed

@@ -119,11 +119,15 @@ These hold across the contract and the engine.
    node. A type that takes more than one lock documents the order.
 10. **One instance, one database.** Instances are independent; an application may have
     several. No static mutable state, except where a comment says why.
-11. **Dependencies point one way.** Three assemblies make the database. `Moltaro.Lattice`,
-    the public contract, depends on nothing outside .NET. `Moltaro.Lattice.Engine` depends
-    on the contract and on no package: its structures are its own.
-    `Moltaro.Lattice.PostgreSql` depends on the engine and owns the PostgreSQL driver. No
-    other shipped assembly references the PostgreSQL driver.
+11. **Dependencies point one way.** The contract and the engine make the database, and a
+    storage provider makes it durable. `Moltaro.Lattice`, the public contract, depends on
+    nothing outside .NET; it holds the public contract of a storage provider.
+    `Moltaro.Lattice.Engine` depends on the contract and on no package: its structures are
+    its own. A storage provider is an assembly of its own that depends on the contract,
+    not on the engine, and owns its database driver: `Moltaro.Lattice.PostgreSql` the
+    PostgreSQL driver, `Moltaro.Lattice.SqlServer` the SQL Server driver. No other shipped
+    assembly references a database driver. The engine owns what makes the stored state
+    correct; a provider only stores it ([Q09.6](docs/decisions/persistence-backends.md)).
     Inside an assembly a folder is a namespace and one responsibility, and folders depend
     on each other in one direction. A folder that holds several layers of one
     responsibility has a sub-folder for each: the sub-folders are parts of that
@@ -278,8 +282,9 @@ Writing code:
   condition. The tests of the engine also address the reference fixture inside the
   measurement program, to state that it does not change.
 - Code that two or more test projects need lives once, in `Moltaro.Lattice.TestSupport`,
-  and is not copied between them. That project is never shipped and contains no tests.
-  What only one test project uses stays in that project.
+  and is not copied between them. That project is never shipped and contains no tests of
+  its own: a shared suite in it, such as the tests of a storage provider, runs in the
+  test project of each provider. What only one test project uses stays in that project.
 - A test project is organized like a library: a folder is a namespace and one area of
   behavior, and the tests of an area sit together with the schemas and helpers that only
   they use. The root of a test project holds what the whole project shares, never a list
