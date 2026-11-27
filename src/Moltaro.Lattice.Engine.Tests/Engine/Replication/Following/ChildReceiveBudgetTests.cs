@@ -248,6 +248,11 @@ public sealed class ChildReceiveBudgetTests
         var allocator = new CountingNativeAllocator();
         var readyToPrepare = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var receivedPressure = false;
+
+        // The room the second transaction finds: the estimate of its one member, and less than one
+        // more piece.
+        var room = BatchInputCharge.PerMemberBytes + 1_024;
+        Assert.True(room < ArrayBytes(typeof(byte), TransferBuffer.PieceSize));
         IDisposable? held = null;
         EngineDatabase? receiving = null;
         await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, ChildLimit),
@@ -260,7 +265,7 @@ public sealed class ChildReceiveBudgetTests
                     if (sequence == second && frame == 0 && held is null)
                     {
                         var node = receiving!;
-                        held = node.HoldBudgetBacking(checked((int)(ChildLimit - node.InspectHeld().Charged - 1_024)));
+                        held = node.HoldBudgetBacking(checked((int)(ChildLimit - node.InspectHeld().Charged - room)));
                     }
                 },
                 BeforeChildPreparationMember = _ =>
