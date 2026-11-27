@@ -17,21 +17,16 @@ namespace Moltaro.Lattice.Engine.Entities;
 //   once (Child.Loading.ReceivedChanges). Only the thread that applies uses it, under the lock of the writes of
 //   the child, and empties it for the next transaction (Clear).
 //
-// Memory. The entities are kept in a ChargedSet. The set of a child stays between its transactions and is
-// charged to the budget of the child by the bytes of its array (docs/design/storage-and-maintenance.md, the
-// memory budget). The set of a batch lives as long as the batch and is a working object under the estimates
-// of its members, so it charges an unlimited budget of its own.
+// Memory. The entities are kept in a ChargedSet, publication scratch charged to the budget of the instance by
+// the bytes of its array (docs/design/storage-and-maintenance.md, the memory budget). The set of a child
+// stays between its transactions. The set of a batch is made before the batch is admitted and released
+// when the batch ends; while it is admitted the write coordinator reports it (Writes.WriteCoordinator).
 internal sealed class PublicationKeys
 {
     private readonly ChargedSet<(EntityTable Table, EntityKey Key)> _keys;
 
-    // The set of a batch (see the class).
-    public PublicationKeys(int capacity)
-        : this(capacity, new MemoryBudget())
-    {
-    }
-
-    // The set of a child, charged to its budget (see the class).
+    // A set with room for capacity entities, charged to the budget; BudgetRefusedException when the
+    // budget cannot hold its array.
     public PublicationKeys(int capacity, MemoryBudget budget)
     {
         _keys = new ChargedSet<(EntityTable, EntityKey)>(Comparer.Instance, budget);

@@ -14,6 +14,7 @@ using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
@@ -63,8 +64,8 @@ public sealed class ReceivedCollectionTests
     public void A_short_hashed_Set_exports_only_its_entries_and_reexports_the_same_bytes_under_another_seed()
     {
         var options = new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit };
-        using var master = new Arena(options, new NativeAllocator(), textSeed: 111, writes: null);
-        using var child = new Arena(options, new NativeAllocator(), textSeed: 222, writes: null);
+        using var master = new Arena(options, new NativeAllocator(), textSeed: 111, writes: null, collectionTime: null, new MemoryBudget());
+        using var child = new Arena(options, new NativeAllocator(), textSeed: 222, writes: null, collectionTime: null, new MemoryBudget());
         var layout = Layout();
         var expected = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 };
         var forwarded = Encode(layout, 1, expected);
@@ -225,7 +226,7 @@ public sealed class ReceivedCollectionTests
     {
         using var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit });
         var owner = new object();
-        var roots = new RootTable();
+        var roots = new RootTable(new MemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);
         var retired = new RetiredMemory(epochs, arena, roots);
         var clock = new PositionClock(1, owner);

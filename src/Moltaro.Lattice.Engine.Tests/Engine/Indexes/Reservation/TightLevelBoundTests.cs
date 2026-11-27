@@ -5,6 +5,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation.LevelBoundParts;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
@@ -345,7 +346,7 @@ public sealed class TightLevelBoundTests
 
             _item = new RootArena(schema, entityType);
             _roots = new RootArena(schema, entityType);
-            _retired = new RetiredMemory(new ReadEpochs(new object()), _item.Arena, new RootTable());
+            _retired = new RetiredMemory(new ReadEpochs(new object()), _item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
             Assert.True(_item.EntityType.TryGetIndex(indexName, out var definition));
             Index = SecondaryIndex.Open(definition, _item.Layout, _item.Arena, _retired);
         }

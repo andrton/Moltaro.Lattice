@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
@@ -127,7 +128,7 @@ public sealed class RewriteTests
     public void Freeing_a_root_does_not_touch_the_table_of_root_entries()
     {
         using var item = TypedItem.OfType("Binary");
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var handle = table.Add((uint)item.EntityType.Id);
         var other = table.Add((uint)item.EntityType.Id);
 

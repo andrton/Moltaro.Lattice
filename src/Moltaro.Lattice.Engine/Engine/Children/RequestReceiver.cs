@@ -221,7 +221,37 @@ internal sealed class RequestReceiver : IDisposable
 
         var members = new BatchMember[count];
         var entityTypes = new LatticeEntityType[count];
-        var keys = new PublicationKeys(count);
+        PublicationKeys keys;
+        try
+        {
+            keys = new PublicationKeys(count, _writes.Budget);
+        }
+        catch (BudgetRefusedException exception)
+        {
+            Refuse(correlationId, exception);
+            return;
+        }
+
+        // The set passes to the write path with the batch; a request that ends before releases it.
+        var submitted = false;
+        try
+        {
+            SubmitMembers(correlationId, ref reader, members, entityTypes, keys, ref charged, ref submitted, minimumPosition);
+        }
+        finally
+        {
+            if (!submitted)
+            {
+                keys.Release();
+            }
+        }
+    }
+
+    // The members of a batch, checked one after the other, then the batch as one write (see SubmitBatch).
+    private void SubmitMembers(ulong correlationId, ref SequenceReader<byte> reader, BatchMember[] members, LatticeEntityType[] entityTypes,
+        PublicationKeys keys, ref long charged, ref bool submitted, LatticePosition? minimumPosition)
+    {
+        var count = members.Length;
         var commands = 0L;
 
         for (var place = 0; place < count; place++)
@@ -270,6 +300,7 @@ internal sealed class RequestReceiver : IDisposable
 
         var origin = new ForwardedOrigin(_replies, correlationId, entityTypes, _writes.Budget, charged);
         charged = 0;
+        submitted = true;
         _writes.Coordinator.Forward(members, keys, origin, SessionOf(minimumPosition));
     }
 

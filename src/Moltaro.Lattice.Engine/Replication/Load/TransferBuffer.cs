@@ -15,8 +15,8 @@ namespace Moltaro.Lattice.Replication.Load;
 //
 // The bytes of each piece and the list of the pieces are charged to the budget given before they are
 // allocated, and released when the buffer is disposed (docs/design/storage-and-maintenance.md, the memory
-// budget); the piece objects are bookkeeping of the headroom. A buffer made without a budget, for the
-// export of one root of a batch, is the caller's input and charges an unlimited budget of its own.
+// budget); the piece objects are bookkeeping of the headroom. A buffer made without a budget holds the
+// snapshot of a member of a write batch (Engine.Entities.RootValues.Export), and charges nothing of its own.
 //
 // One thread at a time uses a buffer: the task of the connection that owns it.
 internal sealed class TransferBuffer(MemoryBudget budget) : IBufferWriter<byte>, IDisposable
@@ -32,6 +32,11 @@ internal sealed class TransferBuffer(MemoryBudget budget) : IBufferWriter<byte>,
     // The piece being written; its index in _pieces. -1 while the buffer is empty.
     private int _current = -1;
 
+    // The buffer of the snapshot of a member of a write batch, its one use: the builder of the batch charges
+    // the snapshot by its encoded length when the member is added (the input of a batch,
+    // docs/design/storage-and-maintenance.md, the memory budget). Its pieces keep the snapshot off the large
+    // object heap and hold a root of any size, so it charges an unlimited budget of its own: charging the
+    // instance as well would count the member twice.
     public TransferBuffer()
         : this(new MemoryBudget())
     {

@@ -133,12 +133,6 @@ internal sealed class IndexTable
     // The entries the table holds, on lines of their own (IndexTableCounts).
     private IndexTableCounts _counts;
 
-    // A table made alone, by a test, with an unlimited budget.
-    public IndexTable(int bucketBits, int version)
-        : this(bucketBits, version, new MemoryBudget())
-    {
-    }
-
     // A table of 2^bucketBits main buckets, empty, with overflow pages of a sixteenth of them, at
     // least one bucket, of the version given. bucketBits is 1 to MostBucketBits. Its arrays are
     // charged to the budget before they are allocated, and the arrays are allocated before anything

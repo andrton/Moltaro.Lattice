@@ -6,6 +6,7 @@ using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Updates;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Text;
 
@@ -29,7 +30,7 @@ public sealed class SplitTextOperandTests
         Assert.True(Schema.TryGetEntityType(ItemSchema.EntityTypeName, out var type));
         var layout = StructureLayout.OfRoot(type, []);
         var position = layout.PositionOf([type.GetField("Text")]);
-        using var transfer = new TransferBuffer();
+        using var transfer = new TransferBuffer(new InstanceMemoryBudget());
         transfer.Write(wire);
         var decoded = Read();
         Assert.NotSame(text, decoded);

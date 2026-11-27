@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
@@ -25,7 +26,7 @@ public sealed class UncountableNeedTests
     public void Reservation_of_inserts_whose_need_passes_what_the_pool_counts_is_refused_and_takes_nothing()
     {
         using var item = new RootArena(IndexSchema.Utf8, "Counted", memoryLimit: 2L * RootArena.SegmentSize);
-        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
         Assert.True(item.EntityType.TryGetIndex("ByNumber", out var definition));
         var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
         var least = index.Layout.LeastSeparators;

@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
@@ -27,7 +28,7 @@ public sealed class LevelBoundAllocationTests
 
         using (var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit, ReservedSegments = 2 }))
         {
-            var retired = new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable());
+            var retired = new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
             var warm = SecondaryIndex.Open(definition, layout, arena, retired);
 
             Assert.True(warm.Tree.TryReserve(inserts: 1_500, removes: 0));
@@ -45,7 +46,7 @@ public sealed class LevelBoundAllocationTests
 
         using (var item = new RootArena(IndexSchema.Utf8, "Counted", 2L * RootArena.SegmentSize))
         {
-            var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+            var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
             var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
 
             Assert.True(index.Tree.TryReserve(inserts: 1, removes: 0));

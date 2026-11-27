@@ -244,6 +244,9 @@ internal static class RootValues
 
             if (length > TransferBuffer.PieceSize)
             {
+                // The builder of the batch charges the snapshot by its encoded length (the input of a
+                // batch, docs/design/storage-and-maintenance.md, the memory budget); the pieces keep it off
+                // the large object heap and hold a root of any size, and charge nothing of their own.
                 var pieces = new TransferBuffer();
 
                 writer.Export(pieces);

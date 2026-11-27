@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
@@ -94,7 +95,7 @@ public sealed class OneHashChainTests
     private static Arena Arena() => new(new ArenaOptions { MemoryLimit = new ArenaOptions().SegmentSize });
 
     private static PrimaryIndex IndexOf(Arena arena) =>
-        new(new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable()));
+        new(new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null)));
 
     private static List<uint> Found(PrimaryIndex index, uint hash)
     {

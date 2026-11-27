@@ -64,12 +64,6 @@ internal sealed class RootTable
     // With the count, on lines of their own (RootTableCounts).
     private RootTableCounts _counts;
 
-    // A table made alone, by a test, with an unlimited budget and every page an int can count.
-    public RootTable()
-        : this(new MemoryBudget(), pageLimit: null)
-    {
-    }
-
     // The table of a database, which charges its budget; a test of the address limit bounds its
     // pages.
     public RootTable(MemoryBudget budget, int? pageLimit)

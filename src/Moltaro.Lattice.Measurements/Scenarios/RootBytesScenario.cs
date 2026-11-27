@@ -6,6 +6,7 @@ using Moltaro.Lattice.Engine;
 using Moltaro.Lattice.Measurements.Fixture;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
@@ -325,7 +326,7 @@ internal static class RootBytesScenario
         var layout = RootLayout.Compile(entityType, schema);
         var options = new ArenaOptions { MemoryLimit = ArenaMemoryLimit };
         using var arena = new Arena(options);
-        var table = new RootTable();
+        var table = new RootTable(new MemoryBudget(), pageLimit: null);
         var logicalBytes = 0L;
 
         foreach (var record in records)

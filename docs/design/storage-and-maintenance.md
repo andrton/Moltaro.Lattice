@@ -231,8 +231,9 @@ a test has an unlimited one.
   secondary index, is not charged again.
 - *The managed structures that grow with the data*: the root pages, the tables and
   overflow buckets of the primary indexes, the arrays of the text table, the collection
-  tails, the retirement queue, the publication scratch, the buffers of connections and of
-  a load in transfer, and a child's key set. Each is charged by the bytes
+  tails, the retirement queue, the publication scratch, the key set of a batch from its
+  submission to its end and that of a child, and the buffers of connections and of a load
+  in transfer. Each is charged by the bytes
   of its backing array — a header of 24 bytes and the elements, rounded up to 8 bytes —
   when it grows: the new array is reserved before it is allocated, and the old one is
   released once it is dropped, or, for a generation a reader may still hold, such as the
@@ -245,7 +246,9 @@ a test has an unlimited one.
   after the snapshot it builds: its encoded length and `BatchInputCharge.PerMemberBytes`
   (1,280 bytes), and with the first member `PerBuilderBytes` (640 bytes). One finalizable
   owner per batch returns the whole charge when the execution of the batch ends, or when an
-  abandoned batch is collected.
+  abandoned batch is collected. A snapshot longer than one piece of a transfer (64 KiB) is
+  held in pieces, which keep it off the large object heap and charge nothing of their own:
+  its encoded length is charged here.
 - *A write in progress*: an ordinary write, a child transaction, a write a child forwards
   and the request it arrives as on the master reserve one estimate when they start —
   `PerMemberBytes` for each member, and the encoded commands of a partial update — and

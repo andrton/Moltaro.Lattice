@@ -7,6 +7,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation.LevelBoundParts;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
@@ -67,7 +68,7 @@ public sealed class LevelBoundTests
         var schema = entityType == "Paired" ? Paired : IndexSchema.Utf8;
         using var item = new RootArena(schema, entityType);
         using var roots = new RootArena(schema, entityType);
-        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
         Assert.True(item.EntityType.TryGetIndex(indexName, out var definition));
         var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
         var random = new Random(seed);
@@ -171,7 +172,7 @@ public sealed class LevelBoundTests
         var schema = entityType == "Paired" ? Paired : IndexSchema.Utf8;
         using var item = new RootArena(schema, entityType);
         using var roots = new RootArena(schema, entityType);
-        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
         Assert.True(item.EntityType.TryGetIndex(indexName, out var definition));
         var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
         var random = new Random(17);
@@ -225,7 +226,7 @@ public sealed class LevelBoundTests
     public void Reservation_withdrawn_gives_back_exactly_what_it_took()
     {
         using var item = new RootArena(IndexSchema.Utf8, "Counted");
-        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+        var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable(new InstanceMemoryBudget(), pageLimit: null));
         Assert.True(item.EntityType.TryGetIndex("ByNumber", out var definition));
         var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
 

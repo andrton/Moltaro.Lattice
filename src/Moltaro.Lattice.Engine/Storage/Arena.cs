@@ -117,16 +117,10 @@ internal sealed unsafe class Arena : IDisposable
     // The same, with the allocator through which the arena obtains and returns the native memory of
     // its segments. Only a test of the engine passes another than NativeAllocator itself (exception
     // X3). The text table hashes with the seed 0 and knows no lock of the writes: an arena a test of the
-    // engine makes by itself has no database around it.
+    // engine makes by itself has no database around it. Its budget is unlimited, and
+    // ArenaOptions.MemoryLimit bounds its native segments.
     internal Arena(ArenaOptions options, NativeAllocator allocator)
-        : this(options, allocator, textSeed: 0, writes: null)
-    {
-    }
-
-    // An arena a test of the engine makes by itself, with the seed of its text table: its budget is
-    // unlimited, and ArenaOptions.MemoryLimit bounds its native segments.
-    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes)
-        : this(options, allocator, textSeed, writes, collectionTime: null, new MemoryBudget(), limitsSegments: true)
+        : this(options, allocator, textSeed: 0, writes: null, collectionTime: null, new MemoryBudget(), limitsSegments: true)
     {
     }
 

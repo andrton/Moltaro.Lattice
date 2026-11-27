@@ -10,6 +10,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Budgeting;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.TestSupport.PartialUpdates;
 using Moltaro.Lattice.TestSupport.Positions;
@@ -343,7 +344,7 @@ public sealed class PartialCatchUpTests
     private static (ReceivedChanges Received, RootTable Roots, PositionClock Clock) Receiver(Arena arena)
     {
         var owner = new object();
-        var roots = new RootTable();
+        var roots = new RootTable(new MemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);
         var retired = new RetiredMemory(epochs, arena, roots);
         var clock = new PositionClock(1, owner);

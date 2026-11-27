@@ -8,6 +8,7 @@ using Moltaro.Lattice.Storage.Hashing;
 using Moltaro.Lattice.Storage.Text;
 using static Moltaro.Lattice.Engine.Tests.Engine.Text.TextMetadataTestAccess;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -224,7 +225,7 @@ public sealed class TextMetadataMigrationTests
     private static IEnumerable<string> Colliding(string encoding)
     {
         var codec = TextTally.EncodingOf(encoding);
-        var shape = new IndexTable(12, 0);
+        var shape = new IndexTable(12, 0, new InstanceMemoryBudget());
         var produced = 0;
         for (var n = 0; produced < ChainSize; n++)
         {

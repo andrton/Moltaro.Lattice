@@ -6,6 +6,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using InstanceMemoryBudget = Moltaro.Lattice.Storage.Budgeting.MemoryBudget;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
@@ -47,7 +48,7 @@ internal sealed class StandaloneKeys : IDisposable
         Assert.True(schema.TryGetEntityType(keyType, out var entityType));
 
         var owner = new object();
-        var roots = new RootTable();
+        var roots = new RootTable(new InstanceMemoryBudget(), pageLimit: null);
         var epochs = new ReadEpochs(owner);
 
         _keyType = keyType;
