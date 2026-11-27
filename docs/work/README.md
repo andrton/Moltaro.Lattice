@@ -27,7 +27,7 @@ closes.
 
 ## How an epic document is written
 
-One file per epic, `epic-<number>-<short-name>.md`, with these parts:
+An epic starts as one file, `epic-<number>-<short-name>.md`, with these parts:
 
 1. **Goal** — the result and who it is for.
 2. **Scope** — what is included and what is deliberately left out.
@@ -38,6 +38,12 @@ One file per epic, `epic-<number>-<short-name>.md`, with these parts:
 6. **Sprints** — the order of work, without dates. An epic that is ready to be carried out
    has one brief per sprint, as the [development process](process.md#the-plan) describes,
    and the status of each sprint. Before that, an outline of stages is enough.
+
+An epic whose sprints have briefs is a folder, so that an agent reads the index and the
+brief of its sprint instead of the whole epic. Epic 1 is the folder
+[`epic-1/`](epic-1/README.md): an index with the goal, the scope, the rules of its sprints
+and the status of each, one file for each other part, and one file per sprint under
+`sprints/`. Epics 2 and 3 stay single files until they have sprints with briefs.
 
 A requirement level is one of:
 
