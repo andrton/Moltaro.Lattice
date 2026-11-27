@@ -8,7 +8,7 @@ using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Capacity;
 
 public sealed class RootSlotBudgetTests
 {

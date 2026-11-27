@@ -7,7 +7,7 @@ using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Refusals;
 
 // When a write is refused for memory (brief of Epic 1, sprint S09, "When a write is refused for memory:
 // the rule after review round 1", and "Cancellation before dispatch"): a write is refused only when it

@@ -4,7 +4,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Refusals;
 
 // A write is refused for memory only when it does not fit beside the stored data: never because of
 // memory that other writes hold for a time, and never because of memory that is retired and not

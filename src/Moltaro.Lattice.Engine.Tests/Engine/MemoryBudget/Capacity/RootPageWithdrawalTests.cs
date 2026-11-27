@@ -10,7 +10,7 @@ using Moltaro.Lattice.TestSupport.Concurrency;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Capacity;
 
 public sealed class RootPageWithdrawalTests
 {

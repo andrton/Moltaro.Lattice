@@ -4,7 +4,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using static Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.InstanceBudget;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Capacity;
 
 // Q14 and the milestone contract charge the real allocation once, including every
 // native slot and the unusable region tail.

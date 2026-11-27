@@ -1,4 +1,4 @@
-using Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+using Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Capacity;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;

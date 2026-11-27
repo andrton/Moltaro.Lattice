@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Capacity;
 
 // The memory budget in force, fixed when the instance opens and shown by EngineCounters.MemoryLimit
 // (brief of Epic 1, sprint S09, Acceptance, the owner's decision O17 and the answers of the planner on
