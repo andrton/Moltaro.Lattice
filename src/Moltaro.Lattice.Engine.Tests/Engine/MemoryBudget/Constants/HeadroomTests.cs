@@ -17,9 +17,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Constants;
 // headroom each one adds have to cover what it retains. What reads may keep of the text table
 // (Headroom.ReplacedTextBytes) is no part of what an open instance retains, so it is left out of the
 // comparison. On a schema without a text table it is zero, and the measured parts alone are stated:
-// one entity type, for the fixed parts of an instance, a listener and a child, and many entity types,
-// for the parts of each type and each index. A schema with texts keeps the fixed objects of the text
-// table covered.
+// one entity type, for the fixed parts of an instance, a listener and a child; many entity types, for
+// the part of each type with its primary index; and one type with many secondary indexes, for the part
+// of each index. A schema with texts keeps the fixed objects of the text table covered.
 //
 // The heap of the process changes beside the instance, and the measurement leaves those changes out.
 // A thread that allocates takes an allocation context of 8 KiB, which GC.GetTotalMemory counts as in
@@ -35,22 +35,27 @@ public sealed class HeadroomTests
 
     private const int MeasuredOpens = 5;
 
-    // Schemas without a text table: one entity type, and as many entity types as a child of the parts of
-    // each type shows above the fixed parts. Each type has its key and one Int64 field, and no index.
+    // Schemas without a text table: one entity type, as many entity types as a child of the parts of each
+    // type shows above the fixed parts, each with its key and one Int64 field and no index, and one entity
+    // type with as many Int64 fields, each in a secondary index of its own.
     private static readonly LatticeSchema OneType = Types(1);
 
     private static readonly LatticeSchema ManyTypes = Types(32);
+
+    private static readonly LatticeSchema ManyIndexes = Indexes(32);
 
     [Fact]
     public async Task Where_the_schema_has_no_text_table_the_headroom_covers_what_a_master_a_listener_and_a_child_retain()
     {
         Assert.Equal(0, Headroom.ReplacedTextBytes(OneType));
         Assert.Equal(0, Headroom.ReplacedTextBytes(ManyTypes));
+        Assert.Equal(0, Headroom.ReplacedTextBytes(ManyIndexes));
 
         await ExpectMasterCoveredAsync(OneType, listen: false);
         await ExpectMasterCoveredAsync(OneType, listen: true);
         await ExpectChildCoveredAsync(OneType);
         await ExpectChildCoveredAsync(ManyTypes);
+        await ExpectChildCoveredAsync(ManyIndexes);
     }
 
     [Fact]
@@ -128,8 +133,18 @@ public sealed class HeadroomTests
     {
         var covered = headroom - Headroom.ReplacedTextBytes(schema);
         TestContext.Current.TestOutputHelper?.WriteLine(
-            $"A {node} ({schema.EntityTypes.Count} entity types) retains {beside} bytes beside its arrays; its headroom without the text term is {covered}.");
+            $"A {node} ({schema.EntityTypes.Count} entity types, {schema.EntityTypes.Sum(type => type.Indexes.Count)} secondary indexes) retains {beside} bytes beside its arrays; its headroom without the text term is {covered}.");
         Assert.True(beside <= covered, $"A {node} retains {beside} bytes beside its arrays; its headroom without the text term is {covered}.");
+    }
+
+    // A schema of one entity type with its key and the given number of Int64 fields, each in a secondary
+    // index of its own.
+    private static LatticeSchema Indexes(int count)
+    {
+        var fields = Enumerable.Range(2, count).Select(field => $"{{ \"Id\": {field}, \"Name\": \"Value{field}\", \"Type\": \"Int64\" }}");
+        var indexes = Enumerable.Range(2, count).Select(field => $"{{ \"Id\": {field - 1}, \"Name\": \"ByValue{field}\", \"Fields\": [{field}] }}");
+        return LatticeSchema.Compile($"{{ \"EntityTypes\": [ {{ \"Id\": 1, \"Name\": \"Indexed\", \"Fields\": [ {{ \"Id\": 1, \"Name\": \"Id\", \"Type\": \"Int64\" }}, " +
+            $"{string.Join(", ", fields)} ], \"PrimaryKey\": [1], \"Indexes\": [ {string.Join(", ", indexes)} ] }} ] }}");
     }
 
     // A schema of the given number of entity types, each with its key and one Int64 field.

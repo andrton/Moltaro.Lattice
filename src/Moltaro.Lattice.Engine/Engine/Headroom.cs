@@ -19,35 +19,37 @@ namespace Moltaro.Lattice.Engine;
 // the array of the slots of the protection of reads, which is computed for the host: each figure is the
 // median of five opens, each measured from a heap that kept still, two readings in a row equal, to a
 // heap that kept still with the instance open, after an instance of the same form was opened and
-// closed. The schemas had 1 or 32 entity types with 0 or 32 secondary indexes, and the reference
-// fixture. A child is measured with what its connection makes on the master and without the master's
+// closed. The schemas are those of the headroom tests: one entity type, 32 entity types, one entity type
+// with 32 secondary indexes, and IndexSchema of the tests, four entity types with five secondary indexes
+// and texts. A child is measured with what its connection makes on the master and without the master's
 // delivery block, which is outside admission. The parts of a type and of an index follow the child,
-// which retains more for each than a master does. Each constant is at most a quarter above the most
-// that was measured, the margin for a host that was not measured.
+// which retains more for each than a master does. Each figure is the most found in any of those cases,
+// the parts measured before it at their constants, and each constant is 10 to 25 % above its figure, the
+// margin for a host that was not measured.
 internal static class Headroom
 {
-    // The fixed part of every instance beside the slots of the protection of reads. Beside the parts
-    // of its types and indexes a master retains at most 5,992 bytes (one entity type, no secondary
-    // index); 7 KiB is 20 % above.
+    // The fixed part of every instance beside the slots of the protection of reads. Beside its type and
+    // its primary index at EntityTypeBytes and IndexBytes, a master of one entity type retains at most
+    // 5,888 bytes; 7 KiB is 22 % above.
     public const long InstanceBytes = 7_168;
 
-    // The part of each entity type. With the IndexBytes of its primary index, each entity type adds
-    // 2,197 bytes to a child (1,268 to a master) between 1 and 32 entity types; with IndexBytes, 2,432
-    // is 11 % above.
-    public const long EntityTypeBytes = 1_152;
+    // The part of each entity type. A child of 32 entity types retains 2,209 bytes more for each type with
+    // its primary index than a child of one; less the IndexBytes of the primary index, 865 bytes; 1,024 is
+    // 18 % above.
+    public const long EntityTypeBytes = 1_024;
 
-    // The part of each index: the primary index of each entity type and each secondary index. Each
-    // secondary index adds 992 to 1,120 bytes to a child (576 to 634 to a master), the more when it has
-    // a field of its own; 1,280 is 14 % above the most.
-    public const long IndexBytes = 1_280;
+    // The part of each index: the primary index of each entity type and each secondary index. A child of
+    // one entity type with 32 secondary indexes, each on a field of its own, retains 1,170 bytes more for
+    // each index than one without; 1,344 is 15 % above.
+    public const long IndexBytes = 1_344;
 
-    // The fixed part a child adds. Beside the parts above a child retains at most 15,240 bytes, with
-    // the reference fixture; 18 KiB is 21 % above.
-    public const long ChildBytes = 18_432;
+    // The fixed part a child adds. Beside the parts above at their constants a child retains at most 12,520
+    // bytes, with IndexSchema; 15 KiB is 23 % above.
+    public const long ChildBytes = 15_360;
 
-    // The fixed part a listener for children adds: 2,432 to 4,520 bytes measured, the most with 32
-    // entity types and 32 secondary indexes; 5,376 is 19 % above.
-    public const long ListenerBytes = 5_376;
+    // The fixed part a listener for children adds: a master that listens retains at most 3,072 bytes more
+    // than one that does not, with IndexSchema; 3,584 is 17 % above.
+    public const long ListenerBytes = 3_584;
 
     // The array of the slots of the protection of reads, with as many slots as ReadEpochs makes on the
     // host, which grow with its processors, so it is computed rather than measured: 16,408 bytes for 128
