@@ -36,8 +36,9 @@ public sealed class ChildReceiveBudgetTests
         var pieceBytes = ArrayBytes(typeof(byte), TransferBuffer.PieceSize);
 
         // The room left beside the waiting frame: the estimates of the short writes the case submits
-        // while it waits, the second write and, before a disconnect, the signal, a unit of one member each.
-        var shortRoom = 2 * UnitEstimate(1);
+        // while it waits, the second write and, before a disconnect, the signal, each with the length of its
+        // request and each at most the forwarding peak of a short write; below one piece.
+        var shortRoom = 2 * lowerBound;
         Assert.InRange(shortRoom, lowerBound + 32, pieceBytes - 1);
         ulong blocked = PositionSequence.Of(readiness.Position) + 1;
         await using var relay = FrameRelay.Start(master.ListenUri!);
@@ -389,7 +390,11 @@ public sealed class ChildReceiveBudgetTests
         {
             await hasReply.Task.WaitAsync(Bound);
             Assert.False(writing.IsCompleted);
-            var held = ExpectInFlight(control, allocator, UnitEstimate(1));
+
+            // The estimate of the write and the encoded length of its request, which the first frame of the
+            // request announces.
+            var request = relay.FromChild.First(frame => frame.Kind == FrameKindEnum.WriteRequest);
+            var held = ExpectInFlight(control, allocator, UnitEstimate(1) + (long)BinaryPrimitives.ReadUInt64LittleEndian(request.Payload));
             forwardingBytes = held.Peak - before.Charged;
         }
         finally

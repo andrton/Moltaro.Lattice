@@ -9,9 +9,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Child;
 
 // A batch committed on a child returns the charge of its builder at the reply of its master, before the
 // child applies the transaction of the batch: nothing of its input is needed any more. A child whose
-// limit holds the application of that transaction and half the charge of the builder, beside what it
-// holds at rest, applies its own batch. The figures are those of a second child of the same master,
-// which applies the same transaction of the master.
+// limit holds, beside what it holds at rest, the charge of the builder and half the sum of the encoded root
+// of its member and the application of that transaction applies its own batch:
+// - at its commit the request, the encoded root and a few bytes, fits beside the charge of the builder,
+//   since the application takes more than the encoded root;
+// - while that charge is held, the room for the application is half the application less the encoded root,
+//   below the application;
+// - once the reply returns the charge, the room is the charge and that half sum, at least the application.
+// The figures are those of a second child of the same master, which applies the same transaction of the
+// master.
 public sealed class ChildBatchChargeTests
 {
     private const long MasterLimit = 64L * Segment;
@@ -27,12 +33,14 @@ public sealed class ChildBatchChargeTests
         long rest;
         long apply;
         long builder;
+        long encoded;
         {
             await using var control = await OpenChildAsync(master, MasterLimit);
             await control.WaitForPositionAsync(ready.Position, Bound);
             control.DrainRetired();
             rest = control.InspectHeld().Charged;
             builder = BuilderEstimate + MemberEstimate(control, member);
+            encoded = MemberEstimate(control, member) - BatchInputCharge.PerMemberBytes;
             control.ResetBudgetPeak();
             var batch = master.CreateWriteBatch();
             batch.Insert(member);
@@ -43,7 +51,8 @@ public sealed class ChildBatchChargeTests
         }
 
         master.DrainRetired();
-        var limit = (rest + apply + builder / 2) / 8 * 8;
+        Assert.True(apply >= encoded, $"The application takes {apply} bytes, less than the encoded root of {encoded}.");
+        var limit = (rest + builder + ((encoded + apply) / 2)) / 8 * 8;
         var allocator = new CountingNativeAllocator();
         await using var child = await OpenChildAsync(master, limit, allocator);
         await child.WaitForPositionAsync(master.Position, Bound);

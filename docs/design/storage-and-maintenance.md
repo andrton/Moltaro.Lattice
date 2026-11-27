@@ -247,8 +247,9 @@ a test has an unlimited one.
   and the request it arrives as on the master. Every unit reserves one estimate by one
   rule: `BatchInputCharge.PerUnitBytes` (2,048 bytes) once, the base of the unit;
   `BatchInputCharge.PerMemberBytes` (1,280 bytes) for each member; and the lengths of what
-  the unit holds of its input — the encoded root of a member of a batch and the encoded
-  commands of a partial update. Both constants are measured on the reference fixture and
+  the unit holds of its input — the encoded root of a member of a batch, the encoded
+  commands of a partial update and, on a child, the encoded request of a write it forwards.
+  Both constants are measured on the reference fixture and
   stated beside them: the base is the most a unit of one member costs beyond its member
   across both nodes, a batch of one member a child forwards, at most 2,964 bytes measured
   less 1,280; the member is the most a member adds, a partial write, 1,149 bytes. When each
@@ -260,14 +261,19 @@ a test has an unlimited one.
     ends — on a child, at the reply of its master, before the child waits to apply the
     batch —, or when an abandoned batch is collected. A snapshot longer than one piece of a
     transfer (64 KiB) is held in pieces, which keep it off the large object heap and charge
-    nothing of their own: its encoded length is charged here;
+    nothing of their own: its encoded length is charged here. A batch committed on a child
+    also reserves the encoded length of its request once it is encoded and before it is
+    sent, since the request copies the roots of its members once more, and releases it at
+    the reply;
   - an ordinary write, at its first preparation inside the coordinator, until it ends;
   - a child transaction, when an attempt starts, counting its members by the number of
     effects its header states, until the attempt ends;
   - a forwarded request on the master, when its handling starts, before its roots are
     checked, until the write ends;
-  - a single write on a child, before its request is encoded, until the reply of its
-    master.
+  - a single write on a child, before its request is encoded, and the encoded length of
+    the request, which holds the root once more, once it is encoded and before it is sent;
+    both until the reply of its master. A request the budget cannot hold is dropped, nothing
+    is sent, and the write is refused with `WriteRejected` and `Memory`.
 
   Their values are charged where they land: in the root image, in the native blocks, and,
   for a transaction or a forwarded request, in the connection buffers that carry it.

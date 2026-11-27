@@ -18,7 +18,8 @@ The same engine runs embedded in an application or in a dedicated service. The b
 charges complete native segment grants with their empty reserve and the backing arrays
 of the engine's managed structures as they grow, covers small fixed bookkeeping by a
 headroom computed at open from the schema, the options and the read slots of the host, and
-charges batch input and writes in progress by fixed estimates. A replaced directory a read
+charges every write unit by an estimate: a base for the unit, a constant for each member
+and the lengths of what the unit holds of its input. A replaced directory a read
 may hold is released after the reads; a replaced leaf or a dropped branch of the text table
 is released at once, and the headroom holds one of each for every read slot (see
 [the memory budget](storage-and-maintenance.md#the-memory-budget)). The master accounts for

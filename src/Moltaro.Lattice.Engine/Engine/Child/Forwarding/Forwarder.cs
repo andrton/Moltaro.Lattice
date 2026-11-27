@@ -69,14 +69,16 @@ namespace Moltaro.Lattice.Engine.Child.Forwarding;
 // applies the transaction of the batch at its one position (Loading.ReceivedChanges), so once its clock has
 // that position every member is visible, and it acknowledges no part of it.
 //
-// Memory. A write of the child reserves its estimate in the budget of the child before its request is
-// encoded — BatchInputCharge.PerUnitBytes and BatchInputCharge.PerMemberBytes, and for a partial update the
-// encoded length of its commands — and releases it once its reply has come or its call has ended without
-// one; its request, its registration and its reply are working objects under that estimate
-// (docs/design/storage-and-maintenance.md, the memory budget). A write the budget cannot hold is
-// WriteRejected with Memory, and nothing is sent. A batch is charged by its builder and reserves nothing
-// here; the charge of the builder is returned at the same point, before the wait for the application of
-// the batch, since nothing of its input is needed any more.
+// Memory. A write of the child reserves its estimate in the budget of the child in two steps: before its
+// request is encoded, BatchInputCharge.PerUnitBytes and BatchInputCharge.PerMemberBytes, and for a partial
+// update the encoded length of its commands; once its request is encoded and before it is queued, the
+// encoded length of the request, which holds the root once more. A batch is charged by its builder and
+// reserves here the encoded length of its request alone, which copies the roots of its members once more.
+// Both are released once the reply has come or the call has ended without one, and the charge of the
+// builder at the same point, before the wait for the application of the batch, since nothing of its input
+// is needed any more (docs/design/storage-and-maintenance.md, the memory budget). A write the budget cannot
+// hold is WriteRejected with Memory: its request is dropped, and nothing is sent. The registration of a
+// call and its reply are working objects under the base of the unit.
 //
 // The wait for the application ends otherwise: at the timeout, or at once when the child lost its master
 // or faulted, in SynchronizationTimeout with the committed position, since the write is committed and must
@@ -146,8 +148,14 @@ internal sealed class Forwarder
         {
             sender = Begin(session, cancellationToken);
             estimate = Reserve(table, update);
-            call = new ForwardedCall(Request(table, kind, key, values, update, expectedRevision, session?.MinPosition),
-                table.EntityType, UpdateReplies.Of(update));
+            var request = Request(table, kind, key, values, update, expectedRevision, session?.MinPosition);
+            if (!_budget.TryReserve(request.BodyLength))
+            {
+                throw RootWriter.RefusalForMemory(table.Layout);
+            }
+
+            estimate += request.BodyLength;
+            call = new ForwardedCall(request, table.EntityType, UpdateReplies.Of(update));
         }
         catch (Exception exception)
         {
@@ -167,18 +175,27 @@ internal sealed class Forwarder
     {
         ChildSender sender;
         ForwardedCall call;
+        var estimate = 0L;
 
         try
         {
             sender = Begin(session, cancellationToken);
-            call = new ForwardedCall(BatchRequest(members, session?.MinPosition), EntityTypesOf(members), UpdateReplies.Of(members));
+            var request = BatchRequest(members, session?.MinPosition);
+            if (!_budget.TryReserve(request.BodyLength))
+            {
+                throw new BudgetRefusedException(LatticeLimitEnum.Memory).WriteRejected();
+            }
+
+            estimate = request.BodyLength;
+            call = new ForwardedCall(request, EntityTypesOf(members), UpdateReplies.Of(members));
         }
         catch (Exception exception)
         {
+            Release(estimate);
             return Refused(exception, cancellationToken);
         }
 
-        return ForwardAsync(sender, call, session, estimate: 0, charge, cancellationToken);
+        return ForwardAsync(sender, call, session, estimate, charge, cancellationToken);
     }
 
     // Reserves the estimate of a write of the child (see the class) and returns it; WriteRejected with
@@ -240,8 +257,8 @@ internal sealed class Forwarder
 
     // Steps 3 and 4 of a call (see the class): the queue of the sender, the reply, and the wait until this child
     // has applied the position of a write its master committed.
-    // The estimate of the write, and the charge of a batch, are released once its reply has come or its call
-    // has ended.
+    // The estimate of the write, the length of its request included, and the charge of a batch, are released
+    // once its reply has come or its call has ended.
     private async ValueTask<LatticeWriteResult> ForwardAsync(ChildSender sender, ForwardedCall call, LatticeSession? session, long estimate,
         BatchInputCharge? charge, CancellationToken cancellationToken)
     {
