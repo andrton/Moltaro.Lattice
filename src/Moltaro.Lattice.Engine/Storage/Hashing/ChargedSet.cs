@@ -150,7 +150,11 @@ internal sealed class ChargedSet<T>(IEqualityComparer<T> comparer, MemoryBudget 
         }
     }
 
-    private uint Hash(T value) => unchecked((uint)comparer.GetHashCode(value!) * 0x9E3779B9u);
+    // The comparer's hash as it is: a place is taken from its low bits, which the comparers spread
+    // (PublicationKeys combines the table and the hash of the key with HashCode.Combine; the slots of
+    // the root handles of the collection tails are dense). A multiplication by an odd constant would
+    // only permute those low bits, so it would not spread them more.
+    private uint Hash(T value) => unchecked((uint)comparer.GetHashCode(value!));
 
     private bool Find(T value, uint hash, out int place)
     {
