@@ -14,8 +14,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Boundaries;
 // root, or of the commands of an update, and PerMemberBytes; the first addition also PerBuilderBytes.
 // With room for an estimate of E bytes, an addition of E + 1 is refused with Memory and changes
 // nothing, one of E is admitted, and one of E - 1 leaves one byte; on a child the refusal sends no
-// request. The encoded lengths come from the encoders the batch uses, which this sprint does not
-// change, and grow by one byte for each further ASCII character.
+// request. The encoded lengths come from the encoders the batch uses, and grow by one byte for each
+// further ASCII character.
 public sealed class BatchAdditionBoundaryTests
 {
     private const long Limit = 16L * Segment;
