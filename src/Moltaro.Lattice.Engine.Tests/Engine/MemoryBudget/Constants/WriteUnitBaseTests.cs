@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
@@ -20,7 +21,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget.Constants;
 //   master with its child.
 // A write on a child returns once the child has applied it; on the master the test spins, allocating
 // nothing, until the child has. Each write is a whole replace of a User of the reference fixture that changes
-// it. The order of the runs turns with each window, and each figure is the median of Windows windows.
+// it. The order of the runs turns with each window, and each figure is the median of Windows windows. The
+// figures belong to the optimized build that ships, so the test runs only in one.
 [Collection<WholeProcessAllocationCollection>]
 public sealed class WriteUnitBaseTests
 {
@@ -37,7 +39,11 @@ public sealed class WriteUnitBaseTests
 
     private long _writes;
 
-    [Fact]
+    // Whether the engine is an optimized build, the build that ships and whose figures the constants state.
+    public static bool Optimized => typeof(EngineDatabase).Assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled != true;
+
+    [Fact(Skip = "The constants state figures of the optimized build that ships; a Debug build allocates more on its asynchronous paths.",
+        SkipUnless = nameof(Optimized))]
     public async Task A_child_transaction_a_forwarded_write_and_a_forwarded_batch_of_one_member_cost_at_most_the_base_of_a_unit_and_one_member()
     {
         var schema = LatticeSchema.Compile(ReferenceFixture.SchemaJson);

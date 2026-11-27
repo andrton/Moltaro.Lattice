@@ -69,7 +69,19 @@ public sealed class ChildReceiveBudgetTests
                     if (held is null)
                     {
                         var node = receiving!;
-                        var room = ChildLimit - ExpectInFlight(node, allocator, UnitEstimate(1)).Charged;
+
+                        // The first write of the child releases its estimate and the length of its request
+                        // with its reply, in the continuation of its caller, which may run after this frame
+                        // arrives: the write unit ends with its reply. The room is read once the child holds
+                        // nothing beyond its inventory and its headroom.
+                        if (!SpinWait.SpinUntil(() => HoldsNothingInFlight(node), Bound))
+                        {
+                            paused.TrySetException(new TimeoutException(
+                                "The child still held the estimate of its forwarded write when the frame of its transaction arrived."));
+                            return;
+                        }
+
+                        var room = ChildLimit - ExpectAtRest(node, allocator).Charged;
                         atFrame = ReceiveBackings(node);
                         // The held array is charged with its header, and its bytes are whole words.
                         held = node.HoldBudgetBacking(checked((int)((room - shortRoom - ArrayHeaderBytes) / 8 * 8)));
@@ -405,6 +417,13 @@ public sealed class ChildReceiveBudgetTests
         var reply = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
         Assert.Equal(LatticeErrorEnum.DuplicateKey, reply.Error);
         return forwardingBytes;
+    }
+
+    // The charge of the node is its inventory and its headroom: no estimate is in flight.
+    private static bool HoldsNothingInFlight(EngineDatabase node)
+    {
+        var held = node.InspectHeld();
+        return held.Charged == Inventory(held) + held.Headroom;
     }
 
     internal static (byte[] Receive, byte[][] Pieces, byte[] Prefix) ReceiveBackings(EngineDatabase child)
