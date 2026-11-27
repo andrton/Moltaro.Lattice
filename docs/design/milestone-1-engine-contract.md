@@ -506,8 +506,9 @@ with its sequence (UInt64), the length of its effects (UInt64) and the number of
 effects (UInt32), from which a child reserves the estimate of the transaction before it
 reads them. A transaction is checked by the check of its frames, its announced length, its
 sequence, which follows the one before (decided after the study of S11), and the number
-of its effects, which has to be the number the child reads; a transaction whose number
-disagrees is malformed. ACK means **applied to data and
+of its effects, which its length has to be able to carry, before anything is reserved for
+it, and which has to be the number the child reads; a transaction whose number fails
+either is malformed. ACK means **applied to data and
 indexes**, not merely received by the socket: a child sends `Applied` with a sequence for
 each burst it received once it has applied all of it, and never a sequence before R. A
 child sends no success ACK for a partial WriteBatch.
