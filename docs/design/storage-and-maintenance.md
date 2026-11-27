@@ -253,7 +253,8 @@ a test has an unlimited one.
   its encoded length is charged here.
 - *A write in progress*: an ordinary write, a child transaction, a write a child forwards
   and the request it arrives as on the master reserve one estimate when they start —
-  `PerMemberBytes` for each member, and the encoded commands of a partial update — and
+  `PerMemberBytes` for each member, a child transaction counting them by the number of
+  effects its header states, and the encoded commands of a partial update — and
   release it when they end; the child's write ends with the reply of its master. Their
   values are charged where they land: in the root image, in the native blocks, and, for a
   transaction or a forwarded request, in the connection buffers that carry it.
