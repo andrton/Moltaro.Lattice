@@ -113,8 +113,11 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 //
 // The estimate of a transaction. A transaction is a write unit: each attempt reserves PerMemberBytes for
 // each effect before it prepares the first, and releases it once the attempt ends, published or given
-// back (docs/design/storage-and-maintenance.md, the memory budget). An estimate the budget cannot hold
-// refuses the attempt as the arena does, so a Ready child pauses at the transaction with the same wait.
+// back (docs/design/storage-and-maintenance.md, the memory budget). The number of the effects is the one
+// the header of the transaction states (Replication.Transactions.TransactionFormat), so nothing is read
+// twice; the attempt checks it against the effects it reads, and a transaction whose number disagrees is
+// malformed. An estimate the budget cannot hold refuses the attempt as the arena does, so a Ready child
+// pauses at the transaction with the same wait.
 internal sealed class ReceivedChanges
 {
     private readonly Arena _arena;
@@ -334,25 +337,24 @@ internal sealed class ReceivedChanges
     }
 
     // Applies one transaction whole, by the rule of a write refused for memory (see the class).
-    public void Apply(ulong sequence, ReadOnlySequence<byte> effects, CancellationToken cancellationToken) =>
-        Apply(sequence, effects, ready: false, retry: false, cancellationToken);
+    public void Apply(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, CancellationToken cancellationToken) =>
+        Apply(sequence, effects, effectCount, ready: false, retry: false, cancellationToken);
 
     // Applies one transaction: before Ready by the rule of a write refused for memory, Unavailable when it
     // cannot be held; once Ready by one attempt, which returns the limit that refused it, null when it was
     // applied (see the class). A retry frees what is retired and gives back the reserves before it.
-    public LatticeLimitEnum? Apply(ulong sequence, ReadOnlySequence<byte> effects, bool ready, bool retry, CancellationToken cancellationToken)
+    public LatticeLimitEnum? Apply(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool ready, bool retry, CancellationToken cancellationToken)
     {
         _barrier.Enter();
 
         try
         {
-            var estimate = EffectsOf(sequence, effects) * BatchInputCharge.PerMemberBytes;
             if (ready)
             {
-                return ApplyOnce(sequence, effects, estimate, retry);
+                return ApplyOnce(sequence, effects, effectCount, retry);
             }
 
-            if (ApplyAttempt(sequence, effects, estimate, topsUp: true) is null)
+            if (ApplyAttempt(sequence, effects, effectCount, topsUp: true) is null)
             {
                 return null;
             }
@@ -364,7 +366,7 @@ internal sealed class ReceivedChanges
                 _retired.Drain();
             }
 
-            if (ApplyAttempt(sequence, effects, estimate, topsUp: true) is null)
+            if (ApplyAttempt(sequence, effects, effectCount, topsUp: true) is null)
             {
                 return null;
             }
@@ -386,7 +388,7 @@ internal sealed class ReceivedChanges
                 _publisher.GiveBackReserves();
             }
 
-            if (ApplyAttempt(sequence, effects, estimate, topsUp: false) is null)
+            if (ApplyAttempt(sequence, effects, effectCount, topsUp: false) is null)
             {
                 return null;
             }
@@ -412,7 +414,7 @@ internal sealed class ReceivedChanges
     // One attempt of a Ready child (see the class): a retry first frees what is retired and gives back the
     // reserves, and tops nothing up. A refusal while reads hold retired memory runs the wait switch of the
     // tests, since the follower now waits for memory to be freed.
-    private LatticeLimitEnum? ApplyOnce(ulong sequence, ReadOnlySequence<byte> effects, long estimate, bool retry)
+    private LatticeLimitEnum? ApplyOnce(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool retry)
     {
         if (retry)
         {
@@ -423,7 +425,7 @@ internal sealed class ReceivedChanges
             }
         }
 
-        var pressure = ApplyAttempt(sequence, effects, estimate, topsUp: !retry);
+        var pressure = ApplyAttempt(sequence, effects, effectCount, topsUp: !retry);
         if (pressure is not null)
         {
             long epoch;
@@ -442,8 +444,9 @@ internal sealed class ReceivedChanges
     }
 
     // One attempt with its estimate (see the class).
-    private LatticeLimitEnum? ApplyAttempt(ulong sequence, ReadOnlySequence<byte> effects, long estimate, bool topsUp)
+    private LatticeLimitEnum? ApplyAttempt(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool topsUp)
     {
+        var estimate = effectCount * BatchInputCharge.PerMemberBytes;
         if (!_arena.Budget.TryReserve(estimate))
         {
             return LatticeLimitEnum.Memory;
@@ -451,7 +454,7 @@ internal sealed class ReceivedChanges
 
         try
         {
-            return TryApply(sequence, effects, topsUp) ? null : LatticeLimitEnum.Memory;
+            return TryApply(sequence, effects, effectCount, topsUp) ? null : LatticeLimitEnum.Memory;
         }
         catch (BudgetRefusedException exception) when (!_needsFault)
         {
@@ -461,26 +464,6 @@ internal sealed class ReceivedChanges
         {
             _arena.Budget.Release(estimate);
         }
-    }
-
-    // The effects of the transaction, counted from their envelopes before any of them is prepared: the
-    // members of its write unit. ValidationFailed as TryApply reports it for an effect that is not valid.
-    private int EffectsOf(ulong sequence, ReadOnlySequence<byte> effects)
-    {
-        var reader = new SequenceReader<byte>(effects);
-        var count = 0;
-        while (!reader.End)
-        {
-            if (TransactionFormat.ReadEffect(ref reader, sequence, out var typeId, out _, out _, out _) == EffectKindEnum.Delete)
-            {
-                // A Delete leaves its key to be read.
-                TableOf(typeId, sequence).Keys.ReadKey(ref reader);
-            }
-
-            count++;
-        }
-
-        return count;
     }
 
     // Under the lock of the writes, which it takes: places the root and publishes it, or skips it by the
@@ -522,7 +505,7 @@ internal sealed class ReceivedChanges
     // Under the lock of the writes: prepares every effect of the transaction and publishes them, or none of
     // them, and tops the standing reserves of the indexes up once all are prepared when topsUp is true (see
     // the class, "Memory"). False when the arena refused one, with nothing of the transaction left.
-    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects, bool topsUp)
+    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects, uint effectCount, bool topsUp)
     {
         lock (_writes)
         {
@@ -542,6 +525,12 @@ internal sealed class ReceivedChanges
 
                         return false;
                     }
+                }
+
+                // The number of the effects reserved for is the one the header states (see the class).
+                if (effect != effectCount)
+                {
+                    throw Protocol.Invalid($"The transaction {sequence} states {effectCount} effects and carries {effect}.");
                 }
 
                 if (divergence is not null)

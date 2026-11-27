@@ -501,9 +501,13 @@ body length UInt32, correlation ID UInt64, stream sequence UInt64 (32 bytes); bo
 an integrity checksum. Hello binds database identity/history, schema fingerprint,
 wire/layout compatibility and role. Reject unsupported formats before allocation.
 Data frames are <=64 KiB; a larger transaction is fragmented, its first frame announces
-its length, and a child applies it only once all of it has arrived. A transaction is
-checked by the check of its frames, its announced length and its sequence, which follows
-the one before (decided after the study of S11). ACK means **applied to data and
+its length, and a child applies it only once all of it has arrived. A transaction begins
+with its sequence (UInt64), the length of its effects (UInt64) and the number of its
+effects (UInt32), from which a child reserves the estimate of the transaction before it
+reads them. A transaction is checked by the check of its frames, its announced length, its
+sequence, which follows the one before (decided after the study of S11), and the number
+of its effects, which has to be the number the child reads; a transaction whose number
+disagrees is malformed. ACK means **applied to data and
 indexes**, not merely received by the socket: a child sends `Applied` with a sequence for
 each burst it received once it has applied all of it, and never a sequence before R. A
 child sends no success ACK for a partial WriteBatch.

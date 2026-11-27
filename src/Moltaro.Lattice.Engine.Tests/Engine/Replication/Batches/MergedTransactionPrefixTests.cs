@@ -162,17 +162,19 @@ public sealed class MergedTransactionPrefixTests
     {
         var sequence = TransactionPayload.SequenceOf(held[0]);
         var effects = new List<byte>();
+        var count = 0u;
 
         foreach (var frame in held)
         {
             var member = TransactionPayload.EffectsOf(frame);
+            count += TransactionPayload.CountOf(frame);
 
             Assert.Equal(TransactionPayload.Write, member[0]);
             BinaryPrimitives.WriteUInt64LittleEndian(member.AsSpan(TransactionPayload.WriteLastMutationAt), sequence);
             effects.AddRange(member);
         }
 
-        return held[0].WithPayload(TransactionPayload.Make(sequence, [.. effects]));
+        return held[0].WithPayload(TransactionPayload.Make(sequence, count, [.. effects]));
     }
 
     private static LatticeSchema Schema { get; } = LatticeSchema.Compile("""

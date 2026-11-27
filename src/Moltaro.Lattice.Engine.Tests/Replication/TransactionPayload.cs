@@ -12,7 +12,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // - FrameKindEnum.Transaction = 7 carries a committed transaction; FrameKindEnum.Applied = 9 the
 //   acknowledgment of a child; 8 is not used.
 // - A transaction begins a frame of its own. The payload of its first frame is its sequence (UInt64),
-//   the length it announces for its effects (UInt64), and then the first bytes of its effects; each
+//   the length it announces for its effects (UInt64), the number of its effects (UInt32), and then the
+//   first bytes of its effects; each
 //   further frame of it holds only the next bytes of its effects. The announced length counts the
 //   effects alone, over all the frames of the transaction. Whatever flags the frames carry, a test that
 //   changes a frame keeps them.
@@ -37,8 +38,9 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 //   EngineCounters.ActiveCaptures (int) and PendingDeliveryBytes (long).
 internal static class TransactionPayload
 {
-    // The sequence and the announced length at the start of the first frame of a transaction.
-    public const int HeaderSize = 2 * sizeof(ulong);
+    // The sequence, the announced length and the number of effects at the start of the first frame of a
+    // transaction.
+    public const int HeaderSize = (2 * sizeof(ulong)) + sizeof(uint);
 
     public const byte Write = 1;
 
@@ -59,6 +61,9 @@ internal static class TransactionPayload
 
     public static ulong AnnouncedLengthOf(WireFrame frame) => BinaryPrimitives.ReadUInt64LittleEndian(frame.Payload.AsSpan(sizeof(ulong)));
 
+    // The number of effects the first frame of a transaction states.
+    public static uint CountOf(WireFrame frame) => BinaryPrimitives.ReadUInt32LittleEndian(frame.Payload.AsSpan(2 * sizeof(ulong)));
+
     // The effects in the first frame of a transaction: of the whole transaction, when it has one frame.
     public static byte[] EffectsOf(WireFrame frame) => frame.Payload[HeaderSize..];
 
@@ -71,16 +76,17 @@ internal static class TransactionPayload
     }
 
     // The payload of the first frame of a transaction of one frame: its sequence, the length of the
-    // effects given, and the effects.
-    public static byte[] Make(ulong sequence, ReadOnlySpan<byte> effects) => Make(sequence, (ulong)effects.Length, effects);
+    // effects given, their number, and the effects.
+    public static byte[] Make(ulong sequence, uint count, ReadOnlySpan<byte> effects) => Make(sequence, count, (ulong)effects.Length, effects);
 
     // The same with an announced length of the test's own.
-    public static byte[] Make(ulong sequence, ulong announcedLength, ReadOnlySpan<byte> effects)
+    public static byte[] Make(ulong sequence, uint count, ulong announcedLength, ReadOnlySpan<byte> effects)
     {
         var payload = new byte[HeaderSize + effects.Length];
 
         BinaryPrimitives.WriteUInt64LittleEndian(payload, sequence);
         BinaryPrimitives.WriteUInt64LittleEndian(payload.AsSpan(sizeof(ulong)), announcedLength);
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(2 * sizeof(ulong)), count);
         effects.CopyTo(payload.AsSpan(HeaderSize));
 
         return payload;

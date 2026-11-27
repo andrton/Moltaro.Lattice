@@ -202,17 +202,17 @@ public sealed class PartialCatchUpTests
 
         var attemptedSequence = clock.Sequence + 1;
         byte[] rejected = [.. (clearing ? delete : sparse), byte.MaxValue];
-        var refused = Assert.Throws<LatticeException>(() => received.Apply(attemptedSequence, new ReadOnlySequence<byte>(rejected), CancellationToken.None));
+        var refused = Assert.Throws<LatticeException>(() => received.Apply(attemptedSequence, new ReadOnlySequence<byte>(rejected), 2, CancellationToken.None));
         Assert.Equal(LatticeErrorEnum.ValidationFailed, refused.Error);
         Assert.Equal(attemptedSequence - 1, clock.Sequence);
         Assert.Equal(0, roots.Count);
 
-        received.Apply(attemptedSequence, new ReadOnlySequence<byte>(new byte[] { TransactionPayload.Unchanged }), CancellationToken.None);
+        received.Apply(attemptedSequence, new ReadOnlySequence<byte>(new byte[] { TransactionPayload.Unchanged }), 1, CancellationToken.None);
         Assert.Equal(attemptedSequence, clock.Sequence);
         if (clearing)
         {
             Assert.Throws<LatticeException>(received.ValidateUniqueIndexes);
-            received.Apply(attemptedSequence + 1, new ReadOnlySequence<byte>(delete), CancellationToken.None);
+            received.Apply(attemptedSequence + 1, new ReadOnlySequence<byte>(delete), 1, CancellationToken.None);
         }
 
         received.ValidateUniqueIndexes();
@@ -244,7 +244,7 @@ public sealed class PartialCatchUpTests
             var effects = new ReadOnlySequence<byte>(SparseUpdatePayload.WithStringKey(sparse, key));
             try
             {
-                received.Apply(sequence, effects, CancellationToken.None);
+                received.Apply(sequence, effects, 1, CancellationToken.None);
             }
             catch (LatticeException error)
             {
@@ -293,7 +293,7 @@ public sealed class PartialCatchUpTests
             return effects.WrittenSpan.ToArray();
         }
 
-        received.Apply(2, new ReadOnlySequence<byte>(Effects(0, OldCount)), CancellationToken.None);
+        received.Apply(2, new ReadOnlySequence<byte>(Effects(0, OldCount)), OldCount, CancellationToken.None);
         var typeId = (uint)Assert.Single(UpdateSchema.Schema.EntityTypes).Id;
         var deletes = new ArrayBufferWriter<byte>();
         foreach (var key in keys.Take(OldCount))
@@ -308,12 +308,12 @@ public sealed class PartialCatchUpTests
 
         byte[] tooMuch = [.. deletes.WrittenSpan, .. Effects(OldCount, NewCount)];
         Assert.True(tooMuch.Length < arenaOptions.SegmentSize);
-        var refusal = Assert.Throws<LatticeException>(() => received.Apply(3, new ReadOnlySequence<byte>(tooMuch), CancellationToken.None));
+        var refusal = Assert.Throws<LatticeException>(() => received.Apply(3, new ReadOnlySequence<byte>(tooMuch), OldCount + NewCount, CancellationToken.None));
         Assert.Equal(LatticeErrorEnum.Unavailable, refusal.Error);
         Assert.Equal(2UL, clock.Sequence);
         Assert.Equal(0, roots.Count);
 
-        received.Apply(3, new ReadOnlySequence<byte>(deletes.WrittenMemory), CancellationToken.None);
+        received.Apply(3, new ReadOnlySequence<byte>(deletes.WrittenMemory), OldCount, CancellationToken.None);
         received.ValidateUniqueIndexes();
         Assert.Equal(3UL, clock.Sequence);
         Assert.Equal(0, roots.Count);
@@ -323,7 +323,7 @@ public sealed class PartialCatchUpTests
     private static WeakReference ApplyMissingAndDrop(ReceivedChanges received, ulong sequence, byte[] sparse)
     {
         var frame = sparse.ToArray();
-        received.Apply(sequence, new ReadOnlySequence<byte>(frame), CancellationToken.None);
+        received.Apply(sequence, new ReadOnlySequence<byte>(frame), 1, CancellationToken.None);
         return new WeakReference(frame);
     }
 
@@ -359,5 +359,5 @@ public sealed class PartialCatchUpTests
 
     private static WireFrame TailFrame(WireFrame end, ulong sequence, ulong added, byte[] effects) =>
         WireFrame.Make(FrameKindEnum.Transaction, Protocol.EndsABody, correlationId: 0, end.StreamSequence + added,
-            TransactionPayload.Make(sequence, effects));
+            TransactionPayload.Make(sequence, count: 1, effects));
 }

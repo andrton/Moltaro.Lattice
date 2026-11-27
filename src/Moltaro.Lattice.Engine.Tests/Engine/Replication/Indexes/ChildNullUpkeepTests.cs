@@ -35,7 +35,7 @@ public sealed class ChildNullUpkeepTests
 
             Interlocked.Increment(ref damaged);
 
-            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), WithBytesUnderTheNull(TransactionPayload.EffectsOf(frame))))];
+            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), TransactionPayload.CountOf(frame), WithBytesUnderTheNull(TransactionPayload.EffectsOf(frame))))];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(relay.Address), new EngineTestInputs());
         var optional = master.Set("Optional");

@@ -261,10 +261,12 @@ public sealed class ChildBatchTests
     {
         var sequence = TransactionPayload.SequenceOf(held[0]);
         var effects = new List<byte>();
+        var count = 0u;
 
         foreach (var place in kept)
         {
             var member = TransactionPayload.EffectsOf(held[place]);
+            count += TransactionPayload.CountOf(held[place]);
 
             if (member[0] == TransactionPayload.Write)
             {
@@ -274,7 +276,7 @@ public sealed class ChildBatchTests
             effects.AddRange(member);
         }
 
-        return held[0].WithPayload(TransactionPayload.Make(sequence, [.. effects]));
+        return held[0].WithPayload(TransactionPayload.Make(sequence, count, [.. effects]));
     }
 
     private static void ExpectNothingApplied(EngineDatabase child, LatticePosition readiness, long[] absent)

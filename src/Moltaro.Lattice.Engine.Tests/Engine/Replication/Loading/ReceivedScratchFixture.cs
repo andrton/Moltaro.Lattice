@@ -86,14 +86,14 @@ internal sealed class ReceivedScratchFixture
             WriteEffect(effects, sequence, (uint)key, Encode(key, data));
         }
 
-        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), CancellationToken.None);
+        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), (uint)members, CancellationToken.None);
     }
 
     public void ApplyOne(ulong sequence, long key)
     {
         var effects = new ArrayBufferWriter<byte>();
         WriteEffect(effects, sequence, member: 1, Encode(key));
-        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), CancellationToken.None);
+        _received.Apply(sequence, new ReadOnlySequence<byte>(effects.WrittenMemory), 1, CancellationToken.None);
     }
 
     public void ExpectState(ulong sequence, int members, int? followUp = null)

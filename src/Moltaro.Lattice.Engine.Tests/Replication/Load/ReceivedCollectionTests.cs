@@ -252,7 +252,7 @@ public sealed class ReceivedCollectionTests
         WriteEffect(effects, Encode(layout, 1, [3, 4]), member: 0);
         WriteEffect(effects, stale, member: 1);
 
-        var error = Assert.Throws<LatticeException>(() => received.Apply(2, new ReadOnlySequence<byte>(effects.WrittenMemory), CancellationToken.None));
+        var error = Assert.Throws<LatticeException>(() => received.Apply(2, new ReadOnlySequence<byte>(effects.WrittenMemory), 2, CancellationToken.None));
 
         Assert.Equal(LatticeErrorEnum.ValidationFailed, error.Error);
         Assert.Contains("Bytes", error.Message, StringComparison.Ordinal);

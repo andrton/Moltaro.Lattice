@@ -58,6 +58,7 @@ public sealed class WholeTransactionTests
 
         BinaryPrimitives.WriteUInt64LittleEndian(member.AsSpan(TransactionPayload.WriteLastMutationAt), sequence);
 
-        return first.WithPayload(TransactionPayload.Make(sequence, [.. TransactionPayload.EffectsOf(first), .. member]));
+        var count = TransactionPayload.CountOf(first) + TransactionPayload.CountOf(second);
+        return first.WithPayload(TransactionPayload.Make(sequence, count, [.. TransactionPayload.EffectsOf(first), .. member]));
     }
 }

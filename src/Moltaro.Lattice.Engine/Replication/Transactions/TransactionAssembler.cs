@@ -6,8 +6,8 @@ using Moltaro.Lattice.Storage.Budgeting;
 namespace Moltaro.Lattice.Replication.Transactions;
 
 // Puts the transactions a child receives together from their Transaction frames (TransactionFormat), one
-// at a time, and hands out each whole: its sequence and its effects. Whether the effects are valid is the
-// applier's (Engine.Child.Following).
+// at a time, and hands out each whole: its sequence, the number of effects its header states and its
+// effects. Whether the effects are valid, and as many as stated, is the applier's (Engine.Child.Following).
 //
 // What it checks of a frame, before any of it is used: while no transaction is in progress, the frame
 // begins one, with the sequence that comes next, the length of its effects, at least one byte, and no more
@@ -28,19 +28,22 @@ internal sealed class TransactionAssembler(long largest, MemoryBudget budget) : 
 {
     private readonly TransferBuffer _large = new(budget);
 
-    // The transaction in progress: its sequence, and its effects, whose bytes are still to arrive.
+    // The transaction in progress: its sequence, the number of its effects, and its effects, whose bytes are
+    // still to arrive.
     private ulong _sequence;
+
+    private uint _effectCount;
 
     private AnnouncedBody _effects;
 
     // Whether a transaction is in progress: the next frame continues it, rather than beginning one.
     public bool InProgress => _effects.InProgress;
 
-    // Reads one Transaction frame (see the class): true with the sequence and the effects of the
-    // transaction it completes; false while the transaction needs more frames. The tests of the engine
+    // Reads one Transaction frame (see the class): true with the sequence, the number of effects and the
+    // effects of the transaction it completes; false while the transaction needs more frames. The tests of the engine
     // observe each attempt at a frame before anything of it is taken (beforeAttempt), with the frames of the
     // transaction received before it; expected is the sequence that comes next.
-    public bool Accept(in ReceivedFrame frame, out ulong sequence, out ReadOnlySequence<byte> effects,
+    public bool Accept(in ReceivedFrame frame, out ulong sequence, out uint effectCount, out ReadOnlySequence<byte> effects,
         Action<ulong, int>? beforeAttempt = null, int receivedFrames = 0, ulong? expected = null)
     {
         var payload = frame.Payload;
@@ -48,6 +51,7 @@ internal sealed class TransactionAssembler(long largest, MemoryBudget budget) : 
         if (progress.InProgress)
         {
             sequence = _sequence;
+            effectCount = _effectCount;
             var finished = progress.Continue(frame, payload.Length, "transaction", sequence);
             beforeAttempt?.Invoke(sequence, receivedFrames);
             _large.PrepareAppend(payload.Length);
@@ -69,6 +73,7 @@ internal sealed class TransactionAssembler(long largest, MemoryBudget budget) : 
         }
 
         var announced = BinaryPrimitives.ReadUInt64LittleEndian(payload.Span[sizeof(ulong)..]);
+        effectCount = TransactionFormat.ReadEffectCount(payload.Span);
         var bytes = payload[TransactionFormat.HeaderSize..];
         if (announced == 0)
         {
@@ -92,6 +97,7 @@ internal sealed class TransactionAssembler(long largest, MemoryBudget budget) : 
         _large.Clear();
         _large.Write(bytes.Span);
         _sequence = sequence;
+        _effectCount = effectCount;
         _effects = progress;
         effects = default;
         return false;

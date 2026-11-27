@@ -278,6 +278,7 @@ internal sealed class Follower
     private async Task<bool> ApplyNextAsync(TimeSpan? timeout, bool acknowledges, CancellationToken cancellationToken)
     {
         ulong sequence = 0;
+        uint effectCount = 0;
         ReadOnlySequence<byte> effects = default;
         var received = 0;
 
@@ -323,7 +324,7 @@ internal sealed class Follower
             LatticeLimitEnum? refused;
             try
             {
-                complete = _assembler.Accept(frame, out sequence, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
+                complete = _assembler.Accept(frame, out sequence, out effectCount, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
                 refused = null;
             }
             catch (BudgetRefusedException exception) when (acknowledges)
@@ -341,7 +342,7 @@ internal sealed class Follower
                 {
                     try
                     {
-                        complete = _assembler.Accept(frame, out sequence, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
+                        complete = _assembler.Accept(frame, out sequence, out effectCount, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
                         refused = null;
                     }
                     catch (BudgetRefusedException exception)
@@ -358,7 +359,7 @@ internal sealed class Follower
                         await WaitForFreeAsync(ticket, ref framePause, cancellationToken).ConfigureAwait(false);
                         try
                         {
-                            complete = _assembler.Accept(frame, out sequence, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
+                            complete = _assembler.Accept(frame, out sequence, out effectCount, out effects, _testInputs?.BeforeChildTransactionFrame, received, _applied + 1);
                             refused = null;
                         }
                         catch (BudgetRefusedException exception)
@@ -387,7 +388,7 @@ internal sealed class Follower
 
         // The effects stay where they were received: no frame is received while the suspension lasts.
         await WhileSuspendedAsync(cancellationToken).ConfigureAwait(false);
-        var pressure = _changes.Apply(sequence, effects, ready: acknowledges, retry: false, cancellationToken);
+        var pressure = _changes.Apply(sequence, effects, effectCount, ready: acknowledges, retry: false, cancellationToken);
 
         // Once Ready, a transaction the child cannot hold waits for memory (see the class). The pressure is
         // observed after the refused attempt gave back what it prepared, before the follower marks itself.
@@ -400,7 +401,7 @@ internal sealed class Follower
             {
                 try
                 {
-                    pressure = _changes.Apply(sequence, effects, ready: true, retry: true, cancellationToken);
+                    pressure = _changes.Apply(sequence, effects, effectCount, ready: true, retry: true, cancellationToken);
                 }
                 finally
                 {
@@ -410,7 +411,7 @@ internal sealed class Follower
                 if (pressure is not null)
                 {
                     await WaitForFreeAsync(ticket, ref pause, cancellationToken).ConfigureAwait(false);
-                    pressure = _changes.Apply(sequence, effects, ready: true, retry: true, cancellationToken);
+                    pressure = _changes.Apply(sequence, effects, effectCount, ready: true, retry: true, cancellationToken);
                 }
             }
             finally

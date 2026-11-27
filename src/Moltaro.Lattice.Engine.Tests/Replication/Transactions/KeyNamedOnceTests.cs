@@ -51,7 +51,7 @@ public sealed class KeyNamedOnceTests
 
             Assert.Equal(TransactionPayload.Write, effects[0]);
 
-            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), [.. DeleteOf("second"), .. effects]))];
+            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), TransactionPayload.CountOf(frame) + 1, [.. DeleteOf("second"), .. effects]))];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
         var readiness = child.Position;
@@ -107,7 +107,7 @@ public sealed class KeyNamedOnceTests
                 effects.AddRange(effect);
             }
 
-            return [held[0].WithPayload(TransactionPayload.Make(sequence, [.. effects]))];
+            return [held[0].WithPayload(TransactionPayload.Make(sequence, (uint)held.Count, [.. effects]))];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
         var readiness = child.Position;
@@ -151,7 +151,7 @@ public sealed class KeyNamedOnceTests
                     var end = LoadEndPayload.Of(frame);
                     var written = WriteOf(root!);
                     var effects = then == "a Write of it" ? [.. written, .. written] : written.Concat(DeleteOf("code")).ToArray();
-                    var transaction = WireFrame.Make(FrameKindEnum.Transaction, Protocol.EndsABody, correlationId: 0, passed.StreamSequence + 1, TransactionPayload.Make(end.End, effects));
+                    var transaction = WireFrame.Make(FrameKindEnum.Transaction, Protocol.EndsABody, correlationId: 0, passed.StreamSequence + 1, TransactionPayload.Make(end.End, count: 2, effects));
 
                     added = 1;
 

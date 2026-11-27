@@ -308,10 +308,12 @@ public sealed class ChildPublicationTests
         {
             var sequence = TransactionPayload.SequenceOf(held[0]);
             var effects = new List<byte>();
+            var count = 0u;
 
             foreach (var frame in held)
             {
                 var member = TransactionPayload.EffectsOf(frame);
+                count += TransactionPayload.CountOf(frame);
 
                 if (member[0] == TransactionPayload.Write)
                 {
@@ -321,7 +323,7 @@ public sealed class ChildPublicationTests
                 effects.AddRange(member);
             }
 
-            return held[0].WithPayload(TransactionPayload.Make(sequence, [.. effects]));
+            return held[0].WithPayload(TransactionPayload.Make(sequence, count, [.. effects]));
         }
     }
 }
